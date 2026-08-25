@@ -4,49 +4,47 @@ import { getFirestore, type Firestore } from "firebase/firestore";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
 
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  apiKey:
+    process.env.NEXT_PUBLIC_FIREBASE_API_KEY ||
+    "AIzaSyAXjKi7fCJrjT6NERRM4OaKIAyT8jRFqAw",
+  authDomain:
+    process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ||
+    "school-study-c8991.firebaseapp.com",
+  projectId:
+    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
+    "school-study-c8991",
+  storageBucket:
+    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ||
+    "school-study-c8991.firebasestorage.app",
+  messagingSenderId:
+    process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ||
+    "108412631999",
+  appId:
+    process.env.NEXT_PUBLIC_FIREBASE_APP_ID ||
+    "1:108412631999:web:9c8af9689a884d29b4ff0a",
 };
 
-// Only initialize Firebase when config is available (skips during build)
-function getFirebaseApp(): FirebaseApp | null {
-  if (!firebaseConfig.apiKey) {
-    return null;
-  }
+// Initialize Firebase App singleton
+function getFirebaseApp(): FirebaseApp {
   return !getApps().length ? initializeApp(firebaseConfig) : getApp();
 }
 
 const app = getFirebaseApp();
 
-// Lazy getters that throw helpful errors if Firebase is not configured
-function requireApp(): FirebaseApp {
-  if (!app) {
-    throw new Error(
-      "Firebase is not configured. Please set NEXT_PUBLIC_FIREBASE_API_KEY in .env.local"
-    );
-  }
-  return app;
-}
-
-// These will be null during build but available at runtime
-export const auth: Auth | null = app ? getAuth(app) : null;
-export const db: Firestore | null = app ? getFirestore(app) : null;
-export const storage: FirebaseStorage | null = app ? getStorage(app) : null;
+export const auth: Auth = getAuth(app);
+export const db: Firestore = getFirestore(app);
+export const storage: FirebaseStorage = getStorage(app);
 
 export function getFirebaseAuth(): Auth {
-  return getAuth(requireApp());
+  return auth;
 }
 
 export function getFirebaseDb(): Firestore {
-  return getFirestore(requireApp());
+  return db;
 }
 
 export function getFirebaseStorage(): FirebaseStorage {
-  return getStorage(requireApp());
+  return storage;
 }
 
 export default app;
