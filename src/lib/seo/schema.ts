@@ -1,10 +1,10 @@
 import { siteConfig } from "./config";
 
 /**
- * Valid JSON-LD Structured Data Schemas for School Study Homepage
+ * Valid Organization Schema
  */
-export function getHomepageJsonLd() {
-  const organizationSchema = {
+export function getOrganizationSchema() {
+  return {
     "@context": "https://schema.org",
     "@type": "Organization",
     name: siteConfig.name,
@@ -24,19 +24,31 @@ export function getHomepageJsonLd() {
       availableLanguage: ["English", "Hindi"],
     },
   };
+}
 
-  const softwareAppSchema = {
+/**
+ * Valid WebSite Schema (without fake search action)
+ */
+export function getWebsiteSchema() {
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: siteConfig.name,
+    url: siteConfig.url,
+  };
+}
+
+/**
+ * Valid SoftwareApplication Schema (Accurate visible MVP properties only)
+ */
+export function getSoftwareAppSchema() {
+  return {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     name: "School Study",
     operatingSystem: "Web-based (All Modern Browsers)",
     applicationCategory: "EducationalApplication",
     applicationSubCategory: "School Management System",
-    offers: {
-      "@type": "Offer",
-      price: "0",
-      priceCurrency: "INR",
-    },
     description: siteConfig.defaultDescription,
     url: siteConfig.url,
     author: {
@@ -53,18 +65,67 @@ export function getHomepageJsonLd() {
       "Secure Role-Based Access Control",
     ],
   };
+}
 
-  const websiteSchema = {
+/**
+ * BreadcrumbList Schema Generator
+ */
+export function getBreadcrumbSchema(items: { name: string; url: string }[]) {
+  return {
     "@context": "https://schema.org",
-    "@type": "WebSite",
-    name: siteConfig.name,
-    url: siteConfig.url,
-    potentialAction: {
-      "@type": "SearchAction",
-      target: `${siteConfig.url}/?q={search_term_string}`,
-      "query-input": "required name=search_term_string",
-    },
+    "@type": "BreadcrumbList",
+    itemListElement: items.map((item, index) => ({
+      "@type": "ListItem",
+      position: index + 1,
+      name: item.name,
+      item: item.url.startsWith("http") ? item.url : `${siteConfig.url}${item.url}`,
+    })),
   };
+}
 
-  return [organizationSchema, softwareAppSchema, websiteSchema];
+/**
+ * Person Schema for Vinkal Prajapati
+ */
+export function getPersonSchema() {
+  return {
+    "@context": "https://schema.org",
+    "@type": "Person",
+    name: "Vinkal Prajapati",
+    jobTitle: ["Developer", "Educator", "Technology Creator"],
+    url: `${siteConfig.url}/about-developer`,
+    sameAs: ["https://www.google.com/search?q=Vinkal+Prajapati"],
+    description:
+      "Developer, educator, and technology creator behind School Study, building practical digital products for education and everyday users.",
+    knowsAbout: [
+      "Education Technology",
+      "Software Development",
+      "Multi-Tenant School Software",
+      "Web Applications",
+    ],
+  };
+}
+
+/**
+ * FAQPage Schema (Only for pages containing visible FAQs)
+ */
+export function getFaqSchema(faqs: { question: string; answer: string }[]) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: faqs.map((faq) => ({
+      "@type": "Question",
+      name: faq.question,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: faq.answer,
+      },
+    })),
+  };
+}
+
+/**
+ * Homepage JSON-LD
+ */
+export function getHomepageJsonLd() {
+  return [getOrganizationSchema(), getWebsiteSchema(), getSoftwareAppSchema()];
 }

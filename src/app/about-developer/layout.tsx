@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { constructMetadata } from "@/lib/seo";
+import { constructMetadata, getPersonSchema, getBreadcrumbSchema } from "@/lib/seo";
 
 export const metadata: Metadata = constructMetadata({
   title: "About Vinkal Prajapati — Developer of School Study",
@@ -13,5 +13,18 @@ export default function AboutDeveloperLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return children;
+  const schemas = [
+    getPersonSchema(),
+    getBreadcrumbSchema([{ name: "About Developer", url: "/about-developer" }]),
+  ];
+
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(schemas) }}
+      />
+      {children}
+    </>
+  );
 }

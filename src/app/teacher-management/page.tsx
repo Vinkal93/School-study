@@ -12,8 +12,9 @@ import {
   School,
 } from "lucide-react";
 import { MarketingHeader, MarketingCTA } from "@/components/marketing";
+import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import { Footer } from "@/components/footer";
-import { constructMetadata, siteConfig } from "@/lib/seo";
+import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
 
 export const metadata: Metadata = constructMetadata({
   title: "Teacher Management & Classroom Assignment Software | School Study",
@@ -23,19 +24,27 @@ export const metadata: Metadata = constructMetadata({
 });
 
 export default function TeacherManagementPage() {
-  const jsonLd = {
-    "@context": "https://schema.org",
-    "@type": "WebPage",
-    name: "Manage Teachers and Classes in One Place",
-    description:
-      "Faculty management and classroom assignment software for modern schools.",
-    url: `${siteConfig.url}/teacher-management`,
-    publisher: {
-      "@type": "Organization",
-      name: siteConfig.name,
-      url: siteConfig.url,
+  const breadcrumbData = [
+    { name: "Features", url: "/features" },
+    { name: "Teacher Management", url: "/teacher-management" },
+  ];
+
+  const jsonLd = [
+    {
+      "@context": "https://schema.org",
+      "@type": "WebPage",
+      name: "Manage Teachers and Classes in One Place",
+      description:
+        "Faculty management and classroom assignment software for modern schools.",
+      url: `${siteConfig.url}/teacher-management`,
+      publisher: {
+        "@type": "Organization",
+        name: siteConfig.name,
+        url: siteConfig.url,
+      },
     },
-  };
+    getBreadcrumbSchema(breadcrumbData),
+  ];
 
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950 text-slate-900 dark:text-slate-100 font-sans">
@@ -44,10 +53,11 @@ export default function TeacherManagementPage() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <MarketingHeader currentPath="/teacher-management" />
+      <Breadcrumbs items={breadcrumbData} />
 
       <main>
         {/* Hero Section */}
-        <section className="relative pt-16 pb-20 overflow-hidden bg-gradient-to-b from-blue-50/40 via-white to-white dark:from-gray-900/60 dark:via-gray-950 dark:to-gray-950">
+        <section className="relative pt-10 pb-20 overflow-hidden bg-gradient-to-b from-blue-50/40 via-white to-white dark:from-gray-900/60 dark:via-gray-950 dark:to-gray-950">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-purple-50 dark:bg-purple-950/50 border border-purple-200/80 dark:border-purple-800 text-purple-700 dark:text-purple-300 text-xs font-semibold shadow-sm mb-6">
               <GraduationCap className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />

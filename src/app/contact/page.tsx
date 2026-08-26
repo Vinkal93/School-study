@@ -11,8 +11,9 @@ import {
   Sparkles,
 } from "lucide-react";
 import { MarketingHeader } from "@/components/marketing";
+import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import { Footer } from "@/components/footer";
-import { constructMetadata, siteConfig } from "@/lib/seo";
+import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
 
 export const metadata: Metadata = constructMetadata({
   title: "Contact Support & Inquiries | School Study",
@@ -22,27 +23,34 @@ export const metadata: Metadata = constructMetadata({
 });
 
 export default function ContactPage() {
-  const jsonLd = {
-    "@context": "https://schema.org",
-    "@type": "ContactPage",
-    name: "Contact School Study Support",
-    description:
-      "Official contact and support information for School Study school management software.",
-    url: `${siteConfig.url}/contact`,
-    mainEntity: {
-      "@type": "Organization",
-      name: siteConfig.name,
-      email: siteConfig.supportEmail,
-      telephone: siteConfig.supportPhone,
-      url: siteConfig.url,
-      contactPoint: {
-        "@type": "ContactPoint",
-        telephone: siteConfig.supportPhone,
+  const breadcrumbData = [
+    { name: "Contact", url: "/contact" },
+  ];
+
+  const jsonLd = [
+    {
+      "@context": "https://schema.org",
+      "@type": "ContactPage",
+      name: "Contact School Study Support",
+      description:
+        "Official contact and support information for School Study school management software.",
+      url: `${siteConfig.url}/contact`,
+      mainEntity: {
+        "@type": "Organization",
+        name: siteConfig.name,
         email: siteConfig.supportEmail,
-        contactType: "Customer Support",
+        telephone: siteConfig.supportPhone,
+        url: siteConfig.url,
+        contactPoint: {
+          "@type": "ContactPoint",
+          telephone: siteConfig.supportPhone,
+          email: siteConfig.supportEmail,
+          contactType: "Customer Support",
+        },
       },
     },
-  };
+    getBreadcrumbSchema(breadcrumbData),
+  ];
 
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950 text-slate-900 dark:text-slate-100 font-sans">
@@ -51,10 +59,11 @@ export default function ContactPage() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <MarketingHeader currentPath="/contact" />
+      <Breadcrumbs items={breadcrumbData} />
 
       <main>
         {/* Hero Section */}
-        <section className="relative pt-16 pb-20 overflow-hidden bg-gradient-to-b from-blue-50/40 via-white to-white dark:from-gray-900/60 dark:via-gray-950 dark:to-gray-950">
+        <section className="relative pt-10 pb-20 overflow-hidden bg-gradient-to-b from-blue-50/40 via-white to-white dark:from-gray-900/60 dark:via-gray-950 dark:to-gray-950">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-50 dark:bg-blue-950/50 border border-blue-200/80 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-xs font-semibold shadow-sm mb-6">
               <Headphones className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />

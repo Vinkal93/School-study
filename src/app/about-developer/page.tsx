@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { GraduationCap, ArrowLeft, Shield, Sparkles } from "lucide-react";
 import { ThemeToggle } from "@/components/common/theme-toggle";
+import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import {
   DeveloperHero,
   DeveloperIntro,
@@ -67,6 +68,8 @@ export default function AboutDeveloperPage() {
           </div>
         </div>
       </header>
+
+      <Breadcrumbs items={[{ name: "About Developer", url: "/about-developer" }]} />
 
       {/* ==========================================
           PAGE MAIN CONTENT
