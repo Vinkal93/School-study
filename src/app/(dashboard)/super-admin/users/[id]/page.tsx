@@ -34,6 +34,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { fetchFullUserProfileDetails } from "@/lib/services/super-admin.service";
 import { ROLE_PERMISSIONS, type Permission } from "@/lib/permissions";
 import { AccountRestrictionModal } from "@/components/super-admin/AccountRestrictionModal";
 import { StatusChangeConfirmModal } from "@/components/super-admin/StatusChangeConfirmModal";
@@ -96,11 +97,7 @@ export default function UserProfileInspectorPage() {
     if (!userId || !currentUser) return;
     setLoading(true);
     try {
-      const res = await fetch(
-        `/api/super-admin/users/${userId}?performerUid=${currentUser.uid}`
-      );
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to load user profile");
+      const data = await fetchFullUserProfileDetails(userId);
 
       setUser(data.user);
       setSchool(data.school);
@@ -121,7 +118,7 @@ export default function UserProfileInspectorPage() {
         status: data.user.status || "active",
       });
     } catch (err: any) {
-      toast.error(err.message || "Could not load user profile");
+      toast.error(err?.message || "Could not load user profile");
       router.push("/super-admin/users");
     } finally {
       setLoading(false);

@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { getSchools } from "@/lib/services/school.service";
+import { fetchPlatformAuditLogs } from "@/lib/services/super-admin.service";
 import { AuditDetailDrawer } from "@/components/super-admin/AuditDetailDrawer";
 import type { AuditLogEntry, School } from "@/types";
 import { toast } from "sonner";
@@ -58,23 +59,17 @@ export default function AuditLogsPage() {
         setSchools(schoolsData);
       }
 
-      const params = new URLSearchParams({
-        performerUid: currentUser.uid,
+      const auditData = await fetchPlatformAuditLogs({
         action: selectedAction,
         role: selectedRole,
         schoolId: selectedSchool,
         search,
-        limit: "150",
+        limitCount: 150,
       });
-
-      const res = await fetch(`/api/super-admin/audit?${params.toString()}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to load audit logs");
-
-      setLogs(data.logs || []);
+      setLogs(auditData);
       setCurrentPage(1);
     } catch (err: any) {
-      toast.error(err.message || "Could not load audit logs");
+      toast.error(err?.message || "Could not load audit logs");
     } finally {
       setLoading(false);
     }

@@ -37,6 +37,8 @@ import { getSchoolById } from "@/lib/services/school.service";
 import { getTeachers } from "@/lib/services/teacher.service";
 import { getStudents } from "@/lib/services/student.service";
 import { getClassesWithSections } from "@/lib/services/academic.service";
+import { getActivityLogs } from "@/lib/services/audit.service";
+import { fetchSchoolUsersExplorer } from "@/lib/services/super-admin.service";
 import { UserProfileInspector } from "@/components/super-admin/UserProfileInspector";
 import { useAuth } from "@/hooks/use-auth";
 import type {
@@ -133,7 +135,7 @@ export default function SchoolDetailPage() {
 
       // Load school users and telemetry
       if (currentUser) {
-        loadSchoolUsersAndTelemetry(schoolId, currentUser.uid);
+        loadSchoolUsersAndTelemetry(schoolId);
       }
     } catch (err: any) {
       toast.error("Failed to load school details: " + (err?.message || ""));
@@ -142,23 +144,16 @@ export default function SchoolDetailPage() {
     }
   };
 
-  const loadSchoolUsersAndTelemetry = async (sId: string, performerUid: string) => {
+  const loadSchoolUsersAndTelemetry = async (sId: string) => {
     setLoadingUsers(true);
     try {
-      const [usersRes, activityRes] = await Promise.all([
-        fetch(`/api/super-admin/schools/${sId}/users?performerUid=${performerUid}`),
-        fetch(`/api/super-admin/activity?performerUid=${performerUid}&schoolId=${sId}&limit=50`),
+      const [usersList, activityLogs] = await Promise.all([
+        fetchSchoolUsersExplorer(sId),
+        getActivityLogs(50, { schoolId: sId }),
       ]);
 
-      const usersData = await usersRes.json();
-      if (usersRes.ok) {
-        setSchoolUsers(usersData.users || []);
-      }
-
-      const actData = await activityRes.json();
-      if (activityRes.ok) {
-        setSchoolActivities(actData.logs || []);
-      }
+      setSchoolUsers(usersList);
+      setSchoolActivities(activityLogs);
     } catch (err: any) {
       console.warn("Failed to load school users/telemetry:", err);
     } finally {

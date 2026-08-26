@@ -22,6 +22,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { fetchPlatformAnalytics } from "@/lib/services/super-admin.service";
 import type {
   PlatformAnalyticsOverview,
   GrowthTimeframe,
@@ -40,15 +41,10 @@ export default function PlatformAnalyticsPage() {
     if (!currentUser) return;
     setLoading(true);
     try {
-      const res = await fetch(
-        `/api/super-admin/analytics?performerUid=${currentUser.uid}`
-      );
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error || "Failed to load platform analytics");
-
-      setData(result.data);
+      const analyticsData = await fetchPlatformAnalytics();
+      setData(analyticsData);
     } catch (err: any) {
-      toast.error(err.message || "Failed to load analytics");
+      toast.error(err?.message || "Failed to load analytics");
     } finally {
       setLoading(false);
     }

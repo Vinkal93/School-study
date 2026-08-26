@@ -24,6 +24,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { fetchSchoolAnalytics } from "@/lib/services/super-admin.service";
 import type { SchoolDetailedAnalytics, SchoolHealthStatus } from "@/types";
 import { toast } from "sonner";
 
@@ -40,15 +41,10 @@ export default function SchoolAnalyticsPage() {
     if (!schoolId || !currentUser) return;
     setLoading(true);
     try {
-      const res = await fetch(
-        `/api/super-admin/schools/${schoolId}/analytics?performerUid=${currentUser.uid}`
-      );
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error || "Failed to load school analytics");
-
-      setData(result.data);
+      const analyticsData = await fetchSchoolAnalytics(schoolId);
+      setData(analyticsData);
     } catch (err: any) {
-      toast.error(err.message || "Failed to load analytics");
+      toast.error(err?.message || "Failed to load analytics");
       router.push("/super-admin/schools");
     } finally {
       setLoading(false);
