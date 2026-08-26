@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useMobileNav } from "@/context/mobile-nav-context";
 import {
@@ -16,15 +16,26 @@ import {
   BookOpen,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Shield,
+  Activity,
+  BarChart3,
+  Sliders,
+  History,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
+
+interface SubNavItem {
+  label: string;
+  href: string;
+}
 
 interface NavItem {
   label: string;
   href: string;
   icon: React.ReactNode;
+  subItems?: SubNavItem[];
 }
 
 const roleNavItems: Record<string, NavItem[]> = {
@@ -43,11 +54,31 @@ const roleNavItems: Record<string, NavItem[]> = {
       label: "Users",
       href: "/super-admin/users",
       icon: <Users className="h-5 w-5" />,
+      subItems: [
+        { label: "All Users", href: "/super-admin/users" },
+        { label: "School Admins", href: "/super-admin/users?role=school_admin" },
+        { label: "Teachers", href: "/super-admin/users?role=teacher" },
+        { label: "Students", href: "/super-admin/users?role=student" },
+      ],
     },
     {
-      label: "Audit Logs",
-      href: "/super-admin/audit",
-      icon: <Shield className="h-5 w-5" />,
+      label: "Activity",
+      href: "/super-admin/activity/logins",
+      icon: <Activity className="h-5 w-5" />,
+      subItems: [
+        { label: "Login Activity", href: "/super-admin/activity/logins" },
+        { label: "Audit Logs", href: "/super-admin/audit" },
+      ],
+    },
+    {
+      label: "Analytics",
+      href: "/super-admin/analytics",
+      icon: <BarChart3 className="h-5 w-5" />,
+    },
+    {
+      label: "Settings",
+      href: "/super-admin/settings",
+      icon: <Settings className="h-5 w-5" />,
     },
   ],
   school_admin: [
@@ -136,8 +167,24 @@ const roleNavItems: Record<string, NavItem[]> = {
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const currentFullUrl = pathname + (searchParams.toString() ? `?${searchParams.toString()}` : "");
+
   const { profile } = useAuth();
   const { isOpen, closeMobileNav } = useMobileNav();
+
+  // Expanded sections state
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    Users: true,
+    Activity: true,
+  });
+
+  const toggleSection = (label: string) => {
+    setExpandedSections((prev) => ({
+      ...prev,
+      [label]: !prev[label],
+    }));
+  };
 
   const currentNavItems = profile?.role ? roleNavItems[profile.role] || [] : [];
 
@@ -155,7 +202,7 @@ export function Sidebar() {
                 SchoolStudy
               </span>
               <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400">
-                SaaS Portal
+                SaaS Platform
               </span>
             </div>
           )}
@@ -186,15 +233,69 @@ export function Sidebar() {
       </div>
 
       {/* Nav Links */}
-      <nav className="flex-1 space-y-1.5 px-3 py-4 overflow-y-auto">
+      <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
         {currentNavItems.map((item) => {
-          const isActive =
+          const hasSubItems = item.subItems && item.subItems.length > 0;
+          const isParentActive =
             pathname === item.href ||
             (item.href !== "/admin" &&
               item.href !== "/teacher" &&
               item.href !== "/student" &&
               item.href !== "/super-admin" &&
               pathname.startsWith(item.href));
+
+          const isExpanded = expandedSections[item.label] ?? false;
+
+          if (hasSubItems && (!collapsed || isOpen)) {
+            return (
+              <div key={item.label} className="space-y-1">
+                <button
+                  onClick={() => toggleSection(item.label)}
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                    isParentActive
+                      ? "text-blue-600 dark:text-blue-400 font-semibold"
+                      : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    {item.icon}
+                    <span>{item.label}</span>
+                  </div>
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 transition-transform duration-200 text-gray-400",
+                      isExpanded && "rotate-180"
+                    )}
+                  />
+                </button>
+
+                {/* Submenu Links */}
+                {isExpanded && (
+                  <div className="ml-8 space-y-1 border-l-2 border-gray-100 pl-2.5 dark:border-gray-800">
+                    {item.subItems!.map((sub) => {
+                      const isSubActive = currentFullUrl === sub.href;
+                      return (
+                        <Link
+                          key={sub.href}
+                          href={sub.href}
+                          onClick={closeMobileNav}
+                          className={cn(
+                            "block rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
+                            isSubActive
+                              ? "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 font-bold"
+                              : "text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
+                          )}
+                        >
+                          {sub.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
 
           return (
             <Link
@@ -203,7 +304,7 @@ export function Sidebar() {
               onClick={closeMobileNav}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                isActive
+                isParentActive
                   ? "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 font-semibold"
                   : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
               )}

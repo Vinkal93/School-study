@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   Users,
   Search,
@@ -13,7 +14,10 @@ import {
   GraduationCap,
   BookOpen,
   Eye,
-  SlidersHorizontal,
+  Activity,
+  Calendar,
+  Clock,
+  Filter,
 } from "lucide-react";
 import { getAllUsers, getAllSchools } from "@/lib/services/school.service";
 import { UserProfileInspector } from "@/components/super-admin/UserProfileInspector";
@@ -22,12 +26,30 @@ import type { AppUser, UserRole, UserStatus, School } from "@/types";
 import { toast } from "sonner";
 
 export default function UsersManagementPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-96 items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        </div>
+      }
+    >
+      <UsersManagementContent />
+    </Suspense>
+  );
+}
+
+function UsersManagementContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const roleParam = searchParams.get("role") as UserRole | null;
+
   const { profile: currentUser } = useAuth();
   const [users, setUsers] = useState<AppUser[]>([]);
   const [schools, setSchools] = useState<School[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [roleFilter, setRoleFilter] = useState<"all" | UserRole>("all");
+  const [roleFilter, setRoleFilter] = useState<"all" | UserRole>(roleParam || "all");
   const [schoolFilter, setSchoolFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "disabled">("all");
   const [togglingUid, setTogglingUid] = useState<string | null>(null);
@@ -35,6 +57,14 @@ export default function UsersManagementPage() {
   // Inspector Drawer State
   const [selectedUser, setSelectedUser] = useState<AppUser | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+
+  useEffect(() => {
+    if (roleParam) {
+      setRoleFilter(roleParam);
+    } else {
+      setRoleFilter("all");
+    }
+  }, [roleParam]);
 
   const loadData = async () => {
     setLoading(true);
@@ -105,6 +135,7 @@ export default function UsersManagementPage() {
     const matchesSearch =
       u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      u.uid.toLowerCase().includes(searchQuery.toLowerCase()) ||
       schoolName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (u.schoolId && u.schoolId.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -154,10 +185,12 @@ export default function UsersManagementPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Platform Users Management
+            {roleFilter === "all"
+              ? "Platform Users Explorer"
+              : `${roleFilter.replace("_", " ").toUpperCase()} Management`}
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Oversee user accounts, roles, tenant scopes, and real-time security restrictions.
+            Inspect all user profiles, tenant assignments, security restrictions, and activity histories.
           </p>
         </div>
         <button
@@ -174,16 +207,16 @@ export default function UsersManagementPage() {
       <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950 space-y-3">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="relative w-full sm:w-80">
-            <label htmlFor="global-users-search" className="sr-only">Search name, email, school</label>
+            <label htmlFor="global-users-search" className="sr-only">Search name, email, UID, school</label>
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
             <input
               id="global-users-search"
               name="search"
-              aria-label="Search name, email, school"
+              aria-label="Search name, email, UID, school"
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search name, email, school..."
+              placeholder="Search name, email, UID, school..."
               className="w-full rounded-lg border border-gray-300 pl-9 pr-4 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
             />
           </div>
@@ -218,21 +251,25 @@ export default function UsersManagementPage() {
               >
                 <option value="all">All Status</option>
                 <option value="active">Active</option>
-                <option value="disabled">Disabled</option>
+                <option value="disabled">Disabled / Restricted</option>
               </select>
             </div>
           </div>
         </div>
 
-        {/* Role Pills */}
+        {/* Role Filter Pills */}
         <div className="flex items-center gap-2 overflow-x-auto pt-2 border-t border-gray-100 dark:border-gray-800">
           <span className="text-xs font-medium text-gray-500 dark:text-gray-400 hidden sm:inline-block">
-            Role:
+            Role Filter:
           </span>
           {(["all", "super_admin", "school_admin", "teacher", "student"] as const).map((r) => (
             <button
               key={r}
-              onClick={() => setRoleFilter(r)}
+              onClick={() => {
+                setRoleFilter(r);
+                if (r === "all") router.push("/super-admin/users");
+                else router.push(`/super-admin/users?role=${r}`);
+              }}
               className={`rounded-lg px-3 py-1 text-xs font-medium capitalize whitespace-nowrap transition-colors ${
                 roleFilter === r
                   ? "bg-blue-600 text-white"
@@ -268,8 +305,9 @@ export default function UsersManagementPage() {
                 <tr>
                   <th className="py-3.5 px-4 font-medium">User</th>
                   <th className="py-3.5 px-4 font-medium">Role</th>
-                  <th className="py-3.5 px-4 font-medium">School / Scope</th>
+                  <th className="py-3.5 px-4 font-medium">School Scope</th>
                   <th className="py-3.5 px-4 font-medium">Status</th>
+                  <th className="py-3.5 px-4 font-medium">Created</th>
                   <th className="py-3.5 px-4 font-medium text-right">Actions</th>
                 </tr>
               </thead>
@@ -308,14 +346,21 @@ export default function UsersManagementPage() {
                         {u.status}
                       </span>
                     </td>
+                    <td className="py-4 px-4 text-xs text-gray-500 font-mono">
+                      {u.createdAt?.toDate ? (
+                        u.createdAt.toDate().toLocaleDateString()
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td className="py-4 px-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end gap-1.5">
                         <button
                           onClick={() => handleInspectUser(u)}
                           className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
                         >
                           <Eye className="h-3.5 w-3.5" />
-                          Inspect
+                          View
                         </button>
                         {u.role !== "super_admin" && (
                           <button
