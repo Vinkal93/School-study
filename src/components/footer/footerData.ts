@@ -19,6 +19,7 @@ import {
   Phone,
   MapPin,
   HelpCircle,
+  User,
   LucideIcon,
 } from "lucide-react";
 
@@ -67,6 +68,7 @@ export const FOOTER_NAVIGATION: FooterGroup[] = [
       { label: "Attendance Automation", href: "/admin/attendance", icon: ClipboardCheck },
       { label: "Faculty Management", href: "/admin/teachers", icon: GraduationCap },
       { label: "Broadcast Notices", href: "/admin/notices", icon: Bell },
+      { label: "About Developer", href: "/about-developer", icon: User, badge: "Creator" },
       { label: "Help & Setup Guide", href: "/setup-super-admin", icon: HelpCircle },
     ],
   },

@@ -1,0 +1,10 @@
+export { DeveloperHero } from "./DeveloperHero";
+export { DeveloperIntro } from "./DeveloperIntro";
+export { WhySchoolStudy } from "./WhySchoolStudy";
+export { DeveloperPrinciples } from "./DeveloperPrinciples";
+export { DeveloperSkills } from "./DeveloperSkills";
+export { DeveloperProjects } from "./DeveloperProjects";
+export { DeveloperTeaching } from "./DeveloperTeaching";
+export { DeveloperVision } from "./DeveloperVision";
+export { DeveloperProfileCard } from "./DeveloperProfileCard";
+export { DeveloperContact } from "./DeveloperContact";
