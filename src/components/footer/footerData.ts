@@ -43,10 +43,21 @@ export const FOOTER_NAVIGATION: FooterGroup[] = [
     title: "Product",
     links: [
       { label: "Platform Overview", href: "/", icon: LayoutDashboard },
-      { label: "Core Features", href: "#features", icon: Sparkles },
-      { label: "System Modules", href: "#modules", icon: Workflow },
-      { label: "Institutional Security", href: "/super-admin/login", icon: ShieldCheck, badge: "Enterprise" },
-      { label: "Operational Analytics", href: "/admin", icon: BarChart3 },
+      { label: "Core Features", href: "/features", icon: Sparkles },
+      { label: "School Management", href: "/school-management", icon: School },
+      { label: "School ERP", href: "/school-erp", icon: Workflow },
+      { label: "Multi-Tenant Security", href: "/super-admin/login", icon: ShieldCheck, badge: "Enterprise" },
+    ],
+  },
+  {
+    id: "modules",
+    title: "Key Modules",
+    links: [
+      { label: "Student Management", href: "/student-management", icon: Users },
+      { label: "Teacher Management", href: "/teacher-management", icon: GraduationCap },
+      { label: "Attendance Automation", href: "/attendance-management", icon: ClipboardCheck },
+      { label: "About Developer", href: "/about-developer", icon: User, badge: "Creator" },
+      { label: "Contact & Support", href: "/contact", icon: Headphones },
     ],
   },
   {
@@ -61,33 +72,21 @@ export const FOOTER_NAVIGATION: FooterGroup[] = [
     ],
   },
   {
-    id: "modules",
-    title: "Key Modules",
-    links: [
-      { label: "Student Directory", href: "/admin/students", icon: Users },
-      { label: "Attendance Automation", href: "/admin/attendance", icon: ClipboardCheck },
-      { label: "Faculty Management", href: "/admin/teachers", icon: GraduationCap },
-      { label: "Broadcast Notices", href: "/admin/notices", icon: Bell },
-      { label: "About Developer", href: "/about-developer", icon: User, badge: "Creator" },
-      { label: "Help & Setup Guide", href: "/setup-super-admin", icon: HelpCircle },
-    ],
-  },
-  {
     id: "legal",
     title: "Trust & Legal",
     links: [
       { label: "Privacy Policy", href: "#", icon: Shield },
       { label: "Terms of Service", href: "#", icon: FileText },
-      { label: "Tenant Isolation", href: "#", icon: Lock },
-      { label: "Compliance & Security", href: "#", icon: ShieldCheck },
+      { label: "Tenant Isolation", href: "/school-erp", icon: Lock },
+      { label: "Platform Status", href: "/contact", icon: ShieldCheck },
     ],
   },
 ];
 
 export const FOOTER_CONTACT = {
-  email: "support@schoolstudy.in",
-  phone: "+91 12345 67890",
-  address: "123, Education Street, Learning City, India",
+  email: "sbci224234@gmail.com",
+  phone: "+91 9118245636",
+  address: "School Study Platform, India",
 };
 
 export const FOOTER_SOCIALS = [
