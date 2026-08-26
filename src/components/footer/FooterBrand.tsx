@@ -23,7 +23,7 @@ export function FooterBrand() {
       </Link>
 
       {/* Description */}
-      <p className="text-xs leading-relaxed text-slate-600 sm:text-sm dark:text-slate-400">
+      <p className="text-xs leading-relaxed text-slate-700 sm:text-sm dark:text-slate-300 font-medium">
         A simple, modern platform designed to help schools manage students, teachers, and everyday operations with ease.
       </p>
 
