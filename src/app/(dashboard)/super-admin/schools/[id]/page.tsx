@@ -349,6 +349,13 @@ export default function SchoolDetailPage() {
             <RefreshCw className="h-3.5 w-3.5" />
             Refresh
           </button>
+          <Link
+            href={`/super-admin/schools/${school.id}/analytics`}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-medium text-purple-700 hover:bg-purple-100 dark:border-purple-800/40 dark:bg-purple-900/20 dark:text-purple-400"
+          >
+            <BarChart3 className="h-3.5 w-3.5" />
+            View Analytics
+          </Link>
           <button
             onClick={() => setIsEditSchoolOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-800/40 dark:bg-blue-900/20 dark:text-blue-400"

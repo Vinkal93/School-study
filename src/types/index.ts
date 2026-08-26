@@ -37,3 +37,11 @@ export type {
   ActivityEntityType,
   ActivityLogEntry,
 } from "./activity";
+export type {
+  SchoolHealthStatus,
+  GrowthTimeframe,
+  SchoolHealthSummary,
+  PlatformGrowthMetrics,
+  PlatformAnalyticsOverview,
+  SchoolDetailedAnalytics,
+} from "./analytics";
