@@ -143,6 +143,8 @@ export async function getAllSchools(): Promise<School[]> {
   })) as School[];
 }
 
+export const getSchools = getAllSchools;
+
 /**
  * Fetches a single school by its ID.
  */

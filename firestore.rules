@@ -52,6 +52,16 @@ service cloud.firestore {
       allow write: if isAuthenticated();
     }
 
+    match /activity_logs/{logId} {
+      allow read: if isSuperAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow write: if isAuthenticated();
+    }
+
+    match /account_restrictions/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
     match /platform_analytics/{docId} {
       allow read: if isSuperAdmin();
       allow write: if isSuperAdmin();

@@ -155,6 +155,22 @@ export async function GET(
       // Fallback
     }
 
+    // 7. Query User Operational Activities
+    let activityLogs: any[] = [];
+    try {
+      const actSnap = await getDocs(
+        query(
+          collection(db, AUDIT_COLLECTIONS.ACTIVITY_LOGS),
+          where("userId", "==", targetUserId),
+          orderBy("timestamp", "desc"),
+          limit(30)
+        )
+      );
+      activityLogs = actSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    } catch {
+      // Fallback
+    }
+
     return NextResponse.json({
       success: true,
       user,
@@ -163,6 +179,7 @@ export async function GET(
       schoolStats,
       loginLogs,
       auditLogs,
+      activityLogs,
       lastLogin: loginLogs.length > 0 ? loginLogs[0].timestamp : null,
     });
   } catch (error: any) {

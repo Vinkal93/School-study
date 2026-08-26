@@ -32,3 +32,8 @@ export type {
   RestrictionStatus,
   AccountRestriction,
 } from "./restriction";
+export type {
+  ActivityAction,
+  ActivityEntityType,
+  ActivityLogEntry,
+} from "./activity";

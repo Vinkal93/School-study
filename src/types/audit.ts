@@ -48,5 +48,8 @@ export interface LoginLogEntry {
   failureReason?: string;
   ipAddress?: string;
   userAgent?: string;
+  browser?: string;
+  platform?: string;
+  deviceType?: "desktop" | "mobile" | "tablet" | "unknown";
   timestamp: Timestamp | any;
 }

@@ -61,6 +61,7 @@ export default function UserProfileInspectorPage() {
   const [schoolStats, setSchoolStats] = useState<any>(null);
   const [loginLogs, setLoginLogs] = useState<LoginLogEntry[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [lastLogin, setLastLogin] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -107,6 +108,7 @@ export default function UserProfileInspectorPage() {
       setSchoolStats(data.schoolStats);
       setLoginLogs(data.loginLogs || []);
       setAuditLogs(data.auditLogs || []);
+      setActivityLogs(data.activityLogs || []);
       setLastLogin(data.lastLogin);
 
       setEditForm({
@@ -586,36 +588,87 @@ export default function UserProfileInspectorPage() {
         </div>
       )}
 
-      {/* Tab 3: Activity & Audit History */}
+      {/* Tab 3: Chronological Activity & Security Timeline */}
       {activeTab === "activity" && (
-        <div className="space-y-4">
+        <div className="space-y-6">
           <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
-            <h3 className="text-base font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <h3 className="text-base font-bold text-gray-900 dark:text-white mb-1 flex items-center gap-2">
               <Activity className="h-5 w-5 text-blue-600" />
-              Recent Login Attempts
+              Chronological Activity & Session Timeline
             </h3>
-            {loginLogs.length === 0 ? (
-              <p className="text-xs text-gray-500 py-6 text-center">No recorded login logs for this user.</p>
+            <p className="text-xs text-gray-500 mb-6">
+              Track user logins, operational submissions, and platform administrative modifications.
+            </p>
+
+            {loginLogs.length === 0 && activityLogs.length === 0 && auditLogs.length === 0 ? (
+              <div className="text-center py-12">
+                <Clock className="mx-auto h-10 w-10 text-gray-400" />
+                <p className="mt-2 text-xs text-gray-500">No recorded telemetry or activity logs for this user yet.</p>
+              </div>
             ) : (
-              <div className="space-y-2">
-                {loginLogs.map((log, idx) => (
-                  <div
-                    key={log.id || idx}
-                    className="flex items-center justify-between p-3 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30 text-xs"
-                  >
-                    <div>
-                      <span className={`font-semibold ${log.status === "success" ? "text-green-600" : "text-red-500"}`}>
-                        {log.status === "success" ? "Successful Login" : "Failed Login"}
-                      </span>
-                      <p className="text-[11px] text-gray-400 mt-0.5">
-                        IP: {log.ipAddress || "client-direct"} · {log.userAgent?.slice(0, 40) || "Browser"}...
-                      </p>
-                    </div>
-                    <span className="font-mono text-[11px] text-gray-500">
-                      {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString() : "Recent"}
-                    </span>
-                  </div>
-                ))}
+              <div className="relative pl-6 border-l-2 border-gray-200 dark:border-gray-800 space-y-6">
+                {/* Combined & Sorted Timeline Stream */}
+                {[
+                  ...loginLogs.map((l) => ({
+                    id: l.id,
+                    type: "login" as const,
+                    title: l.status === "success" ? "Successful Login" : "Failed Login Attempt",
+                    timestamp: l.timestamp,
+                    status: l.status,
+                    details: `IP: ${l.ipAddress || "direct"} · ${l.browser || "Browser"} (${l.platform || "Device"})`,
+                    color: l.status === "success" ? "bg-green-500" : "bg-red-500",
+                  })),
+                  ...activityLogs.map((a) => ({
+                    id: a.id,
+                    type: "activity" as const,
+                    title: a.action?.replace(/_/g, " "),
+                    timestamp: a.timestamp,
+                    status: a.status,
+                    details: a.entityName ? `Target: ${a.entityName}` : `Entity: ${a.entityType}`,
+                    color: "bg-blue-500",
+                  })),
+                  ...auditLogs.map((au) => ({
+                    id: au.id,
+                    type: "audit" as const,
+                    title: `Admin: ${au.action?.replace(/_/g, " ")}`,
+                    timestamp: au.timestamp,
+                    status: "success",
+                    details: `By ${au.performedBy?.name || "Super Admin"} · Reason: ${au.reason || "Administrative update"}`,
+                    color: "bg-purple-500",
+                  })),
+                ]
+                  .sort((a, b) => {
+                    const tA = a.timestamp?.seconds || 0;
+                    const tB = b.timestamp?.seconds || 0;
+                    return tB - tA;
+                  })
+                  .map((item, idx) => {
+                    const dateObj = item.timestamp?.toDate ? item.timestamp.toDate() : null;
+                    const timeString = dateObj ? dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Recently";
+                    const dateString = dateObj ? dateObj.toLocaleDateString() : "";
+
+                    return (
+                      <div key={item.id || idx} className="relative group">
+                        {/* Timeline Node Icon */}
+                        <div
+                          className={`absolute -left-[31px] top-1 h-3.5 w-3.5 rounded-full ${item.color} ring-4 ring-white dark:ring-gray-950`}
+                        />
+                        <div className="bg-gray-50/70 dark:bg-gray-900/40 p-4 rounded-xl border border-gray-100 dark:border-gray-800 text-xs hover:border-gray-300 dark:hover:border-gray-700 transition-colors">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-gray-900 dark:text-white capitalize text-sm">
+                              {item.title}
+                            </span>
+                            <span className="font-mono text-[11px] text-gray-500 font-medium">
+                              {dateString} {timeString}
+                            </span>
+                          </div>
+                          <p className="text-gray-500 dark:text-gray-400 mt-1">
+                            {item.details}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
               </div>
             )}
           </div>
