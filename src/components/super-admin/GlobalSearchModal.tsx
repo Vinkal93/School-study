@@ -81,19 +81,25 @@ export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
       onClose();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
-      setSelectedIndex((prev) => (prev + 1 < results.length ? prev + 1 : 0));
+      setSelectedIndex((prev) => (prev + 1 < results.length ? prev + 1 : prev));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setSelectedIndex((prev) => (prev - 1 >= 0 ? prev - 1 : results.length - 1));
-    } else if (e.key === "Enter" && results[selectedIndex]) {
+      setSelectedIndex((prev) => (prev - 1 >= 0 ? prev - 1 : 0));
+    } else if (e.key === "Enter") {
       e.preventDefault();
-      handleSelect(results[selectedIndex]);
+      if (results[selectedIndex]) {
+        handleSelect(results[selectedIndex]);
+      }
     }
   };
 
   const handleSelect = (item: GlobalSearchResultItem) => {
     onClose();
-    router.push(item.url);
+    if (item.type === "school") {
+      router.push(`/super-admin/schools/${item.id}`);
+    } else {
+      router.push(`/super-admin/users/${item.id}`);
+    }
   };
 
   if (!isOpen) return null;
@@ -107,25 +113,25 @@ export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
             School
           </span>
         );
-      case "school_admin":
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-900/20 dark:text-purple-400">
-            <Shield className="h-3 w-3" />
-            School Admin
-          </span>
-        );
       case "teacher":
         return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400">
+          <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-900/20 dark:text-purple-400">
             <BookOpen className="h-3 w-3" />
             Teacher
           </span>
         );
       case "student":
         return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-semibold text-orange-700 dark:bg-orange-900/20 dark:text-orange-400">
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400">
             <GraduationCap className="h-3 w-3" />
             Student
+          </span>
+        );
+      case "school_admin":
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+            <Users className="h-3 w-3" />
+            Admin
           </span>
         );
       case "super_admin":
@@ -168,11 +174,11 @@ export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm flex items-start justify-center pt-16 sm:pt-24 p-4 animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm flex items-start justify-center pt-4 sm:pt-20 p-3 sm:p-4 animate-in fade-in duration-150"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-2xl rounded-2xl bg-white dark:bg-gray-950 shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden"
+        className="w-full max-w-2xl rounded-2xl bg-white dark:bg-gray-950 shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden my-auto sm:my-0"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
@@ -182,16 +188,17 @@ export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
           <input
             ref={inputRef}
             type="text"
-            placeholder="Search School Study across Schools, Users, Teachers, Students..."
+            placeholder="Search across Schools, Users, Teachers, Students..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="w-full bg-transparent px-3 py-4 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none"
+            className="w-full bg-transparent px-3 py-3.5 sm:py-4 text-xs sm:text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none"
           />
           {loading && <Loader2 className="h-4 w-4 animate-spin text-blue-600 shrink-0" />}
           {query && !loading && (
             <button
               onClick={() => setQuery("")}
-              className="p-1 text-gray-400 hover:text-gray-600 rounded"
+              className="p-1 text-gray-400 hover:text-gray-600 rounded min-h-[36px] min-w-[36px] flex items-center justify-center"
+              aria-label="Clear search"
             >
               <X className="h-4 w-4" />
             </button>
@@ -199,21 +206,21 @@ export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
         </div>
 
         {/* Results List */}
-        <div className="max-h-96 overflow-y-auto p-2">
+        <div className="max-h-[60vh] sm:max-h-96 overflow-y-auto p-2">
           {query.trim() === "" ? (
-            <div className="py-12 text-center text-xs text-gray-400">
-              <Search className="mx-auto h-8 w-8 text-gray-300 dark:text-gray-700 mb-2" />
+            <div className="py-10 sm:py-12 text-center text-xs text-gray-400">
+              <Search className="mx-auto h-7 w-7 sm:h-8 sm:w-8 text-gray-300 dark:text-gray-700 mb-2" />
               Type a name, email, school code, or ID to search platform-wide.
             </div>
           ) : loading && results.length === 0 ? (
-            <div className="py-12 text-center text-xs text-gray-400">
+            <div className="py-10 sm:py-12 text-center text-xs text-gray-400">
               <Loader2 className="mx-auto h-6 w-6 animate-spin text-blue-600 mb-2" />
               Searching platform records...
             </div>
           ) : results.length === 0 ? (
-            <div className="py-12 text-center text-xs text-gray-400">
-              No matching Schools, Users, Teachers, or Students found for "
-              <strong className="text-gray-700 dark:text-gray-300">{query}</strong>".
+            <div className="py-10 sm:py-12 text-center text-xs text-gray-400">
+              No matching Schools, Users, Teachers, or Students found for &quot;
+              <strong className="text-gray-700 dark:text-gray-300">{query}</strong>&quot;.
             </div>
           ) : (
             <div className="space-y-1">
@@ -222,13 +229,13 @@ export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
                   key={item.id + idx}
                   onClick={() => handleSelect(item)}
                   onMouseEnter={() => setSelectedIndex(idx)}
-                  className={`flex items-center justify-between p-3 rounded-xl cursor-pointer transition-colors ${
+                  className={`flex items-center justify-between p-2.5 sm:p-3 rounded-xl cursor-pointer transition-colors min-h-[44px] ${
                     selectedIndex === idx
                       ? "bg-blue-50/80 dark:bg-blue-900/30 text-blue-950 dark:text-blue-100"
                       : "hover:bg-gray-50 dark:hover:bg-gray-900/50"
                   }`}
                 >
-                  <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
                     <div className="p-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 shrink-0">
                       {item.type === "school" ? (
                         <Building2 className="h-4 w-4" />
@@ -241,14 +248,14 @@ export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
                       )}
                     </div>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="font-semibold text-sm text-gray-900 dark:text-white truncate">
+                      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                        <p className="font-semibold text-xs sm:text-sm text-gray-900 dark:text-white truncate">
                           {item.name}
                         </p>
                         {getTypeBadge(item.type)}
                         {getStatusBadge(item.status)}
                       </div>
-                      <p className="text-xs text-gray-500 truncate mt-0.5">
+                      <p className="text-[11px] sm:text-xs text-gray-500 truncate mt-0.5">
                         {item.subtitle}
                         {item.schoolName && (
                           <span className="text-gray-400"> · {item.schoolName}</span>
@@ -259,7 +266,7 @@ export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
 
                   <div className="flex items-center gap-1 text-xs text-gray-400 shrink-0 ml-2">
                     {selectedIndex === idx && (
-                      <span className="inline-flex items-center gap-1 font-mono text-[10px] text-blue-600 dark:text-blue-400 bg-blue-100/60 dark:bg-blue-900/40 px-1.5 py-0.5 rounded">
+                      <span className="hidden sm:inline-flex items-center gap-1 font-mono text-[10px] text-blue-600 dark:text-blue-400 bg-blue-100/60 dark:bg-blue-900/40 px-1.5 py-0.5 rounded">
                         Select <CornerDownLeft className="h-3 w-3" />
                       </span>
                     )}
@@ -272,11 +279,11 @@ export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
         </div>
 
         {/* Footer Shortcut Bar */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30 text-[11px] text-gray-400">
+        <div className="flex items-center justify-between px-3 sm:px-4 py-2 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30 text-[10px] sm:text-[11px] text-gray-400">
           <span>
-            Search School Study — Press <kbd className="font-mono bg-white dark:bg-gray-800 px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-700">ESC</kbd> to exit
+            Press <kbd className="font-mono bg-white dark:bg-gray-800 px-1 py-0.5 rounded border border-gray-200 dark:border-gray-700">ESC</kbd> to exit
           </span>
-          <span className="flex items-center gap-2">
+          <span className="hidden sm:flex items-center gap-2">
             <span>Navigate <kbd className="font-mono bg-white dark:bg-gray-800 px-1 py-0.5 rounded border border-gray-200 dark:border-gray-700">↑</kbd><kbd className="font-mono bg-white dark:bg-gray-800 px-1 py-0.5 rounded border border-gray-200 dark:border-gray-700">↓</kbd></span>
           </span>
         </div>

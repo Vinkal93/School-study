@@ -55,7 +55,7 @@ export function MobileNav() {
   if (items.length === 0) return null;
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 flex h-16 items-center justify-around border-t border-gray-200 bg-white/95 px-2 backdrop-blur md:hidden dark:border-gray-800 dark:bg-gray-950/95 shadow-lg">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 flex h-16 pb-safe items-center justify-around border-t border-gray-200 bg-white/95 px-2 backdrop-blur md:hidden dark:border-gray-800 dark:bg-gray-950/95 shadow-lg">
       {items.map((item) => {
         const isActive =
           pathname === item.href ||
@@ -69,7 +69,7 @@ export function MobileNav() {
           <Link
             key={item.href}
             href={item.href}
-            className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-lg text-[10px] font-medium transition-colors ${
+            className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-medium transition-colors min-h-[44px] min-w-[44px] ${
               isActive
                 ? "text-blue-600 dark:text-blue-400 font-semibold"
                 : "text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
@@ -78,7 +78,7 @@ export function MobileNav() {
             <div className={`p-1 rounded-md ${isActive ? "bg-blue-50 dark:bg-blue-900/30" : ""}`}>
               {item.icon}
             </div>
-            <span className="mt-0.5 truncate max-w-[64px]">{item.label}</span>
+            <span className="mt-0.5 truncate max-w-[60px] text-center">{item.label}</span>
           </Link>
         );
       })}

@@ -262,7 +262,7 @@ export default function LandingPage() {
                   </div>
 
                   {/* Floating Stat Badge 1: Attendance Today */}
-                  <div className="absolute -top-4 -left-2 sm:-left-6 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-xl flex items-center gap-3">
+                  <div className="hidden sm:flex absolute -top-4 -left-2 sm:-left-6 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-xl items-center gap-3">
                     <div className="h-10 w-10 rounded-xl bg-teal-50 dark:bg-teal-950/40 text-teal-600 dark:text-teal-400 flex items-center justify-center">
                       <ClipboardCheck className="h-5 w-5" />
                     </div>
@@ -276,7 +276,7 @@ export default function LandingPage() {
                   </div>
 
                   {/* Floating Stat Badge 2: Total Students */}
-                  <div className="absolute top-1/2 -left-4 sm:-left-8 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-xl flex items-center gap-3">
+                  <div className="hidden sm:flex absolute top-1/2 -left-4 sm:-left-8 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-xl items-center gap-3">
                     <div className="h-10 w-10 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 flex items-center justify-center">
                       <Users className="h-5 w-5" />
                     </div>
@@ -288,7 +288,7 @@ export default function LandingPage() {
                   </div>
 
                   {/* Floating Stat Badge 3: Notices */}
-                  <div className="absolute top-6 -right-2 sm:-right-6 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md p-3 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-xl flex items-center gap-3">
+                  <div className="hidden sm:flex absolute top-6 -right-2 sm:-right-6 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md p-3 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-xl items-center gap-3">
                     <div className="h-9 w-9 rounded-xl bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 flex items-center justify-center">
                       <Bell className="h-4 w-4" />
                     </div>
@@ -299,7 +299,7 @@ export default function LandingPage() {
                   </div>
 
                   {/* Floating Stat Badge 4: Upcoming Schedule */}
-                  <div className="absolute -bottom-4 -right-2 sm:-right-4 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-xl flex items-center gap-3">
+                  <div className="hidden sm:flex absolute -bottom-4 -right-2 sm:-right-4 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-xl items-center gap-3">
                     <div className="h-10 w-10 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 flex items-center justify-center">
                       <Calendar className="h-5 w-5" />
                     </div>
