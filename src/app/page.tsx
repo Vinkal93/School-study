@@ -127,7 +127,7 @@ export default function LandingPage() {
       {/* ==========================================
           MAIN CONTENT CONTAINER
       ========================================== */}
-      <main>
+      <main id="main-content">
         {/* ==========================================
             HERO SECTION
         ========================================== */}
@@ -236,9 +236,9 @@ export default function LandingPage() {
                         <School className="h-3.5 w-3.5" />
                         Live Modern Campus Hub
                       </span>
-                      <h2 className="text-2xl font-bold text-white tracking-tight">
+                      <div className="text-2xl font-bold text-white tracking-tight">
                         Empowering Next-Gen Classrooms
-                      </h2>
+                      </div>
                       <p className="text-xs text-blue-100 max-w-xs leading-relaxed">
                         Intuitive dashboards for school admins, class teachers, students, and institutional leaders.
                       </p>
@@ -263,14 +263,14 @@ export default function LandingPage() {
 
                   {/* Floating Stat Badge 1: Attendance Today */}
                   <div className="hidden sm:flex absolute -top-4 -left-2 sm:-left-6 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-xl items-center gap-3">
-                    <div className="h-10 w-10 rounded-xl bg-teal-50 dark:bg-teal-950/40 text-teal-600 dark:text-teal-400 flex items-center justify-center">
+                    <div className="h-10 w-10 rounded-xl bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 flex items-center justify-center">
                       <ClipboardCheck className="h-5 w-5" />
                     </div>
                     <div>
-                      <span className="text-[10px] text-gray-500 dark:text-gray-400 font-medium block">Attendance Today</span>
+                      <span className="text-[10px] text-gray-600 dark:text-gray-300 font-medium block">Attendance Today</span>
                       <div className="flex items-center gap-1.5">
                         <span className="text-base font-bold text-gray-900 dark:text-white">95%</span>
-                        <span className="text-[10px] font-bold text-green-600 bg-green-50 dark:bg-green-950/50 px-1 rounded">+5.2%</span>
+                        <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 dark:text-emerald-200 dark:bg-emerald-950 px-1.5 py-0.5 rounded">+5.2%</span>
                       </div>
                     </div>
                   </div>

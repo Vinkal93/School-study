@@ -42,10 +42,10 @@ export function FooterLinkGroup({ group }: FooterLinkGroupProps) {
           const isAnchor = link.href.startsWith("#");
 
           const LinkContent = (
-            <span className="group flex items-center justify-between text-xs text-slate-600 transition-all duration-200 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400">
+            <span className="group flex items-center justify-between text-xs text-slate-700 transition-all duration-200 hover:text-blue-600 dark:text-slate-300 dark:hover:text-blue-400">
               <span className="flex items-center gap-2">
-                <Icon className="h-3.5 w-3.5 text-slate-400 transition-colors duration-200 group-hover:text-blue-600 dark:text-slate-500 dark:group-hover:text-blue-400" />
-                <span className="font-medium">{link.label}</span>
+                <Icon className="h-3.5 w-3.5 text-slate-500 transition-colors duration-200 group-hover:text-blue-600 dark:text-slate-400 dark:group-hover:text-blue-400" />
+                <span className="font-semibold">{link.label}</span>
                 {link.badge && (
                   <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">
                     {link.badge}

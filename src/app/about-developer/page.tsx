@@ -74,7 +74,7 @@ export default function AboutDeveloperPage() {
       {/* ==========================================
           PAGE MAIN CONTENT
       ========================================== */}
-      <main className="space-y-4">
+      <main id="main-content" className="space-y-4">
         {/* 1. Developer Hero */}
         <DeveloperHero />
 

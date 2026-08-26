@@ -56,7 +56,7 @@ export default function SchoolManagementPage() {
       <MarketingHeader currentPath="/school-management" />
       <Breadcrumbs items={breadcrumbData} />
 
-      <main>
+      <main id="main-content">
         {/* Hero Section */}
         <section className="relative pt-10 pb-20 overflow-hidden bg-gradient-to-b from-blue-50/40 via-white to-white dark:from-gray-900/60 dark:via-gray-950 dark:to-gray-950">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
