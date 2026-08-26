@@ -103,20 +103,12 @@ export function MarketingHeader({ currentPath }: MarketingHeaderProps) {
             <span>Student Portal</span>
           </Link>
 
-          {/* Portal Sign In (Desktop) */}
+          {/* Portal Sign In (Primary Action Button) */}
           <Link
             href="/login"
-            className="hidden sm:inline-flex px-3.5 py-2 text-xs sm:text-sm font-semibold text-gray-700 hover:text-blue-600 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800 rounded-xl transition-all min-h-[44px] items-center"
+            className="inline-flex items-center justify-center px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md shadow-blue-500/25 active:scale-95 transition-all min-h-[40px] sm:min-h-[44px]"
           >
             Sign In
-          </Link>
-
-          {/* Get Started Button */}
-          <Link
-            href="/login"
-            className="inline-flex items-center justify-center px-3.5 py-2 sm:px-4 sm:py-2.5 text-xs sm:text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md shadow-blue-500/25 active:scale-95 transition-all min-h-[40px] sm:min-h-[44px]"
-          >
-            Get Started
           </Link>
 
           {/* Mobile Hamburger Toggle Button (Minimum 44x44px touch target) */}
