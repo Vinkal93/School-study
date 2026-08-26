@@ -5,6 +5,8 @@ import { COLLECTIONS } from "@/lib/utils/constants";
 import { AUDIT_COLLECTIONS } from "@/lib/services/audit.service";
 import type { AppUser, UserStatus } from "@/types";
 
+const VALID_STATUSES = new Set(["active", "inactive", "restricted", "suspended", "disabled"]);
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -17,9 +19,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (status !== "active" && status !== "disabled") {
+    if (!VALID_STATUSES.has(status)) {
       return NextResponse.json(
-        { error: "Invalid status. Must be 'active' or 'disabled'." },
+        { error: `Invalid status. Must be one of: ${Array.from(VALID_STATUSES).join(", ")}` },
         { status: 400 }
       );
     }
@@ -44,9 +46,9 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Prevent self-lockout
-    if (performerUid === targetUid && status === "disabled") {
+    if (performerUid === targetUid && status !== "active") {
       return NextResponse.json(
-        { error: "Super Admin cannot disable their own account." },
+        { error: "Super Admin cannot suspend, disable, or restrict their own account." },
         { status: 400 }
       );
     }
@@ -64,7 +66,7 @@ export async function POST(req: NextRequest) {
     const targetUser = targetDocSnap.data() as AppUser;
     const previousStatus = targetUser.status;
 
-    // 4. Update Target User Status
+    // 4. Update Target User Status in Firestore
     await updateDoc(targetDocRef, {
       status: status as UserStatus,
       updatedAt: serverTimestamp(),
@@ -87,7 +89,7 @@ export async function POST(req: NextRequest) {
       },
       previousState: { status: previousStatus },
       newState: { status: status },
-      reason: reason || `Status changed to ${status} by Super Admin`,
+      reason: reason || `Status updated to ${status} by Super Admin`,
       ipAddress,
       userAgent,
       timestamp: serverTimestamp(),
@@ -98,6 +100,7 @@ export async function POST(req: NextRequest) {
       targetUid,
       previousStatus,
       newStatus: status,
+      message: `Account status updated to ${status}.`,
     });
   } catch (error: any) {
     console.error("Server-side user status change failed:", error);

@@ -105,11 +105,15 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   ],
 };
 
+function isBlockedStatus(status?: string): boolean {
+  return !status || status === "disabled" || status === "suspended" || status === "inactive";
+}
+
 /**
  * Checks if a user has a specific permission.
  */
 export function hasPermission(user: AppUser | null | undefined, permission: Permission): boolean {
-  if (!user || !user.role || user.status === "disabled") {
+  if (!user || !user.role || isBlockedStatus(user.status)) {
     return false;
   }
   const permissions = ROLE_PERMISSIONS[user.role] || [];
@@ -120,7 +124,7 @@ export function hasPermission(user: AppUser | null | undefined, permission: Perm
  * Checks if a user has ALL required permissions.
  */
 export function hasAllPermissions(user: AppUser | null | undefined, permissions: Permission[]): boolean {
-  if (!user || !user.role || user.status === "disabled") {
+  if (!user || !user.role || isBlockedStatus(user.status)) {
     return false;
   }
   return permissions.every((p) => hasPermission(user, p));
@@ -130,7 +134,7 @@ export function hasAllPermissions(user: AppUser | null | undefined, permissions:
  * Checks if a user has ANY of the specified permissions.
  */
 export function hasAnyPermission(user: AppUser | null | undefined, permissions: Permission[]): boolean {
-  if (!user || !user.role || user.status === "disabled") {
+  if (!user || !user.role || isBlockedStatus(user.status)) {
     return false;
   }
   return permissions.some((p) => hasPermission(user, p));

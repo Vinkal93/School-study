@@ -29,9 +29,14 @@ import {
   Lock,
   Globe,
   RefreshCw,
+  ShieldAlert,
+  AlertTriangle,
+  RotateCcw,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { ROLE_PERMISSIONS, type Permission } from "@/lib/permissions";
+import { AccountRestrictionModal } from "@/components/super-admin/AccountRestrictionModal";
+import { StatusChangeConfirmModal } from "@/components/super-admin/StatusChangeConfirmModal";
 import type {
   AppUser,
   School,
@@ -61,12 +66,19 @@ export default function UserProfileInspectorPage() {
 
   // Tab State: 'overview' | 'account' | 'activity' | 'access'
   const [activeTab, setActiveTab] = useState<"overview" | "account" | "activity" | "access">("overview");
-
-  // Status Toggle loading
-  const [togglingStatus, setTogglingStatus] = useState(false);
   const [copiedUid, setCopiedUid] = useState(false);
 
-  // Edit Modal State
+  // Restriction & Status Modals State
+  const [isRestrictModalOpen, setIsRestrictModalOpen] = useState(false);
+  const [statusConfirmState, setStatusConfirmState] = useState<{
+    isOpen: boolean;
+    targetStatus: UserStatus;
+  }>({
+    isOpen: false,
+    targetStatus: "active",
+  });
+
+  // Edit Profile Modal State
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -124,41 +136,6 @@ export default function UserProfileInspectorPage() {
     setCopiedUid(true);
     setTimeout(() => setCopiedUid(false), 2000);
     toast.success("User UID copied to clipboard!");
-  };
-
-  const handleToggleStatus = async () => {
-    if (!user || !currentUser) return;
-    if (user.role === "super_admin") {
-      toast.warning("Cannot modify Super Admin status.");
-      return;
-    }
-
-    const nextStatus: UserStatus = user.status === "active" ? "disabled" : "active";
-    setTogglingStatus(true);
-    try {
-      const res = await fetch("/api/super-admin/users/status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          performerUid: currentUser.uid,
-          targetUid: user.uid,
-          status: nextStatus,
-          reason: `Status changed from User Profile Inspector (${user.name}) by ${currentUser.name || currentUser.email}`,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to update user status");
-
-      setUser((prev) => (prev ? { ...prev, status: nextStatus } : null));
-      toast.success(
-        `Account has been ${nextStatus === "active" ? "Activated" : "Disabled"} successfully.`
-      );
-    } catch (err: any) {
-      toast.error(err.message || "Failed to update status.");
-    } finally {
-      setTogglingStatus(false);
-    }
   };
 
   const handleSaveProfileEdit = async (e: React.FormEvent) => {
@@ -240,6 +217,34 @@ export default function UserProfileInspectorPage() {
     }
   };
 
+  const getStatusBadge = (status: UserStatus) => {
+    switch (status) {
+      case "active":
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-semibold text-green-700 dark:bg-green-900/20 dark:text-green-400">
+            <CheckCircle2 className="h-3 w-3" />
+            Active
+          </span>
+        );
+      case "restricted":
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+            <ShieldAlert className="h-3 w-3" />
+            Restricted
+          </span>
+        );
+      case "suspended":
+      case "disabled":
+      case "inactive":
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/20 dark:text-red-400">
+            <XCircle className="h-3 w-3" />
+            {status.charAt(0).toUpperCase() + status.slice(1)}
+          </span>
+        );
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Back Navigation & Action Bar */}
@@ -267,26 +272,68 @@ export default function UserProfileInspectorPage() {
             <Edit className="h-3.5 w-3.5" />
             Edit Profile
           </button>
+
+          {/* Phase 4 Restriction & Suspension Controls */}
           {user.role !== "super_admin" && (
-            <button
-              onClick={handleToggleStatus}
-              disabled={togglingStatus}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-medium transition-colors ${
-                user.status === "active"
-                  ? "bg-red-600 text-white hover:bg-red-700"
-                  : "bg-green-600 text-white hover:bg-green-700"
-              }`}
-            >
-              {togglingStatus ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <>
+              {user.status === "restricted" ? (
+                <button
+                  onClick={() =>
+                    setStatusConfirmState({ isOpen: true, targetStatus: "active" })
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-green-700 transition-colors"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Remove Restriction
+                </button>
               ) : (
-                <Power className="h-3.5 w-3.5" />
+                <button
+                  onClick={() => setIsRestrictModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3.5 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-100 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300 transition-colors"
+                >
+                  <ShieldAlert className="h-3.5 w-3.5" />
+                  Restrict Account
+                </button>
               )}
-              {user.status === "active" ? "Disable & Restrict" : "Activate Account"}
-            </button>
+
+              {user.status === "active" ? (
+                <button
+                  onClick={() =>
+                    setStatusConfirmState({ isOpen: true, targetStatus: "suspended" })
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-red-700 transition-colors"
+                >
+                  <Power className="h-3.5 w-3.5" />
+                  Suspend Account
+                </button>
+              ) : user.status !== "restricted" ? (
+                <button
+                  onClick={() =>
+                    setStatusConfirmState({ isOpen: true, targetStatus: "active" })
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-green-700 transition-colors"
+                >
+                  <Power className="h-3.5 w-3.5" />
+                  Re-activate Account
+                </button>
+              ) : null}
+            </>
           )}
         </div>
       </div>
+
+      {/* Active Restriction Alert Banner */}
+      {user.status === "restricted" && (
+        <div className="flex items-center gap-3 p-4 rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/30 text-amber-900 dark:text-amber-300 text-xs">
+          <ShieldAlert className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="flex-1">
+            <p className="font-bold">This account is currently under Platform Restriction.</p>
+            <p className="text-amber-800/90 dark:text-amber-300/80 mt-0.5">
+              Normal write operations are blocked. Super Admin can remove the restriction anytime using the button above.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* 3.1 Profile Header Hero Banner */}
       <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
@@ -309,20 +356,7 @@ export default function UserProfileInspectorPage() {
                   {user.name}
                 </h1>
                 {getRoleBadge(user.role)}
-                <span
-                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                    user.status === "active"
-                      ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400"
-                      : "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"
-                  }`}
-                >
-                  {user.status === "active" ? (
-                    <CheckCircle2 className="h-3 w-3" />
-                  ) : (
-                    <XCircle className="h-3 w-3" />
-                  )}
-                  {user.status}
-                </span>
+                {getStatusBadge(user.status)}
               </div>
 
               <div className="flex flex-wrap items-center gap-y-1 gap-x-4 mt-2 text-xs text-gray-600 dark:text-gray-400">
@@ -544,7 +578,9 @@ export default function UserProfileInspectorPage() {
 
             <div className="flex items-center justify-between py-2">
               <span className="text-gray-500 font-medium">Account Status</span>
-              <span className="font-bold text-green-600 uppercase">{user.status}</span>
+              <span className="font-bold uppercase text-gray-900 dark:text-white">
+                {user.status}
+              </span>
             </div>
           </div>
         </div>
@@ -610,7 +646,7 @@ export default function UserProfileInspectorPage() {
         </div>
       )}
 
-      {/* 3.4 & 3.5 Edit Profile Modal */}
+      {/* Edit Profile Modal */}
       {isEditOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-gray-950 shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden">
@@ -716,7 +752,9 @@ export default function UserProfileInspectorPage() {
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white"
                 >
                   <option value="active">Active</option>
-                  <option value="disabled">Disabled / Restricted</option>
+                  <option value="restricted">Restricted</option>
+                  <option value="suspended">Suspended</option>
+                  <option value="disabled">Disabled</option>
                 </select>
               </div>
 
@@ -740,6 +778,31 @@ export default function UserProfileInspectorPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Account Restriction Modal */}
+      {currentUser && (
+        <AccountRestrictionModal
+          user={user}
+          isOpen={isRestrictModalOpen}
+          onClose={() => setIsRestrictModalOpen(false)}
+          onRestricted={(updated) => setUser(updated)}
+          performerUid={currentUser.uid}
+        />
+      )}
+
+      {/* Status Change Confirmation Modal */}
+      {currentUser && (
+        <StatusChangeConfirmModal
+          user={user}
+          targetStatus={statusConfirmState.targetStatus}
+          isOpen={statusConfirmState.isOpen}
+          onClose={() =>
+            setStatusConfirmState((prev) => ({ ...prev, isOpen: false }))
+          }
+          onSuccess={(updated) => setUser(updated)}
+          performerUid={currentUser.uid}
+        />
       )}
     </div>
   );

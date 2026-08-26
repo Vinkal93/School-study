@@ -28,3 +28,7 @@ export type {
   AuditLogEntry,
   LoginLogEntry,
 } from "./audit";
+export type {
+  RestrictionStatus,
+  AccountRestriction,
+} from "./restriction";

@@ -50,14 +50,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return;
           }
 
-          if (userProfile.status !== "active") {
-            // User account is disabled
-            toast.error("Your account has been disabled. Please contact admin.");
+          if (
+            userProfile.status === "suspended" ||
+            userProfile.status === "disabled" ||
+            userProfile.status === "inactive"
+          ) {
+            // User account is suspended or inactive
+            toast.error("Your account has been suspended or deactivated. Please contact platform admin.");
             await signOutUser();
             setFirebaseUser(null);
             setProfile(null);
             setLoading(false);
             return;
+          }
+
+          if (userProfile.status === "restricted") {
+            toast.warning("Notice: Your account is operating under platform restriction.");
           }
 
           setProfile(userProfile);
@@ -101,12 +109,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error("Account not found. Please contact admin.");
         }
 
-        if (userProfile.status !== "active") {
+        if (
+          userProfile.status === "suspended" ||
+          userProfile.status === "disabled" ||
+          userProfile.status === "inactive"
+        ) {
           await signOutUser();
           setLoading(false);
           throw new Error(
-            "Your account has been disabled. Please contact admin."
+            "Your account has been suspended or deactivated. Please contact platform admin."
           );
+        }
+
+        if (userProfile.status === "restricted") {
+          toast.warning("Notice: Your account is operating under platform restriction.");
         }
 
         // Set state (onAuthChanged will also fire but profile is already set)
