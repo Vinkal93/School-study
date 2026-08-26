@@ -105,18 +105,26 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   ],
 };
 
-function isBlockedStatus(status?: string): boolean {
+export function isAccountBlocked(status?: string): boolean {
   return !status || status === "disabled" || status === "suspended" || status === "inactive";
 }
 
 /**
- * Checks if a user has a specific permission.
+ * Checks if a user or role has a specific permission.
  */
-export function hasPermission(user: AppUser | null | undefined, permission: Permission): boolean {
-  if (!user || !user.role || isBlockedStatus(user.status)) {
+export function hasPermission(
+  userOrRole: AppUser | UserRole | null | undefined,
+  permission: Permission
+): boolean {
+  if (!userOrRole) return false;
+  if (typeof userOrRole === "string") {
+    const permissions = ROLE_PERMISSIONS[userOrRole] || [];
+    return permissions.includes(permission);
+  }
+  if (isAccountBlocked(userOrRole.status)) {
     return false;
   }
-  const permissions = ROLE_PERMISSIONS[user.role] || [];
+  const permissions = ROLE_PERMISSIONS[userOrRole.role] || [];
   return permissions.includes(permission);
 }
 
@@ -124,7 +132,7 @@ export function hasPermission(user: AppUser | null | undefined, permission: Perm
  * Checks if a user has ALL required permissions.
  */
 export function hasAllPermissions(user: AppUser | null | undefined, permissions: Permission[]): boolean {
-  if (!user || !user.role || isBlockedStatus(user.status)) {
+  if (!user || !user.role || isAccountBlocked(user.status)) {
     return false;
   }
   return permissions.every((p) => hasPermission(user, p));
@@ -134,7 +142,7 @@ export function hasAllPermissions(user: AppUser | null | undefined, permissions:
  * Checks if a user has ANY of the specified permissions.
  */
 export function hasAnyPermission(user: AppUser | null | undefined, permissions: Permission[]): boolean {
-  if (!user || !user.role || isBlockedStatus(user.status)) {
+  if (!user || !user.role || isAccountBlocked(user.status)) {
     return false;
   }
   return permissions.some((p) => hasPermission(user, p));
