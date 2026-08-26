@@ -26,6 +26,7 @@ import {
   Workflow,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/common/theme-toggle";
+import { MarketingHeader } from "@/components/marketing";
 import { Footer } from "@/components/footer";
 import { constructMetadata, getHomepageJsonLd, siteConfig } from "@/lib/seo";
 
@@ -52,72 +53,7 @@ export default function LandingPage() {
       {/* ==========================================
           HEADER / NAVBAR
       ========================================== */}
-      <header className="sticky top-0 z-50 bg-white/90 dark:bg-gray-950/90 backdrop-blur-md border-b border-gray-100 dark:border-gray-800 transition-all">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
-          {/* Logo */}
-          <Link href="/" className="flex items-center gap-3 group">
-            <div className="h-11 w-11 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20 group-hover:scale-105 transition-transform">
-              <GraduationCap className="h-6 w-6" />
-            </div>
-            <div>
-              <span className="text-xl font-extrabold tracking-tight text-gray-900 dark:text-white leading-tight block">
-                School Study
-              </span>
-              <span className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 tracking-wide uppercase block -mt-0.5">
-                Smart School Management
-              </span>
-            </div>
-          </Link>
-
-          {/* Desktop Navigation Links */}
-          <nav aria-label="Main Navigation" className="hidden lg:flex items-center gap-8 text-sm font-medium text-gray-600 dark:text-gray-300">
-            <Link href="/" className="text-blue-600 dark:text-blue-400 font-semibold transition-colors">
-              Home
-            </Link>
-            <a href="#features" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-              Features
-            </a>
-            <Link href="/pricing" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-              Pricing
-            </Link>
-            <a href="#modules" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-              Modules
-            </a>
-            <a href="#benefits" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-              How It Works
-            </a>
-            <Link href="/about-developer" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-              About Developer
-            </Link>
-            <Link href="/contact" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-              Contact
-            </Link>
-          </nav>
-
-          {/* CTA Buttons & Theme Toggle */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Theme Toggle */}
-            <ThemeToggle />
-
-            {/* Student Portal Link */}
-            <Link
-              href="/student/login"
-              className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60 rounded-xl border border-emerald-200 dark:border-emerald-800/50 transition-all"
-            >
-              <GraduationCap className="h-3.5 w-3.5" />
-              Student Portal
-            </Link>
-
-            {/* Portal Selection / Staff Login */}
-            <Link
-              href="/login"
-              className="px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md shadow-blue-500/25 hover:shadow-lg hover:shadow-blue-500/35 active:scale-95 transition-all"
-            >
-              Sign In
-            </Link>
-          </div>
-        </div>
-      </header>
+      <MarketingHeader currentPath="/" />
 
       {/* ==========================================
           MAIN CONTENT CONTAINER
