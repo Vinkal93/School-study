@@ -20,6 +20,7 @@ import {
   MapPin,
   HelpCircle,
   User,
+  LogIn,
   LucideIcon,
 } from "lucide-react";
 
@@ -46,7 +47,7 @@ export const FOOTER_NAVIGATION: FooterGroup[] = [
       { label: "Core Features", href: "/features", icon: Sparkles },
       { label: "School Management", href: "/school-management", icon: School },
       { label: "School ERP", href: "/school-erp", icon: Workflow },
-      { label: "Multi-Tenant Security", href: "/super-admin/login", icon: ShieldCheck, badge: "Enterprise" },
+      { label: "Multi-Tenant Security", href: "/school-erp", icon: ShieldCheck, badge: "Enterprise" },
     ],
   },
   {
@@ -67,8 +68,7 @@ export const FOOTER_NAVIGATION: FooterGroup[] = [
       { label: "School Admin Portal", href: "/admin/login", icon: UserCog },
       { label: "Teacher Workspace", href: "/teacher/login", icon: GraduationCap },
       { label: "Student & Parent Hub", href: "/student/login", icon: BookOpen, badge: "Fast Sign-in" },
-      { label: "Multi-Tenant Fleet", href: "/super-admin/schools", icon: School },
-      { label: "Super Admin Gateway", href: "/super-admin/login", icon: Shield },
+      { label: "Staff Sign-in Gateway", href: "/login", icon: LogIn },
     ],
   },
   {
