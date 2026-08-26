@@ -21,3 +21,10 @@ export type {
   Notice,
   CreateNoticeInput,
 } from "./notice";
+export type {
+  AuditAction,
+  AuditTargetType,
+  AuditPerformer,
+  AuditLogEntry,
+  LoginLogEntry,
+} from "./audit";

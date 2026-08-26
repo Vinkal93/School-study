@@ -3,14 +3,22 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper: Is the user logged in?
+    // Helper: Is user logged in?
     function isAuthenticated() {
       return request.auth != null;
     }
 
+    // Helper: Check if caller is super_admin
+    function isSuperAdmin() {
+      return isAuthenticated() && (
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'super_admin') ||
+        request.auth.token.get('role', '') == 'super_admin'
+      );
+    }
+
     // ==========================================
     // USERS COLLECTION
-    // Allow read so login portal role verification and initial setup check work seamlessly
     // ==========================================
     match /users/{userId} {
       allow read: if true;
@@ -21,7 +29,7 @@ service cloud.firestore {
     // SCHOOLS & NESTED COLLECTIONS
     // ==========================================
     match /schools/{schoolId} {
-      allow read: if true; // Allows school code check during student/teacher login
+      allow read: if true;
       allow write: if isAuthenticated();
 
       match /{document=**} {
@@ -30,7 +38,27 @@ service cloud.firestore {
     }
 
     // ==========================================
-    // TOP-LEVEL COLLECTIONS
+    // AUDIT LOGS & PLATFORM PRIVILEGED COLLECTIONS
+    // Normal users must NOT access platform audit logs
+    // ==========================================
+    match /audit_logs/{logId} {
+      allow read: if isSuperAdmin();
+      allow write: if isAuthenticated();
+    }
+
+    match /login_logs/{logId} {
+      // Users can see their own login logs, super admin can see all
+      allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || isSuperAdmin());
+      allow write: if isAuthenticated();
+    }
+
+    match /platform_analytics/{docId} {
+      allow read: if isSuperAdmin();
+      allow write: if isSuperAdmin();
+    }
+
+    // ==========================================
+    // ALL OTHER COLLECTIONS
     // ==========================================
     match /{document=**} {
       allow read, write: if isAuthenticated();
