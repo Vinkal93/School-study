@@ -70,6 +70,24 @@ service cloud.firestore {
     }
 
     // ==========================================
+    // AGGREGATED STATS COLLECTIONS
+    // ==========================================
+    match /schoolStats/{schoolId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    match /platformStats/{docId} {
+      allow read: if isSuperAdmin();
+      allow write: if isSuperAdmin();
+    }
+
+    match /dailyStats/{date} {
+      allow read: if isSuperAdmin();
+      allow write: if isSuperAdmin();
+    }
+
+    // ==========================================
     // ALL OTHER COLLECTIONS
     // ==========================================
     match /{document=**} {
