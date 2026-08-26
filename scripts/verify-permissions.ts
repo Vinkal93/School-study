@@ -1,4 +1,4 @@
-import { runPermissionSecurityTests } from "../src/lib/permissions/__tests__/permissions.test.ts";
+import { runPermissionSecurityTests } from "../src/lib/permissions/__tests__/permissions.test";
 
 const result = runPermissionSecurityTests();
 console.log("\n==========================================");

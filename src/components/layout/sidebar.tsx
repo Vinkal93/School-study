@@ -44,6 +44,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       href: "/super-admin/users",
       icon: <Users className="h-5 w-5" />,
     },
+    {
+      label: "Audit Logs",
+      href: "/super-admin/audit",
+      icon: <Shield className="h-5 w-5" />,
+    },
   ],
   school_admin: [
     {
