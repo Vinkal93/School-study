@@ -25,6 +25,7 @@ import {
   Shield,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/common/theme-toggle";
+import { Footer } from "@/components/footer";
 
 export default function LandingPage() {
   return (
@@ -452,95 +453,9 @@ export default function LandingPage() {
       </section>
 
       {/* ==========================================
-          DARK FOOTER
+          ADVANCED MODERN PRODUCT FOOTER
       ========================================== */}
-      <footer id="contact" className="bg-[#0B1528] text-gray-300 pt-16 pb-12 border-t border-gray-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10 pb-12 border-b border-gray-800">
-            {/* Column 1: Brand & Bio */}
-            <div className="lg:col-span-2 space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-blue-600 flex items-center justify-center text-white font-bold shadow-md shadow-blue-500/30">
-                  <GraduationCap className="h-6 w-6" />
-                </div>
-                <div>
-                  <span className="text-lg font-bold text-white block">School Study</span>
-                  <span className="text-[10px] text-blue-400 font-semibold uppercase tracking-wider block">
-                    Smart School Management
-                  </span>
-                </div>
-              </div>
-              <p className="text-xs text-gray-400 max-w-sm leading-relaxed">
-                School Study is an all-in-one school management system designed to simplify and automate daily school operations.
-              </p>
-              
-              <div className="pt-2 flex items-center gap-3 text-gray-400">
-                <span className="h-8 w-8 rounded-full bg-gray-800 flex items-center justify-center text-xs hover:bg-blue-600 hover:text-white transition-colors cursor-pointer">
-                  f
-                </span>
-                <span className="h-8 w-8 rounded-full bg-gray-800 flex items-center justify-center text-xs hover:bg-blue-600 hover:text-white transition-colors cursor-pointer">
-                  t
-                </span>
-                <span className="h-8 w-8 rounded-full bg-gray-800 flex items-center justify-center text-xs hover:bg-blue-600 hover:text-white transition-colors cursor-pointer">
-                  in
-                </span>
-              </div>
-            </div>
-
-            {/* Column 2: Portals */}
-            <div>
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-4">
-                Access Portals
-              </h4>
-              <ul className="space-y-2.5 text-xs text-gray-400">
-                <li><Link href="/admin/login" className="hover:text-white transition-colors">School Admin Portal</Link></li>
-                <li><Link href="/teacher/login" className="hover:text-white transition-colors">Teacher Portal</Link></li>
-                <li><Link href="/student/login" className="hover:text-white transition-colors">Student & Parent Portal</Link></li>
-              </ul>
-            </div>
-
-            {/* Column 3: Modules */}
-            <div>
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-4">
-                Modules
-              </h4>
-              <ul className="space-y-2.5 text-xs text-gray-400">
-                <li><Link href="/admin/students" className="hover:text-white transition-colors">Student Management</Link></li>
-                <li><Link href="/admin/attendance" className="hover:text-white transition-colors">Attendance Management</Link></li>
-                <li><Link href="/admin/teachers" className="hover:text-white transition-colors">Teacher Management</Link></li>
-                <li><Link href="/admin/notices" className="hover:text-white transition-colors">Notice Management</Link></li>
-                <li><Link href="/admin" className="hover:text-white transition-colors">Reports & Analytics</Link></li>
-              </ul>
-            </div>
-
-            {/* Column 4: Contact Us */}
-            <div className="lg:col-span-1">
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-4">
-                Contact Us
-              </h4>
-              <ul className="space-y-3 text-xs text-gray-400">
-                <li className="flex items-center gap-2.5">
-                  <Phone className="h-4 w-4 text-blue-400 flex-shrink-0" />
-                  <span>+91 12345 67890</span>
-                </li>
-                <li className="flex items-center gap-2.5">
-                  <Mail className="h-4 w-4 text-blue-400 flex-shrink-0" />
-                  <span>support@schoolstudy.com</span>
-                </li>
-                <li className="flex items-start gap-2.5">
-                  <MapPin className="h-4 w-4 text-blue-400 flex-shrink-0 mt-0.5" />
-                  <span>123, Education Street, Learning City, India - 123456</span>
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          {/* Bottom Copyright */}
-          <div className="pt-8 text-center text-xs text-gray-500">
-            <p>© 2026 School Study. All rights reserved.</p>
-          </div>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }
