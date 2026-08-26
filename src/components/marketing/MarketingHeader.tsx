@@ -10,20 +10,11 @@ import {
   ChevronDown,
   Users,
   ClipboardCheck,
-  Bell,
-  ShieldCheck,
-  Building2,
   BarChart3,
   UserCog,
-  Sparkles,
   Workflow,
   BookOpen,
-  Shield,
-  PhoneCall,
-  LogIn,
-  Layers,
   CreditCard,
-  User,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/common/theme-toggle";
 
@@ -88,8 +79,8 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
 
   return (
     <header className="sticky top-3 sm:top-4 z-50 max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 mb-2 sm:mb-4">
-      {/* Floating Pill Container */}
-      <div className="relative rounded-full border border-slate-200/90 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 shadow-xl shadow-slate-900/5 backdrop-blur-md px-4 sm:px-6 py-2.5 flex items-center justify-between transition-all">
+      {/* Floating Pill Container with ChatGPT-style Glass UI & Crisp Dark Outline */}
+      <div className="relative rounded-full border border-slate-200/90 dark:border-white/15 bg-white/90 dark:bg-slate-950/80 shadow-xl shadow-slate-900/5 dark:shadow-[0_0_20px_rgba(255,255,255,0.06)] backdrop-blur-xl px-4 sm:px-6 py-2.5 flex items-center justify-between transition-all">
         {/* Brand Logo */}
         <Link
           href="/"
@@ -100,7 +91,7 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
           }}
         >
           <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-full bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/25 group-hover:scale-105 transition-transform">
-            <GraduationCap className="h-5 w-5 sm:h-5 sm:w-5" />
+            <GraduationCap className="h-5 w-5" />
           </div>
           <div>
             <span className="text-base sm:text-lg font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight block">
@@ -125,9 +116,9 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
               onClick={() => setMegaMenuOpen(!megaMenuOpen)}
               onMouseEnter={() => setMegaMenuOpen(true)}
               aria-expanded={megaMenuOpen}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full transition-all hover:bg-slate-100 dark:hover:bg-slate-800 ${
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full transition-all hover:bg-slate-100 dark:hover:bg-slate-800/80 dark:hover:border-white/10 ${
                 megaMenuOpen
-                  ? "bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400"
+                  ? "bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400 dark:border-white/15"
                   : "text-slate-700 dark:text-slate-200"
               }`}
             >
@@ -147,10 +138,10 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
                 key={link.href}
                 href={link.href}
                 onClick={() => setMegaMenuOpen(false)}
-                className={`px-3.5 py-2 rounded-full transition-all hover:bg-slate-100 dark:hover:bg-slate-800 ${
+                className={`px-3.5 py-2 rounded-full transition-all hover:bg-slate-100 dark:hover:bg-slate-800/80 ${
                   isActive
-                    ? "bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400 font-bold"
-                    : "text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
+                    ? "bg-blue-50 text-blue-600 dark:bg-blue-950/70 dark:text-blue-300 dark:border dark:border-blue-800/50 font-bold"
+                    : "text-slate-700 hover:text-slate-900 dark:text-slate-200 dark:hover:text-white"
                 }`}
               >
                 {link.label}
@@ -159,24 +150,16 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
           })}
         </nav>
 
-        {/* Right CTA Action Buttons */}
+        {/* Right Action Buttons — Theme Toggle & Login Pill Button (Contact button removed as requested) */}
         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
           <ThemeToggle />
 
-          {/* Login Button (Pill style) */}
+          {/* Login Button (Pill style with ChatGPT Glass UI in dark mode) */}
           <Link
             href="/login"
-            className="hidden sm:inline-flex items-center justify-center px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-full transition-all min-h-[40px] sm:min-h-[44px]"
+            className="inline-flex items-center justify-center px-5 py-2.5 text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-800/90 dark:border dark:border-white/15 rounded-full transition-all min-h-[40px] sm:min-h-[44px] shadow-sm"
           >
             Login
-          </Link>
-
-          {/* Contact Button (Primary Blue Pill) */}
-          <Link
-            href="/contact"
-            className="inline-flex items-center justify-center px-4 py-2 sm:px-6 sm:py-2.5 text-xs sm:text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-full shadow-md shadow-blue-500/25 hover:shadow-lg hover:shadow-blue-500/35 active:scale-95 transition-all min-h-[40px] sm:min-h-[44px]"
-          >
-            Contact
           </Link>
 
           {/* Mobile Hamburger Toggle Button */}
@@ -187,39 +170,39 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
               setMobileMenuOpen(!mobileMenuOpen);
               setMegaMenuOpen(false);
             }}
-            className="xl:hidden inline-flex items-center justify-center p-2 rounded-full text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px] min-w-[44px] transition-colors"
+            className="xl:hidden inline-flex items-center justify-center p-2 rounded-full text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 dark:border dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px] min-w-[44px] transition-colors"
           >
             {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
           </button>
         </div>
 
         {/* ==========================================
-            MEGA MENU OVERLAY (Ref: uploaded UI reference)
+            MEGA MENU OVERLAY (ChatGPT Glass UI Dark Mode)
         ========================================== */}
         {megaMenuOpen && (
           <div
             ref={megaMenuRef}
             onMouseLeave={() => setMegaMenuOpen(false)}
-            className="hidden xl:block absolute top-full left-0 right-0 mt-3 p-6 sm:p-8 bg-white/98 dark:bg-slate-900/98 rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-2xl backdrop-blur-xl z-50 animate-in fade-in-50 slide-in-from-top-2 duration-200"
+            className="hidden xl:block absolute top-full left-0 right-0 mt-3 p-6 sm:p-8 bg-white/95 dark:bg-slate-950/90 rounded-3xl border border-slate-200/90 dark:border-white/15 shadow-2xl dark:shadow-[0_15px_35px_rgba(0,0,0,0.8)] backdrop-blur-2xl z-50 animate-in fade-in-50 slide-in-from-top-2 duration-200"
           >
             <div className="grid grid-cols-3 gap-6">
               {/* Column 1: School Management Modules */}
               <div className="space-y-4">
-                {/* Header Feature Banner Box */}
+                {/* Header Feature Banner Card */}
                 <Link
                   href="/school-management"
                   onClick={() => setMegaMenuOpen(false)}
-                  className="group flex items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700/60 hover:bg-blue-50/80 dark:hover:bg-blue-950/40 transition-all"
+                  className="group flex items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/80 border border-slate-100 dark:border-white/10 hover:bg-blue-50/80 dark:hover:bg-blue-950/50 dark:hover:border-blue-800/50 transition-all"
                 >
                   <div>
                     <h3 className="text-sm font-extrabold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
                       School Management Platform
                     </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    <p className="text-xs text-slate-500 dark:text-slate-300 mt-0.5 font-medium">
                       Core system for day-to-day operations
                     </p>
                   </div>
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 shadow-sm group-hover:bg-blue-600 group-hover:text-white transition-all">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white dark:bg-slate-800 dark:border dark:border-white/10 text-slate-700 dark:text-slate-200 shadow-sm group-hover:bg-blue-600 group-hover:text-white transition-all">
                     <ArrowRight className="h-4 w-4" />
                   </div>
                 </Link>
@@ -229,16 +212,16 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
                   <Link
                     href="/student-management"
                     onClick={() => setMegaMenuOpen(false)}
-                    className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-all"
+                    className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-900/60 dark:hover:border dark:hover:border-white/10 transition-all"
                   >
-                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 dark:bg-blue-950/60 dark:border dark:border-blue-800/40 text-blue-600 dark:text-blue-400">
                       <Users className="h-4 w-4" />
                     </div>
                     <div>
                       <span className="block text-xs font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400">
                         Student Management
                       </span>
-                      <span className="block text-[11px] text-slate-500 dark:text-slate-400">
+                      <span className="block text-[11px] text-slate-500 dark:text-slate-300 font-medium">
                         Profiles, sections & enrollment
                       </span>
                     </div>
@@ -247,16 +230,16 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
                   <Link
                     href="/teacher-management"
                     onClick={() => setMegaMenuOpen(false)}
-                    className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-all"
+                    className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-900/60 dark:hover:border dark:hover:border-white/10 transition-all"
                   >
-                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-950/60 dark:border dark:border-indigo-800/40 text-indigo-600 dark:text-indigo-400">
                       <GraduationCap className="h-4 w-4" />
                     </div>
                     <div>
                       <span className="block text-xs font-bold text-slate-900 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
                         Teacher Workspace
                       </span>
-                      <span className="block text-[11px] text-slate-500 dark:text-slate-400">
+                      <span className="block text-[11px] text-slate-500 dark:text-slate-300 font-medium">
                         Faculty profiles & class assignment
                       </span>
                     </div>
@@ -265,16 +248,16 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
                   <Link
                     href="/attendance-management"
                     onClick={() => setMegaMenuOpen(false)}
-                    className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-all"
+                    className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-900/60 dark:hover:border dark:hover:border-white/10 transition-all"
                   >
-                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 dark:bg-emerald-950/60 dark:border dark:border-emerald-800/40 text-emerald-600 dark:text-emerald-400">
                       <ClipboardCheck className="h-4 w-4" />
                     </div>
                     <div>
                       <span className="block text-xs font-bold text-slate-900 dark:text-slate-100 group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
                         Attendance Automation
                       </span>
-                      <span className="block text-[11px] text-slate-500 dark:text-slate-400">
+                      <span className="block text-[11px] text-slate-500 dark:text-slate-300 font-medium">
                         Daily tracking & attendance logs
                       </span>
                     </div>
@@ -282,7 +265,7 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
                 </div>
 
                 <div className="pt-2">
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-900 dark:border dark:border-white/10 text-[11px] font-bold text-slate-600 dark:text-slate-300">
                     + 8 more modules
                   </span>
                 </div>
@@ -290,21 +273,21 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
 
               {/* Column 2: School ERP & Infrastructure */}
               <div className="space-y-4">
-                {/* Header Feature Banner Box */}
+                {/* Header Feature Banner Card */}
                 <Link
                   href="/school-erp"
                   onClick={() => setMegaMenuOpen(false)}
-                  className="group flex items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700/60 hover:bg-blue-50/80 dark:hover:bg-blue-950/40 transition-all"
+                  className="group flex items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/80 border border-slate-100 dark:border-white/10 hover:bg-blue-50/80 dark:hover:bg-blue-950/50 dark:hover:border-blue-800/50 transition-all"
                 >
                   <div>
                     <h3 className="text-sm font-extrabold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
                       School ERP Infrastructure
                     </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    <p className="text-xs text-slate-500 dark:text-slate-300 mt-0.5 font-medium">
                       Multi-tenant cloud architecture
                     </p>
                   </div>
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 shadow-sm group-hover:bg-blue-600 group-hover:text-white transition-all">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white dark:bg-slate-800 dark:border dark:border-white/10 text-slate-700 dark:text-slate-200 shadow-sm group-hover:bg-blue-600 group-hover:text-white transition-all">
                     <ArrowRight className="h-4 w-4" />
                   </div>
                 </Link>
@@ -314,16 +297,16 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
                   <Link
                     href="/school-erp"
                     onClick={() => setMegaMenuOpen(false)}
-                    className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-all"
+                    className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-900/60 dark:hover:border dark:hover:border-white/10 transition-all"
                   >
-                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-50 dark:bg-cyan-950/60 text-cyan-600 dark:text-cyan-400">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-50 dark:bg-cyan-950/60 dark:border dark:border-cyan-800/40 text-cyan-600 dark:text-cyan-400">
                       <Workflow className="h-4 w-4" />
                     </div>
                     <div>
                       <span className="block text-xs font-bold text-slate-900 dark:text-slate-100 group-hover:text-cyan-600 dark:group-hover:text-cyan-400">
                         Multi-Tenant Isolation
                       </span>
-                      <span className="block text-[11px] text-slate-500 dark:text-slate-400">
+                      <span className="block text-[11px] text-slate-500 dark:text-slate-300 font-medium">
                         Strict data privacy & tenant boundary
                       </span>
                     </div>
@@ -332,16 +315,16 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
                   <Link
                     href="/features"
                     onClick={() => setMegaMenuOpen(false)}
-                    className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-all"
+                    className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-900/60 dark:hover:border dark:hover:border-white/10 transition-all"
                   >
-                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50 dark:bg-amber-950/60 dark:border dark:border-amber-800/40 text-amber-600 dark:text-amber-400">
                       <BarChart3 className="h-4 w-4" />
                     </div>
                     <div>
                       <span className="block text-xs font-bold text-slate-900 dark:text-slate-100 group-hover:text-amber-600 dark:group-hover:text-amber-400">
                         Platform Analytics
                       </span>
-                      <span className="block text-[11px] text-slate-500 dark:text-slate-400">
+                      <span className="block text-[11px] text-slate-500 dark:text-slate-300 font-medium">
                         Institutional growth & reports
                       </span>
                     </div>
@@ -350,16 +333,16 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
                   <Link
                     href="/pricing"
                     onClick={() => setMegaMenuOpen(false)}
-                    className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-all"
+                    className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-900/60 dark:hover:border dark:hover:border-white/10 transition-all"
                   >
-                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-50 dark:bg-purple-950/60 dark:border dark:border-purple-800/40 text-purple-600 dark:text-purple-400">
                       <CreditCard className="h-4 w-4" />
                     </div>
                     <div>
                       <span className="block text-xs font-bold text-slate-900 dark:text-slate-100 group-hover:text-purple-600 dark:group-hover:text-purple-400">
                         Flexible Pricing Plans
                       </span>
-                      <span className="block text-[11px] text-slate-500 dark:text-slate-400">
+                      <span className="block text-[11px] text-slate-500 dark:text-slate-300 font-medium">
                         Starter, Professional & Enterprise
                       </span>
                     </div>
@@ -370,21 +353,21 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
               {/* Column 3: Portals & Gateways */}
               <div className="space-y-4 flex flex-col justify-between">
                 <div>
-                  {/* Header Feature Banner Box */}
+                  {/* Header Feature Banner Card */}
                   <Link
                     href="/login"
                     onClick={() => setMegaMenuOpen(false)}
-                    className="group flex items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700/60 hover:bg-blue-50/80 dark:hover:bg-blue-950/40 transition-all"
+                    className="group flex items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/80 border border-slate-100 dark:border-white/10 hover:bg-blue-50/80 dark:hover:bg-blue-950/50 dark:hover:border-blue-800/50 transition-all"
                   >
                     <div>
                       <h3 className="text-sm font-extrabold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
                         Access Portals
                       </h3>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      <p className="text-xs text-slate-500 dark:text-slate-300 mt-0.5 font-medium">
                         Role-based sign-in gateways
                       </p>
                     </div>
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 shadow-sm group-hover:bg-blue-600 group-hover:text-white transition-all">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white dark:bg-slate-800 dark:border dark:border-white/10 text-slate-700 dark:text-slate-200 shadow-sm group-hover:bg-blue-600 group-hover:text-white transition-all">
                       <ArrowRight className="h-4 w-4" />
                     </div>
                   </Link>
@@ -394,7 +377,7 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
                     <Link
                       href="/admin/login"
                       onClick={() => setMegaMenuOpen(false)}
-                      className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-all"
+                      className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-900/60 dark:hover:border dark:hover:border-white/10 transition-all"
                     >
                       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400">
                         <UserCog className="h-4 w-4" />
@@ -407,7 +390,7 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
                     <Link
                       href="/teacher/login"
                       onClick={() => setMegaMenuOpen(false)}
-                      className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-all"
+                      className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-900/60 dark:hover:border dark:hover:border-white/10 transition-all"
                     >
                       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
                         <GraduationCap className="h-4 w-4" />
@@ -420,7 +403,7 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
                     <Link
                       href="/student/login"
                       onClick={() => setMegaMenuOpen(false)}
-                      className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-all"
+                      className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-900/60 dark:hover:border dark:hover:border-white/10 transition-all"
                     >
                       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
                         <BookOpen className="h-4 w-4" />
@@ -433,9 +416,9 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
                 </div>
 
                 {/* Powered by Brand mark */}
-                <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-400 dark:text-slate-500">
+                <div className="pt-4 border-t border-slate-100 dark:border-white/10 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-medium">
                   <span>Powered by</span>
-                  <div className="flex items-center gap-1.5 font-bold text-slate-700 dark:text-slate-300">
+                  <div className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-200">
                     <GraduationCap className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                     <span>School Study</span>
                   </div>
@@ -450,8 +433,8 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
           MOBILE SLIDE-OUT DRAWER
       ========================================== */}
       {mobileMenuOpen && (
-        <div className="xl:hidden fixed inset-0 top-20 z-50 bg-slate-950/60 backdrop-blur-sm transition-opacity">
-          <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 max-h-[calc(100dvh-5rem)] overflow-y-auto p-5 pb-8 shadow-2xl flex flex-col justify-between">
+        <div className="xl:hidden fixed inset-0 top-20 z-50 bg-slate-950/70 backdrop-blur-md transition-opacity">
+          <div className="bg-white dark:bg-slate-950 border-b border-slate-200 dark:border-white/15 max-h-[calc(100dvh-5rem)] overflow-y-auto p-5 pb-8 shadow-2xl flex flex-col justify-between">
             <nav className="flex flex-col space-y-1.5" aria-label="Mobile Navigation">
               {navLinks.map((link) => {
                 const isActive = currentPath === link.href;
@@ -462,8 +445,8 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
                     onClick={() => setMobileMenuOpen(false)}
                     className={`flex items-center justify-between px-4 py-3 rounded-xl text-sm font-semibold transition-all min-h-[48px] ${
                       isActive
-                        ? "bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400"
-                        : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800/60"
+                        ? "bg-blue-50 text-blue-600 dark:bg-blue-950/70 dark:text-blue-300 dark:border dark:border-blue-800/40"
+                        : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900/60"
                     }`}
                   >
                     <span>{link.label}</span>
@@ -473,11 +456,11 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
               })}
             </nav>
 
-            <div className="mt-6 pt-5 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-3">
+            <div className="mt-6 pt-5 border-t border-slate-100 dark:border-white/10 flex flex-col gap-3">
               <Link
                 href="/student/login"
                 onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center justify-center gap-2 w-full py-3 text-sm font-bold text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-300 rounded-xl border border-emerald-200 dark:border-emerald-800 min-h-[48px]"
+                className="flex items-center justify-center gap-2 w-full py-3 text-sm font-bold text-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border dark:border-emerald-800/50 rounded-xl border border-emerald-200 min-h-[48px]"
               >
                 <GraduationCap className="h-4 w-4" />
                 <span>Student Portal</span>
