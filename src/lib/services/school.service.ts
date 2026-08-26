@@ -19,21 +19,16 @@ import { COLLECTIONS } from "@/lib/utils/constants";
 import { firebaseClientConfig } from "@/lib/firebase/config";
 import type { School, SchoolStatus, CreateSchoolInput, AppUser } from "@/types";
 
+import { compressImageToBase64 } from "@/lib/utils/image-compression";
+
 /**
- * Uploads a school logo to Firebase Storage and returns the public download URL.
+ * Uploads a school logo with client-side compression and zero CORS requirements.
  */
 export async function uploadSchoolLogo(
   file: File,
   schoolCode: string
 ): Promise<string> {
-  const storage = getFirebaseStorage();
-  const cleanCode = schoolCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-  const timestamp = Date.now();
-  const storageRef = ref(storage, `school-logos/${cleanCode}_${timestamp}_${file.name}`);
-
-  const snapshot = await uploadBytes(storageRef, file);
-  const downloadUrl = await getDownloadURL(snapshot.ref);
-  return downloadUrl;
+  return await compressImageToBase64(file, 400, 400, 0.8);
 }
 
 /**

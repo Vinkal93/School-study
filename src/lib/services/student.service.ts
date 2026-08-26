@@ -85,23 +85,17 @@ export async function getStudentsByClassAndSection(
   return students.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+import { compressImageToBase64 } from "@/lib/utils/image-compression";
+
 /**
- * Uploads student photo to Firebase Storage.
+ * Uploads student photo with client-side compression and zero CORS requirements.
  */
 export async function uploadStudentPhoto(
   file: File,
   schoolId: string,
   admissionNumber: string
 ): Promise<string> {
-  const storage = getFirebaseStorage();
-  const cleanCode = admissionNumber.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-  const storageRef = ref(
-    storage,
-    `student-photos/${schoolId}_${cleanCode}_${Date.now()}_${file.name}`
-  );
-
-  const snapshot = await uploadBytes(storageRef, file);
-  return await getDownloadURL(snapshot.ref);
+  return await compressImageToBase64(file, 400, 400, 0.75);
 }
 
 /**

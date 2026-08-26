@@ -41,23 +41,17 @@ export async function getTeachers(schoolId: string): Promise<TeacherProfile[]> {
   }
 }
 
+import { compressImageToBase64 } from "@/lib/utils/image-compression";
+
 /**
- * Uploads a teacher profile photo to Firebase Storage.
+ * Uploads a teacher profile photo with client-side compression and zero CORS requirements.
  */
 export async function uploadTeacherPhoto(
   file: File,
   schoolId: string,
   teacherCode: string
 ): Promise<string> {
-  const storage = getFirebaseStorage();
-  const cleanCode = teacherCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-  const storageRef = ref(
-    storage,
-    `teacher-photos/${schoolId}_${cleanCode}_${Date.now()}_${file.name}`
-  );
-
-  const snapshot = await uploadBytes(storageRef, file);
-  return await getDownloadURL(snapshot.ref);
+  return await compressImageToBase64(file, 400, 400, 0.75);
 }
 
 /**

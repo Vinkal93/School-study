@@ -16,13 +16,12 @@ export async function compressImage(
   options: CompressionOptions = {}
 ): Promise<File> {
   const {
-    maxWidth = 800,
-    maxHeight = 800,
-    quality = 0.85,
+    maxWidth = 600,
+    maxHeight = 600,
+    quality = 0.75,
     outputType = "image/jpeg",
   } = options;
 
-  // If server-side or not an image, return original
   if (typeof window === "undefined" || !file.type.startsWith("image/")) {
     return file;
   }
@@ -39,7 +38,6 @@ export async function compressImage(
         let width = img.width;
         let height = img.height;
 
-        // Calculate new dimensions maintaining aspect ratio
         if (width > height) {
           if (width > maxWidth) {
             height = Math.round((height * maxWidth) / width);
@@ -62,7 +60,6 @@ export async function compressImage(
           return;
         }
 
-        // Draw image onto canvas
         ctx.drawImage(img, 0, 0, width, height);
 
         canvas.toBlob(
@@ -92,6 +89,70 @@ export async function compressImage(
 
     reader.onerror = () => {
       resolve(file);
+    };
+  });
+}
+
+/**
+ * Compresses an image and returns a compact Base64 Data URI string.
+ * Allows storing photos directly in Firestore without requiring Firebase Storage bucket or paid Blaze plan.
+ */
+export async function compressImageToBase64(
+  file: File,
+  maxWidth = 400,
+  maxHeight = 400,
+  quality = 0.7
+): Promise<string> {
+  if (typeof window === "undefined" || !file.type.startsWith("image/")) {
+    return "";
+  }
+
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(img.src);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL("image/jpeg", quality);
+        resolve(dataUrl);
+      };
+
+      img.onerror = () => {
+        resolve(event.target?.result as string);
+      };
+    };
+
+    reader.onerror = () => {
+      resolve("");
     };
   });
 }
