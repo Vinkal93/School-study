@@ -1,80 +1,152 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
-  ShieldAlert,
+  Shield,
   Search,
   RefreshCw,
-  Loader2,
-  Calendar,
-  User,
-  Building2,
   Filter,
   CheckCircle2,
+  XCircle,
   Clock,
-  ArrowRight,
+  User,
+  Building2,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  Activity,
+  Layers,
+  Power,
+  ShieldAlert,
+  Loader2,
+  FileText,
 } from "lucide-react";
-import { getAuditLogs } from "@/lib/services/audit.service";
-import type { AuditLogEntry, AuditAction } from "@/types";
+import { useAuth } from "@/hooks/use-auth";
+import { getSchools } from "@/lib/services/school.service";
+import { AuditDetailDrawer } from "@/components/super-admin/AuditDetailDrawer";
+import type { AuditLogEntry, School } from "@/types";
 import { toast } from "sonner";
 
 export default function AuditLogsPage() {
-  const [logs, setLogs] = useState<AuditLogEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [actionFilter, setActionFilter] = useState<"all" | AuditAction>("all");
+  const { profile: currentUser } = useAuth();
 
-  const loadLogs = async () => {
+  const [logs, setLogs] = useState<AuditLogEntry[]>([]);
+  const [schools, setSchools] = useState<School[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Inspector Drawer State
+  const [selectedLog, setSelectedLog] = useState<AuditLogEntry | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Filter State
+  const [search, setSearch] = useState("");
+  const [selectedAction, setSelectedAction] = useState("all");
+  const [selectedRole, setSelectedRole] = useState("all");
+  const [selectedSchool, setSelectedSchool] = useState("all");
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
+
+  const loadAuditLogs = async () => {
+    if (!currentUser) return;
     setLoading(true);
     try {
-      const data = await getAuditLogs(100);
-      setLogs(data);
-    } catch (err) {
-      toast.error("Failed to load audit logs.");
+      if (schools.length === 0) {
+        const schoolsData = await getSchools();
+        setSchools(schoolsData);
+      }
+
+      const params = new URLSearchParams({
+        performerUid: currentUser.uid,
+        action: selectedAction,
+        role: selectedRole,
+        schoolId: selectedSchool,
+        search,
+        limit: "150",
+      });
+
+      const res = await fetch(`/api/super-admin/audit?${params.toString()}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load audit logs");
+
+      setLogs(data.logs || []);
+      setCurrentPage(1);
+    } catch (err: any) {
+      toast.error(err.message || "Could not load audit logs");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadLogs();
-  }, []);
+    loadAuditLogs();
+  }, [selectedAction, selectedRole, selectedSchool, currentUser?.uid]);
 
-  const filteredLogs = logs.filter((log) => {
-    const matchesSearch =
-      (log.targetName && log.targetName.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (log.targetId && log.targetId.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (log.performedBy.name && log.performedBy.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (log.performedBy.email && log.performedBy.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (log.reason && log.reason.toLowerCase().includes(searchQuery.toLowerCase()));
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    loadAuditLogs();
+  };
 
-    const matchesAction = actionFilter === "all" ? true : log.action === actionFilter;
+  const handleInspectRow = (log: AuditLogEntry) => {
+    setSelectedLog(log);
+    setDrawerOpen(true);
+  };
 
-    return matchesSearch && matchesAction;
-  });
+  // Pagination
+  const totalPages = Math.ceil(logs.length / itemsPerPage) || 1;
+  const paginatedLogs = logs.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
 
-  const getActionBadge = (action: AuditAction) => {
+  const getActionBadge = (action: string) => {
     switch (action) {
-      case "USER_STATUS_CHANGE":
-      case "USER_RESTRICT":
-      case "USER_UNRESTRICT":
+      case "SCHOOL_CREATED":
+      case "SCHOOL_CREATE":
+      case "STUDENT_CREATED":
+      case "TEACHER_CREATED":
+      case "ADMIN_CREATED":
         return (
-          <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
-            {action.replace(/_/g, " ")}
+          <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/20 dark:text-blue-400">
+            <CheckCircle2 className="h-3 w-3" />
+            {action.replace("_", " ")}
           </span>
         );
-      case "SCHOOL_CREATE":
-      case "SCHOOL_STATUS_CHANGE":
-      case "SCHOOL_UPDATE":
+      case "USER_RESTRICTED":
+      case "USER_RESTRICT":
         return (
-          <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/20 dark:text-blue-400">
-            {action.replace(/_/g, " ")}
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+            <ShieldAlert className="h-3 w-3" />
+            User Restricted
+          </span>
+        );
+      case "USER_UNRESTRICTED":
+      case "USER_UNRESTRICT":
+      case "USER_ENABLED":
+      case "SCHOOL_ENABLED":
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-semibold text-green-700 dark:bg-green-900/20 dark:text-green-400">
+            <CheckCircle2 className="h-3 w-3" />
+            {action.replace("_", " ")}
+          </span>
+        );
+      case "USER_DISABLED":
+      case "SCHOOL_DISABLED":
+      case "USER_STATUS_CHANGE":
+      case "SCHOOL_STATUS_CHANGE":
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/20 dark:text-red-400">
+            <Power className="h-3 w-3" />
+            {action.replace("_", " ")}
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 rounded-md bg-purple-50 px-2 py-0.5 text-xs font-semibold text-purple-700 dark:bg-purple-900/20 dark:text-purple-400">
-            {action.replace(/_/g, " ")}
+          <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-semibold text-purple-700 dark:bg-purple-900/20 dark:text-purple-400">
+            <Activity className="h-3 w-3" />
+            {action?.replace(/_/g, " ") || "Event"}
           </span>
         );
     }
@@ -86,150 +158,224 @@ export default function AuditLogsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            <ShieldAlert className="h-6 w-6 text-purple-600 dark:text-purple-400" />
-            Platform Audit & Security Logs
+            <Shield className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+            Platform Immutable Audit Log
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Chronological audit trail of all privileged actions, status modifications, and tenant configurations.
+            Cryptographically sealed accountability trail of all platform modifications, user status changes, and administrative actions.
           </p>
         </div>
+
         <button
-          onClick={loadLogs}
+          onClick={loadAuditLogs}
           disabled={loading}
-          className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
         >
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          Refresh
+          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+          Refresh Audit Feed
         </button>
       </div>
 
-      {/* Filter Bar */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950 flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="relative w-full sm:w-80">
-          <label htmlFor="audit-search" className="sr-only">Search audit logs</label>
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-          <input
-            id="audit-search"
-            name="search"
-            aria-label="Search audit logs"
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search target, admin email, reason..."
-            className="w-full rounded-lg border border-gray-300 pl-9 pr-4 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-          />
-        </div>
+      {/* Filter & Search Bar */}
+      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950 space-y-3">
+        <div className="flex flex-col md:flex-row gap-3">
+          {/* Search */}
+          <form onSubmit={handleSearchSubmit} className="relative flex-1">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search by Actor Name, Target, Reason, or Action..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 bg-gray-50/50 pl-9 pr-4 py-2 text-xs text-gray-900 focus:border-purple-500 focus:outline-none dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+            />
+          </form>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto">
-          <span className="text-xs font-medium text-gray-500 dark:text-gray-400 hidden sm:inline-block">
-            Action:
-          </span>
-          {(
-            [
-              "all",
-              "USER_STATUS_CHANGE",
-              "SCHOOL_CREATE",
-              "SCHOOL_STATUS_CHANGE",
-              "PLATFORM_CONFIG_CHANGE",
-            ] as const
-          ).map((act) => (
-            <button
-              key={act}
-              onClick={() => setActionFilter(act)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors ${
-                actionFilter === act
-                  ? "bg-purple-600 text-white"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
-              }`}
-            >
-              {act === "all" ? "All Actions" : act.replace(/_/g, " ")} (
-              {act === "all" ? logs.length : logs.filter((l) => l.action === act).length})
-            </button>
-          ))}
+          {/* Action Filter */}
+          <select
+            value={selectedAction}
+            onChange={(e) => setSelectedAction(e.target.value)}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+          >
+            <option value="all">All Actions</option>
+            <option value="SCHOOL_CREATED">School Created</option>
+            <option value="SCHOOL_UPDATED">School Updated</option>
+            <option value="SCHOOL_DISABLED">School Disabled</option>
+            <option value="SCHOOL_ENABLED">School Enabled</option>
+            <option value="USER_UPDATED">User Updated</option>
+            <option value="USER_RESTRICTED">User Restricted</option>
+            <option value="USER_UNRESTRICTED">User Unrestricted</option>
+            <option value="USER_DISABLED">User Disabled</option>
+            <option value="USER_ENABLED">User Enabled</option>
+            <option value="TEACHER_CREATED">Teacher Created</option>
+            <option value="STUDENT_CREATED">Student Created</option>
+            <option value="ROLE_CHANGED">Role Changed</option>
+            <option value="ADMIN_CREATED">Admin Created</option>
+          </select>
+
+          {/* Role Filter */}
+          <select
+            value={selectedRole}
+            onChange={(e) => setSelectedRole(e.target.value)}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+          >
+            <option value="all">All Actor Roles</option>
+            <option value="super_admin">Super Admin</option>
+            <option value="school_admin">School Admin</option>
+          </select>
+
+          {/* School Filter */}
+          <select
+            value={selectedSchool}
+            onChange={(e) => setSelectedSchool(e.target.value)}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+          >
+            <option value="all">All Schools</option>
+            {schools.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.code})
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {/* Audit Logs Table */}
+      {/* Audit Log Table (7.3) */}
       <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-950 overflow-hidden">
         {loading ? (
           <div className="flex h-64 items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-purple-600" />
           </div>
-        ) : filteredLogs.length === 0 ? (
+        ) : paginatedLogs.length === 0 ? (
           <div className="text-center py-16">
-            <ShieldAlert className="mx-auto h-12 w-12 text-gray-400" />
+            <Shield className="mx-auto h-12 w-12 text-gray-400" />
             <h3 className="mt-2 text-base font-medium text-gray-900 dark:text-white">
-              No audit logs found
+              No audit events found
             </h3>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Administrative actions will automatically generate immutable records here.
+              Try adjusting your filter or search criteria.
             </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-800 text-gray-500 dark:text-gray-400">
+              <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-800 text-gray-500 dark:text-gray-400 text-xs uppercase">
                 <tr>
-                  <th className="py-3.5 px-4 font-medium">Timestamp</th>
+                  <th className="py-3.5 px-4 font-medium">Time</th>
+                  <th className="py-3.5 px-4 font-medium">Actor</th>
                   <th className="py-3.5 px-4 font-medium">Action</th>
                   <th className="py-3.5 px-4 font-medium">Target</th>
-                  <th className="py-3.5 px-4 font-medium">Performed By</th>
-                  <th className="py-3.5 px-4 font-medium">Changes & Reason</th>
+                  <th className="py-3.5 px-4 font-medium">School</th>
+                  <th className="py-3.5 px-4 font-medium">Reason</th>
+                  <th className="py-3.5 px-4 font-medium text-right">Details</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-                {filteredLogs.map((log, idx) => (
-                  <tr key={log.id || idx} className="hover:bg-gray-50 dark:hover:bg-gray-900/50">
-                    <td className="py-4 px-4 whitespace-nowrap text-xs text-gray-500 font-mono">
-                      <div className="flex items-center gap-1.5">
-                        <Clock className="h-3.5 w-3.5 text-gray-400" />
-                        {log.timestamp?.toDate
-                          ? log.timestamp.toDate().toLocaleString()
-                          : "Recent"}
-                      </div>
-                    </td>
-                    <td className="py-4 px-4">{getActionBadge(log.action)}</td>
-                    <td className="py-4 px-4">
-                      <div>
-                        <p className="font-semibold text-gray-900 dark:text-white">
-                          {log.targetName || log.targetId}
-                        </p>
-                        <p className="font-mono text-[11px] text-gray-400">
-                          {log.targetType.toUpperCase()}: {log.targetId.slice(0, 12)}...
-                        </p>
-                      </div>
-                    </td>
-                    <td className="py-4 px-4">
-                      <div>
-                        <p className="font-medium text-gray-900 dark:text-white">
-                          {log.performedBy.name || "Super Admin"}
-                        </p>
-                        <p className="text-xs text-gray-500">{log.performedBy.email}</p>
-                      </div>
-                    </td>
-                    <td className="py-4 px-4 text-xs text-gray-600 dark:text-gray-300">
-                      <p className="font-medium text-gray-900 dark:text-white">
-                        {log.reason || "Administrative update"}
-                      </p>
-                      {log.previousState && log.newState && (
-                        <div className="flex items-center gap-1.5 text-[11px] text-gray-500 font-mono mt-1">
-                          <span className="bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">
-                            {JSON.stringify(log.previousState)}
-                          </span>
-                          <ArrowRight className="h-3 w-3 text-gray-400" />
-                          <span className="bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 px-1.5 py-0.5 rounded">
-                            {JSON.stringify(log.newState)}
+                {paginatedLogs.map((log, idx) => {
+                  const actorName = log.actorName || log.performedBy?.name || "System Admin";
+                  const actorEmail = log.actorEmail || log.performedBy?.email || "";
+                  const actorRole = log.actorRole || log.performedBy?.role || "super_admin";
+                  const targetName = log.targetUserName || log.targetName || log.targetUserId || log.targetId || "—";
+
+                  return (
+                    <tr
+                      key={log.id || idx}
+                      onClick={() => handleInspectRow(log)}
+                      className="hover:bg-gray-50 dark:hover:bg-gray-900/50 cursor-pointer transition-colors"
+                    >
+                      <td className="py-3.5 px-4 text-xs font-mono text-gray-500 whitespace-nowrap">
+                        {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString() : "Recent"}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <div>
+                          <p className="font-semibold text-gray-900 dark:text-white">{actorName}</p>
+                          <p className="text-xs text-gray-500">{actorEmail}</p>
+                          <span className="font-mono text-[10px] font-bold text-purple-600 dark:text-purple-400 uppercase">
+                            {actorRole}
                           </span>
                         </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        {getActionBadge(log.action)}
+                      </td>
+                      <td className="py-3.5 px-4 text-xs">
+                        <span className="font-semibold text-gray-900 dark:text-white">
+                          {targetName}
+                        </span>
+                        <span className="block text-[11px] text-gray-400 capitalize">
+                          {log.entityType || log.targetType || "entity"}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-xs text-gray-600 dark:text-gray-400">
+                        {log.targetSchoolName || log.targetSchoolId || log.actorSchoolId ? (
+                          <span className="font-medium text-blue-600 dark:text-blue-400">
+                            {log.targetSchoolName || log.targetSchoolId || log.actorSchoolId}
+                          </span>
+                        ) : (
+                          <span className="text-purple-600 dark:text-purple-400 font-semibold">
+                            Platform Global
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4 text-xs text-gray-600 dark:text-gray-300 max-w-xs truncate">
+                        {log.reason || "—"}
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleInspectRow(log);
+                          }}
+                          className="inline-flex items-center gap-1 rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-semibold text-purple-700 hover:bg-purple-100 dark:border-purple-800/40 dark:bg-purple-900/20 dark:text-purple-400"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          View Diff
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
+
+        {/* Pagination Bar */}
+        {!loading && logs.length > itemsPerPage && (
+          <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30 text-xs">
+            <span className="text-gray-500">
+              Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
+              {Math.min(currentPage * itemsPerPage, logs.length)} of {logs.length} entries
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                disabled={currentPage === 1}
+                className="p-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 disabled:opacity-40"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span className="font-semibold text-gray-700 dark:text-gray-300">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="p-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 disabled:opacity-40"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Structured Audit Detail Drawer */}
+      <AuditDetailDrawer
+        log={selectedLog}
+        isOpen={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+      />
     </div>
   );
 }

@@ -39,22 +39,24 @@ service cloud.firestore {
 
     // ==========================================
     // AUDIT LOGS & PLATFORM PRIVILEGED COLLECTIONS
-    // Normal users must NOT access platform audit logs
+    // Absolute Immutability: Update and delete are strictly forbidden
     // ==========================================
     match /audit_logs/{logId} {
       allow read: if isSuperAdmin();
-      allow write: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
     }
 
     match /login_logs/{logId} {
-      // Users can see their own login logs, super admin can see all
       allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || isSuperAdmin());
-      allow write: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
     }
 
     match /activity_logs/{logId} {
       allow read: if isSuperAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
-      allow write: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
     }
 
     match /account_restrictions/{docId} {
