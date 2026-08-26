@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { AuthProvider } from "@/providers/auth-provider";
 import { ToastProvider } from "@/providers/toast-provider";
 import { ThemeProvider } from "@/context/theme-context";
+import { GoogleAnalytics } from "@/components/common/GoogleAnalytics";
 import { constructMetadata } from "@/lib/seo";
 import "./globals.css";
 
@@ -41,6 +42,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col bg-background text-foreground transition-colors duration-200">
+        <GoogleAnalytics />
         <ThemeProvider>
           <AuthProvider>
             <ToastProvider />
