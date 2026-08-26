@@ -1,6 +1,6 @@
 "use client";
 
-import { type InputHTMLAttributes, type ReactNode, forwardRef } from "react";
+import { type InputHTMLAttributes, type ReactNode, forwardRef, useId } from "react";
 
 interface AuthInputProps extends InputHTMLAttributes<HTMLInputElement> {
   label: string;
@@ -9,12 +9,16 @@ interface AuthInputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 export const AuthInput = forwardRef<HTMLInputElement, AuthInputProps>(
-  ({ label, icon, error, id, className = "", ...props }, ref) => {
+  ({ label, icon, error, id, name, className = "", ...props }, ref) => {
+    const generatedId = useId();
+    const inputId = id || name || `input-${label.toLowerCase().replace(/[^a-z0-9]/g, "-")}-${generatedId}`;
+    const inputName = name || id || label.toLowerCase().replace(/[^a-z0-9]/g, "_");
+
     return (
       <div className="space-y-1.5 text-left">
         <label
-          htmlFor={id}
-          className="block text-xs font-semibold text-gray-700 dark:text-gray-300"
+          htmlFor={inputId}
+          className="block text-xs font-semibold text-gray-700 dark:text-gray-300 cursor-pointer"
         >
           {label}
         </label>
@@ -25,7 +29,8 @@ export const AuthInput = forwardRef<HTMLInputElement, AuthInputProps>(
             </div>
           )}
           <input
-            id={id}
+            id={inputId}
+            name={inputName}
             ref={ref}
             className={`w-full rounded-xl border border-gray-300 bg-white py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:opacity-75 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 dark:focus:border-blue-400 ${
               icon ? "pl-10" : "pl-3.5"

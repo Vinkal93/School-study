@@ -100,12 +100,14 @@ export default function AdminAttendancePage() {
         <div className="flex flex-wrap items-center gap-3">
           {/* Date Picker */}
           <div>
-            <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
+            <label htmlFor="attendance-date" className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1 cursor-pointer">
               Select Date:
             </label>
             <div className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-900">
               <Calendar className="h-3.5 w-3.5 text-gray-400" />
               <input
+                id="attendance-date"
+                name="attendanceDate"
                 type="date"
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
@@ -116,10 +118,12 @@ export default function AdminAttendancePage() {
 
           {/* Class Filter */}
           <div>
-            <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
+            <label htmlFor="class-filter" className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
               Class / Grade:
             </label>
             <select
+              id="class-filter"
+              name="classId"
               value={selectedClassId}
               onChange={(e) => {
                 setSelectedClassId(e.target.value);
@@ -161,6 +165,9 @@ export default function AdminAttendancePage() {
         <div className="relative w-full sm:w-64">
           <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-gray-400" />
           <input
+            id="attendance-search"
+            name="search"
+            aria-label="Search student or class"
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}

@@ -293,8 +293,12 @@ export default function AdminStudentsPage() {
       {/* Filter & Search Bar */}
       <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950 flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="relative w-full md:w-72">
+          <label htmlFor="students-search" className="sr-only">Search student, adm no, email</label>
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
           <input
+            id="students-search"
+            name="search"
+            aria-label="Search student, adm no, email"
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -566,14 +570,15 @@ export default function AdminStudentsPage() {
                 <X className="h-5 w-5" />
               </button>
             </div>
-
             <form onSubmit={handleEnrollStudent} className="space-y-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="student-adm-no" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
                     Admission Number <span className="text-red-500">*</span> (Unique)
                   </label>
                   <input
+                    id="student-adm-no"
+                    name="admissionNumber"
                     type="text"
                     required
                     value={admissionNumber}
@@ -584,10 +589,12 @@ export default function AdminStudentsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="student-name" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
                     Student Full Name <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="student-name"
+                    name="name"
                     type="text"
                     required
                     value={name}
@@ -598,39 +605,43 @@ export default function AdminStudentsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="student-class" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
                     Assign Class <span className="text-red-500">*</span>
                   </label>
                   <select
+                    id="student-class"
+                    name="classId"
                     required
                     value={selectedClassId}
                     onChange={(e) => {
                       setSelectedClassId(e.target.value);
                       setSelectedSectionId("");
                     }}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
                   >
-                    <option value="">-- Select Class --</option>
-                    {classes.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
+                    <option value="">Select Class</option>
+                    {classes.map((cls) => (
+                      <option key={cls.id} value={cls.id}>
+                        {cls.name}
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="student-section" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
                     Assign Section <span className="text-red-500">*</span>
                   </label>
                   <select
+                    id="student-section"
+                    name="sectionId"
                     required
+                    disabled={!selectedClassId}
                     value={selectedSectionId}
                     onChange={(e) => setSelectedSectionId(e.target.value)}
-                    disabled={!selectedClassId}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white disabled:opacity-50"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
                   >
-                    <option value="">-- Select Section --</option>
+                    <option value="">Select Section</option>
                     {availableSectionsForAdd.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name}
@@ -640,13 +651,15 @@ export default function AdminStudentsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="student-gender" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
                     Gender
                   </label>
                   <select
+                    id="student-gender"
+                    name="gender"
                     value={gender}
                     onChange={(e) => setGender(e.target.value as Gender)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
                   >
                     <option value="male">Male</option>
                     <option value="female">Female</option>
@@ -655,10 +668,12 @@ export default function AdminStudentsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="student-dob" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
                     Date of Birth
                   </label>
                   <input
+                    id="student-dob"
+                    name="dob"
                     type="date"
                     value={dob}
                     onChange={(e) => setDob(e.target.value)}
@@ -667,10 +682,12 @@ export default function AdminStudentsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="student-email" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
                     Student Login Email <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="student-email"
+                    name="email"
                     type="email"
                     required
                     value={email}
@@ -681,10 +698,12 @@ export default function AdminStudentsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="student-password" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
                     Initial Password <span className="text-red-500">*</span> (Min 6 chars)
                   </label>
                   <input
+                    id="student-password"
+                    name="password"
                     type="password"
                     required
                     minLength={6}
@@ -696,10 +715,12 @@ export default function AdminStudentsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="student-phone" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
                     Guardian Phone Number
                   </label>
                   <input
+                    id="student-phone"
+                    name="phone"
                     type="tel"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
@@ -709,10 +730,12 @@ export default function AdminStudentsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="student-adm-date" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
                     Admission Date
                   </label>
                   <input
+                    id="student-adm-date"
+                    name="admissionDate"
                     type="date"
                     value={admissionDate}
                     onChange={(e) => setAdmissionDate(e.target.value)}
@@ -721,10 +744,12 @@ export default function AdminStudentsPage() {
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="student-address" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
                     Residential Address
                   </label>
                   <input
+                    id="student-address"
+                    name="address"
                     type="text"
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}

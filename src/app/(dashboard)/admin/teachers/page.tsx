@@ -313,8 +313,12 @@ export default function AdminTeachersPage() {
       {/* Filter & Search */}
       <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950 flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="relative w-full sm:w-80">
+          <label htmlFor="teachers-search" className="sr-only">Search name, code, email, class</label>
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
           <input
+            id="teachers-search"
+            name="search"
+            aria-label="Search name, code, email, class"
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -598,10 +602,12 @@ export default function AdminTeachersPage() {
             <form onSubmit={handleAddTeacher} className="space-y-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="teacher-code" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
                     Teacher ID / Code <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="teacher-code"
+                    name="teacherCode"
                     type="text"
                     required
                     value={teacherCode}
@@ -612,10 +618,12 @@ export default function AdminTeachersPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="teacher-name" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
                     Full Name <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="teacher-name"
+                    name="name"
                     type="text"
                     required
                     value={name}
@@ -626,10 +634,12 @@ export default function AdminTeachersPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="teacher-email" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
                     Email Address <span className="text-red-500">*</span> (Login ID)
                   </label>
                   <input
+                    id="teacher-email"
+                    name="email"
                     type="email"
                     required
                     value={email}
@@ -640,10 +650,12 @@ export default function AdminTeachersPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="teacher-password" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
                     Initial Password <span className="text-red-500">*</span> (Min 6 chars)
                   </label>
                   <input
+                    id="teacher-password"
+                    name="password"
                     type="password"
                     required
                     minLength={6}
@@ -655,10 +667,12 @@ export default function AdminTeachersPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="teacher-phone" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
                     Phone Number
                   </label>
                   <input
+                    id="teacher-phone"
+                    name="phone"
                     type="tel"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
@@ -668,10 +682,12 @@ export default function AdminTeachersPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="teacher-joining-date" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
                     Joining Date
                   </label>
                   <input
+                    id="teacher-joining-date"
+                    name="joiningDate"
                     type="date"
                     value={joiningDate}
                     onChange={(e) => setJoiningDate(e.target.value)}
@@ -681,7 +697,7 @@ export default function AdminTeachersPage() {
 
                 {/* Class Assignment */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="teacher-class" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
                     Assigned Class (Optional)
                   </label>
                   <select

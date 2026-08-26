@@ -114,10 +114,12 @@ export default function SetupSuperAdminPage() {
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+            <label htmlFor="admin-name" className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
               Super Admin Name
             </label>
             <input
+              id="admin-name"
+              name="name"
               type="text"
               required
               value={name}
@@ -128,10 +130,12 @@ export default function SetupSuperAdminPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+            <label htmlFor="admin-email" className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
               Login Email
             </label>
             <input
+              id="admin-email"
+              name="email"
               type="email"
               required
               value={email}
@@ -143,10 +147,12 @@ export default function SetupSuperAdminPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+              <label htmlFor="admin-password" className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
                 Master Password
               </label>
               <input
+                id="admin-password"
+                name="password"
                 type="password"
                 required
                 minLength={6}
@@ -158,10 +164,12 @@ export default function SetupSuperAdminPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+              <label htmlFor="admin-confirm-password" className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
                 Confirm Password
               </label>
               <input
+                id="admin-confirm-password"
+                name="confirmPassword"
                 type="password"
                 required
                 minLength={6}

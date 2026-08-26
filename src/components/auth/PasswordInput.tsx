@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type InputHTMLAttributes, forwardRef } from "react";
+import { useState, type InputHTMLAttributes, forwardRef, useId } from "react";
 import { Lock, Eye, EyeOff } from "lucide-react";
 
 interface PasswordInputProps extends InputHTMLAttributes<HTMLInputElement> {
@@ -9,15 +9,18 @@ interface PasswordInputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
-  ({ label = "Password", error, id = "password", className = "", ...props }, ref) => {
+  ({ label = "Password", error, id, name, className = "", ...props }, ref) => {
     const [showPassword, setShowPassword] = useState(false);
+    const generatedId = useId();
+    const inputId = id || name || `password-${generatedId}`;
+    const inputName = name || id || "password";
 
     return (
       <div className="space-y-1.5 text-left">
         <div className="flex items-center justify-between">
           <label
-            htmlFor={id}
-            className="block text-xs font-semibold text-gray-700 dark:text-gray-300"
+            htmlFor={inputId}
+            className="block text-xs font-semibold text-gray-700 dark:text-gray-300 cursor-pointer"
           >
             {label}
           </label>
@@ -27,7 +30,8 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
             <Lock className="h-4 w-4" />
           </div>
           <input
-            id={id}
+            id={inputId}
+            name={inputName}
             ref={ref}
             type={showPassword ? "text" : "password"}
             className={`w-full rounded-xl border border-gray-300 bg-white py-2.5 pl-10 pr-10 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:opacity-75 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 dark:focus:border-blue-400 ${
