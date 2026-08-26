@@ -10,7 +10,7 @@ import {
   Sparkles,
   ShieldCheck,
 } from "lucide-react";
-import { MarketingHeader, MarketingCTA } from "@/components/marketing";
+import { MarketingHeader, MarketingCTA, RelatedModules } from "@/components/marketing";
 import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import { Footer } from "@/components/footer";
 import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
@@ -83,7 +83,7 @@ export default function StudentManagementPage() {
                 href="/attendance-management"
                 className="inline-flex items-center gap-2 px-6 py-3.5 text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 rounded-xl transition-all"
               >
-                Attendance Tracking →
+                Explore Attendance Management →
               </Link>
             </div>
           </div>
@@ -113,6 +113,9 @@ export default function StudentManagementPage() {
                 <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
                   Store complete student records including full name, roll number, unique admission ID, class, section, guardian names, and contact phone numbers.
                 </p>
+                <Link href="/school-management" className="mt-4 inline-block text-xs font-semibold text-blue-600 dark:text-blue-400">
+                  Manage via School Management System →
+                </Link>
               </div>
 
               {/* 2. Class & Section Hub */}
@@ -126,6 +129,9 @@ export default function StudentManagementPage() {
                 <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
                   Easily filter and organize students by grade and division (e.g. Class 10-A, 10-B), with quick search across names and admission IDs.
                 </p>
+                <Link href="/teacher-management" className="mt-4 inline-block text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+                  View Assigned Faculty Desks →
+                </Link>
               </div>
 
               {/* 3. Student & Parent Transparency */}
@@ -139,10 +145,20 @@ export default function StudentManagementPage() {
                 <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
                   Students log in with their assigned credentials or admission number to monitor their monthly attendance percentage and campus circulars.
                 </p>
+                <Link href="/attendance-management" className="mt-4 inline-block text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                  Check Real-Time Attendance Logs →
+                </Link>
               </div>
             </div>
           </div>
         </section>
+
+        {/* Related Interconnected Modules */}
+        <RelatedModules
+          currentPath="/student-management"
+          title="Interconnected Platform Workflows"
+          subtitle="Explore how student records automatically link with attendance registers and teacher dashboards."
+        />
 
         <MarketingCTA
           title="Transform Student Administration in Minutes"

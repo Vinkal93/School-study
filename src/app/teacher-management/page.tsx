@@ -11,7 +11,7 @@ import {
   ShieldCheck,
   School,
 } from "lucide-react";
-import { MarketingHeader, MarketingCTA } from "@/components/marketing";
+import { MarketingHeader, MarketingCTA, RelatedModules } from "@/components/marketing";
 import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import { Footer } from "@/components/footer";
 import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
@@ -84,7 +84,7 @@ export default function TeacherManagementPage() {
                 href="/attendance-management"
                 className="inline-flex items-center gap-2 px-6 py-3.5 text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 rounded-xl transition-all"
               >
-                Attendance Management →
+                Explore Attendance Management →
               </Link>
             </div>
           </div>
@@ -114,6 +114,9 @@ export default function TeacherManagementPage() {
                 <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
                   School administrators add faculty members with name, email, phone, and subjects. The platform automatically generates secure login credentials.
                 </p>
+                <Link href="/school-management" className="mt-4 inline-block text-xs font-semibold text-purple-600 dark:text-purple-400">
+                  Manage via School Management System →
+                </Link>
               </div>
 
               {/* 2. Class & Subject Assignments */}
@@ -127,6 +130,9 @@ export default function TeacherManagementPage() {
                 <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
                   Assign specific classes and divisions (e.g. Class 8-B) to teachers. Designated class teachers get direct access to their assigned student roster.
                 </p>
+                <Link href="/student-management" className="mt-4 inline-block text-xs font-semibold text-blue-600 dark:text-blue-400">
+                  Explore Student Management Profiles →
+                </Link>
               </div>
 
               {/* 3. Fast Attendance Mark-up */}
@@ -140,10 +146,20 @@ export default function TeacherManagementPage() {
                 <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
                   Teachers open their mobile browser in class, mark attendance for their students with single clicks, and submit instantly to the school database.
                 </p>
+                <Link href="/attendance-management" className="mt-4 inline-block text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                  Review Daily Attendance Workflows →
+                </Link>
               </div>
             </div>
           </div>
         </section>
+
+        {/* Related Interconnected Modules */}
+        <RelatedModules
+          currentPath="/teacher-management"
+          title="Related Educational Management Modules"
+          subtitle="Discover how teacher management integrates with student rosters and school ERP features."
+        />
 
         <MarketingCTA
           title="Equip Your Faculty With School Study"

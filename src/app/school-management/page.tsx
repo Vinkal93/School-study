@@ -12,7 +12,7 @@ import {
   Sparkles,
   CheckCircle2,
 } from "lucide-react";
-import { MarketingHeader, MarketingCTA } from "@/components/marketing";
+import { MarketingHeader, MarketingCTA, RelatedModules } from "@/components/marketing";
 import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import { Footer } from "@/components/footer";
 import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
@@ -85,7 +85,7 @@ export default function SchoolManagementPage() {
                 href="/student-management"
                 className="inline-flex items-center gap-2 px-6 py-3.5 text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 rounded-xl transition-all"
               >
-                Student Management →
+                Explore Student Management →
               </Link>
             </div>
           </div>
@@ -163,6 +163,9 @@ export default function SchoolManagementPage() {
                 <p className="mt-2 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
                   Easily structure grades (e.g. Class 1 to 12) with custom section divisions (A, B, C) and designated head teachers.
                 </p>
+                <Link href="/school-erp" className="mt-4 inline-block text-xs font-semibold text-amber-600 dark:text-amber-400">
+                  Explore School ERP Architecture →
+                </Link>
               </div>
 
               {/* 5. Broadcast Notices */}
@@ -193,6 +196,13 @@ export default function SchoolManagementPage() {
             </div>
           </div>
         </section>
+
+        {/* Related Interconnected Modules */}
+        <RelatedModules
+          currentPath="/school-management"
+          title="Connect with Key Academic Modules"
+          subtitle="School Study seamlessly connects administrators with teachers, students, and attendance rosters."
+        />
 
         <MarketingCTA
           title="Empower Your School Administrators Today"

@@ -12,7 +12,7 @@ import {
   BarChart3,
   Smartphone,
 } from "lucide-react";
-import { MarketingHeader, MarketingCTA } from "@/components/marketing";
+import { MarketingHeader, MarketingCTA, RelatedModules } from "@/components/marketing";
 import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import { Footer } from "@/components/footer";
 import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
@@ -85,7 +85,7 @@ export default function AttendanceManagementPage() {
                 href="/student-management"
                 className="inline-flex items-center gap-2 px-6 py-3.5 text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 rounded-xl transition-all"
               >
-                Student Profiles →
+                Explore Student Management →
               </Link>
             </div>
           </div>
@@ -115,6 +115,9 @@ export default function AttendanceManagementPage() {
                 <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
                   Easily toggle between <strong className="text-emerald-600">Present</strong>, <strong className="text-red-600">Absent</strong>, and <strong className="text-amber-600">Late</strong> statuses per student with single-tap controls.
                 </p>
+                <Link href="/teacher-management" className="mt-4 inline-block text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                  See Teacher Roll-Call Desk →
+                </Link>
               </div>
 
               {/* 2. Monthly History & Logs */}
@@ -128,6 +131,9 @@ export default function AttendanceManagementPage() {
                 <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
                   Review complete historical records by date, class, or individual student. Never lose attendance sheets again.
                 </p>
+                <Link href="/school-management" className="mt-4 inline-block text-xs font-semibold text-blue-600 dark:text-blue-400">
+                  Review in School Management Dashboard →
+                </Link>
               </div>
 
               {/* 3. Student Percentage Visibility */}
@@ -141,10 +147,20 @@ export default function AttendanceManagementPage() {
                 <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
                   Students log into their portal to view their overall attendance percentage, helping them maintain institutional eligibility.
                 </p>
+                <Link href="/student-management" className="mt-4 inline-block text-xs font-semibold text-purple-600 dark:text-purple-400">
+                  Check Student Portal Features →
+                </Link>
               </div>
             </div>
           </div>
         </section>
+
+        {/* Related Interconnected Modules */}
+        <RelatedModules
+          currentPath="/attendance-management"
+          title="Related Attendance & Administration Features"
+          subtitle="Discover how automated attendance links directly to student profiles and faculty workflows."
+        />
 
         <MarketingCTA
           title="Streamline Daily School Attendance Today"

@@ -12,7 +12,7 @@ import {
   Sparkles,
   Lock,
 } from "lucide-react";
-import { MarketingHeader, MarketingCTA } from "@/components/marketing";
+import { MarketingHeader, MarketingCTA, RelatedModules } from "@/components/marketing";
 import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import { Footer } from "@/components/footer";
 import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
@@ -85,7 +85,7 @@ export default function SchoolErpPage() {
                 href="/features"
                 className="inline-flex items-center gap-2 px-6 py-3.5 text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 rounded-xl transition-all"
               >
-                Explore Modules →
+                Explore All Features →
               </Link>
             </div>
           </div>
@@ -114,16 +114,9 @@ export default function SchoolErpPage() {
                 <p className="mt-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
                   Support single schools or multiple educational branches simultaneously with rigorous tenant-level data isolation and centralized Super Admin onboarding.
                 </p>
-                <ul className="mt-4 space-y-2 text-xs text-slate-500 dark:text-slate-400">
-                  <li className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-blue-600" />
-                    <span>Unique School ID and domain partitioning</span>
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-blue-600" />
-                    <span>Strict Firestore tenant isolation rules</span>
-                  </li>
-                </ul>
+                <Link href="/school-management" className="mt-4 inline-block text-xs font-semibold text-blue-600 dark:text-blue-400">
+                  Explore School Management Operations →
+                </Link>
               </div>
 
               <div className="rounded-3xl border border-slate-200/80 bg-white p-8 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
@@ -136,16 +129,9 @@ export default function SchoolErpPage() {
                 <p className="mt-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
                   Fast mark-up tools for homeroom teachers to record classroom attendance with instant calculation of student attendance percentages.
                 </p>
-                <ul className="mt-4 space-y-2 text-xs text-slate-500 dark:text-slate-400">
-                  <li className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                    <span>Single-tap Present / Absent / Late recording</span>
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                    <span>Historical monthly records & trend analytics</span>
-                  </li>
-                </ul>
+                <Link href="/attendance-management" className="mt-4 inline-block text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                  Explore School Attendance Management →
+                </Link>
               </div>
 
               <div className="rounded-3xl border border-slate-200/80 bg-white p-8 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
@@ -158,16 +144,9 @@ export default function SchoolErpPage() {
                 <p className="mt-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
                   Clean directory management with structured admission numbers, class sections, guardian phone contacts, and assigned teachers.
                 </p>
-                <ul className="mt-4 space-y-2 text-xs text-slate-500 dark:text-slate-400">
-                  <li className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-purple-600" />
-                    <span>Zero duplicate admission number conflicts</span>
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-purple-600" />
-                    <span>Automated teacher credential allocation</span>
-                  </li>
-                </ul>
+                <Link href="/student-management" className="mt-4 inline-block text-xs font-semibold text-purple-600 dark:text-purple-400">
+                  Explore Student Management Hub →
+                </Link>
               </div>
 
               <div className="rounded-3xl border border-slate-200/80 bg-white p-8 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
@@ -180,20 +159,20 @@ export default function SchoolErpPage() {
                 <p className="mt-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
                   No complex desktop installations. School Study runs entirely in the cloud, fully responsive across mobile phones, tablets, and desktop workstations.
                 </p>
-                <ul className="mt-4 space-y-2 text-xs text-slate-500 dark:text-slate-400">
-                  <li className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-amber-600" />
-                    <span>Next.js App Router performance</span>
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-amber-600" />
-                    <span>Automatic Light & Dark theme support</span>
-                  </li>
-                </ul>
+                <Link href="/teacher-management" className="mt-4 inline-block text-xs font-semibold text-amber-600 dark:text-amber-400">
+                  Explore Teacher Management Workspace →
+                </Link>
               </div>
             </div>
           </div>
         </section>
+
+        {/* Related Interconnected Modules */}
+        <RelatedModules
+          currentPath="/school-erp"
+          title="Modular School ERP Architecture"
+          subtitle="Explore how all essential school operations connect in one unified system."
+        />
 
         <MarketingCTA
           title="Ready for a Simpler School ERP?"

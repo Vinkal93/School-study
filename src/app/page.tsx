@@ -330,7 +330,7 @@ export default function LandingPage() {
 
             <div id="modules" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {/* 1. Student Management */}
-              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-blue-300 dark:hover:border-blue-700 transition-all group">
+              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-blue-300 dark:hover:border-blue-700 transition-all group flex flex-col justify-between">
                 <div className="flex items-start gap-4">
                   <div className="h-12 w-12 rounded-xl bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
                     <Users className="h-6 w-6" />
@@ -344,10 +344,19 @@ export default function LandingPage() {
                     </p>
                   </div>
                 </div>
+                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <Link
+                    href="/student-management"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    <span>Explore Student Management Software</span>
+                    <ArrowRight className="h-3 w-3" />
+                  </Link>
+                </div>
               </div>
 
               {/* 2. Attendance Management */}
-              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-green-300 dark:hover:border-green-700 transition-all group">
+              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-green-300 dark:hover:border-green-700 transition-all group flex flex-col justify-between">
                 <div className="flex items-start gap-4">
                   <div className="h-12 w-12 rounded-xl bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
                     <ClipboardCheck className="h-6 w-6" />
@@ -361,10 +370,19 @@ export default function LandingPage() {
                     </p>
                   </div>
                 </div>
+                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <Link
+                    href="/attendance-management"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-green-600 dark:text-green-400 hover:underline"
+                  >
+                    <span>Explore School Attendance Management</span>
+                    <ArrowRight className="h-3 w-3" />
+                  </Link>
+                </div>
               </div>
 
               {/* 3. Teacher Management */}
-              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-purple-300 dark:hover:border-purple-700 transition-all group">
+              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-purple-300 dark:hover:border-purple-700 transition-all group flex flex-col justify-between">
                 <div className="flex items-start gap-4">
                   <div className="h-12 w-12 rounded-xl bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
                     <GraduationCap className="h-6 w-6" />
@@ -378,10 +396,19 @@ export default function LandingPage() {
                     </p>
                   </div>
                 </div>
+                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <Link
+                    href="/teacher-management"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-600 dark:text-purple-400 hover:underline"
+                  >
+                    <span>Explore Teacher Management Software</span>
+                    <ArrowRight className="h-3 w-3" />
+                  </Link>
+                </div>
               </div>
 
               {/* 4. Notices & Announcements */}
-              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-orange-300 dark:hover:border-orange-700 transition-all group">
+              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-orange-300 dark:hover:border-orange-700 transition-all group flex flex-col justify-between">
                 <div className="flex items-start gap-4">
                   <div className="h-12 w-12 rounded-xl bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
                     <Bell className="h-6 w-6" />
@@ -395,10 +422,19 @@ export default function LandingPage() {
                     </p>
                   </div>
                 </div>
+                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <Link
+                    href="/school-management"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-orange-600 dark:text-orange-400 hover:underline"
+                  >
+                    <span>Explore School Administration Modules</span>
+                    <ArrowRight className="h-3 w-3" />
+                  </Link>
+                </div>
               </div>
 
               {/* 5. Reports & Analytics */}
-              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-pink-300 dark:hover:border-pink-700 transition-all group">
+              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-pink-300 dark:hover:border-pink-700 transition-all group flex flex-col justify-between">
                 <div className="flex items-start gap-4">
                   <div className="h-12 w-12 rounded-xl bg-pink-50 dark:bg-pink-900/30 text-pink-600 dark:text-pink-400 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
                     <BarChart3 className="h-6 w-6" />
@@ -412,10 +448,19 @@ export default function LandingPage() {
                     </p>
                   </div>
                 </div>
+                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <Link
+                    href="/features"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-pink-600 dark:text-pink-400 hover:underline"
+                  >
+                    <span>Explore Analytics & Reporting Features</span>
+                    <ArrowRight className="h-3 w-3" />
+                  </Link>
+                </div>
               </div>
 
               {/* 6. Multi-Tenant Cloud Architecture */}
-              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-cyan-300 dark:hover:border-cyan-700 transition-all group">
+              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-cyan-300 dark:hover:border-cyan-700 transition-all group flex flex-col justify-between">
                 <div className="flex items-start gap-4">
                   <div className="h-12 w-12 rounded-xl bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
                     <ShieldCheck className="h-6 w-6" />
@@ -428,6 +473,15 @@ export default function LandingPage() {
                       Strict tenant database boundaries ensure each school&apos;s records, academic files, and rosters remain completely isolated and secure.
                     </p>
                   </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <Link
+                    href="/school-erp"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-cyan-600 dark:text-cyan-400 hover:underline"
+                  >
+                    <span>Explore Multi-Tenant School ERP</span>
+                    <ArrowRight className="h-3 w-3" />
+                  </Link>
                 </div>
               </div>
             </div>
