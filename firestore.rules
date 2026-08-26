@@ -33,7 +33,8 @@ service cloud.firestore {
       allow write: if isAuthenticated();
 
       match /{document=**} {
-        allow read, write: if isAuthenticated();
+        allow read: if true;
+        allow write: if isAuthenticated();
       }
     }
 
@@ -42,56 +43,56 @@ service cloud.firestore {
     // Absolute Immutability: Update and delete are strictly forbidden
     // ==========================================
     match /audit_logs/{logId} {
-      allow read: if isSuperAdmin();
-      allow create: if isAuthenticated();
+      allow read: if true;
+      allow create: if true;
       allow update, delete: if false;
     }
 
     match /login_logs/{logId} {
-      allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || isSuperAdmin());
-      allow create: if isAuthenticated();
+      allow read: if true;
+      allow create: if true;
       allow update, delete: if false;
     }
 
     match /activity_logs/{logId} {
-      allow read: if isSuperAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
-      allow create: if isAuthenticated();
+      allow read: if true;
+      allow create: if true;
       allow update, delete: if false;
     }
 
     match /account_restrictions/{docId} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin();
+      allow read: if true;
+      allow write: if isAuthenticated();
     }
 
     match /platform_analytics/{docId} {
-      allow read: if isSuperAdmin();
-      allow write: if isSuperAdmin();
+      allow read: if true;
+      allow write: if isAuthenticated();
     }
 
     // ==========================================
     // AGGREGATED STATS COLLECTIONS
     // ==========================================
     match /schoolStats/{schoolId} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin();
+      allow read: if true;
+      allow write: if isAuthenticated();
     }
 
     match /platformStats/{docId} {
-      allow read: if isSuperAdmin();
-      allow write: if isSuperAdmin();
+      allow read: if true;
+      allow write: if isAuthenticated();
     }
 
     match /dailyStats/{date} {
-      allow read: if isSuperAdmin();
-      allow write: if isSuperAdmin();
+      allow read: if true;
+      allow write: if isAuthenticated();
     }
 
     // ==========================================
     // ALL OTHER COLLECTIONS
     // ==========================================
     match /{document=**} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if true;
     }
   }
 }
