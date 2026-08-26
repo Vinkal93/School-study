@@ -11,11 +11,6 @@ import {
   Calendar,
   ArrowRight,
   CheckCircle2,
-  Phone,
-  Mail,
-  MapPin,
-  Laptop,
-  BookOpen,
   Send,
   Sparkles,
   School,
@@ -23,16 +18,15 @@ import {
   ChevronRight,
   Shield,
   UserCog,
-  Workflow,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/common/theme-toggle";
 import { Footer } from "@/components/footer";
-import { constructMetadata, getHomepageJsonLd, siteConfig } from "@/lib/seo";
+import { constructMetadata, getHomepageJsonLd } from "@/lib/seo";
 
 export const metadata: Metadata = constructMetadata({
-  title: "School Management Software for Modern Schools | School Study",
+  title: "School Study — Modern School Management Software",
   description:
-    "School Study is a modern school management platform for schools to manage students, teachers, classes and attendance from one simple system.",
+    "School Study is a modern, intuitive school management system to manage students, teachers, classes, and daily attendance from one simple platform.",
   canonicalUrl: "/",
 });
 
@@ -41,9 +35,7 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 font-sans selection:bg-blue-100 selection:text-blue-900 transition-colors duration-200">
-      {/* ==========================================
-          STRUCTURED DATA (JSON-LD)
-      ========================================== */}
+      {/* Structured Data (JSON-LD) */}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
@@ -81,7 +73,7 @@ export default function LandingPage() {
               Modules
             </a>
             <a href="#benefits" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-              How It Works
+              Benefits
             </a>
             <Link href="/about-developer" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
               About Developer
@@ -93,7 +85,6 @@ export default function LandingPage() {
 
           {/* CTA Buttons & Theme Toggle */}
           <div className="flex items-center gap-2 sm:gap-3">
-            {/* Theme Toggle */}
             <ThemeToggle />
 
             {/* Student Portal Link */}
@@ -105,7 +96,7 @@ export default function LandingPage() {
               Student Portal
             </Link>
 
-            {/* Portal Selection / Staff Login */}
+            {/* Sign In */}
             <Link
               href="/login"
               className="px-4 py-2 text-xs sm:text-sm font-semibold text-gray-700 hover:text-blue-600 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800 rounded-xl transition-all"
@@ -136,20 +127,22 @@ export default function LandingPage() {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-8 items-center">
               {/* Left Content Column */}
               <div className="lg:col-span-6 space-y-6 text-center lg:text-left">
-                {/* Topic Badge */}
+                {/* Badge */}
                 <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-50 dark:bg-blue-950/50 border border-blue-200/80 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-xs font-semibold shadow-sm">
                   <Sparkles className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                  <span>Next-Generation School ERP & Management</span>
+                  <span>All-in-One School Management System</span>
                 </div>
 
-                {/* Primary H1 for Homepage SEO */}
-                <h1 className="text-3xl sm:text-4xl lg:text-5xl xl:text-6xl font-extrabold tracking-tight text-gray-900 dark:text-white leading-[1.15]">
-                  Simple School Management Software for Modern Schools
+                {/* Primary H1 */}
+                <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-gray-900 dark:text-white leading-[1.15]">
+                  Simplify <span className="text-gray-900 dark:text-white">School.</span>
+                  <br />
+                  Improve <span className="text-blue-600 dark:text-blue-400">Education.</span>
                 </h1>
 
-                {/* Subheading answering What is School Study & What problem it solves */}
+                {/* Subheading */}
                 <p className="text-base sm:text-lg text-gray-600 dark:text-gray-300 max-w-xl mx-auto lg:mx-0 leading-relaxed">
-                  School Study is a powerful and intuitive school management system that enables educational institutions to manage students, faculty, daily attendance, class schedules, and notices — all from one centralized, secure platform.
+                  School Study is a powerful and easy-to-use platform that helps schools manage students, teachers, attendance, notices, and more — all in one place.
                 </p>
 
                 {/* CTA Action Buttons */}
@@ -171,7 +164,7 @@ export default function LandingPage() {
                   </Link>
                 </div>
 
-                {/* Social Proof Counters Bar */}
+                {/* Feature Highlights Bar */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-8 border-t border-gray-100 dark:border-gray-800">
                   <div className="flex items-center gap-3">
                     <div className="h-10 w-10 rounded-lg bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400">
@@ -240,7 +233,7 @@ export default function LandingPage() {
                         Empowering Next-Gen Classrooms
                       </div>
                       <p className="text-xs text-blue-100 max-w-xs leading-relaxed">
-                        Intuitive dashboards for school admins, class teachers, students, and institutional leaders.
+                        Intuitive dashboards for school admins, class teachers, and students.
                       </p>
                     </div>
 
@@ -299,7 +292,7 @@ export default function LandingPage() {
                   </div>
 
                   {/* Floating Stat Badge 4: Upcoming Schedule */}
-                  <div className="hidden sm:flex absolute -bottom-4 -right-2 sm:-right-4 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-xl items-center gap-3">
+                  <div className="hidden sm:flex absolute -bottom-4 -right-2 sm:-right-4 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-xl flex items-center gap-3">
                     <div className="h-10 w-10 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 flex items-center justify-center">
                       <Calendar className="h-5 w-5" />
                     </div>
@@ -319,18 +312,21 @@ export default function LandingPage() {
         ========================================== */}
         <section id="features" className="py-20 bg-white dark:bg-gray-950 border-t border-gray-100 dark:border-gray-800">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center max-w-2xl mx-auto mb-14">
-              <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900 dark:text-white">
-                Everything You Need, In <span className="text-blue-600 dark:text-blue-400">One School System</span>
+            <div className="max-w-3xl mx-auto text-center space-y-4 mb-16">
+              <span className="text-xs font-bold text-blue-600 dark:text-blue-400 tracking-wider uppercase bg-blue-50 dark:bg-blue-900/40 px-3.5 py-1.5 rounded-full">
+                Core Capabilities
+              </span>
+              <h2 className="text-3xl sm:text-4xl font-extrabold text-gray-900 dark:text-white">
+                Everything You Need, In One School System
               </h2>
-              <p className="mt-3 text-sm sm:text-base text-gray-500 dark:text-gray-400 leading-relaxed">
-                Streamline daily school administration with comprehensive modules built specifically for modern education management.
+              <p className="text-base text-gray-600 dark:text-gray-400">
+                Simple, powerful tools designed specifically for school administration, faculty workflows, and student engagement.
               </p>
             </div>
 
-            <div id="modules" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {/* 1. Student Management */}
-              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-blue-300 dark:hover:border-blue-700 transition-all group flex flex-col justify-between">
+              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-blue-300 dark:hover:border-blue-700 transition-all group">
                 <div className="flex items-start gap-4">
                   <div className="h-12 w-12 rounded-xl bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
                     <Users className="h-6 w-6" />
@@ -340,23 +336,14 @@ export default function LandingPage() {
                       Student Management
                     </h3>
                     <p className="mt-1.5 text-xs sm:text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
-                      Manage student admission profiles, enrollment numbers, class sections, and guardian contact details with zero data duplication.
+                      Maintain student profiles, admission details, class and section assignments, and emergency contacts.
                     </p>
                   </div>
-                </div>
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
-                  <Link
-                    href="/student-management"
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline"
-                  >
-                    <span>Explore Student Management Software</span>
-                    <ArrowRight className="h-3 w-3" />
-                  </Link>
                 </div>
               </div>
 
               {/* 2. Attendance Management */}
-              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-green-300 dark:hover:border-green-700 transition-all group flex flex-col justify-between">
+              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-green-300 dark:hover:border-green-700 transition-all group">
                 <div className="flex items-start gap-4">
                   <div className="h-12 w-12 rounded-xl bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
                     <ClipboardCheck className="h-6 w-6" />
@@ -366,23 +353,14 @@ export default function LandingPage() {
                       Attendance Management
                     </h3>
                     <p className="mt-1.5 text-xs sm:text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
-                      Track student and faculty attendance in real-time with single-tap roll call, historical monthly summaries, and calculated attendance percentages.
+                      Track attendance in real-time with single-tap roll call, monthly records, and percentage metrics.
                     </p>
                   </div>
-                </div>
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
-                  <Link
-                    href="/attendance-management"
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-green-600 dark:text-green-400 hover:underline"
-                  >
-                    <span>Explore School Attendance Management</span>
-                    <ArrowRight className="h-3 w-3" />
-                  </Link>
                 </div>
               </div>
 
               {/* 3. Teacher Management */}
-              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-purple-300 dark:hover:border-purple-700 transition-all group flex flex-col justify-between">
+              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-purple-300 dark:hover:border-purple-700 transition-all group">
                 <div className="flex items-start gap-4">
                   <div className="h-12 w-12 rounded-xl bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
                     <GraduationCap className="h-6 w-6" />
@@ -392,49 +370,31 @@ export default function LandingPage() {
                       Teacher Management
                     </h3>
                     <p className="mt-1.5 text-xs sm:text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
-                      Assign class teachers, configure subject responsibilities, and generate automated faculty credentials seamlessly.
+                      Manage teacher profiles, automated login credentials, and classroom subject assignments.
                     </p>
                   </div>
-                </div>
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
-                  <Link
-                    href="/teacher-management"
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-600 dark:text-purple-400 hover:underline"
-                  >
-                    <span>Explore Teacher Management Software</span>
-                    <ArrowRight className="h-3 w-3" />
-                  </Link>
                 </div>
               </div>
 
               {/* 4. Notices & Announcements */}
-              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-orange-300 dark:hover:border-orange-700 transition-all group flex flex-col justify-between">
+              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-orange-300 dark:hover:border-orange-700 transition-all group">
                 <div className="flex items-start gap-4">
                   <div className="h-12 w-12 rounded-xl bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
                     <Bell className="h-6 w-6" />
                   </div>
                   <div>
                     <h3 className="text-base font-bold text-gray-900 dark:text-white group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors">
-                      Notices & Circulars
+                      Notices & Announcements
                     </h3>
                     <p className="mt-1.5 text-xs sm:text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
-                      Publish administrative notices and circulars targeted to all school stakeholders, teachers, or specific student classes.
+                      Send official circulars targeted to the entire school, faculty, students, or specific grades.
                     </p>
                   </div>
-                </div>
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
-                  <Link
-                    href="/school-management"
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-orange-600 dark:text-orange-400 hover:underline"
-                  >
-                    <span>Explore School Administration Modules</span>
-                    <ArrowRight className="h-3 w-3" />
-                  </Link>
                 </div>
               </div>
 
               {/* 5. Reports & Analytics */}
-              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-pink-300 dark:hover:border-pink-700 transition-all group flex flex-col justify-between">
+              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-pink-300 dark:hover:border-pink-700 transition-all group">
                 <div className="flex items-start gap-4">
                   <div className="h-12 w-12 rounded-xl bg-pink-50 dark:bg-pink-900/30 text-pink-600 dark:text-pink-400 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
                     <BarChart3 className="h-6 w-6" />
@@ -444,44 +404,26 @@ export default function LandingPage() {
                       Reports & Analytics
                     </h3>
                     <p className="mt-1.5 text-xs sm:text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
-                      Gain actionable institutional clarity with attendance trends, faculty-to-student ratios, and operational health metrics.
+                      Get detailed operational insights with attendance rates and class enrollment statistics.
                     </p>
                   </div>
                 </div>
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
-                  <Link
-                    href="/features"
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-pink-600 dark:text-pink-400 hover:underline"
-                  >
-                    <span>Explore Analytics & Reporting Features</span>
-                    <ArrowRight className="h-3 w-3" />
-                  </Link>
-                </div>
               </div>
 
-              {/* 6. Multi-Tenant Cloud Architecture */}
-              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-cyan-300 dark:hover:border-cyan-700 transition-all group flex flex-col justify-between">
+              {/* 6. Secure & Reliable */}
+              <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm hover:shadow-md hover:border-cyan-300 dark:hover:border-cyan-700 transition-all group">
                 <div className="flex items-start gap-4">
                   <div className="h-12 w-12 rounded-xl bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
                     <ShieldCheck className="h-6 w-6" />
                   </div>
                   <div>
                     <h3 className="text-base font-bold text-gray-900 dark:text-white group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors">
-                      Multi-Tenant Isolation
+                      Secure & Reliable
                     </h3>
                     <p className="mt-1.5 text-xs sm:text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
-                      Strict tenant database boundaries ensure each school&apos;s records, academic files, and rosters remain completely isolated and secure.
+                      Protected with multi-tenant isolation, IDOR defense, and secure role-based access control.
                     </p>
                   </div>
-                </div>
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
-                  <Link
-                    href="/school-erp"
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-cyan-600 dark:text-cyan-400 hover:underline"
-                  >
-                    <span>Explore Multi-Tenant School ERP</span>
-                    <ArrowRight className="h-3 w-3" />
-                  </Link>
                 </div>
               </div>
             </div>
@@ -489,70 +431,129 @@ export default function LandingPage() {
         </section>
 
         {/* ==========================================
-            HOW IT WORKS (BENEFITS)
+            HOW IT WORKS / PORTALS (BENEFITS)
         ========================================== */}
-        <section id="benefits" className="py-20 bg-slate-50/70 dark:bg-gray-900/40 border-t border-gray-100 dark:border-gray-800">
+        <section id="modules" className="py-20 bg-gray-50/50 dark:bg-gray-900/40 border-t border-gray-100 dark:border-gray-800">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center max-w-2xl mx-auto mb-14">
-              <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900 dark:text-white">
-                How School Study Works
+            <div className="max-w-3xl mx-auto text-center space-y-4 mb-16">
+              <span className="text-xs font-bold text-blue-600 dark:text-blue-400 tracking-wider uppercase bg-blue-50 dark:bg-blue-900/40 px-3.5 py-1.5 rounded-full">
+                Built For Everyone
+              </span>
+              <h2 className="text-3xl sm:text-4xl font-extrabold text-gray-900 dark:text-white">
+                Dedicated Portals for Every Role
               </h2>
-              <p className="mt-3 text-sm sm:text-base text-gray-500 dark:text-gray-400 leading-relaxed">
-                Designed for clarity across four distinct stakeholder user roles.
+              <p className="text-base text-gray-600 dark:text-gray-400">
+                Tailored experiences for administrators, teachers, and students.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {/* Step 1 */}
-              <div className="rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-gray-900 p-6 shadow-sm">
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400 mb-4 font-bold text-sm">
-                  1
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Admin Portal Card */}
+              <div className="rounded-3xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-8 shadow-sm hover:shadow-lg transition-all space-y-6">
+                <div className="flex items-center gap-3">
+                  <div className="h-12 w-12 rounded-2xl bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                    <Building2 className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white">School Administrators</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Total Operational Command</p>
+                  </div>
                 </div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  School Provisioning
-                </h3>
-                <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
-                  Super Admins register verified school tenants with unique institutional codes and dedicated admin accounts.
-                </p>
+                <ul className="space-y-3 text-sm text-gray-600 dark:text-gray-300">
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                    <span>Manage student and teacher rosters</span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                    <span>Configure classes, grades, and sections</span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                    <span>Publish institution-wide circulars</span>
+                  </li>
+                </ul>
+                <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
+                  <Link
+                    href="/admin/login"
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    <span>Go to Admin Portal</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
+                </div>
               </div>
 
-              {/* Step 2 */}
-              <div className="rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-gray-900 p-6 shadow-sm">
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400 mb-4 font-bold text-sm">
-                  2
+              {/* Teacher Portal Card */}
+              <div className="rounded-3xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-8 shadow-sm hover:shadow-lg transition-all space-y-6">
+                <div className="flex items-center gap-3">
+                  <div className="h-12 w-12 rounded-2xl bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 flex items-center justify-center">
+                    <UserCog className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white">Class Teachers</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Classroom Management</p>
+                  </div>
                 </div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  Roster Configuration
-                </h3>
-                <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
-                  School administrators define classes, add sections, and enroll teachers and students in one organized roster.
-                </p>
+                <ul className="space-y-3 text-sm text-gray-600 dark:text-gray-300">
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-purple-600 flex-shrink-0" />
+                    <span>Single-tap daily attendance marking</span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-purple-600 flex-shrink-0" />
+                    <span>View assigned class lists and student info</span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-purple-600 flex-shrink-0" />
+                    <span>Post classroom notices and reminders</span>
+                  </li>
+                </ul>
+                <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
+                  <Link
+                    href="/teacher/login"
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline"
+                  >
+                    <span>Go to Teacher Portal</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
+                </div>
               </div>
 
-              {/* Step 3 */}
-              <div className="rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-gray-900 p-6 shadow-sm">
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400 mb-4 font-bold text-sm">
-                  3
+              {/* Student Portal Card */}
+              <div className="rounded-3xl border border-gray-200/80 dark:border-gray-800 bg-white dark:bg-gray-900 p-8 shadow-sm hover:shadow-lg transition-all space-y-6">
+                <div className="flex items-center gap-3">
+                  <div className="h-12 w-12 rounded-2xl bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                    <GraduationCap className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white">Students</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Academic Transparency</p>
+                  </div>
                 </div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  Daily Classroom Operations
-                </h3>
-                <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
-                  Faculty take attendance on mobile or desktop, broadcast circulars, and manage class activities daily.
-                </p>
-              </div>
-
-              {/* Step 4 */}
-              <div className="rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-gray-900 p-6 shadow-sm">
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400 mb-4 font-bold text-sm">
-                  4
+                <ul className="space-y-3 text-sm text-gray-600 dark:text-gray-300">
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                    <span>View personal attendance percentage</span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                    <span>Read school and class announcements</span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                    <span>Access class timetables and profile</span>
+                  </li>
+                </ul>
+                <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
+                  <Link
+                    href="/student/login"
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
+                  >
+                    <span>Go to Student Portal</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
                 </div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  Student & Parent Transparency
-                </h3>
-                <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
-                  Students and parents log in to view real-time attendance percentage, notices, and academic updates.
-                </p>
               </div>
             </div>
           </div>
@@ -561,10 +562,9 @@ export default function LandingPage() {
         {/* ==========================================
             CTA BANNER
         ========================================== */}
-        <section className="py-12 bg-white dark:bg-gray-950">
+        <section id="benefits" className="py-16 bg-white dark:bg-gray-950">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="rounded-3xl bg-blue-50/70 dark:bg-gray-900 border border-blue-100 dark:border-gray-800 p-8 sm:p-12 flex flex-col md:flex-row items-center justify-between gap-8 shadow-sm">
-              {/* School Building Graphic + Text */}
               <div className="flex items-center gap-6 text-center md:text-left flex-col md:flex-row">
                 <div className="h-20 w-20 rounded-2xl bg-blue-600 text-white flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/20">
                   <School className="h-10 w-10" />
@@ -574,12 +574,11 @@ export default function LandingPage() {
                     Ready to Transform Your School?
                   </h2>
                   <p className="text-sm sm:text-base text-gray-600 dark:text-gray-300">
-                    Modernize attendance, student records, and faculty workflows from one simple platform.
+                    Use School Study to streamline your daily administration, attendance, and faculty communication.
                   </p>
                 </div>
               </div>
 
-              {/* Action Button & No Credit Card Badge */}
               <div className="flex flex-col items-center gap-2 flex-shrink-0">
                 <Link
                   href="/login"
@@ -590,7 +589,7 @@ export default function LandingPage() {
                 </Link>
                 <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                   <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
-                  Instant access • No credit card required
+                  Simple & Instant Setup
                 </span>
               </div>
             </div>
@@ -599,7 +598,7 @@ export default function LandingPage() {
       </main>
 
       {/* ==========================================
-          ADVANCED MODERN PRODUCT FOOTER
+          FOOTER
       ========================================== */}
       <Footer />
     </div>
