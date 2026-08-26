@@ -22,6 +22,7 @@ import {
   BarChart3,
   Sliders,
   History,
+  MessageSquare,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
@@ -49,6 +50,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       label: "Schools",
       href: "/super-admin/schools",
       icon: <Building2 className="h-5 w-5" />,
+    },
+    {
+      label: "Inquiries",
+      href: "/super-admin/inquiries",
+      icon: <MessageSquare className="h-5 w-5" />,
     },
     {
       label: "Users",

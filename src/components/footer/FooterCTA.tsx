@@ -39,13 +39,13 @@ export function FooterCTA() {
             <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
           </Link>
 
-          <a
-            href="#contact"
+          <Link
+            href="/contact"
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-3.5 text-sm font-semibold text-slate-800 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 active:scale-95 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800 dark:hover:text-white dark:focus-visible:ring-offset-slate-950"
           >
             <PhoneCall className="h-4 w-4 text-slate-600 dark:text-slate-300" />
             <span>Contact Us</span>
-          </a>
+          </Link>
         </div>
       </div>
     </div>

@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
-import { ChevronDown, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import type { FooterGroup } from "./footerData";
 
 interface FooterLinkGroupProps {
@@ -10,33 +9,15 @@ interface FooterLinkGroupProps {
 }
 
 export function FooterLinkGroup({ group }: FooterLinkGroupProps) {
-  const [isOpen, setIsOpen] = useState(false);
-
   return (
-    <div className="border-b border-slate-200/60 pb-4 md:border-b-0 md:pb-0 dark:border-slate-800/60">
-      {/* Mobile Accordion Header / Desktop Section Title */}
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        aria-expanded={isOpen}
-        className="flex w-full items-center justify-between py-2 text-left md:pointer-events-none md:py-0"
-      >
-        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-slate-200">
-          {group.title}
-        </h4>
-        <ChevronDown
-          className={`h-4 w-4 text-slate-400 transition-transform duration-200 md:hidden ${
-            isOpen ? "rotate-180 text-blue-600 dark:text-blue-400" : ""
-          }`}
-        />
-      </button>
+    <div>
+      {/* Section Title */}
+      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-slate-200">
+        {group.title}
+      </h4>
 
-      {/* Links List (Always visible on md+, collapsible on mobile) */}
-      <ul
-        className={`mt-3 space-y-2.5 overflow-hidden transition-all duration-200 ${
-          isOpen ? "max-h-96 opacity-100" : "max-h-0 opacity-0 md:max-h-none md:opacity-100"
-        }`}
-      >
+      {/* Links List (Always visible) */}
+      <ul className="mt-3 space-y-2.5">
         {group.links.map((link) => {
           const Icon = link.icon;
           const isAnchor = link.href.startsWith("#");

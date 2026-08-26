@@ -11,6 +11,7 @@ import {
   Users,
   Building2,
   BookOpen,
+  MessageSquare,
 } from "lucide-react";
 
 interface NavItem {
@@ -23,6 +24,7 @@ const mobileRoleNavItems: Record<string, NavItem[]> = {
   super_admin: [
     { label: "Dashboard", href: "/super-admin", icon: <LayoutDashboard className="h-5 w-5" /> },
     { label: "Schools", href: "/super-admin/schools", icon: <Building2 className="h-5 w-5" /> },
+    { label: "Inquiries", href: "/super-admin/inquiries", icon: <MessageSquare className="h-5 w-5" /> },
     { label: "Users", href: "/super-admin/users", icon: <Users className="h-5 w-5" /> },
   ],
   school_admin: [

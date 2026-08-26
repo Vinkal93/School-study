@@ -77,6 +77,9 @@ export default function LandingPage() {
             <a href="#features" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
               Features
             </a>
+            <Link href="/pricing" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+              Pricing
+            </Link>
             <a href="#modules" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
               Modules
             </a>
@@ -86,9 +89,9 @@ export default function LandingPage() {
             <Link href="/about-developer" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
               About Developer
             </Link>
-            <a href="#contact" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+            <Link href="/contact" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
               Contact
-            </a>
+            </Link>
           </nav>
 
           {/* CTA Buttons & Theme Toggle */}

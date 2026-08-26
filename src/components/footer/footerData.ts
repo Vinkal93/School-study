@@ -21,6 +21,7 @@ import {
   HelpCircle,
   User,
   LogIn,
+  CreditCard,
   LucideIcon,
 } from "lucide-react";
 
@@ -45,9 +46,9 @@ export const FOOTER_NAVIGATION: FooterGroup[] = [
     links: [
       { label: "Platform Overview", href: "/", icon: LayoutDashboard },
       { label: "Core Features", href: "/features", icon: Sparkles },
+      { label: "Pricing", href: "/pricing", icon: CreditCard },
       { label: "School Management", href: "/school-management", icon: School },
       { label: "School ERP", href: "/school-erp", icon: Workflow },
-      { label: "Multi-Tenant Security", href: "/school-erp", icon: ShieldCheck, badge: "Enterprise" },
     ],
   },
   {

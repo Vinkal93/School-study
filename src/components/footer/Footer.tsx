@@ -31,7 +31,7 @@ export function Footer() {
           </div>
 
           {/* Columns 2-4: Navigation Groups (Product, Solutions, Modules) */}
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-3 md:col-span-2 lg:col-span-3">
+          <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 md:col-span-2 lg:col-span-3">
             {FOOTER_NAVIGATION.slice(0, 3).map((group) => (
               <FooterLinkGroup key={group.id} group={group} />
             ))}

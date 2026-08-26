@@ -36,6 +36,7 @@ export function MarketingHeader({ currentPath }: MarketingHeaderProps) {
   const navLinks = [
     { label: "Home", href: "/" },
     { label: "Features", href: "/features" },
+    { label: "Pricing", href: "/pricing" },
     { label: "School Management", href: "/school-management" },
     { label: "School ERP", href: "/school-erp" },
     { label: "Students", href: "/student-management" },
