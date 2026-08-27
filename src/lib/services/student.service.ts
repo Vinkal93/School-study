@@ -18,6 +18,7 @@ import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth"
 import { getFirebaseDb, getFirebaseStorage } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/utils/constants";
 import { firebaseClientConfig } from "@/lib/firebase/config";
+import { canAccessFeature } from "@/lib/services/entitlement.service";
 import type { StudentProfile, CreateStudentInput } from "@/types";
 
 /**
@@ -109,9 +110,23 @@ export async function createStudentWithAuth(
   const db = getFirebaseDb();
   const cleanAdmNo = input.admissionNumber.trim().toUpperCase();
 
-  // 1. Verify admission number uniqueness within this school
+  // 1. Verify entitlement & capacity limits for student management
+  const studentsColl = collection(db, "schools", schoolId, "students");
+  const currentStudentsSnap = await getDocs(studentsColl);
+
+  const entitlement = await canAccessFeature(
+    schoolId,
+    "student_management",
+    currentStudentsSnap.size
+  );
+
+  if (!entitlement.allowed) {
+    throw new Error(entitlement.message);
+  }
+
+  // 2. Verify admission number uniqueness within this school
   const duplicateQuery = query(
-    collection(db, "schools", schoolId, "students"),
+    studentsColl,
     where("admissionNumber", "==", cleanAdmNo)
   );
   const duplicateSnap = await getDocs(duplicateQuery);

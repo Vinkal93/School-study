@@ -22,6 +22,7 @@ import {
   ImageIcon,
   UserCheck,
   Filter,
+  Trash2,
 } from "lucide-react";
 import {
   getStudents,
@@ -184,6 +185,22 @@ export default function AdminStudentsPage() {
       toast.error("Failed to update student status.");
     } finally {
       setTogglingId(null);
+    }
+  };
+
+  const handleDeleteStudent = async (stu: StudentProfile) => {
+    if (
+      confirm(
+        `Are you sure you want to permanently delete student "${stu.name}" (Admission No. ${stu.admissionNumber}) from Firebase Firestore?`
+      )
+    ) {
+      try {
+        await deleteStudent(schoolId, stu.id, stu.userId);
+        setStudents((prev) => prev.filter((s) => s.id !== stu.id));
+        toast.success(`Student "${stu.name}" permanently deleted from Firebase!`);
+      } catch (err: any) {
+        toast.error(err.message || "Failed to delete student.");
+      }
     }
   };
 
@@ -529,18 +546,28 @@ export default function AdminStudentsPage() {
                         </span>
                       </td>
                       <td className="py-4 px-4 text-right">
-                        <button
-                          onClick={() => handleToggleStatus(s)}
-                          disabled={togglingId === s.id}
-                          className={`inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium ${
-                            s.status === "active"
-                              ? "text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20"
-                              : "text-green-600 hover:bg-green-50 dark:hover:bg-green-950/20"
-                          }`}
-                        >
-                          <Power className="h-3 w-3" />
-                          {s.status === "active" ? "Disable" : "Activate"}
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleToggleStatus(s)}
+                            disabled={togglingId === s.id}
+                            className={`inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium ${
+                              s.status === "active"
+                                ? "text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20"
+                                : "text-green-600 hover:bg-green-50 dark:hover:bg-green-950/20"
+                            }`}
+                          >
+                            <Power className="h-3 w-3" />
+                            {s.status === "active" ? "Disable" : "Activate"}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteStudent(s)}
+                            className="inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20"
+                            title="Delete student permanently from Firebase"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

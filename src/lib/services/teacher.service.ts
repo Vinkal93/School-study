@@ -36,7 +36,7 @@ export async function getTeachers(schoolId: string): Promise<TeacherProfile[]> {
       ...d.data(),
     })) as TeacherProfile[];
   } catch (error: any) {
-    console.warn("Could not fetch teachers (check Firestore security rules):", error?.message);
+    console.warn("Could not fetch teachers:", error?.message);
     return [];
   }
 }
@@ -56,7 +56,6 @@ export async function uploadTeacherPhoto(
 
 /**
  * Creates a new teacher, provisions their Firebase Auth account, and creates their user + teacher docs.
- * Uses an isolated secondary Firebase App instance so the School Admin stays logged in.
  */
 export async function createTeacherWithAuth(
   schoolId: string,
@@ -64,7 +63,6 @@ export async function createTeacherWithAuth(
 ): Promise<{ teacherId: string; userId: string }> {
   const db = getFirebaseDb();
 
-  // 1. Create Auth user via secondary app instance
   const secondaryAppName = `teacher-auth-${Date.now()}`;
   const secondaryApp = initializeApp(firebaseClientConfig, secondaryAppName);
   const secondaryAuth = getAuth(secondaryApp);
@@ -95,7 +93,6 @@ export async function createTeacherWithAuth(
     }
   }
 
-  // 2. Create user document in users/{userId}
   const userDocRef = doc(db, COLLECTIONS.USERS, userId);
   await setDoc(userDocRef, {
     uid: userId,
@@ -108,7 +105,6 @@ export async function createTeacherWithAuth(
     updatedAt: serverTimestamp(),
   });
 
-  // 3. Create teacher document in schools/{schoolId}/teachers/{teacherId}
   const teacherDocRef = doc(collection(db, "schools", schoolId, "teachers"));
   const teacherId = teacherDocRef.id;
 
@@ -139,9 +135,6 @@ export async function createTeacherWithAuth(
   return { teacherId, userId };
 }
 
-/**
- * Updates a teacher's profile details.
- */
 export async function updateTeacher(
   schoolId: string,
   teacherId: string,
@@ -155,9 +148,6 @@ export async function updateTeacher(
   });
 }
 
-/**
- * Toggles a teacher's status between active and inactive.
- */
 export async function toggleTeacherStatus(
   schoolId: string,
   teacherId: string,
@@ -179,9 +169,6 @@ export async function toggleTeacherStatus(
   });
 }
 
-/**
- * Assigns a teacher to a specific class and section.
- */
 export async function assignTeacherToClass(
   schoolId: string,
   teacherId: string,
@@ -201,4 +188,19 @@ export async function assignTeacherToClass(
     assignedSectionName: assignment.sectionName,
     updatedAt: serverTimestamp(),
   });
+}
+
+/**
+ * Deletes a teacher profile and user record from Firebase.
+ */
+export async function deleteTeacher(
+  schoolId: string,
+  teacherId: string,
+  userId: string
+): Promise<void> {
+  const db = getFirebaseDb();
+  await deleteDoc(doc(db, "schools", schoolId, "teachers", teacherId));
+  if (userId) {
+    await deleteDoc(doc(db, COLLECTIONS.USERS, userId));
+  }
 }

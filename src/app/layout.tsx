@@ -4,6 +4,7 @@ import { AuthProvider } from "@/providers/auth-provider";
 import { ToastProvider } from "@/providers/toast-provider";
 import { ThemeProvider } from "@/context/theme-context";
 import { GoogleAnalytics } from "@/components/common/GoogleAnalytics";
+import { ImpersonationBanner } from "@/components/common/ImpersonationBanner";
 import { constructMetadata } from "@/lib/seo";
 import "./globals.css";
 
@@ -51,6 +52,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <GoogleAnalytics />
         <ThemeProvider>
           <AuthProvider>
+            <ImpersonationBanner />
             <ToastProvider />
             {children}
           </AuthProvider>

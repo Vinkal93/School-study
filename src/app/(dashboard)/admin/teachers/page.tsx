@@ -21,11 +21,14 @@ import {
   X,
   ImageIcon,
   UserCheck,
+  Filter,
+  Trash2,
 } from "lucide-react";
 import {
   getTeachers,
   createTeacherWithAuth,
   toggleTeacherStatus,
+  deleteTeacher,
   assignTeacherToClass,
 } from "@/lib/services/teacher.service";
 import { uploadTeacherPhoto } from "@/lib/services/storage.service";
@@ -215,6 +218,22 @@ export default function AdminTeachersPage() {
       toast.error("Failed to update assignment.");
     } finally {
       setIsSavingAssign(false);
+    }
+  };
+
+  const handleDeleteTeacher = async (teacher: TeacherProfile) => {
+    if (
+      confirm(
+        `Are you sure you want to permanently delete teacher "${teacher.name}" (${teacher.teacherCode}) from Firebase Firestore?`
+      )
+    ) {
+      try {
+        await deleteTeacher(schoolId, teacher.id, teacher.userId);
+        setTeachers((prev) => prev.filter((t) => t.id !== teacher.id));
+        toast.success(`Teacher "${teacher.name}" permanently deleted from Firebase!`);
+      } catch (err: any) {
+        toast.error(err.message || "Failed to delete teacher.");
+      }
     }
   };
 
@@ -561,12 +580,19 @@ export default function AdminTeachersPage() {
                             disabled={togglingId === t.id}
                             className={`rounded p-1.5 ${
                               t.status === "active"
-                                ? "text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20"
+                                ? "text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20"
                                 : "text-green-600 hover:bg-green-50 dark:hover:bg-green-950/20"
                             }`}
                             title={t.status === "active" ? "Deactivate" : "Activate"}
                           >
                             <Power className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteTeacher(t)}
+                            className="rounded p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20"
+                            title="Delete teacher permanently from Firebase"
+                          >
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
                       </td>

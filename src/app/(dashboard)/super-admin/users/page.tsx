@@ -19,8 +19,10 @@ import {
   Calendar,
   Clock,
   Filter,
+  UserCheck,
+  Trash2,
 } from "lucide-react";
-import { getAllUsers, getAllSchools } from "@/lib/services/school.service";
+import { getAllUsers, getAllSchools, updateUserStatus, deleteUserFromSystem } from "@/lib/services/school.service";
 import { UserProfileInspector } from "@/components/super-admin/UserProfileInspector";
 import { useAuth } from "@/hooks/use-auth";
 import type { AppUser, UserRole, UserStatus, School } from "@/types";
@@ -45,7 +47,7 @@ function UsersManagementContent() {
   const router = useRouter();
   const roleParam = searchParams.get("role") as UserRole | null;
 
-  const { profile: currentUser } = useAuth();
+  const { profile: currentUser, impersonateUser } = useAuth();
   const [users, setUsers] = useState<AppUser[]>([]);
   const [schools, setSchools] = useState<School[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,6 +56,7 @@ function UsersManagementContent() {
   const [schoolFilter, setSchoolFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "disabled">("all");
   const [togglingUid, setTogglingUid] = useState<string | null>(null);
+  const [deletingUid, setDeletingUid] = useState<string | null>(null);
 
   // Inspector Drawer State
   const [selectedUser, setSelectedUser] = useState<AppUser | null>(null);
@@ -97,26 +100,11 @@ function UsersManagementContent() {
     const nextStatus: UserStatus = user.status === "active" ? "disabled" : "active";
     setTogglingUid(user.uid);
     try {
-      const res = await fetch("/api/super-admin/users/status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          performerUid: currentUser.uid,
-          targetUid: user.uid,
-          status: nextStatus,
-          reason: `Status changed from Global Users Management by ${currentUser.name || currentUser.email}`,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to update user status");
-
+      await updateUserStatus(user.uid, nextStatus);
       setUsers((prev) =>
         prev.map((u) => (u.uid === user.uid ? { ...u, status: nextStatus } : u))
       );
-      toast.success(
-        `User "${user.name}" has been ${nextStatus === "active" ? "Activated" : "Disabled"}.`
-      );
+      toast.success(`User ${user.name} set to ${nextStatus.toUpperCase()}`);
     } catch (err: any) {
       toast.error(err.message || "Failed to update user status.");
     } finally {
@@ -124,25 +112,44 @@ function UsersManagementContent() {
     }
   };
 
-  const handleInspectUser = (user: AppUser) => {
-    setSelectedUser(user);
-    setInspectorOpen(true);
+  const handleDeleteUser = async (user: AppUser) => {
+    if (user.role === "super_admin") {
+      toast.error("Super Admin accounts cannot be deleted.");
+      return;
+    }
+
+    if (
+      confirm(
+        `Are you sure you want to permanently delete user "${user.name}" (${user.email}) from Firebase Firestore? This will remove all associated user and profile records.`
+      )
+    ) {
+      setDeletingUid(user.uid);
+      try {
+        await deleteUserFromSystem(user);
+        setUsers((prev) => prev.filter((u) => u.uid !== user.uid));
+        toast.success(`User "${user.name}" permanently deleted from Firebase!`);
+      } catch (err: any) {
+        toast.error(err.message || "Failed to delete user from Firebase.");
+      } finally {
+        setDeletingUid(null);
+      }
+    }
   };
 
   const schoolMap = new Map(schools.map((s) => [s.id, s.name]));
 
   const filteredUsers = users.filter((u) => {
-    const schoolName = u.schoolId ? schoolMap.get(u.schoolId) || "" : "";
     const matchesSearch =
       u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.uid.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      schoolName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (u.schoolId && u.schoolId.toLowerCase().includes(searchQuery.toLowerCase()));
 
-    const matchesRole = roleFilter === "all" ? true : u.role === roleFilter;
-    const matchesSchool = schoolFilter === "all" ? true : u.schoolId === schoolFilter;
-    const matchesStatus = statusFilter === "all" ? true : u.status === statusFilter;
+    const matchesRole = roleFilter === "all" || u.role === roleFilter;
+    const matchesSchool = schoolFilter === "all" || u.schoolId === schoolFilter;
+    const matchesStatus =
+      statusFilter === "all" ||
+      (statusFilter === "active" ? u.status === "active" : u.status !== "active");
 
     return matchesSearch && matchesRole && matchesSchool && matchesStatus;
   });
@@ -191,7 +198,7 @@ function UsersManagementContent() {
               : `${roleFilter.replace("_", " ").toUpperCase()} Management`}
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Inspect all user profiles, tenant assignments, security restrictions, and activity histories.
+            Inspect all user profiles, live impression mode, security restrictions, and Firebase deletions.
           </p>
         </div>
         <button
@@ -355,7 +362,17 @@ function UsersManagementContent() {
                       )}
                     </td>
                     <td className="py-4 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
+                      <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                        {u.role !== "super_admin" && (
+                          <button
+                            onClick={() => impersonateUser(u)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1.5 text-xs font-semibold text-purple-700 hover:bg-purple-100 dark:border-purple-800/40 dark:bg-purple-900/20 dark:text-purple-400"
+                            title="Open Live Impression Mode"
+                          >
+                            <UserCheck className="h-3.5 w-3.5" />
+                            Impersonate
+                          </button>
+                        )}
                         <Link
                           href={`/super-admin/users/${u.uid}`}
                           className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-800/40 dark:bg-blue-900/20 dark:text-blue-400"
@@ -364,22 +381,38 @@ function UsersManagementContent() {
                           View
                         </Link>
                         {u.role !== "super_admin" && (
-                          <button
-                            onClick={() => handleToggleStatus(u)}
-                            disabled={togglingUid === u.uid}
-                            className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                              u.status === "active"
-                                ? "border border-red-200 text-red-600 hover:bg-red-50 dark:border-red-800/40 dark:text-red-400 dark:hover:bg-red-900/20"
-                                : "border border-green-200 text-green-600 hover:bg-green-50 dark:border-green-800/40 dark:text-green-400 dark:hover:bg-green-900/20"
-                            } disabled:opacity-50`}
-                          >
-                            {togglingUid === u.uid ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Power className="h-3.5 w-3.5" />
-                            )}
-                            {u.status === "active" ? "Disable" : "Activate"}
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleToggleStatus(u)}
+                              disabled={togglingUid === u.uid}
+                              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                                u.status === "active"
+                                  ? "border border-red-200 text-red-600 hover:bg-red-50 dark:border-red-800/40 dark:text-red-400 dark:hover:bg-red-900/20"
+                                  : "border border-green-200 text-green-600 hover:bg-green-50 dark:border-green-800/40 dark:text-green-400 dark:hover:bg-green-900/20"
+                              } disabled:opacity-50`}
+                            >
+                              {togglingUid === u.uid ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Power className="h-3.5 w-3.5" />
+                              )}
+                              {u.status === "active" ? "Disable" : "Activate"}
+                            </button>
+
+                            <button
+                              onClick={() => handleDeleteUser(u)}
+                              disabled={deletingUid === u.uid}
+                              className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 dark:border-rose-800/40 dark:bg-rose-900/20 dark:text-rose-400 disabled:opacity-50"
+                              title="Delete permanently from Firebase"
+                            >
+                              {deletingUid === u.uid ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                              Delete
+                            </button>
+                          </>
                         )}
                       </div>
                     </td>

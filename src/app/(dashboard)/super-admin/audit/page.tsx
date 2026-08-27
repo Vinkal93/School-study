@@ -23,7 +23,7 @@ import {
   FileText,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
-import { getSchools } from "@/lib/services/school.service";
+import { getAllSchools as getSchools } from "@/lib/services/school.service";
 import { fetchPlatformAuditLogs } from "@/lib/services/super-admin.service";
 import { AuditDetailDrawer } from "@/components/super-admin/AuditDetailDrawer";
 import type { AuditLogEntry, School } from "@/types";

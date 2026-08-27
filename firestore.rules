@@ -18,6 +18,40 @@ service cloud.firestore {
     }
 
     // ==========================================
+    // BILLING & ENTITLEMENT ENGINE COLLECTIONS
+    // Client write protection: Browser cannot alter plans, versions, policies, or subscriptions
+    // ==========================================
+    match /plans/{planId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    match /planVersions/{versionId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    match /featureDefinitions/{featId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    match /accessPolicies/{policyId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    match /schoolSubscriptions/{schoolId} {
+      allow read: if true;
+      allow write: if isSuperAdmin() || !exists(/databases/$(database)/documents/schoolSubscriptions/$(schoolId));
+    }
+
+    match /subscriptionNotifications/{notifId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // ==========================================
     // USERS COLLECTION
     // ==========================================
     match /users/{userId} {

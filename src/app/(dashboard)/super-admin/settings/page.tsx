@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Settings,
   Shield,
@@ -9,17 +9,80 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
+  Sliders,
+  Bell,
+  Clock,
+  CreditCard,
+  Eye,
+  EyeOff,
+  Save,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { updateSuperAdminPin } from "@/lib/services/security-pin.service";
+import {
+  getGlobalAccessPolicy,
+  updateGlobalAccessPolicy,
+} from "@/lib/services/billing.service";
+import type { GlobalAccessPolicy } from "@/types";
 import { toast } from "sonner";
 
 export default function PlatformSettingsPage() {
   const { profile } = useAuth();
+
+  // Security PIN State
   const [currentPin, setCurrentPin] = useState("");
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [savingPin, setSavingPin] = useState(false);
+
+  // Global Access Policy Form State
+  const [policy, setPolicy] = useState<GlobalAccessPolicy | null>(null);
+  const [loadingPolicy, setLoadingPolicy] = useState(true);
+  const [savingPolicy, setSavingPolicy] = useState(false);
+  const [reminderDaysInput, setReminderDaysInput] = useState("30, 15, 7, 3, 1");
+
+  // Razorpay Gateway Credentials State
+  const [rzpKeyId, setRzpKeyId] = useState("");
+  const [rzpKeySecret, setRzpKeySecret] = useState("");
+  const [rzpWebhookSecret, setRzpWebhookSecret] = useState("");
+  const [isLiveMode, setIsLiveMode] = useState(false);
+  const [maskedSecret, setMaskedSecret] = useState("");
+  const [loadingRzp, setLoadingRzp] = useState(true);
+  const [savingRzp, setSavingRzp] = useState(false);
+  const [showSecret, setShowSecret] = useState(false);
+
+  useEffect(() => {
+    async function loadPolicy() {
+      try {
+        const pol = await getGlobalAccessPolicy();
+        setPolicy(pol);
+        setReminderDaysInput((pol.reminderDays || [30, 15, 7, 3, 1]).join(", "));
+      } catch (err) {
+        console.error("Failed to load access policy:", err);
+      } finally {
+        setLoadingPolicy(false);
+      }
+    }
+
+    async function loadRzpSettings() {
+      try {
+        const res = await fetch("/api/super-admin/payment-settings");
+        if (res.ok) {
+          const data = await res.json();
+          setRzpKeyId(data.keyId || "");
+          setMaskedSecret(data.maskedSecretKey || "");
+          setIsLiveMode(data.isLiveMode ?? data.keyId?.startsWith("rzp_live_"));
+        }
+      } catch (err) {
+        console.error("Failed to load Razorpay settings:", err);
+      } finally {
+        setLoadingRzp(false);
+      }
+    }
+
+    loadPolicy();
+    loadRzpSettings();
+  }, []);
 
   const handleUpdatePin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,8 +116,68 @@ export default function PlatformSettingsPage() {
     }
   };
 
+  const handleSavePolicy = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!policy) return;
+
+    setSavingPolicy(true);
+    try {
+      const parsedReminderDays = reminderDaysInput
+        .split(",")
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => !isNaN(n) && n > 0);
+
+      const updated = await updateGlobalAccessPolicy(
+        {
+          ...policy,
+          reminderDays: parsedReminderDays.length > 0 ? parsedReminderDays : [7, 3, 1],
+        },
+        profile?.email || "super_admin"
+      );
+
+      setPolicy(updated);
+      toast.success("Global Access Policy & Entitlement Engine rules updated!");
+    } catch (err: any) {
+      toast.error("Failed to update Global Access Policy.");
+    } finally {
+      setSavingPolicy(false);
+    }
+  };
+
+  const handleSaveRzpSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingRzp(true);
+
+    try {
+      const res = await fetch("/api/super-admin/payment-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          keyId: rzpKeyId,
+          keySecret: rzpKeySecret,
+          webhookSecret: rzpWebhookSecret,
+          isLiveMode,
+          actorEmail: profile?.email || "super_admin",
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success("Razorpay Payment Gateway Credentials updated securely!");
+        setMaskedSecret(data.maskedSecretKey || "");
+        setRzpKeySecret(""); // Clear raw input field after saving for security
+      } else {
+        toast.error(data.error || "Failed to save payment settings.");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save Razorpay settings.");
+    } finally {
+      setSavingRzp(false);
+    }
+  };
+
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
+    <div className="space-y-6 max-w-4xl mx-auto pb-12">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
@@ -62,8 +185,259 @@ export default function PlatformSettingsPage() {
           Platform System Settings
         </h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Global architecture configuration, security thresholds, and 2FA PIN security controls.
+          Global architecture configuration, payment gateway credentials, entitlement rules, and PIN security controls.
         </p>
+      </div>
+
+      {/* Razorpay Payment Gateway Credentials Card */}
+      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <CreditCard className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+              Razorpay Payment Gateway Credentials (LIVE / TEST)
+            </h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              Manage Razorpay API Key ID & Secret Key dynamically. Stored securely in backend Firestore. Secret key is masked and never exposed to browser.
+            </p>
+          </div>
+
+          <span
+            className={`px-3 py-1 text-xs font-extrabold rounded-full uppercase ${
+              isLiveMode
+                ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300"
+                : "bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300"
+            }`}
+          >
+            {isLiveMode ? "LIVE Mode" : "TEST Mode"}
+          </span>
+        </div>
+
+        {loadingRzp ? (
+          <div className="flex items-center gap-2 text-sm text-slate-500 py-4">
+            <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+            <span>Loading Payment Gateway Settings...</span>
+          </div>
+        ) : (
+          <form onSubmit={handleSaveRzpSettings} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Razorpay Key ID (Public Client Key)
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={rzpKeyId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setRzpKeyId(val);
+                    if (val.startsWith("rzp_live_")) setIsLiveMode(true);
+                    else if (val.startsWith("rzp_test_")) setIsLiveMode(false);
+                  }}
+                  placeholder="e.g. rzp_live_SNtWUOzpKkEtBR or rzp_test_..."
+                  className="w-full px-3.5 py-2.5 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm font-mono font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Exposed safely to browser for Checkout modal initialization.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Razorpay Secret Key (STRICTLY SERVER-SIDE)
+                </label>
+                <div className="relative">
+                  <input
+                    type={showSecret ? "text" : "password"}
+                    value={rzpKeySecret}
+                    onChange={(e) => setRzpKeySecret(e.target.value)}
+                    placeholder={maskedSecret ? `Currently set: ${maskedSecret}` : "Enter new Razorpay Secret Key"}
+                    className="w-full pl-3.5 pr-10 py-2.5 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm font-mono font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowSecret(!showSecret)}
+                    className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                  >
+                    {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  {maskedSecret ? `Active Secret: ${maskedSecret}` : "Leave blank to keep existing stored secret."}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Razorpay Webhook Secret (Optional)
+                </label>
+                <input
+                  type="password"
+                  value={rzpWebhookSecret}
+                  onChange={(e) => setRzpWebhookSecret(e.target.value)}
+                  placeholder="Enter Razorpay Webhook Secret (e.g. whsec_...)"
+                  className="w-full px-3.5 py-2.5 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm font-mono font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="flex flex-col justify-end">
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-slate-900 p-3 border border-gray-200 dark:border-slate-800 rounded-xl">
+                  <input
+                    type="checkbox"
+                    checked={isLiveMode}
+                    onChange={(e) => setIsLiveMode(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>Enable Live Production Mode</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="submit"
+                disabled={savingRzp}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-md shadow-blue-500/20 active:scale-95 transition-all disabled:opacity-50"
+              >
+                {savingRzp ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Saving Payment Credentials...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4" />
+                    <span>Save Razorpay Credentials</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      {/* Global Access Policy & Entitlement Engine Rules Card */}
+      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+        <h2 className="text-base font-bold text-gray-900 dark:text-white mb-1 flex items-center gap-2">
+          <Sliders className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+          Global Access Policy & Entitlement Engine (accessPolicies/global)
+        </h2>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-6">
+          Centralized server-side control for subscription grace periods, reminder thresholds, and expired access modes.
+        </p>
+
+        {loadingPolicy || !policy ? (
+          <div className="flex items-center gap-2 text-sm text-slate-500 py-4">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>Loading Global Access Policy...</span>
+          </div>
+        ) : (
+          <form onSubmit={handleSavePolicy} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Expiration Reminder Days Cutoffs (Comma-separated)
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={reminderDaysInput}
+                  onChange={(e) => setReminderDaysInput(e.target.value)}
+                  placeholder="30, 15, 7, 3, 1"
+                  className="w-full px-3.5 py-2.5 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm font-mono font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Days remaining threshold to activate EXPIRING access mode & popup alerts.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Grace Period Duration (Days)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={30}
+                  required
+                  value={policy.gracePeriodDays}
+                  onChange={(e) =>
+                    setPolicy({ ...policy, gracePeriodDays: parseInt(e.target.value, 10) || 0 })
+                  }
+                  className="w-full px-3.5 py-2.5 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm font-mono font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Days after plan expiry before access transitions to restricted or locked.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Expired Access Mode (After Grace Period)
+                </label>
+                <select
+                  value={policy.expiredAccessMode}
+                  onChange={(e) =>
+                    setPolicy({
+                      ...policy,
+                      expiredAccessMode: e.target.value as "RESTRICTED_ACCESS" | "NO_ACCESS",
+                    })
+                  }
+                  className="w-full px-3.5 py-2.5 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="RESTRICTED_ACCESS">RESTRICTED_ACCESS (Read-only / limited core)</option>
+                  <option value="NO_ACCESS">NO_ACCESS (Strict lock out)</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col justify-end space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={policy.showExpiryPopup}
+                    onChange={(e) => setPolicy({ ...policy, showExpiryPopup: e.target.checked })}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>Show Expiration Banner Popups</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={policy.showRechargeButton}
+                    onChange={(e) => setPolicy({ ...policy, showRechargeButton: e.target.checked })}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>Display Plan Recharge Callouts</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="submit"
+                disabled={savingPolicy}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-md shadow-blue-500/20 active:scale-95 transition-all disabled:opacity-50"
+              >
+                {savingPolicy ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Saving Policy Rules...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sliders className="h-4 w-4" />
+                    <span>Save Global Access Policy</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
 
       {/* Super Admin Security PIN Management Card */}
@@ -172,45 +546,6 @@ export default function PlatformSettingsPage() {
               <CheckCircle2 className="h-4 w-4" />
               Active & Verified
             </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Security & Multi-Tenancy Architecture Status */}
-      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
-        <h2 className="text-base font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-          <Lock className="h-5 w-5 text-blue-600" />
-          Multi-Tenant Isolation & Security Rules
-        </h2>
-        <div className="space-y-4 text-sm text-gray-600 dark:text-gray-400">
-          <div className="flex items-start gap-3 rounded-lg border border-gray-200 p-4 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30">
-            <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-bold text-gray-900 dark:text-white">Tenant Isolation Active</p>
-              <p className="text-xs text-gray-500 mt-0.5">
-                School Admins, Teachers, and Students are strictly scoped to their assigned `schoolId` in Firestore security rules.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-3 rounded-lg border border-gray-200 p-4 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30">
-            <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-bold text-gray-900 dark:text-white">Privileged Server Operations Protected</p>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Status changes, role updates, and audit log writes require authenticated Super Admin execution with immutable audit records.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-3 rounded-lg border border-gray-200 p-4 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30">
-            <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-bold text-gray-900 dark:text-white">6-Digit 2FA Security PIN Verification</p>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Super Admin authentication is protected by mandatory 6-digit Security PIN code verification.
-              </p>
-            </div>
           </div>
         </div>
       </div>

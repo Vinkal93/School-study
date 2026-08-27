@@ -25,7 +25,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
-import { getSchools } from "@/lib/services/school.service";
+import { getAllSchools as getSchools } from "@/lib/services/school.service";
 import type { ActivityLogEntry, LoginLogEntry, School, UserRole } from "@/types";
 import { toast } from "sonner";
 

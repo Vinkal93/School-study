@@ -8,6 +8,7 @@ import {
   orderBy,
   setDoc,
   updateDoc,
+  deleteDoc,
   serverTimestamp,
   type Timestamp,
 } from "firebase/firestore";
@@ -64,10 +65,8 @@ export async function createSchoolWithAdmin(
       input.adminPassword
     );
     adminUid = userCredential.user.uid;
-    // Sign out from secondary auth immediately
     await signOut(secondaryAuth);
   } catch (authError: any) {
-    // If auth failed, clean up secondary app
     if (getApps().some((app) => app.name === secondaryAppName)) {
       await deleteApp(secondaryApp);
     }
@@ -99,42 +98,39 @@ export async function createSchoolWithAdmin(
     email: input.email?.trim() || "",
     logoUrl: input.logoUrl || "",
     status: "active" as SchoolStatus,
-    adminId: adminUid,
+    adminUid,
+    adminName: input.adminName.trim(),
     adminEmail: input.adminEmail.trim().toLowerCase(),
-    setupCompleted: false,
-    setupStep: 1,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
 
   await setDoc(schoolDocRef, schoolData);
 
-  // 4. Create User document in Firestore for the admin
+  // 4. Create User document for Admin in users/{adminUid}
   const userDocRef = doc(db, COLLECTIONS.USERS, adminUid);
-  const userData = {
+  await setDoc(userDocRef, {
     uid: adminUid,
     name: input.adminName.trim(),
     email: input.adminEmail.trim().toLowerCase(),
     role: "school_admin",
-    schoolId: schoolId,
+    schoolId,
     status: "active",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-  };
-
-  await setDoc(userDocRef, userData);
+  });
 
   return { schoolId, adminUid };
 }
 
 /**
- * Fetches all schools ordered by creation date.
+ * Fetches all registered schools.
  */
 export async function getAllSchools(): Promise<School[]> {
   const db = getFirebaseDb();
   const q = query(
     collection(db, COLLECTIONS.SCHOOLS),
-    orderBy("createdAt", "desc")
+    orderBy("name", "asc")
   );
   const snapshot = await getDocs(q);
   return snapshot.docs.map((docSnap) => ({
@@ -143,10 +139,8 @@ export async function getAllSchools(): Promise<School[]> {
   })) as School[];
 }
 
-export const getSchools = getAllSchools;
-
 /**
- * Fetches a single school by its ID.
+ * Fetches a single school by ID.
  */
 export async function getSchoolById(schoolId: string): Promise<School | null> {
   const db = getFirebaseDb();
@@ -157,7 +151,7 @@ export async function getSchoolById(schoolId: string): Promise<School | null> {
 }
 
 /**
- * Activates or deactivates a school.
+ * Updates a school's status (active / inactive / suspended).
  */
 export async function updateSchoolStatus(
   schoolId: string,
@@ -171,9 +165,6 @@ export async function updateSchoolStatus(
   });
 }
 
-/**
- * Super Admin statistical aggregation.
- */
 export interface SuperAdminStats {
   totalSchools: number;
   activeSchools: number;
@@ -183,6 +174,9 @@ export interface SuperAdminStats {
   totalUsers: number;
 }
 
+/**
+ * Fetches platform stats for Super Admin Overview Dashboard.
+ */
 export async function getSuperAdminStats(): Promise<SuperAdminStats> {
   const db = getFirebaseDb();
   const schoolsSnapshot = await getDocs(collection(db, COLLECTIONS.SCHOOLS));
@@ -248,4 +242,34 @@ export async function updateUserStatus(
     status,
     updatedAt: serverTimestamp(),
   });
+}
+
+/**
+ * Deletes a user document completely from Firebase Firestore.
+ */
+export async function deleteUserFromSystem(user: AppUser): Promise<void> {
+  const db = getFirebaseDb();
+  await deleteDoc(doc(db, COLLECTIONS.USERS, user.uid));
+
+  if (user.schoolId) {
+    if (user.role === "student") {
+      const sSnap = await getDocs(query(collection(db, "schools", user.schoolId, "students"), where("userId", "==", user.uid)));
+      for (const d of sSnap.docs) {
+        await deleteDoc(doc(db, "schools", user.schoolId, "students", d.id));
+      }
+    } else if (user.role === "teacher") {
+      const tSnap = await getDocs(query(collection(db, "schools", user.schoolId, "teachers"), where("userId", "==", user.uid)));
+      for (const d of tSnap.docs) {
+        await deleteDoc(doc(db, "schools", user.schoolId, "teachers", d.id));
+      }
+    }
+  }
+}
+
+/**
+ * Deletes a school document from Firebase Firestore.
+ */
+export async function deleteSchoolFromSystem(schoolId: string): Promise<void> {
+  const db = getFirebaseDb();
+  await deleteDoc(doc(db, COLLECTIONS.SCHOOLS, schoolId));
 }

@@ -16,21 +16,42 @@ import {
 import { getUserProfile } from "@/lib/services/user.service";
 import type { AppUser } from "@/types";
 import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 
 interface AuthContextType {
   firebaseUser: User | null;
   profile: AppUser | null;
+  originalSuperAdminProfile: AppUser | null;
+  isImpersonating: boolean;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<AppUser>;
   signOut: () => Promise<void>;
+  impersonateUser: (targetUser: AppUser) => void;
+  stopImpersonating: () => void;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const IMPERSONATION_STORAGE_KEY = "school_study_impersonation_user";
+
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const router = useRouter();
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<AppUser | null>(null);
+  const [originalProfile, setOriginalProfile] = useState<AppUser | null>(null);
+  const [impersonatedUser, setImpersonatedUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Restore impersonation session on mount
+  useEffect(() => {
+    try {
+      const stored = sessionStorage.getItem(IMPERSONATION_STORAGE_KEY);
+      if (stored) {
+        setImpersonatedUser(JSON.parse(stored));
+      }
+    } catch (e) {
+      console.warn("Failed to parse stored impersonation user:", e);
+    }
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthChanged(async (user) => {
@@ -41,11 +62,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const userProfile = await getUserProfile(user.uid, user.email);
 
           if (!userProfile) {
-            // User exists in Firebase Auth but not in Firestore
             toast.error("Account not found. Please contact admin.");
             await signOutUser();
             setFirebaseUser(null);
-            setProfile(null);
+            setOriginalProfile(null);
+            setImpersonatedUser(null);
             setLoading(false);
             return;
           }
@@ -55,11 +76,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             userProfile.status === "disabled" ||
             userProfile.status === "inactive"
           ) {
-            // User account is suspended or inactive
             toast.error("Your account has been suspended or deactivated. Please contact platform admin.");
             await signOutUser();
             setFirebaseUser(null);
-            setProfile(null);
+            setOriginalProfile(null);
+            setImpersonatedUser(null);
             setLoading(false);
             return;
           }
@@ -68,24 +89,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             toast.warning("Notice: Your account is operating under platform restriction.");
           }
 
-          setProfile(userProfile);
+          setOriginalProfile(userProfile);
         } catch (err: any) {
           console.error("Failed to load user profile:", err);
-          const isOfflineOrDisabled =
-            err?.code === "unavailable" ||
-            err?.message?.includes("offline") ||
-            err?.message?.includes("PERMISSION_DENIED");
-          if (isOfflineOrDisabled) {
-            toast.error("Firestore database is not enabled yet. Please create Cloud Firestore in your Firebase Console.");
-          } else {
-            toast.error("Failed to load user profile.");
-          }
           await signOutUser();
           setFirebaseUser(null);
-          setProfile(null);
+          setOriginalProfile(null);
+          setImpersonatedUser(null);
         }
       } else {
-        setProfile(null);
+        setOriginalProfile(null);
+        setImpersonatedUser(null);
+        sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
       }
 
       setLoading(false);
@@ -99,8 +114,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(true);
       try {
         const fbUser = await signInWithEmail(email, password);
-
-        // Fetch profile immediately after sign-in for role redirect
         const userProfile = await getUserProfile(fbUser.uid, fbUser.email);
 
         if (!userProfile) {
@@ -121,13 +134,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           );
         }
 
-        if (userProfile.status === "restricted") {
-          toast.warning("Notice: Your account is operating under platform restriction.");
-        }
-
-        // Set state (onAuthChanged will also fire but profile is already set)
         setFirebaseUser(fbUser);
-        setProfile(userProfile);
+        setOriginalProfile(userProfile);
+        setImpersonatedUser(null);
+        sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
         setLoading(false);
 
         return userProfile;
@@ -143,19 +153,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const signOut = useCallback(async () => {
+    sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
+    setImpersonatedUser(null);
     await signOutUser();
     setFirebaseUser(null);
-    setProfile(null);
+    setOriginalProfile(null);
   }, []);
+
+  const impersonateUser = useCallback((targetUser: AppUser) => {
+    try {
+      sessionStorage.setItem(IMPERSONATION_STORAGE_KEY, JSON.stringify(targetUser));
+      setImpersonatedUser(targetUser);
+      toast.success(`🎭 Live Impression Mode active: Viewing portal as ${targetUser.name} (${targetUser.role})`);
+
+      if (targetUser.role === "school_admin") {
+        router.push("/admin");
+      } else if (targetUser.role === "teacher") {
+        router.push("/teacher");
+      } else if (targetUser.role === "student") {
+        router.push("/student");
+      } else {
+        router.push("/super-admin");
+      }
+    } catch (e) {
+      toast.error("Failed to start impersonation mode.");
+    }
+  }, [router]);
+
+  const stopImpersonating = useCallback(() => {
+    sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
+    setImpersonatedUser(null);
+    toast.info("Exited Live Impression Mode. Returned to Super Admin Portal.");
+    router.push("/super-admin");
+  }, [router]);
+
+  const effectiveProfile = impersonatedUser || originalProfile;
 
   return (
     <AuthContext
       value={{
         firebaseUser,
-        profile,
+        profile: effectiveProfile,
+        originalSuperAdminProfile: originalProfile?.role === "super_admin" ? originalProfile : null,
+        isImpersonating: !!impersonatedUser,
         loading,
         signIn,
         signOut,
+        impersonateUser,
+        stopImpersonating,
       }}
     >
       {children}

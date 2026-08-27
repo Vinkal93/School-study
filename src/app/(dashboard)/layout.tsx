@@ -54,6 +54,19 @@ export default function DashboardLayout({
     );
   }
 
+  // Student Portal uses its own dedicated mobile-first header & bottom navigation
+  const isStudentRoute = pathname.startsWith("/student");
+
+  if (isStudentRoute) {
+    return (
+      <MobileNavProvider>
+        <div className="min-h-screen min-h-[100dvh] bg-[#F8FAFC] dark:bg-slate-950">
+          {children}
+        </div>
+      </MobileNavProvider>
+    );
+  }
+
   return (
     <MobileNavProvider>
       <div className="flex h-screen h-[100dvh] overflow-hidden bg-gray-50 dark:bg-gray-900">

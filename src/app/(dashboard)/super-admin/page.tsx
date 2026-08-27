@@ -20,6 +20,7 @@ import {
   getAllSchools,
   type SuperAdminStats,
 } from "@/lib/services/school.service";
+import { initializeDefaultBillingCatalog } from "@/lib/services/billing.service";
 import type { School } from "@/types";
 
 export default function SuperAdminPage() {
@@ -34,6 +35,7 @@ export default function SuperAdminPage() {
       const [statsData, schoolsData] = await Promise.all([
         getSuperAdminStats(),
         getAllSchools(),
+        initializeDefaultBillingCatalog(),
       ]);
       setStats(statsData);
       setRecentSchools(schoolsData.slice(0, 5));

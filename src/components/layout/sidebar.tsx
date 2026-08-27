@@ -82,6 +82,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       icon: <BarChart3 className="h-5 w-5" />,
     },
     {
+      label: "Pricing & Plans",
+      href: "/super-admin/pricing",
+      icon: <Sliders className="h-5 w-5 text-blue-500" />,
+    },
+    {
       label: "Settings",
       href: "/super-admin/settings",
       icon: <Settings className="h-5 w-5" />,

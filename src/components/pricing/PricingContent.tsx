@@ -1,79 +1,182 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { Check, Minus, Plus, Building, Shield, Users, Smartphone, Headphones } from "lucide-react";
+import { Check, Minus, Plus, Building, Shield, Users, Smartphone, Headphones, Loader2, CreditCard } from "lucide-react";
+import { getAllPlans, getActivePlanVersion } from "@/lib/billing";
+import type { Plan, PlanVersion } from "@/types";
+import { useAuth } from "@/hooks/use-auth";
+import { triggerRazorpayCheckout } from "@/lib/payments/clientCheckout";
+import { toast } from "sonner";
+
+const DEFAULT_FALLBACK_PLANS: Plan[] = [
+  {
+    id: "plan_starter",
+    name: "Starter Plan",
+    slug: "starter",
+    description: "Essential school management tools for small institutions.",
+    status: "ACTIVE",
+    displayOrder: 1,
+    isPopular: false,
+    features: ["Student Management", "Teacher Management", "Class & Section Management", "Basic Attendance", "Student Portal", "Teacher Portal", "Basic Support"],
+    limits: { maxStudents: 500, maxTeachers: 20, maxClasses: 15, maxStaffAccounts: 2 },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: "plan_professional",
+    name: "Professional Plan",
+    slug: "professional",
+    description: "Advanced controls & analytics for growing institutions.",
+    status: "ACTIVE",
+    displayOrder: 2,
+    isPopular: true,
+    features: ["Everything in Starter", "Advanced Attendance & Leave", "School Admin Dashboard", "Notices & Announcements", "Advanced Reports & Analytics", "Priority Support", "More Staff Accounts"],
+    limits: { maxStudents: 2000, maxTeachers: 100, maxClasses: 60, maxStaffAccounts: 10 },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: "plan_enterprise",
+    name: "Enterprise Plan",
+    slug: "enterprise",
+    description: "Custom limits and dedicated support for large networks.",
+    status: "ACTIVE",
+    displayOrder: 3,
+    isPopular: false,
+    features: ["Everything in Professional", "Multiple School Support", "Custom Requirements & Modules", "Dedicated Account Manager", "Advanced Data Controls", "Custom Onboarding"],
+    limits: { maxStudents: -1, maxTeachers: -1, maxClasses: -1, maxStaffAccounts: -1 },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+];
+
+const DEFAULT_FALLBACK_VERSIONS: Record<string, PlanVersion> = {
+  plan_starter: {
+    id: "plan_starter_v1",
+    planId: "plan_starter",
+    version: 1,
+    monthlyPrice: 99900,
+    annualPrice: 79900,
+    currency: "INR",
+    features: [],
+    limits: { maxStudents: 500, maxTeachers: 20, maxClasses: 15, maxStaffAccounts: 2 },
+    effectiveFrom: new Date().toISOString(),
+    effectiveUntil: null,
+    status: "ACTIVE",
+    createdAt: new Date().toISOString(),
+  },
+  plan_professional: {
+    id: "plan_professional_v1",
+    planId: "plan_professional",
+    version: 1,
+    monthlyPrice: 199900,
+    annualPrice: 159900,
+    currency: "INR",
+    features: [],
+    limits: { maxStudents: 2000, maxTeachers: 100, maxClasses: 60, maxStaffAccounts: 10 },
+    effectiveFrom: new Date().toISOString(),
+    effectiveUntil: null,
+    status: "ACTIVE",
+    createdAt: new Date().toISOString(),
+  },
+  plan_enterprise: {
+    id: "plan_enterprise_v1",
+    planId: "plan_enterprise",
+    version: 1,
+    monthlyPrice: 0,
+    annualPrice: 0,
+    currency: "INR",
+    features: [],
+    limits: { maxStudents: -1, maxTeachers: -1, maxClasses: -1, maxStaffAccounts: -1 },
+    effectiveFrom: new Date().toISOString(),
+    effectiveUntil: null,
+    status: "ACTIVE",
+    createdAt: new Date().toISOString(),
+  },
+};
 
 export function PricingContent() {
+  const { profile } = useAuth();
   const [isAnnual, setIsAnnual] = useState(true);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [activeVersions, setActiveVersions] = useState<Record<string, PlanVersion>>({});
+  const [loading, setLoading] = useState(true);
+  const [processingPlanId, setProcessingPlanId] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function loadPublicPlans() {
+      try {
+        const fetchedPlans = await getAllPlans();
+        if (fetchedPlans && fetchedPlans.length > 0) {
+          setPlans(fetchedPlans);
+          const versionMap: Record<string, PlanVersion> = {};
+          for (const p of fetchedPlans) {
+            const v = await getActivePlanVersion(p.id);
+            if (v) versionMap[p.id] = v;
+          }
+          setActiveVersions(versionMap);
+        } else {
+          setPlans(DEFAULT_FALLBACK_PLANS);
+          setActiveVersions(DEFAULT_FALLBACK_VERSIONS);
+        }
+      } catch (err) {
+        console.warn("Failed to fetch public pricing catalog, using defaults:", err);
+        setPlans(DEFAULT_FALLBACK_PLANS);
+        setActiveVersions(DEFAULT_FALLBACK_VERSIONS);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadPublicPlans();
+  }, []);
 
   const toggleFaq = (index: number) => {
     setOpenFaq(openFaq === index ? null : index);
   };
 
-  const plans = [
-    {
-      name: "Starter",
-      description: "For small schools just getting started.",
-      priceMonthly: "₹999",
-      priceAnnual: "₹799",
-      popular: false,
-      features: [
-        "Student Management",
-        "Teacher Management",
-        "Class & Section Management",
-        "Basic Attendance",
-        "Student Portal",
-        "Teacher Portal",
-        "Basic Support"
-      ],
-      ctaText: "Get Started",
-      ctaHref: "/contact",
-      ctaPrimary: false
-    },
-    {
-      name: "Professional",
-      description: "For growing schools with more needs.",
-      priceMonthly: "₹1,999",
-      priceAnnual: "₹1,599",
-      popular: true,
-      features: [
-        "Everything in Starter",
-        "Advanced Attendance",
-        "School Dashboard",
-        "Notices & Announcements",
-        "Advanced Reports",
-        "Priority Support",
-        "More Staff Accounts"
-      ],
-      ctaText: "Choose Professional",
-      ctaHref: "/contact",
-      ctaPrimary: true
-    },
-    {
-      name: "Enterprise",
-      description: "For large institutions and multi-schools.",
-      priceMonthly: "Custom",
-      priceAnnual: "Custom",
-      popular: false,
-      features: [
-        "Everything in Professional",
-        "Multiple School Support",
-        "Custom Requirements",
-        "Dedicated Support",
-        "Advanced Controls",
-        "Custom Onboarding"
-      ],
-      ctaText: "Contact Sales",
-      ctaHref: "/contact",
-      ctaPrimary: false
+  const handleSelectPlan = async (plan: Plan) => {
+    if (plan.slug === "enterprise") {
+      window.location.href = "/contact";
+      return;
     }
-  ];
+
+    if (!profile?.uid || !profile?.schoolId) {
+      toast.info("Please log in with your School Admin account to subscribe.");
+      window.location.href = `/login?redirect=/pricing`;
+      return;
+    }
+
+    setProcessingPlanId(plan.id);
+
+    try {
+      await triggerRazorpayCheckout({
+        planId: plan.id,
+        billingCycle: isAnnual ? "annual" : "monthly",
+        schoolId: profile.schoolId,
+        userId: profile.uid,
+        prefillData: {
+          name: profile.name || "",
+          email: profile.email || "",
+        },
+        onSuccess: (orderId) => {
+          toast.success("Payment verified! Subscription activated.");
+        },
+        onError: (err) => {
+          toast.error(err || "Payment failed or was cancelled.");
+        },
+      });
+    } catch (err: any) {
+      toast.error(err.message || "Failed to initiate payment checkout.");
+    } finally {
+      setProcessingPlanId(null);
+    }
+  };
 
   const compareFeatures = [
     { name: "Students", starter: "Up to 500", pro: "Up to 2000", ent: "Unlimited" },
-    { name: "Teachers", starter: "Up to 25", pro: "Up to 100", ent: "Unlimited" },
+    { name: "Teachers", starter: "Up to 20", pro: "Up to 100", ent: "Unlimited" },
     { name: "Attendance", starter: "Basic", pro: "Advanced", ent: "Advanced" },
     { name: "Reports", starter: "Standard", pro: "Advanced", ent: "Custom" },
     { name: "Support", starter: "Email", pro: "Priority", ent: "Dedicated 24/7" },
@@ -85,249 +188,209 @@ export function PricingContent() {
   const faqs = [
     {
       question: "Can I change my plan later?",
-      answer: "Yes, you can upgrade or downgrade your plan at any time. If you upgrade, the prorated difference will be applied to your next billing cycle."
+      answer: "Yes, you can upgrade or downgrade your plan at any time. If you upgrade, the prorated difference will be applied to your next billing cycle.",
     },
     {
       question: "Is there a monthly and annual option?",
-      answer: "Yes, we offer both monthly and annual billing. If you choose annual billing, you can save 20% compared to the monthly option."
+      answer: "Yes, we offer both monthly and annual billing. If you choose annual billing, you can save 20% compared to the monthly option.",
     },
     {
       question: "Can I cancel my subscription?",
-      answer: "Absolutely. You can cancel your subscription anytime from your billing dashboard. You will retain access until the end of your current billing period."
+      answer: "Absolutely. You can cancel your subscription anytime from your billing dashboard. You will retain access until the end of your current billing period.",
     },
     {
       question: "Can I contact support before choosing a plan?",
-      answer: "Of course! Our sales and support teams are happy to help you decide which plan is best for your school's specific needs."
+      answer: "Of course! Our sales and support teams are happy to help you decide which plan is best for your school's specific needs.",
     },
     {
       question: "What happens if I need more students?",
-      answer: "If you exceed the student limit of your current plan, you can easily upgrade to the next tier or contact us for a custom enterprise plan."
-    }
+      answer: "You can seamlessly upgrade to a higher tier plan as your student body grows. Our team will assist with a zero-downtime transition.",
+    },
   ];
 
-  const trustFeatures = [
-    { icon: <Building className="w-6 h-6" />, title: "Simple Setup", description: "Get up and running in minutes, not days." },
-    { icon: <Shield className="w-6 h-6" />, title: "Secure Platform", description: "Your data is encrypted and backed up daily." },
-    { icon: <Users className="w-6 h-6" />, title: "Student & Teacher Access", description: "Dedicated portals for everyone." },
-    { icon: <Smartphone className="w-6 h-6" />, title: "Responsive Experience", description: "Works perfectly on any device." },
-    { icon: <Headphones className="w-6 h-6" />, title: "Reliable Support", description: "We're here to help when you need it." },
-  ];
+  const activePlans = plans.length > 0 ? plans : DEFAULT_FALLBACK_PLANS;
 
   return (
-    <div className="w-full pb-16">
-      {/* Hero Section */}
-      <section className="py-16 md:py-24 text-center px-4 max-w-4xl mx-auto">
-        <span className="inline-block px-4 py-1.5 mb-6 text-sm font-medium text-blue-700 bg-blue-100 rounded-full dark:bg-blue-900/30 dark:text-blue-300">
-          Simple, Transparent Pricing
-        </span>
-        <h1 className="text-4xl md:text-5xl font-extrabold text-slate-900 dark:text-white mb-6 tracking-tight">
+    <div className="py-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-16">
+      {/* Hero Header */}
+      <div className="text-center space-y-4 max-w-3xl mx-auto">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 text-xs font-bold border border-blue-200 dark:border-blue-800">
+          <span>Simple, Transparent Pricing</span>
+        </div>
+        <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-slate-900 dark:text-white tracking-tight">
           Choose the Right Plan for Your School
         </h1>
-        <p className="text-lg md:text-xl text-slate-600 dark:text-slate-300 mb-10 max-w-2xl mx-auto">
-          Whether you're a small coaching center or a large institution, we have a plan that fits your needs perfectly.
+        <p className="text-base sm:text-lg text-slate-600 dark:text-slate-400">
+          Everything you need to manage your educational institution effectively.
         </p>
 
         {/* Toggle */}
-        <div className="flex items-center justify-center gap-4 mb-12">
-          <span className={`text-sm font-medium ${!isAnnual ? "text-slate-900 dark:text-white" : "text-slate-500 dark:text-slate-400"}`}>
+        <div className="pt-4 flex items-center justify-center gap-3">
+          <span className={`text-sm font-semibold ${!isAnnual ? "text-slate-900 dark:text-white" : "text-slate-500"}`}>
             Monthly
           </span>
           <button
             onClick={() => setIsAnnual(!isAnnual)}
-            className="relative inline-flex h-7 w-14 items-center rounded-full bg-blue-600 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-            aria-label="Toggle annual billing"
+            className="relative w-14 h-8 bg-blue-600 rounded-full p-1 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <span
-              className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${isAnnual ? "translate-x-8" : "translate-x-1"}`}
+              className={`block w-6 h-6 bg-white rounded-full transition-transform ${
+                isAnnual ? "transform translate-x-6" : ""
+              }`}
             />
           </button>
-          <span className={`flex items-center gap-2 text-sm font-medium ${isAnnual ? "text-slate-900 dark:text-white" : "text-slate-500 dark:text-slate-400"}`}>
-            Annual
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
-              Save 20%
-            </span>
+          <span className={`text-sm font-semibold flex items-center gap-1.5 ${isAnnual ? "text-slate-900 dark:text-white" : "text-slate-500"}`}>
+            Annual <span className="text-xs bg-green-100 dark:bg-green-950/80 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full font-bold">Save 20%</span>
           </span>
         </div>
-      </section>
+      </div>
 
-      {/* Pricing Cards */}
-      <section className="px-4 pb-20 max-w-7xl mx-auto">
-        <div className="grid md:grid-cols-3 gap-8 items-start">
-          {plans.map((plan, index) => (
-            <div 
-              key={index} 
-              className={`relative flex flex-col p-8 rounded-2xl bg-white dark:bg-slate-900 shadow-sm border ${plan.popular ? "border-blue-500 shadow-md ring-2 ring-blue-500" : "border-slate-200 dark:border-slate-800"} h-full`}
-            >
-              {plan.popular && (
-                <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-                  <span className="bg-blue-600 text-white text-xs font-bold uppercase tracking-wider py-1 px-3 rounded-full">
-                    Most Popular
-                  </span>
-                </div>
-              )}
-              
-              <div className="mb-6">
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">{plan.name}</h2>
-                <p className="text-slate-500 dark:text-slate-400 mt-2 text-sm h-10">{plan.description}</p>
-              </div>
+      {/* Pricing Cards Grid */}
+      {loading ? (
+        <div className="flex justify-center items-center py-12 text-slate-500 gap-2">
+          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+          <span className="text-sm">Fetching active plans catalog...</span>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch">
+          {activePlans.map((p) => {
+            const ver = activeVersions[p.id] || DEFAULT_FALLBACK_VERSIONS[p.id];
+            const monthlyRs = ver ? Math.round(ver.monthlyPrice / 100) : (p.slug === "starter" ? 999 : p.slug === "professional" ? 1999 : 0);
+            const annualRs = ver ? Math.round(ver.annualPrice / 100) : (p.slug === "starter" ? 799 : p.slug === "professional" ? 1599 : 0);
 
-              <div className="mb-6">
-                <div className="flex items-baseline gap-1">
-                  <span className="text-4xl font-extrabold text-slate-900 dark:text-white">
-                    {plan.priceMonthly === "Custom" ? "Custom" : (isAnnual ? plan.priceAnnual : plan.priceMonthly)}
-                  </span>
-                  {plan.priceMonthly !== "Custom" && (
-                    <span className="text-slate-500 dark:text-slate-400 font-medium">/mo</span>
-                  )}
-                </div>
-                {plan.priceMonthly !== "Custom" && (
-                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 h-5">
-                    {isAnnual ? `Billed annually` : "Billed monthly"}
-                  </p>
-                )}
-                {plan.priceMonthly === "Custom" && <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 h-5">Let's Talk</p>}
-              </div>
+            const displayPrice = p.slug === "enterprise" || monthlyRs === 0 ? "Custom" : `₹${(isAnnual ? annualRs : monthlyRs).toLocaleString("en-IN")}`;
 
-              <ul className="flex-grow space-y-4 mb-8">
-                {plan.features.map((feature, i) => (
-                  <li key={i} className="flex items-start gap-3">
-                    <Check className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-                    <span className="text-slate-700 dark:text-slate-300 text-sm">{feature}</span>
-                  </li>
-                ))}
-              </ul>
+            const isProcessing = processingPlanId === p.id;
 
-              <Link 
-                href={plan.ctaHref}
-                className={`w-full py-3 px-4 rounded-lg font-semibold text-center transition-colors ${
-                  plan.ctaPrimary 
-                    ? "bg-blue-600 hover:bg-blue-700 text-white" 
-                    : "bg-transparent border-2 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white hover:border-slate-300 dark:hover:border-slate-600"
+            return (
+              <div
+                key={p.id}
+                className={`relative flex flex-col justify-between p-8 rounded-2xl border transition-all ${
+                  p.isPopular
+                    ? "border-blue-600 dark:border-blue-500 shadow-xl shadow-blue-500/10 bg-white dark:bg-gray-900 ring-2 ring-blue-600 dark:ring-blue-500 scale-105 z-10"
+                    : "border-slate-200 dark:border-slate-800 bg-white dark:bg-gray-950 shadow-sm hover:shadow-md"
                 }`}
               >
-                {plan.ctaText}
-              </Link>
-            </div>
-          ))}
-        </div>
-      </section>
+                {p.isPopular && (
+                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-4 py-1 bg-blue-600 text-white text-xs font-bold uppercase tracking-wider rounded-full shadow-md">
+                    Most Popular
+                  </div>
+                )}
 
-      {/* Compare Plans Table */}
-      <section className="py-20 px-4 bg-slate-50 dark:bg-slate-900/50">
-        <div className="max-w-5xl mx-auto">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-4">Compare Plans in Detail</h2>
-            <p className="text-slate-600 dark:text-slate-400">Find out which plan has the exact features you need.</p>
-          </div>
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-900 dark:text-white">{p.name}</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{p.description}</p>
+                  </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[700px]">
-              <thead>
-                <tr className="border-b-2 border-slate-200 dark:border-slate-800">
-                  <th className="py-4 px-6 font-semibold text-slate-900 dark:text-white w-1/4">Feature</th>
-                  <th className="py-4 px-6 font-semibold text-slate-900 dark:text-white w-1/4 text-center">Starter</th>
-                  <th className="py-4 px-6 font-semibold text-blue-600 dark:text-blue-400 w-1/4 text-center bg-blue-50/50 dark:bg-blue-900/10">Professional</th>
-                  <th className="py-4 px-6 font-semibold text-slate-900 dark:text-white w-1/4 text-center">Enterprise</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                {compareFeatures.map((feature, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                    <td className="py-4 px-6 text-sm font-medium text-slate-700 dark:text-slate-300">{feature.name}</td>
-                    <td className="py-4 px-6 text-sm text-slate-600 dark:text-slate-400 text-center">
-                      {feature.starter === "Yes" ? <Check className="w-5 h-5 mx-auto text-green-500" /> : feature.starter === "No" ? <Minus className="w-5 h-5 mx-auto text-slate-300 dark:text-slate-600" /> : feature.starter}
-                    </td>
-                    <td className="py-4 px-6 text-sm text-slate-900 dark:text-slate-200 text-center font-medium bg-blue-50/30 dark:bg-blue-900/5">
-                      {feature.pro === "Yes" ? <Check className="w-5 h-5 mx-auto text-green-500" /> : feature.pro === "No" ? <Minus className="w-5 h-5 mx-auto text-slate-300 dark:text-slate-600" /> : feature.pro}
-                    </td>
-                    <td className="py-4 px-6 text-sm text-slate-600 dark:text-slate-400 text-center">
-                      {feature.ent === "Yes" ? <Check className="w-5 h-5 mx-auto text-green-500" /> : feature.ent === "No" ? <Minus className="w-5 h-5 mx-auto text-slate-300 dark:text-slate-600" /> : feature.ent}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-4xl font-extrabold text-slate-900 dark:text-white">{displayPrice}</span>
+                    {p.slug !== "enterprise" && displayPrice !== "Custom" && (
+                      <span className="text-xs font-semibold text-slate-500">/ month</span>
+                    )}
+                  </div>
 
-      {/* Built for Modern Schools (Trust Bar) */}
-      <section className="py-20 px-4 max-w-7xl mx-auto">
-        <div className="text-center mb-12">
-          <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-4">Built for Modern Schools</h2>
-          <p className="text-slate-600 dark:text-slate-400">Everything you need to manage your institution efficiently.</p>
-        </div>
-        
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-8">
-          {trustFeatures.map((item, idx) => (
-            <div key={idx} className="flex flex-col items-center text-center">
-              <div className="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 mb-4">
-                {item.icon}
-              </div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2">{item.title}</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">{item.description}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+                  <div className="space-y-3 pt-2">
+                    <p className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Features Included:</p>
+                    <ul className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
+                      {(p.features.length > 0 ? p.features : DEFAULT_FALLBACK_PLANS.find((df) => df.slug === p.slug)?.features || []).map((feat, idx) => (
+                        <li key={idx} className="flex items-center gap-2">
+                          <Check className="h-4 w-4 text-emerald-500 shrink-0" />
+                          <span>{feat}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
 
-      {/* FAQ Section */}
-      <section className="py-20 px-4 bg-slate-50 dark:bg-slate-900/50">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-4">Frequently Asked Questions</h2>
-            <p className="text-slate-600 dark:text-slate-400">Have questions? We have answers.</p>
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-6">
-            {faqs.map((faq, idx) => (
-              <div key={idx} className="bg-white dark:bg-slate-900 rounded-xl p-1 border border-slate-200 dark:border-slate-800 h-fit">
-                <button
-                  onClick={() => toggleFaq(idx)}
-                  className="flex items-center justify-between w-full p-5 text-left focus:outline-none"
-                  aria-expanded={openFaq === idx}
-                >
-                  <h3 className="font-semibold text-slate-900 dark:text-white text-base">{faq.question}</h3>
-                  {openFaq === idx ? (
-                    <Minus className="w-5 h-5 text-blue-600 shrink-0 ml-4" />
-                  ) : (
-                    <Plus className="w-5 h-5 text-slate-400 shrink-0 ml-4" />
-                  )}
-                </button>
-                <div 
-                  className={`overflow-hidden transition-all duration-300 ease-in-out ${openFaq === idx ? "max-h-48 opacity-100" : "max-h-0 opacity-0"}`}
-                >
-                  <p className="p-5 pt-0 text-slate-600 dark:text-slate-400 text-sm">
-                    {faq.answer}
-                  </p>
+                <div className="pt-8">
+                  <button
+                    onClick={() => handleSelectPlan(p)}
+                    disabled={isProcessing}
+                    className={`w-full py-3 px-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-sm ${
+                      p.isPopular
+                        ? "bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/20 active:scale-95"
+                        : "bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-800 dark:hover:bg-slate-700 active:scale-95"
+                    }`}
+                  >
+                    {isProcessing ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Processing Order...</span>
+                      </>
+                    ) : p.slug === "enterprise" ? (
+                      "Contact Sales"
+                    ) : (
+                      `Choose ${p.name}`
+                    )}
+                  </button>
                 </div>
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
-      </section>
+      )}
 
-      {/* Bottom CTA */}
-      <section className="py-20 px-4 text-center max-w-3xl mx-auto">
-        <h2 className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-white mb-6">Ready to simplify your school?</h2>
-        <p className="text-lg text-slate-600 dark:text-slate-400 mb-10">
-          Join thousands of educators who are already using School Study to transform their institutions.
-        </p>
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-          <Link 
-            href="/contact" 
-            className="w-full sm:w-auto px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors text-center"
-          >
-            Get Started
-          </Link>
-          <Link 
-            href="/contact" 
-            className="w-full sm:w-auto px-8 py-3 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 text-slate-900 dark:text-white font-semibold rounded-lg transition-colors text-center"
-          >
-            Contact Us
-          </Link>
+      {/* Compare Plans Table */}
+      <div className="space-y-6 pt-8">
+        <div className="text-center space-y-2">
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Compare Plan Features</h2>
+          <p className="text-sm text-slate-500">Detailed breakdown of capabilities per subscription plan.</p>
         </div>
-      </section>
+
+        <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-2xl bg-white dark:bg-gray-950 shadow-sm">
+          <table className="w-full text-left text-xs sm:text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900">
+                <th className="p-4 font-bold text-slate-900 dark:text-white">Feature</th>
+                <th className="p-4 font-bold text-slate-900 dark:text-white">Starter</th>
+                <th className="p-4 font-bold text-blue-600 dark:text-blue-400">Professional</th>
+                <th className="p-4 font-bold text-slate-900 dark:text-white">Enterprise</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {compareFeatures.map((row, idx) => (
+                <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/50">
+                  <td className="p-4 font-semibold text-slate-900 dark:text-white">{row.name}</td>
+                  <td className="p-4 text-slate-600 dark:text-slate-400">{row.starter}</td>
+                  <td className="p-4 font-semibold text-blue-600 dark:text-blue-400">{row.pro}</td>
+                  <td className="p-4 text-slate-600 dark:text-slate-400">{row.ent}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* FAQ Section */}
+      <div className="space-y-8 pt-8 border-t border-slate-200 dark:border-slate-800">
+        <div className="text-center space-y-2">
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Frequently Asked Questions</h2>
+          <p className="text-sm text-slate-500">Everything you need to know about our pricing and subscription model.</p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl mx-auto">
+          {faqs.map((faq, idx) => (
+            <div
+              key={idx}
+              className="border border-slate-200 dark:border-slate-800 rounded-xl p-5 bg-white dark:bg-gray-950 space-y-2"
+            >
+              <button
+                onClick={() => toggleFaq(idx)}
+                className="w-full text-left font-bold text-sm text-slate-900 dark:text-white flex justify-between items-center gap-2"
+              >
+                <span>{faq.question}</span>
+                <span className="text-blue-600">{openFaq === idx ? "−" : "+"}</span>
+              </button>
+              {openFaq === idx && (
+                <p className="text-xs text-slate-600 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-slate-900">
+                  {faq.answer}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
