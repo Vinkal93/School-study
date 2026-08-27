@@ -29,10 +29,12 @@ export const metadata: Metadata = constructMetadata();
 export const viewport: Viewport = {
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#070D18" },
+    { media: "(prefers-color-scheme: dark)", color: "#030712" },
   ],
   width: "device-width",
   initialScale: 1,
+  maximumScale: 5,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

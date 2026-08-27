@@ -4,6 +4,11 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 
 type Theme = "light" | "dark";
 
+const THEME_COLORS = {
+  light: "#ffffff",
+  dark: "#030712",
+} as const;
+
 interface ThemeContextType {
   theme: Theme;
   toggleTheme: () => void;
@@ -11,6 +16,30 @@ interface ThemeContextType {
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
+
+/**
+ * Dynamically updates the <meta name="theme-color"> tag so Android Chrome / PWA
+ * status bar and navigation bar always match the current app theme.
+ */
+function syncThemeColorMeta(theme: Theme) {
+  const color = THEME_COLORS[theme];
+
+  // Update existing theme-color meta tags
+  const metas = document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]');
+  if (metas.length > 0) {
+    metas.forEach((meta) => {
+      meta.setAttribute("content", color);
+      // Remove media attribute so the single color applies universally at runtime
+      meta.removeAttribute("media");
+    });
+  } else {
+    // Create one if none exists
+    const meta = document.createElement("meta");
+    meta.name = "theme-color";
+    meta.content = color;
+    document.head.appendChild(meta);
+  }
+}
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>("light");
@@ -27,6 +56,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     } else {
       document.documentElement.classList.remove("dark");
     }
+
+    // Sync Android system bar color on mount
+    syncThemeColorMeta(initialTheme);
     setMounted(true);
   }, []);
 
@@ -38,6 +70,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     } else {
       document.documentElement.classList.remove("dark");
     }
+
+    // Sync Android system bar color on theme change
+    syncThemeColorMeta(newTheme);
   };
 
   const toggleTheme = () => {
