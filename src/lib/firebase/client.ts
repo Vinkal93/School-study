@@ -14,27 +14,7 @@ export function getFirebaseApp(): FirebaseApp {
     if (getApps().length > 0) {
       appInstance = getApp();
     } else {
-      const config = {
-        apiKey:
-          firebaseClientConfig.apiKey ||
-          "AIzaSyAXjKi7fCJrjT6NERRM4OaKIAyT8jRFqAw",
-        authDomain:
-          firebaseClientConfig.authDomain ||
-          "school-study-c8991.firebaseapp.com",
-        projectId:
-          firebaseClientConfig.projectId ||
-          "school-study-c8991",
-        storageBucket:
-          firebaseClientConfig.storageBucket ||
-          "school-study-c8991.firebasestorage.app",
-        messagingSenderId:
-          firebaseClientConfig.messagingSenderId ||
-          "108412631999",
-        appId:
-          firebaseClientConfig.appId ||
-          "1:108412631999:web:9c8af9689a884d29b4ff0a",
-      };
-      appInstance = initializeApp(config);
+      appInstance = initializeApp(firebaseClientConfig);
     }
   }
   return appInstance;
