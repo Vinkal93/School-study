@@ -23,6 +23,7 @@ import {
   UserCheck,
   Filter,
   Trash2,
+  Camera,
 } from "lucide-react";
 import {
   getTeachers,
@@ -30,6 +31,7 @@ import {
   toggleTeacherStatus,
   deleteTeacher,
   assignTeacherToClass,
+  updateTeacher,
 } from "@/lib/services/teacher.service";
 import { uploadTeacherPhoto } from "@/lib/services/storage.service";
 import { getClassesWithSections } from "@/lib/services/academic.service";
@@ -59,10 +61,16 @@ export default function AdminTeachersPage() {
   const [selectedSectionId, setSelectedSectionId] = useState("");
   const [subjectsInput, setSubjectsInput] = useState("");
 
-  // Photo upload
+  // Photo upload for Add Modal
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Photo Edit Modal for Existing Teachers
+  const [photoEditingTeacher, setPhotoEditingTeacher] = useState<TeacherProfile | null>(null);
+  const [editPhotoFile, setEditPhotoFile] = useState<File | null>(null);
+  const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null);
+  const [isUpdatingPhoto, setIsUpdatingPhoto] = useState(false);
 
   // Edit Assignment Modal State
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
@@ -105,6 +113,43 @@ export default function AdminTeachersPage() {
     }
   };
 
+  const handleEditPhotoChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      if (file.size > 2 * 1024 * 1024) {
+        toast.error("Photo size must be less than 2MB.");
+        return;
+      }
+      setEditPhotoFile(file);
+      setEditPhotoPreview(URL.createObjectURL(file));
+    }
+  };
+
+  const handleUpdateTeacherPhoto = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!photoEditingTeacher || !editPhotoFile) {
+      toast.error("Please select a photo to upload.");
+      return;
+    }
+
+    setIsUpdatingPhoto(true);
+    try {
+      const newPhotoUrl = await uploadTeacherPhoto(editPhotoFile, schoolId, photoEditingTeacher.teacherCode);
+      await updateTeacher(schoolId, photoEditingTeacher.id, { photoUrl: newPhotoUrl });
+      setTeachers((prev) =>
+        prev.map((t) => (t.id === photoEditingTeacher.id ? { ...t, photoUrl: newPhotoUrl } : t))
+      );
+      toast.success(`Photo updated successfully for "${photoEditingTeacher.name}"!`);
+      setPhotoEditingTeacher(null);
+      setEditPhotoFile(null);
+      setEditPhotoPreview(null);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update teacher photo.");
+    } finally {
+      setIsUpdatingPhoto(false);
+    }
+  };
+
   const handleAddTeacher = async (e: FormEvent) => {
     e.preventDefault();
     if (!teacherCode.trim() || !name.trim() || !email.trim() || !password) {
@@ -122,7 +167,7 @@ export default function AdminTeachersPage() {
       let photoUrl = "";
       if (photoFile) {
         try {
-          photoUrl = await uploadTeacherPhoto(schoolId, teacherCode, photoFile);
+          photoUrl = await uploadTeacherPhoto(photoFile, schoolId, teacherCode);
         } catch (uploadErr) {
           console.warn("Photo upload failed, continuing:", uploadErr);
         }
@@ -400,17 +445,30 @@ export default function AdminTeachersPage() {
                 <div key={t.id} className="p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      {t.photoUrl ? (
-                        <img
-                          src={t.photoUrl}
-                          alt={t.name}
-                          className="h-10 w-10 rounded-full object-cover border border-gray-200"
-                        />
-                      ) : (
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                          {t.name.charAt(0)}
+                      <div
+                        onClick={() => {
+                          setPhotoEditingTeacher(t);
+                          setEditPhotoPreview(t.photoUrl || null);
+                          setEditPhotoFile(null);
+                        }}
+                        className="relative cursor-pointer group shrink-0"
+                        title="Click to upload/change teacher photo"
+                      >
+                        {t.photoUrl ? (
+                          <img
+                            src={t.photoUrl}
+                            alt={t.name}
+                            className="h-11 w-11 rounded-full object-cover border-2 border-blue-100 group-hover:opacity-80 transition-all shadow-sm"
+                          />
+                        ) : (
+                          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-100 font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 border border-blue-200">
+                            {t.name.charAt(0)}
+                          </div>
+                        )}
+                        <div className="absolute -bottom-1 -right-1 p-1 bg-blue-600 text-white rounded-full shadow-sm">
+                          <Camera className="h-2.5 w-2.5" />
                         </div>
-                      )}
+                      </div>
                       <div>
                         <p className="font-bold text-gray-900 dark:text-white text-sm">{t.name}</p>
                         <p className="text-[11px] text-gray-500 dark:text-gray-400 font-mono">{t.teacherCode}</p>
@@ -492,17 +550,30 @@ export default function AdminTeachersPage() {
                     <tr key={t.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/50">
                       <td className="py-4 px-4">
                         <div className="flex items-center gap-3">
-                          {t.photoUrl ? (
-                            <img
-                              src={t.photoUrl}
-                              alt={t.name}
-                              className="h-10 w-10 rounded-full object-cover border border-gray-200"
-                            />
-                          ) : (
-                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                              {t.name.charAt(0)}
+                          <div
+                            onClick={() => {
+                              setPhotoEditingTeacher(t);
+                              setEditPhotoPreview(t.photoUrl || null);
+                              setEditPhotoFile(null);
+                            }}
+                            className="relative cursor-pointer group shrink-0"
+                            title="Click to upload/change teacher photo"
+                          >
+                            {t.photoUrl ? (
+                              <img
+                                src={t.photoUrl}
+                                alt={t.name}
+                                className="h-10 w-10 rounded-full object-cover border border-gray-200 group-hover:opacity-80 transition-all shadow-sm"
+                              />
+                            ) : (
+                              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                                {t.name.charAt(0)}
+                              </div>
+                            )}
+                            <div className="absolute -bottom-1 -right-1 p-0.5 bg-blue-600 text-white rounded-full shadow-sm opacity-90 group-hover:scale-110 transition-transform">
+                              <Camera className="h-2.5 w-2.5" />
                             </div>
-                          )}
+                          </div>
                           <div>
                             <p className="font-semibold text-gray-900 dark:text-white">{t.name}</p>
                             {t.subjects && t.subjects.length > 0 && (
@@ -562,7 +633,19 @@ export default function AdminTeachersPage() {
                         </span>
                       </td>
                       <td className="py-4 px-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => {
+                              setPhotoEditingTeacher(t);
+                              setEditPhotoPreview(t.photoUrl || null);
+                              setEditPhotoFile(null);
+                            }}
+                            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                            title="Upload/Update Teacher Photo"
+                          >
+                            <Camera className="h-3 w-3" />
+                            Photo
+                          </button>
                           <button
                             onClick={() => {
                               setAssigningTeacher(t);
@@ -907,6 +990,95 @@ export default function AdminTeachersPage() {
                   className="rounded-lg bg-blue-600 px-5 py-2 text-xs font-medium text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
                 >
                   {isSavingAssign ? "Saving..." : "Update Assignment"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Photo Update Modal for Existing Teachers */}
+      {photoEditingTeacher && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-800 dark:bg-gray-950 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100 dark:border-gray-800">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                  Update Teacher Photo
+                </h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  {photoEditingTeacher.name} • {photoEditingTeacher.teacherCode}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setPhotoEditingTeacher(null);
+                  setEditPhotoFile(null);
+                  setEditPhotoPreview(null);
+                }}
+                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-500 dark:hover:bg-gray-800"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateTeacherPhoto} className="mt-5 space-y-5">
+              <div className="flex flex-col items-center justify-center gap-4">
+                {editPhotoPreview ? (
+                  <div className="relative">
+                    <img
+                      src={editPhotoPreview}
+                      alt="Preview"
+                      className="h-28 w-28 rounded-full object-cover border-4 border-blue-500/20 shadow-md"
+                    />
+                    <span className="absolute bottom-0 right-0 p-1.5 bg-green-500 text-white rounded-full">
+                      <CheckCircle2 className="h-4 w-4" />
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex h-28 w-28 items-center justify-center rounded-full border-2 border-dashed border-gray-300 bg-gray-50 text-gray-400 dark:border-gray-700 dark:bg-gray-900">
+                    <ImageIcon className="h-10 w-10" />
+                  </div>
+                )}
+
+                <label className="cursor-pointer inline-flex items-center gap-2 rounded-xl bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 px-4 py-2 text-xs font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-100 transition-colors shadow-sm">
+                  <Upload className="h-4 w-4" />
+                  <span>{editPhotoFile ? "Choose Different Photo" : "Select Teacher Photo"}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleEditPhotoChange}
+                    className="hidden"
+                  />
+                </label>
+                <p className="text-[11px] text-gray-400">JPG, PNG, or WEBP (Auto-compressed for instant loading)</p>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-gray-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPhotoEditingTeacher(null);
+                    setEditPhotoFile(null);
+                    setEditPhotoPreview(null);
+                  }}
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingPhoto || !editPhotoFile}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2 text-xs font-medium text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {isUpdatingPhoto ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Saving Photo...
+                    </>
+                  ) : (
+                    "Save Teacher Photo"
+                  )}
                 </button>
               </div>
             </form>

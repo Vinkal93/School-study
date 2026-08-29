@@ -47,10 +47,12 @@ import { compressImageToBase64 } from "@/lib/utils/image-compression";
  * Uploads a teacher profile photo with client-side compression and zero CORS requirements.
  */
 export async function uploadTeacherPhoto(
-  file: File,
-  schoolId: string,
-  teacherCode: string
+  arg1: string | File,
+  arg2?: string,
+  arg3?: string | File
 ): Promise<string> {
+  const file = arg1 instanceof File ? arg1 : (arg3 instanceof File ? arg3 : undefined);
+  if (!file) return "";
   return await compressImageToBase64(file, 400, 400, 0.75);
 }
 

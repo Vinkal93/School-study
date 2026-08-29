@@ -1,73 +1,47 @@
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { getFirebaseStorage } from "@/lib/firebase/client";
-import { compressImage } from "@/lib/utils/image-compression";
+import { compressImageToBase64 } from "@/lib/utils/image-compression";
 
 /**
- * Standardized Firebase Storage Service for multi-tenant uploads.
- * Paths:
- * - Schools:  schools/{schoolId}/logo/{filename}
- * - Students: students/{studentId}/profile/{filename}
- * - Teachers: teachers/{teacherId}/profile/{filename}
+ * Standardized Photo Upload Service for multi-tenant users.
+ * Uses client-side canvas compression to generate lightweight Base64 data URLs.
+ * Works 100% reliably across all plans, with zero CORS and zero Storage bucket dependencies.
  */
 
 /**
- * Compresses and uploads a school brand logo.
+ * Compresses and returns school brand logo.
  */
 export async function uploadSchoolLogo(
-  schoolId: string,
-  file: File
+  arg1: string | File,
+  arg2?: File
 ): Promise<string> {
-  const compressed = await compressImage(file, { maxWidth: 512, maxHeight: 512 });
-  const storage = getFirebaseStorage();
-  const storageRef = ref(
-    storage,
-    `schools/${schoolId}/logo/${Date.now()}_logo.jpg`
-  );
-
-  const snapshot = await uploadBytes(storageRef, compressed, {
-    contentType: "image/jpeg",
-  });
-  return await getDownloadURL(snapshot.ref);
+  const file = (arg1 instanceof File ? arg1 : arg2) as File;
+  if (!file) return "";
+  return await compressImageToBase64(file, 400, 400, 0.8);
 }
 
 /**
- * Compresses and uploads a student profile photo.
+ * Compresses and returns student profile photo.
+ * Supports flexible argument order: (file, schoolId, id) or (schoolId, id, file).
  */
 export async function uploadStudentPhoto(
-  schoolId: string,
-  studentId: string,
-  file: File
+  arg1: string | File,
+  arg2?: string,
+  arg3?: string | File
 ): Promise<string> {
-  const compressed = await compressImage(file, { maxWidth: 600, maxHeight: 600 });
-  const storage = getFirebaseStorage();
-  const storageRef = ref(
-    storage,
-    `students/${studentId}/profile/${Date.now()}_profile.jpg`
-  );
-
-  const snapshot = await uploadBytes(storageRef, compressed, {
-    contentType: "image/jpeg",
-  });
-  return await getDownloadURL(snapshot.ref);
+  const file = arg1 instanceof File ? arg1 : (arg3 instanceof File ? arg3 : undefined);
+  if (!file) return "";
+  return await compressImageToBase64(file, 400, 400, 0.75);
 }
 
 /**
- * Compresses and uploads a teacher profile photo.
+ * Compresses and returns teacher profile photo.
+ * Supports flexible argument order: (file, schoolId, code) or (schoolId, code, file).
  */
 export async function uploadTeacherPhoto(
-  schoolId: string,
-  teacherId: string,
-  file: File
+  arg1: string | File,
+  arg2?: string,
+  arg3?: string | File
 ): Promise<string> {
-  const compressed = await compressImage(file, { maxWidth: 600, maxHeight: 600 });
-  const storage = getFirebaseStorage();
-  const storageRef = ref(
-    storage,
-    `teachers/${teacherId}/profile/${Date.now()}_profile.jpg`
-  );
-
-  const snapshot = await uploadBytes(storageRef, compressed, {
-    contentType: "image/jpeg",
-  });
-  return await getDownloadURL(snapshot.ref);
+  const file = arg1 instanceof File ? arg1 : (arg3 instanceof File ? arg3 : undefined);
+  if (!file) return "";
+  return await compressImageToBase64(file, 400, 400, 0.75);
 }

@@ -23,12 +23,14 @@ import {
   UserCheck,
   Filter,
   Trash2,
+  Camera,
 } from "lucide-react";
 import {
   getStudents,
   createStudentWithAuth,
   toggleStudentStatus,
   deleteStudent,
+  updateStudent,
 } from "@/lib/services/student.service";
 import { uploadStudentPhoto } from "@/lib/services/storage.service";
 import { getClassesWithSections } from "@/lib/services/academic.service";
@@ -64,10 +66,16 @@ export default function AdminStudentsPage() {
   const [selectedClassId, setSelectedClassId] = useState("");
   const [selectedSectionId, setSelectedSectionId] = useState("");
 
-  // Photo
+  // Photo for Enroll Modal
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Photo Edit Modal for Existing Students
+  const [photoEditingStudent, setPhotoEditingStudent] = useState<StudentProfile | null>(null);
+  const [editPhotoFile, setEditPhotoFile] = useState<File | null>(null);
+  const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null);
+  const [isUpdatingPhoto, setIsUpdatingPhoto] = useState(false);
 
   const loadData = async () => {
     if (!schoolId) return;
@@ -103,6 +111,43 @@ export default function AdminStudentsPage() {
     }
   };
 
+  const handleEditPhotoChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      if (file.size > 2 * 1024 * 1024) {
+        toast.error("Photo size must be less than 2MB.");
+        return;
+      }
+      setEditPhotoFile(file);
+      setEditPhotoPreview(URL.createObjectURL(file));
+    }
+  };
+
+  const handleUpdateStudentPhoto = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!photoEditingStudent || !editPhotoFile) {
+      toast.error("Please select a photo to upload.");
+      return;
+    }
+
+    setIsUpdatingPhoto(true);
+    try {
+      const newPhotoUrl = await uploadStudentPhoto(editPhotoFile, schoolId, photoEditingStudent.admissionNumber);
+      await updateStudent(schoolId, photoEditingStudent.id, { photoUrl: newPhotoUrl });
+      setStudents((prev) =>
+        prev.map((s) => (s.id === photoEditingStudent.id ? { ...s, photoUrl: newPhotoUrl } : s))
+      );
+      toast.success(`Photo updated successfully for "${photoEditingStudent.name}"!`);
+      setPhotoEditingStudent(null);
+      setEditPhotoFile(null);
+      setEditPhotoPreview(null);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update student photo.");
+    } finally {
+      setIsUpdatingPhoto(false);
+    }
+  };
+
   const handleEnrollStudent = async (e: FormEvent) => {
     e.preventDefault();
     if (!admissionNumber.trim() || !name.trim() || !email.trim() || !password || !selectedClassId || !selectedSectionId) {
@@ -120,7 +165,7 @@ export default function AdminStudentsPage() {
       let photoUrl = "";
       if (photoFile) {
         try {
-          photoUrl = await uploadStudentPhoto(schoolId, admissionNumber, photoFile);
+          photoUrl = await uploadStudentPhoto(photoFile, schoolId, admissionNumber);
         } catch (uploadErr) {
           console.warn("Photo upload failed, continuing:", uploadErr);
         }
@@ -410,17 +455,30 @@ export default function AdminStudentsPage() {
                 <div key={s.id} className="p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      {s.photoUrl ? (
-                        <img
-                          src={s.photoUrl}
-                          alt={s.name}
-                          className="h-10 w-10 rounded-full object-cover border border-gray-200"
-                        />
-                      ) : (
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-100 font-bold text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
-                          {s.name.charAt(0)}
+                      <div
+                        onClick={() => {
+                          setPhotoEditingStudent(s);
+                          setEditPhotoPreview(s.photoUrl || null);
+                          setEditPhotoFile(null);
+                        }}
+                        className="relative cursor-pointer group shrink-0"
+                        title="Click to upload/change photo"
+                      >
+                        {s.photoUrl ? (
+                          <img
+                            src={s.photoUrl}
+                            alt={s.name}
+                            className="h-11 w-11 rounded-full object-cover border-2 border-blue-100 group-hover:opacity-80 transition-all shadow-sm"
+                          />
+                        ) : (
+                          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-purple-100 font-bold text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 border border-purple-200">
+                            {s.name.charAt(0)}
+                          </div>
+                        )}
+                        <div className="absolute -bottom-1 -right-1 p-1 bg-blue-600 text-white rounded-full shadow-sm">
+                          <Camera className="h-2.5 w-2.5" />
                         </div>
-                      )}
+                      </div>
                       <div>
                         <p className="font-bold text-gray-900 dark:text-white text-sm">{s.name}</p>
                         <p className="text-[11px] text-gray-500 dark:text-gray-400 font-mono">{s.admissionNumber}</p>
@@ -487,17 +545,30 @@ export default function AdminStudentsPage() {
                     <tr key={s.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/50">
                       <td className="py-4 px-4">
                         <div className="flex items-center gap-3">
-                          {s.photoUrl ? (
-                            <img
-                              src={s.photoUrl}
-                              alt={s.name}
-                              className="h-10 w-10 rounded-full object-cover border border-gray-200"
-                            />
-                          ) : (
-                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-100 font-bold text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
-                              {s.name.charAt(0)}
+                          <div
+                            onClick={() => {
+                              setPhotoEditingStudent(s);
+                              setEditPhotoPreview(s.photoUrl || null);
+                              setEditPhotoFile(null);
+                            }}
+                            className="relative cursor-pointer group shrink-0"
+                            title="Click to upload/change photo"
+                          >
+                            {s.photoUrl ? (
+                              <img
+                                src={s.photoUrl}
+                                alt={s.name}
+                                className="h-10 w-10 rounded-full object-cover border border-gray-200 group-hover:opacity-80 transition-all shadow-sm"
+                              />
+                            ) : (
+                              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-100 font-bold text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+                                {s.name.charAt(0)}
+                              </div>
+                            )}
+                            <div className="absolute -bottom-1 -right-1 p-0.5 bg-blue-600 text-white rounded-full shadow-sm opacity-90 group-hover:scale-110 transition-transform">
+                              <Camera className="h-2.5 w-2.5" />
                             </div>
-                          )}
+                          </div>
                           <div>
                             <p className="font-semibold text-gray-900 dark:text-white">{s.name}</p>
                             <p className="text-xs text-gray-500 dark:text-gray-400">{s.email}</p>
@@ -546,11 +617,23 @@ export default function AdminStudentsPage() {
                         </span>
                       </td>
                       <td className="py-4 px-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => {
+                              setPhotoEditingStudent(s);
+                              setEditPhotoPreview(s.photoUrl || null);
+                              setEditPhotoFile(null);
+                            }}
+                            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                            title="Upload/Update Student Photo"
+                          >
+                            <Camera className="h-3 w-3" />
+                            Photo
+                          </button>
                           <button
                             onClick={() => handleToggleStatus(s)}
                             disabled={togglingId === s.id}
-                            className={`inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium ${
+                            className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium ${
                               s.status === "active"
                                 ? "text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20"
                                 : "text-green-600 hover:bg-green-50 dark:hover:bg-green-950/20"
@@ -561,7 +644,7 @@ export default function AdminStudentsPage() {
                           </button>
                           <button
                             onClick={() => handleDeleteStudent(s)}
-                            className="inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20"
+                            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20"
                             title="Delete student permanently from Firebase"
                           >
                             <Trash2 className="h-3 w-3" />
@@ -831,6 +914,95 @@ export default function AdminStudentsPage() {
                     </>
                   ) : (
                     "Enroll & Provision Student"
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Photo Update Modal for Existing Students */}
+      {photoEditingStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-800 dark:bg-gray-950 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100 dark:border-gray-800">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                  Update Student Photo
+                </h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  {photoEditingStudent.name} • {photoEditingStudent.admissionNumber}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setPhotoEditingStudent(null);
+                  setEditPhotoFile(null);
+                  setEditPhotoPreview(null);
+                }}
+                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-500 dark:hover:bg-gray-800"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateStudentPhoto} className="mt-5 space-y-5">
+              <div className="flex flex-col items-center justify-center gap-4">
+                {editPhotoPreview ? (
+                  <div className="relative">
+                    <img
+                      src={editPhotoPreview}
+                      alt="Preview"
+                      className="h-28 w-28 rounded-full object-cover border-4 border-blue-500/20 shadow-md"
+                    />
+                    <span className="absolute bottom-0 right-0 p-1.5 bg-green-500 text-white rounded-full">
+                      <CheckCircle2 className="h-4 w-4" />
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex h-28 w-28 items-center justify-center rounded-full border-2 border-dashed border-gray-300 bg-gray-50 text-gray-400 dark:border-gray-700 dark:bg-gray-900">
+                    <ImageIcon className="h-10 w-10" />
+                  </div>
+                )}
+
+                <label className="cursor-pointer inline-flex items-center gap-2 rounded-xl bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 px-4 py-2 text-xs font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-100 transition-colors shadow-sm">
+                  <Upload className="h-4 w-4" />
+                  <span>{editPhotoFile ? "Choose Different Photo" : "Select Student Photo"}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleEditPhotoChange}
+                    className="hidden"
+                  />
+                </label>
+                <p className="text-[11px] text-gray-400">JPG, PNG, or WEBP (Auto-compressed for instant loading)</p>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-gray-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPhotoEditingStudent(null);
+                    setEditPhotoFile(null);
+                    setEditPhotoPreview(null);
+                  }}
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingPhoto || !editPhotoFile}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2 text-xs font-medium text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {isUpdatingPhoto ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Saving Photo...
+                    </>
+                  ) : (
+                    "Save Student Photo"
                   )}
                 </button>
               </div>
