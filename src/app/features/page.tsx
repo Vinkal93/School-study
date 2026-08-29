@@ -15,6 +15,14 @@ import {
   School,
   HelpCircle,
 } from "lucide-react";
+import {
+  StudentColourIcon,
+  AttendanceColourIcon,
+  TeacherColourIcon,
+  AnalyticsColourIcon,
+  NoticeColourIcon,
+  SecurityColourIcon,
+} from "@/components/common/ColouredIcons";
 import { MarketingHeader, MarketingCTA } from "@/components/marketing";
 import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import { Footer } from "@/components/footer";
@@ -66,7 +74,7 @@ export default function FeaturesPage() {
       title: "Student Roster & Profiles",
       description:
         "Maintain accurate student records with unique admission numbers, class and section mappings, and guardian contacts.",
-      icon: Users,
+      icon: StudentColourIcon,
       href: "/student-management",
       color: "blue",
       badge: "Student Hub",
@@ -75,7 +83,7 @@ export default function FeaturesPage() {
       title: "Real-Time Attendance Tracking",
       description:
         "Empower faculty with fast daily roll-call (Present, Absent, Late), automatic monthly history logs, and student percentage views.",
-      icon: ClipboardCheck,
+      icon: AttendanceColourIcon,
       href: "/attendance-management",
       color: "emerald",
       badge: "Classroom Ops",
@@ -84,16 +92,16 @@ export default function FeaturesPage() {
       title: "Teacher & Subject Assignments",
       description:
         "Manage faculty profiles, auto-generated login credentials, assigned class sections, and subject responsibilities.",
-      icon: GraduationCap,
+      icon: TeacherColourIcon,
       href: "/teacher-management",
       color: "purple",
       badge: "Faculty Desk",
     },
     {
-      title: "School Management System",
+      title: "Institutional Health & Growth",
       description:
         "A centralized administrative cockpit for school leaders to supervise rosters, faculty assignments, and institutional health.",
-      icon: School,
+      icon: AnalyticsColourIcon,
       href: "/school-management",
       color: "amber",
       badge: "Administration",
@@ -102,7 +110,7 @@ export default function FeaturesPage() {
       title: "Targeted Notices & Circulars",
       description:
         "Publish official school announcements with priority levels targeted to the whole campus, teachers, or specific grades.",
-      icon: Bell,
+      icon: NoticeColourIcon,
       href: "/school-erp",
       color: "orange",
       badge: "Broadcasts",
@@ -111,7 +119,7 @@ export default function FeaturesPage() {
       title: "Multi-Tenant Security Isolation",
       description:
         "Enterprise-grade Firestore rules and server-side authorization ensuring complete data privacy across individual school tenants.",
-      icon: ShieldCheck,
+      icon: SecurityColourIcon,
       href: "/school-erp",
       color: "cyan",
       badge: "Security",
