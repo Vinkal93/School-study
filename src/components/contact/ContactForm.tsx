@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { db } from "@/lib/firebase/client";
+import { getFirebaseDb } from "@/lib/firebase/client";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 
@@ -32,7 +32,9 @@ export function ContactForm() {
     setErrorMessage("");
 
     try {
-      await addDoc(collection(db, "contactInquiries"), {
+      const firestore = getFirebaseDb();
+      if (!firestore) throw new Error("Database not initialized");
+      await addDoc(collection(firestore, "contactInquiries"), {
         ...formData,
         status: "new",
         createdAt: serverTimestamp(),

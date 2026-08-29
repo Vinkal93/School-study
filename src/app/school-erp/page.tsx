@@ -173,11 +173,6 @@ export default function SchoolErpPage() {
           title="Modular School ERP Architecture"
           subtitle="Explore how all essential school operations connect in one unified system."
         />
-
-        <MarketingCTA
-          title="Ready for a Simpler School ERP?"
-          description="Get started with School Study and experience clean, clutter-free school operations."
-        />
       </main>
 
       <Footer />

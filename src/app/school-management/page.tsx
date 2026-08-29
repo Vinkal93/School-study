@@ -203,11 +203,6 @@ export default function SchoolManagementPage() {
           title="Connect with Key Academic Modules"
           subtitle="School Study seamlessly connects administrators with teachers, students, and attendance rosters."
         />
-
-        <MarketingCTA
-          title="Empower Your School Administrators Today"
-          description="Switch to School Study for clean rosters, effortless attendance, and transparent school management."
-        />
       </main>
 
       <Footer />

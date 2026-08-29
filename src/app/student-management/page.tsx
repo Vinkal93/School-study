@@ -159,11 +159,6 @@ export default function StudentManagementPage() {
           title="Interconnected Platform Workflows"
           subtitle="Explore how student records automatically link with attendance registers and teacher dashboards."
         />
-
-        <MarketingCTA
-          title="Transform Student Administration in Minutes"
-          description="Keep your student rosters clean, organized, and accessible to faculty and parents."
-        />
       </main>
 
       <Footer />

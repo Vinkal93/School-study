@@ -161,11 +161,6 @@ export default function AttendanceManagementPage() {
           title="Related Attendance & Administration Features"
           subtitle="Discover how automated attendance links directly to student profiles and faculty workflows."
         />
-
-        <MarketingCTA
-          title="Streamline Daily School Attendance Today"
-          description="Join educational institutions saving hours of administrative time with School Study attendance automation."
-        />
       </main>
 
       <Footer />

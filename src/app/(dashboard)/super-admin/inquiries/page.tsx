@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { db } from "@/lib/firebase/client";
+import { getFirebaseDb } from "@/lib/firebase/client";
 import {
   collection,
   query,
@@ -48,8 +48,11 @@ export default function InquiriesPage() {
   useEffect(() => {
     if (profile?.role !== "super_admin") return;
 
+    const firestore = getFirebaseDb();
+    if (!firestore) return;
+
     const q = query(
-      collection(db, "contactInquiries"),
+      collection(firestore, "contactInquiries"),
       orderBy("createdAt", "desc")
     );
 
@@ -73,7 +76,9 @@ export default function InquiriesPage() {
         ? "resolved"
         : "new";
     try {
-      await updateDoc(doc(db, "contactInquiries", id), {
+      const firestore = getFirebaseDb();
+      if (!firestore) return;
+      await updateDoc(doc(firestore, "contactInquiries", id), {
         status: nextStatus,
       });
     } catch (error) {

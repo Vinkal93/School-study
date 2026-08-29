@@ -246,8 +246,6 @@ export default function FeaturesPage() {
             </div>
           </div>
         </section>
-
-        <MarketingCTA />
       </main>
 
       <Footer />

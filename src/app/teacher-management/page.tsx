@@ -160,11 +160,6 @@ export default function TeacherManagementPage() {
           title="Related Educational Management Modules"
           subtitle="Discover how teacher management integrates with student rosters and school ERP features."
         />
-
-        <MarketingCTA
-          title="Equip Your Faculty With School Study"
-          description="Give your teachers an intuitive workspace that simplifies classroom management and daily roll call."
-        />
       </main>
 
       <Footer />
