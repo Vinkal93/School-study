@@ -3,7 +3,6 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  DollarSign,
   TrendingUp,
   CreditCard,
   AlertCircle,
@@ -18,6 +17,15 @@ import {
   RefreshCw,
   FileText,
   Search,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Tag,
+  ShieldAlert,
+  ArrowRight,
+  Activity,
+  Layers,
+  Percent,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -26,6 +34,9 @@ import {
   getRevenueChartData,
   getPlanWiseRevenue,
   getSchoolWiseRevenue,
+  getBillingCycleAnalytics,
+  getCouponImpactAnalytics,
+  getPaymentHealthStats,
   DateFilterInput,
   generateTransactionsCSV,
 } from "@/lib/billing/finance";
@@ -55,7 +66,9 @@ export default function SuperAdminFinancePage() {
   const [chartData, setChartData] = useState<{ key: string; label: string; amountRupees: number }[]>([]);
   const [planRevenue, setPlanRevenue] = useState<PlanRevenueSummary[]>([]);
   const [schoolRevenue, setSchoolRevenue] = useState<SchoolRevenueSummary[]>([]);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [billingCycleStats, setBillingCycleStats] = useState<any>(null);
+  const [couponStats, setCouponStats] = useState<any>(null);
+  const [paymentHealth, setPaymentHealth] = useState<any>(null);
 
   async function loadData() {
     setLoading(true);
@@ -63,22 +76,29 @@ export default function SuperAdminFinancePage() {
     try {
       const dateFilter: DateFilterInput = { preset: filterPreset };
 
-      const [sumRes, cashRes, chartRes, planRes, schoolRes] = await Promise.all([
-        getFinanceSummary(dateFilter),
-        getCashflowSummary(dateFilter),
-        getRevenueChartData("daily", dateFilter),
-        getPlanWiseRevenue(dateFilter),
-        getSchoolWiseRevenue(dateFilter),
-      ]);
+      const [sumRes, cashRes, chartRes, planRes, schoolRes, cycleRes, couponRes, healthRes] =
+        await Promise.all([
+          getFinanceSummary(dateFilter),
+          getCashflowSummary(dateFilter),
+          getRevenueChartData("daily", dateFilter),
+          getPlanWiseRevenue(dateFilter),
+          getSchoolWiseRevenue(dateFilter),
+          getBillingCycleAnalytics(dateFilter),
+          getCouponImpactAnalytics(dateFilter),
+          getPaymentHealthStats(dateFilter),
+        ]);
 
       setSummary(sumRes);
       setCashflow(cashRes);
       setChartData(chartRes);
       setPlanRevenue(planRes);
       setSchoolRevenue(schoolRes);
+      setBillingCycleStats(cycleRes);
+      setCouponStats(couponRes);
+      setPaymentHealth(healthRes);
     } catch (err: any) {
       console.error("Failed to load finance data:", err);
-      setError("Unable to load financial data. Please try again.");
+      setError("Unable to load financial data. Please check backend services.");
     } finally {
       setLoading(false);
     }
@@ -120,7 +140,7 @@ export default function SuperAdminFinancePage() {
           discountPaise: p.discountAmount || 0,
           status: p.status,
           paymentId: p.razorpayPaymentId || p.id,
-          invoiceNumber: invMap[p.id] || `INV-${p.orderId?.slice(-6) || "000"}`,
+          invoiceNumber: invMap[p.id] || invMap[p.orderId] || "N/A",
         };
       });
 
@@ -129,169 +149,374 @@ export default function SuperAdminFinancePage() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.setAttribute("href", url);
-      link.setAttribute("download", `SchoolStudy_Finance_Report_${filterPreset}.csv`);
+      link.setAttribute("download", `SchoolStudy_Finance_${filterPreset}_${Date.now()}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
     } catch (err) {
-      console.error("Export CSV Error:", err);
+      console.error("Failed to export finance CSV:", err);
     }
   };
 
-  const filteredSchools = schoolRevenue.filter(
-    (s) =>
-      s.schoolName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.schoolId.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-7xl mx-auto">
-      {/* Header & Controls */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-            <DollarSign className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
-            Finance & Revenue Dashboard
+          <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+            <TrendingUp className="h-6 w-6 text-emerald-600" />
+            Super Admin Finance Control Center
           </h1>
-          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Authoritative revenue calculations, transaction ledger, and cashflow analytics.
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+            Authoritative platform revenue, cashflow ledgers, reconciliation, and payment health.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Date Filter Preset */}
-          <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 shadow-sm">
-            <Calendar className="h-4 w-4 text-slate-400 ml-2" />
-            <select
-              value={filterPreset}
-              onChange={(e) => setFilterPreset(e.target.value as any)}
-              className="bg-transparent text-xs font-semibold text-slate-700 dark:text-slate-200 pr-3 py-1 focus:outline-none cursor-pointer"
-            >
-              <option value="today">Today</option>
-              <option value="yesterday">Yesterday</option>
-              <option value="this_week">This Week</option>
-              <option value="this_month">This Month</option>
-              <option value="last_month">Last Month</option>
-              <option value="this_year">This Year</option>
-            </select>
+          {/* Timeframe Presets */}
+          <div className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-1 rounded-2xl shadow-2xs">
+            {(["today", "this_week", "this_month", "this_year"] as const).map((preset) => (
+              <button
+                key={preset}
+                onClick={() => setFilterPreset(preset)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  filterPreset === preset
+                    ? "bg-blue-600 text-white shadow-xs"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                {preset.replace("_", " ").toUpperCase()}
+              </button>
+            ))}
           </div>
 
           <button
             onClick={loadData}
-            className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all"
+            disabled={loading}
+            className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer"
             title="Refresh Data"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </button>
 
-          <Link
-            href="/super-admin/finance/transactions"
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 text-xs font-bold hover:bg-blue-100 dark:hover:bg-blue-900/80 transition-all"
-          >
-            <FileText className="h-3.5 w-3.5" />
-            Transactions List
-          </Link>
-
           <button
             onClick={handleExportCSV}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition-all active:scale-95"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 dark:bg-slate-800 text-white text-xs font-bold hover:bg-slate-800 dark:hover:bg-slate-700 transition-all shadow-xs cursor-pointer"
           >
             <Download className="h-3.5 w-3.5" />
-            Export CSV
+            <span>Export CSV</span>
           </button>
         </div>
       </div>
 
-      {/* Error Banner */}
+      {/* Sub-Navigation Tabs */}
+      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3 text-xs font-bold overflow-x-auto">
+        <Link
+          href="/super-admin/finance"
+          className="px-3.5 py-1.5 rounded-xl bg-blue-600 text-white shadow-xs shrink-0"
+        >
+          Overview & Cashflow
+        </Link>
+        <Link
+          href="/super-admin/finance/schools"
+          className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-all shrink-0"
+        >
+          School Revenue Breakdown
+        </Link>
+        <Link
+          href="/super-admin/finance/transactions"
+          className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-all shrink-0"
+        >
+          Transaction Ledger
+        </Link>
+        <Link
+          href="/super-admin/finance/reconciliation"
+          className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-all shrink-0 flex items-center gap-1.5"
+        >
+          <ShieldAlert className="h-3.5 w-3.5 text-amber-500" />
+          <span>Reconciliation Center</span>
+        </Link>
+      </div>
+
+      {/* Error state */}
       {error && (
-        <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-xs sm:text-sm font-semibold flex items-center gap-2">
-          <AlertCircle className="h-5 w-5 shrink-0" />
-          <span>{error}</span>
+        <div className="rounded-2xl border border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/40 p-4 flex items-center gap-3 text-red-800 dark:text-red-300 text-xs">
+          <AlertCircle className="h-5 w-5 text-red-600 shrink-0" />
+          <p className="font-bold">{error}</p>
         </div>
       )}
 
-      {/* Loading Skeleton */}
+      {/* Financial Definitions Bar (Section 2) */}
+      <div className="p-3.5 rounded-2xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/50 text-[11px] text-blue-900 dark:text-blue-300 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 font-semibold">
+          <span className="font-bold uppercase tracking-wider">Accounting Standard:</span>
+          <span>Gross Sales = Payment Gross</span>
+          <span>•</span>
+          <span>Net Collected = Gross - Discounts - Refunds</span>
+          <span>•</span>
+          <span>Money In = Verified Payments</span>
+        </div>
+        <span className="font-mono text-[10px] text-blue-600 dark:text-blue-400">
+          Source: Razorpay Captured Ledger
+        </span>
+      </div>
+
       {loading ? (
-        <div className="flex justify-center items-center py-16 text-slate-400 gap-2">
-          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
-          <span className="text-sm font-medium">Calculating financial metrics...</span>
+        <div className="flex justify-center items-center py-20 text-slate-400 gap-2">
+          <Loader2 className="h-7 w-7 animate-spin text-blue-600" />
+          <span className="text-sm font-semibold">Aggregating platform finance records...</span>
         </div>
       ) : (
         <>
-          {/* Top Summary Metric Cards (Section 2 & 3) */}
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-1">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Gross Sales</span>
-              <p className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">
-                {formatRupees(summary?.grossSales || 0)}
+          {/* Top-Level KPI Summary Cards (Section 1) */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Gross Revenue */}
+            <div className="p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs space-y-1">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                Gross Platform Sales
+              </span>
+              <p className="text-2xl font-black text-slate-900 dark:text-white font-mono">
+                {summary ? formatRupees(summary.grossSales) : "₹0"}
               </p>
-              <p className="text-[10px] text-slate-400">Total Billed</p>
+              <p className="text-[11px] text-slate-500">Before coupon discounts</p>
             </div>
 
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-1">
-              <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Discounts Given</span>
-              <p className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">
-                {formatRupees(summary?.discountGiven || 0)}
+            {/* Net Collected Revenue */}
+            <div className="p-5 rounded-3xl border border-emerald-200/80 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/20 shadow-2xs space-y-1">
+              <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">
+                Net Collected Revenue
+              </span>
+              <p className="text-2xl font-black text-emerald-700 dark:text-emerald-300 font-mono">
+                {summary ? formatRupees(summary.netCollected) : "₹0"}
               </p>
-              <p className="text-[10px] text-slate-400">Coupons & Special Promos</p>
+              <p className="text-[11px] text-emerald-600/80 dark:text-emerald-400/80">
+                Actual cash realized in gateway
+              </p>
             </div>
 
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-1">
-              <span className="text-[11px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider">Refunded Amount</span>
-              <p className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">
-                {formatRupees(summary?.refundedAmount || 0)}
+            {/* Discounts Given */}
+            <div className="p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs space-y-1">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                Discounts & Coupons
+              </span>
+              <p className="text-2xl font-black text-purple-600 dark:text-purple-400 font-mono">
+                {summary ? formatRupees(summary.discountGiven) : "₹0"}
               </p>
-              <p className="text-[10px] text-slate-400">Returned Payments</p>
+              <p className="text-[11px] text-slate-500">
+                {couponStats?.totalCouponsUsed || 0} coupons redeemed
+              </p>
             </div>
 
-            <div className="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/40 border border-emerald-200 dark:border-emerald-800/80 rounded-2xl p-4 shadow-sm space-y-1 col-span-2 sm:col-span-1">
-              <span className="text-[11px] font-extrabold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider">Net Collected</span>
-              <p className="text-xl sm:text-2xl font-extrabold text-emerald-600 dark:text-emerald-400">
-                {formatRupees(summary?.netCollected || 0)}
+            {/* Refunds */}
+            <div className="p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs space-y-1">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                Refunds Processed
+              </span>
+              <p className="text-2xl font-black text-red-600 dark:text-red-400 font-mono">
+                {summary ? formatRupees(summary.refundedAmount) : "₹0"}
               </p>
-              <p className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80">Actual Collected Cash</p>
-            </div>
-
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-1">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Successful Payments</span>
-              <p className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">
-                {summary?.successfulPaymentsCount || 0}
+              <p className="text-[11px] text-slate-500">
+                {summary?.refundedPaymentsCount || 0} refund transactions
               </p>
-              <p className="text-[10px] text-slate-400">Captured Orders</p>
             </div>
           </div>
 
-          {/* Cashflow & Chart Row (Section 5 & 10) */}
+          {/* Cashflow & Payment Health Section (Section 4 & 5) */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Real Revenue Chart */}
-            <div className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+            {/* Cashflow Summary Card */}
+            <div className="p-6 rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs space-y-4">
               <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-base font-bold text-slate-900 dark:text-white">Revenue Timeline</h3>
-                  <p className="text-xs text-slate-500">Real transaction volume</p>
-                </div>
-                <TrendingUp className="h-5 w-5 text-blue-600" />
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                  <CreditCard className="h-4 w-4 text-blue-600" />
+                  <span>Real Cashflow Ledger</span>
+                </h3>
+                <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
+                  {(filterPreset || "this_month").replace("_", " ")}
+                </span>
               </div>
 
-              {chartData.length === 0 ? (
-                <div className="py-12 text-center text-slate-400 text-xs font-semibold bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
-                  No verified payment transactions exist for the selected timeframe.
+              <div className="space-y-3 text-xs">
+                <div className="flex items-center justify-between p-3 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/50">
+                  <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-semibold">
+                    <ArrowUpRight className="h-4 w-4" />
+                    <span>Money In (Payments)</span>
+                  </div>
+                  <span className="font-extrabold font-mono text-emerald-700 dark:text-emerald-300">
+                    +{cashflow ? formatRupees(cashflow.moneyIn) : "₹0"}
+                  </span>
                 </div>
+
+                <div className="flex items-center justify-between p-3 rounded-2xl bg-red-50/60 dark:bg-red-950/30 border border-red-100 dark:border-red-900/50">
+                  <div className="flex items-center gap-2 text-red-800 dark:text-red-300 font-semibold">
+                    <ArrowDownRight className="h-4 w-4" />
+                    <span>Money Out (Refunds)</span>
+                  </div>
+                  <span className="font-extrabold font-mono text-red-700 dark:text-red-300">
+                    -{cashflow ? formatRupees(cashflow.moneyOut) : "₹0"}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800 font-bold text-sm">
+                  <span className="text-slate-900 dark:text-white">Net Cashflow</span>
+                  <span className="font-mono text-blue-600 dark:text-blue-400">
+                    {cashflow ? formatRupees(cashflow.netCashflow) : "₹0"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Payment Health Card */}
+            <div className="p-6 rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-emerald-600" />
+                  <span>Payment Health & Success Rate</span>
+                </h3>
+                <span className="text-xs font-black font-mono text-emerald-600">
+                  {paymentHealth?.successRatePct ?? 100}% Success
+                </span>
+              </div>
+
+              <div className="space-y-2.5 text-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                    <span>Captured Payments</span>
+                  </div>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white">
+                    {paymentHealth?.successful.count || 0} ({formatRupees(paymentHealth?.successful.amount || 0)})
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                    <Clock className="h-3.5 w-3.5 text-amber-500" />
+                    <span>Pending / In-flight</span>
+                  </div>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white">
+                    {paymentHealth?.pending.count || 0} ({formatRupees(paymentHealth?.pending.amount || 0)})
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                    <XCircle className="h-3.5 w-3.5 text-red-500" />
+                    <span>Failed Attempts</span>
+                  </div>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white">
+                    {paymentHealth?.failed.count || 0}
+                  </span>
+                </div>
+
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-400">
+                  Total Checkout Attempts: <strong>{paymentHealth?.totalAttempts || 0}</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Billing Cycle Analytics (Section 9) */}
+            <div className="p-6 rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-purple-600" />
+                  <span>Billing Cycle Distribution</span>
+                </h3>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 space-y-1">
+                  <span className="font-bold text-slate-700 dark:text-slate-300">Monthly</span>
+                  <p className="font-mono font-extrabold text-slate-900 dark:text-white">
+                    {formatRupees(billingCycleStats?.monthly.revenuePaise || 0)}
+                  </p>
+                  <p className="text-[10px] text-slate-400">{billingCycleStats?.monthly.count || 0} orders</p>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-purple-50/50 dark:bg-purple-950/30 border border-purple-100 dark:border-purple-900/40 space-y-1">
+                  <span className="font-bold text-purple-900 dark:text-purple-300">Annual</span>
+                  <p className="font-mono font-extrabold text-purple-700 dark:text-purple-300">
+                    {formatRupees(billingCycleStats?.annual.revenuePaise || 0)}
+                  </p>
+                  <p className="text-[10px] text-purple-500">{billingCycleStats?.annual.count || 0} orders</p>
+                </div>
+              </div>
+
+              {/* Settlement Foundation Note (Section 16) */}
+              <div className="text-[10px] text-slate-400 bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-xl">
+                ℹ️ <em>Settlement reconciliation not configured. Bank payouts subject to Razorpay T+2 settlement schedule.</em>
+              </div>
+            </div>
+          </div>
+
+          {/* Revenue Chart Visualizer (Section 3) */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Real Verified Revenue Timeline
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Aggregated strictly from captured payment records in the selected period.
+                </p>
+              </div>
+            </div>
+
+            {chartData.length === 0 ? (
+              <p className="text-xs text-slate-400 py-12 text-center">
+                No revenue records captured for this period.
+              </p>
+            ) : (
+              <div className="h-48 flex items-end gap-2 sm:gap-3 pt-6 pb-2 px-2 overflow-x-auto">
+                {chartData.map((d) => {
+                  const maxVal = Math.max(...chartData.map((c) => c.amountRupees), 1);
+                  const hPct = Math.max(8, Math.round((d.amountRupees / maxVal) * 100));
+                  return (
+                    <div
+                      key={d.key}
+                      className="flex-1 min-w-[32px] flex flex-col items-center gap-1.5 h-full justify-end group"
+                    >
+                      <span className="text-[9px] font-mono text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                        ₹{d.amountRupees.toLocaleString("en-IN")}
+                      </span>
+                      <div
+                        className="w-full bg-blue-600 dark:bg-blue-500 rounded-t-lg group-hover:bg-blue-700 transition-all"
+                        style={{ height: `${hPct}%` }}
+                      />
+                      <span className="text-[10px] font-medium text-slate-500 truncate w-full text-center">
+                        {d.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Plan Breakdown & Coupon Impact Section (Section 8 & 10) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Plan-Wise Revenue Breakdown */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                Revenue by Plan Version
+              </h3>
+
+              {planRevenue.length === 0 ? (
+                <p className="text-xs text-slate-400 py-6 text-center">No plan sales recorded.</p>
               ) : (
-                <div className="space-y-3 pt-2">
-                  {chartData.map((item) => (
-                    <div key={item.key} className="space-y-1 text-xs">
-                      <div className="flex justify-between font-semibold">
-                        <span className="text-slate-700 dark:text-slate-300">{item.label}</span>
-                        <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">₹{item.amountRupees.toLocaleString("en-IN")}</span>
+                <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                  {planRevenue.map((p) => (
+                    <div key={p.planId} className="py-3 flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-slate-900 dark:text-white capitalize">{p.planName}</p>
+                        <p className="text-slate-400 text-[11px]">{p.transactionsCount} orders</p>
                       </div>
-                      <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-emerald-500 rounded-full"
-                          style={{
-                            width: `${Math.min(100, Math.max(10, (item.amountRupees / Math.max(...chartData.map((c) => c.amountRupees), 1)) * 100))}%`,
-                          }}
-                        />
+                      <div className="text-right">
+                        <p className="font-bold font-mono text-slate-900 dark:text-white">
+                          {formatRupees(p.netRevenue)}
+                        </p>
+                        {p.discount > 0 && (
+                          <p className="text-[10px] text-purple-600">-{formatRupees(p.discount)} discount</p>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -299,143 +524,40 @@ export default function SuperAdminFinancePage() {
               )}
             </div>
 
-            {/* Cashflow Ledger Summary (Section 10) */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4 flex flex-col justify-between">
-              <div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">Cashflow Summary</h3>
-                <p className="text-xs text-slate-500">Money In vs Money Out</p>
+            {/* Coupon Performance Ledger */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Tag className="h-4 w-4 text-purple-600" />
+                  <span>Coupon Impact Analysis</span>
+                </h3>
               </div>
 
-              <div className="space-y-4">
-                <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/40 flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 dark:text-emerald-300">
-                    <ArrowUpRight className="h-4 w-4 text-emerald-600" />
-                    <span>Money In (Payments)</span>
-                  </div>
-                  <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">
-                    {formatRupees(cashflow?.moneyIn || 0)}
-                  </span>
+              {!couponStats || couponStats.topCoupons.length === 0 ? (
+                <p className="text-xs text-slate-400 py-6 text-center">No discount coupons used in this period.</p>
+              ) : (
+                <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                  {couponStats.topCoupons.map((c: any) => (
+                    <div key={c.code} className="py-3 flex items-center justify-between">
+                      <div>
+                        <span className="font-mono font-bold uppercase text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/60 px-2 py-0.5 rounded-md">
+                          {c.code}
+                        </span>
+                        <p className="text-slate-400 text-[11px] mt-1">{c.count} redemptions</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold font-mono text-purple-600 dark:text-purple-400">
+                          -{formatRupees(c.totalDiscount)}
+                        </p>
+                        <p className="text-[10px] text-slate-400">
+                          Yield: {formatRupees(c.totalRevenue)}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-
-                <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/40 flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs font-bold text-rose-800 dark:text-rose-300">
-                    <ArrowDownRight className="h-4 w-4 text-rose-600" />
-                    <span>Money Out (Refunds)</span>
-                  </div>
-                  <span className="text-sm font-extrabold text-rose-600 dark:text-rose-400">
-                    {formatRupees(cashflow?.moneyOut || 0)}
-                  </span>
-                </div>
-
-                <div className="p-4 rounded-xl bg-slate-900 dark:bg-slate-800 text-white flex items-center justify-between">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-300">Net Cashflow</span>
-                  <span className="text-base font-extrabold text-emerald-400">
-                    {formatRupees(cashflow?.netCashflow || 0)}
-                  </span>
-                </div>
-              </div>
-
-              <p className="text-[11px] text-slate-400 italic">
-                * Discounts are treated strictly as non-cash price adjustments.
-              </p>
+              )}
             </div>
-          </div>
-
-          {/* Plan-Wise Revenue Breakdown (Section 6) */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">Plan-Wise Revenue</h3>
-            {planRevenue.length === 0 ? (
-              <p className="text-xs text-slate-500 py-4 text-center">No plan transaction data found.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 font-bold text-slate-700 dark:text-slate-300">
-                      <th className="p-3">Plan</th>
-                      <th className="p-3">Transactions</th>
-                      <th className="p-3">Gross Revenue</th>
-                      <th className="p-3">Discounts</th>
-                      <th className="p-3">Refunds</th>
-                      <th className="p-3">Net Revenue</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {planRevenue.map((p) => (
-                      <tr key={p.planId} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
-                        <td className="p-3 font-extrabold text-slate-900 dark:text-white capitalize">{p.planName}</td>
-                        <td className="p-3 font-semibold">{p.transactionsCount}</td>
-                        <td className="p-3 text-slate-600 dark:text-slate-300">{formatRupees(p.grossRevenue)}</td>
-                        <td className="p-3 text-amber-600">{formatRupees(p.discount)}</td>
-                        <td className="p-3 text-rose-600">{formatRupees(p.refund)}</td>
-                        <td className="p-3 font-extrabold text-emerald-600 dark:text-emerald-400">{formatRupees(p.netRevenue)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* School-Wise Revenue Breakdown (Section 16) */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">Revenue by School</h3>
-                <p className="text-xs text-slate-500">School accounts and subscription status</p>
-              </div>
-
-              <div className="relative max-w-xs w-full">
-                <Search className="h-4 w-4 absolute left-3 top-2.5 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Search school name..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:outline-none"
-                />
-              </div>
-            </div>
-
-            {filteredSchools.length === 0 ? (
-              <p className="text-xs text-slate-500 py-6 text-center">No schools match search criteria.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 font-bold text-slate-700 dark:text-slate-300">
-                      <th className="p-3">School Name</th>
-                      <th className="p-3">Active Plan</th>
-                      <th className="p-3">Payments</th>
-                      <th className="p-3">Gross</th>
-                      <th className="p-3">Net Revenue</th>
-                      <th className="p-3">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {filteredSchools.map((s) => (
-                      <tr key={s.schoolId} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
-                        <td className="p-3 font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                          <Building2 className="h-4 w-4 text-slate-400 shrink-0" />
-                          <span>{s.schoolName}</span>
-                        </td>
-                        <td className="p-3 font-semibold uppercase text-blue-600 dark:text-blue-400">{s.currentPlanId}</td>
-                        <td className="p-3 font-medium">{s.totalPaymentsCount}</td>
-                        <td className="p-3 text-slate-600 dark:text-slate-300">{formatRupees(s.grossRevenue)}</td>
-                        <td className="p-3 font-extrabold text-emerald-600 dark:text-emerald-400">{formatRupees(s.netRevenue)}</td>
-                        <td className="p-3">
-                          <Link
-                            href={`/super-admin/finance/schools/${s.schoolId}`}
-                            className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline"
-                          >
-                            View Details →
-                          </Link>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
           </div>
         </>
       )}

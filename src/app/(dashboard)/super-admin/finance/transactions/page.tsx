@@ -239,13 +239,21 @@ export default function SuperAdminTransactionsPage() {
                       </td>
                       <td className="p-3 font-mono text-[11px] text-slate-700 dark:text-slate-300">{invNum}</td>
                       <td className="p-3">
-                        <button
-                          onClick={() => setSelectedTx(p)}
-                          className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline"
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                          View
-                        </button>
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => setSelectedTx(p)}
+                            className="inline-flex items-center gap-1 text-xs font-bold text-slate-600 hover:text-blue-600 dark:text-slate-300 dark:hover:text-blue-400 cursor-pointer"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            <span>Quick View</span>
+                          </button>
+                          <Link
+                            href={`/super-admin/finance/transactions/${p.id}`}
+                            className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                          >
+                            <span>Inspect Trace →</span>
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                   );

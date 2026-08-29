@@ -322,52 +322,366 @@ export async function getSchoolWiseRevenue(filter?: DateFilterInput): Promise<Sc
 }
 
 /**
- * Orphan Detection Tool: Scans for inconsistent financial records (Section 23).
- * Flags anomalies without modifying records.
+ * Section 9: Billing Cycle Analytics (Monthly vs Annual breakdown).
  */
-export async function detectFinancialOrphans() {
+export async function getBillingCycleAnalytics(filter?: DateFilterInput) {
+  const db = getFirebaseDb();
+  if (!db) {
+    return {
+      monthly: { count: 0, revenuePaise: 0, avgPaise: 0 },
+      annual: { count: 0, revenuePaise: 0, avgPaise: 0 },
+    };
+  }
+
+  const paymentsSnap = await getDocs(collection(db, BILLING_COLLECTIONS.PAYMENTS || "payments"));
+  const payments = filterByDateRange(
+    paymentsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as PaymentRecord)),
+    filter
+  ).filter((p) => p.status === "CAPTURED");
+
+  let monthlyCount = 0;
+  let monthlyRev = 0;
+  let annualCount = 0;
+  let annualRev = 0;
+
+  for (const pay of payments) {
+    if (pay.billingCycle === "annual") {
+      annualCount++;
+      annualRev += pay.amount;
+    } else {
+      monthlyCount++;
+      monthlyRev += pay.amount;
+    }
+  }
+
+  return {
+    monthly: {
+      count: monthlyCount,
+      revenuePaise: monthlyRev,
+      avgPaise: monthlyCount > 0 ? Math.round(monthlyRev / monthlyCount) : 0,
+    },
+    annual: {
+      count: annualCount,
+      revenuePaise: annualRev,
+      avgPaise: annualCount > 0 ? Math.round(annualRev / annualCount) : 0,
+    },
+  };
+}
+
+/**
+ * Section 10: Real Coupon Impact Analysis.
+ */
+export async function getCouponImpactAnalytics(filter?: DateFilterInput) {
+  const db = getFirebaseDb();
+  if (!db) {
+    return {
+      totalCouponsUsed: 0,
+      totalDiscountGiven: 0,
+      revenueBeforeDiscount: 0,
+      revenueAfterDiscount: 0,
+      topCoupons: [],
+    };
+  }
+
+  const paymentsSnap = await getDocs(collection(db, BILLING_COLLECTIONS.PAYMENTS || "payments"));
+  const payments = filterByDateRange(
+    paymentsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as PaymentRecord)),
+    filter
+  ).filter((p) => p.status === "CAPTURED");
+
+  let totalCouponsUsed = 0;
+  let totalDiscountGiven = 0;
+  let revenueAfterDiscount = 0;
+  const couponMap: Record<string, { code: string; count: number; totalDiscount: number; totalRevenue: number }> = {};
+
+  for (const pay of payments) {
+    revenueAfterDiscount += pay.amount;
+    const discount = pay.discountAmount || 0;
+    const coupon = pay.couponId;
+
+    if (discount > 0 || coupon) {
+      totalCouponsUsed++;
+      totalDiscountGiven += discount;
+      const code = coupon || "PROMO";
+      if (!couponMap[code]) {
+        couponMap[code] = { code, count: 0, totalDiscount: 0, totalRevenue: 0 };
+      }
+      couponMap[code].count++;
+      couponMap[code].totalDiscount += discount;
+      couponMap[code].totalRevenue += pay.amount;
+    }
+  }
+
+  const revenueBeforeDiscount = revenueAfterDiscount + totalDiscountGiven;
+  const topCoupons = Object.values(couponMap).sort((a, b) => b.totalDiscount - a.totalDiscount);
+
+  return {
+    totalCouponsUsed,
+    totalDiscountGiven,
+    revenueBeforeDiscount,
+    revenueAfterDiscount,
+    topCoupons,
+  };
+}
+
+/**
+ * Section 5: Payment Health & Success Rate Metrics.
+ */
+export async function getPaymentHealthStats(filter?: DateFilterInput) {
+  const db = getFirebaseDb();
+  if (!db) {
+    return {
+      successful: { count: 0, amount: 0 },
+      failed: { count: 0, amount: 0 },
+      pending: { count: 0, amount: 0 },
+      refunded: { count: 0, amount: 0 },
+      totalAttempts: 0,
+      successRatePct: 0,
+    };
+  }
+
+  const [paymentsSnap, ordersSnap] = await Promise.all([
+    getDocs(collection(db, BILLING_COLLECTIONS.PAYMENTS || "payments")),
+    getDocs(collection(db, BILLING_COLLECTIONS.ORDERS || "orders")),
+  ]);
+
+  const payments = filterByDateRange(
+    paymentsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as PaymentRecord)),
+    filter
+  );
+
+  const orders = filterByDateRange(
+    ordersSnap.docs.map((d) => ({ id: d.id, ...d.data() } as InternalOrder)),
+    filter
+  );
+
+  let succCount = 0;
+  let succAmt = 0;
+  let failCount = 0;
+  let failAmt = 0;
+  let refCount = 0;
+  let refAmt = 0;
+  let pendCount = 0;
+  let pendAmt = 0;
+
+  for (const p of payments) {
+    if (p.status === "CAPTURED") {
+      succCount++;
+      succAmt += p.amount;
+    } else if (p.status === "FAILED") {
+      failCount++;
+      failAmt += p.amount;
+    } else if (p.status === "REFUNDED") {
+      refCount++;
+      refAmt += p.amount;
+    }
+  }
+
+  for (const o of orders) {
+    if (o.status === "CREATED" || o.status === "PAYMENT_PENDING") {
+      pendCount++;
+      pendAmt += o.finalAmount;
+    }
+  }
+
+  const totalAttempts = succCount + failCount + pendCount;
+  const successRatePct = totalAttempts > 0 ? Math.round((succCount / totalAttempts) * 100) : 0;
+
+  return {
+    successful: { count: succCount, amount: succAmt },
+    failed: { count: failCount, amount: failAmt },
+    pending: { count: pendCount, amount: pendAmt },
+    refunded: { count: refCount, amount: refAmt },
+    totalAttempts,
+    successRatePct,
+  };
+}
+
+export interface FinancialAnomaly {
+  id: string;
+  type: string;
+  severity: "INFO" | "WARNING" | "CRITICAL";
+  entityType: "payment" | "order" | "invoice" | "subscription" | "transaction";
+  entityId: string;
+  description: string;
+  detectedAt: string;
+  status: "OPEN" | "UNDER_REVIEW" | "RESOLVED" | "IGNORED";
+}
+
+/**
+ * Section 14 & 15: Reconciliation Center Anomaly Detector.
+ * Scans all collections and identifies data integrity issues.
+ */
+export async function detectFinancialAnomalies(): Promise<FinancialAnomaly[]> {
   const db = getFirebaseDb();
   if (!db) return [];
 
-  const [ordersSnap, paymentsSnap, invSnap, txSnap] = await Promise.all([
+  const [ordersSnap, paymentsSnap, invSnap, txSnap, subsSnap] = await Promise.all([
     getDocs(collection(db, BILLING_COLLECTIONS.ORDERS || "orders")),
     getDocs(collection(db, BILLING_COLLECTIONS.PAYMENTS || "payments")),
     getDocs(collection(db, BILLING_COLLECTIONS.INVOICES || "invoices")),
     getDocs(collection(db, BILLING_COLLECTIONS.FINANCE_TRANSACTIONS || "financeTransactions")),
+    getDocs(collection(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS)),
   ]);
 
   const orders = ordersSnap.docs.map((d) => ({ id: d.id, ...d.data() } as InternalOrder));
   const payments = paymentsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as PaymentRecord));
   const invoices = invSnap.docs.map((d) => ({ id: d.id, ...d.data() } as InvoiceRecord));
   const txs = txSnap.docs.map((d) => ({ id: d.id, ...d.data() } as FinanceTransactionRecord));
+  const subs = subsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as SchoolSubscription));
 
   const orderMap = new Map(orders.map((o) => [o.id, o]));
   const payOrderMap = new Map(payments.map((p) => [p.orderId, p]));
-  const anomalies: { type: string; description: string; recordId: string }[] = [];
+  const invPayMap = new Map(invoices.map((i) => [i.paymentId, i]));
+  const invOrderMap = new Map(invoices.map((i) => [i.orderId, i]));
+  const txOrderMap = new Map(txs.map((t) => [t.orderId, t]));
 
-  // Check 1: Captured payment without matching internal order
+  const anomalies: FinancialAnomaly[] = [];
+  const nowIso = new Date().toISOString();
+
+  // 1. Check: Captured payment without matching internal order
   for (const pay of payments) {
     if (!orderMap.has(pay.orderId)) {
       anomalies.push({
+        id: `anom_pay_no_order_${pay.id}`,
         type: "PAYMENT_WITHOUT_ORDER",
-        description: `Payment ${pay.id} references non-existent order ${pay.orderId}`,
-        recordId: pay.id,
+        severity: "CRITICAL",
+        entityType: "payment",
+        entityId: pay.id,
+        description: `Payment ${pay.id} references non-existent internal order ${pay.orderId}`,
+        detectedAt: nowIso,
+        status: "OPEN",
+      });
+    }
+
+    // 2. Check: Payment without invoice
+    if (!invPayMap.has(pay.id) && !invOrderMap.has(pay.orderId)) {
+      anomalies.push({
+        id: `anom_pay_no_inv_${pay.id}`,
+        type: "PAYMENT_WITHOUT_INVOICE",
+        severity: "WARNING",
+        entityType: "payment",
+        entityId: pay.id,
+        description: `Captured payment ${pay.id} has no corresponding tax invoice`,
+        detectedAt: nowIso,
+        status: "OPEN",
+      });
+    }
+
+    // 3. Check: Payment without finance transaction ledger entry
+    if (!txOrderMap.has(pay.orderId)) {
+      anomalies.push({
+        id: `anom_pay_no_tx_${pay.id}`,
+        type: "PAYMENT_WITHOUT_FINANCE_TX",
+        severity: "WARNING",
+        entityType: "payment",
+        entityId: pay.id,
+        description: `Payment ${pay.id} for order ${pay.orderId} is missing ledger finance transaction`,
+        detectedAt: nowIso,
+        status: "OPEN",
       });
     }
   }
 
-  // Check 2: Order marked PAID without captured payment record
+  // 4. Check: Order marked PAID without captured payment record
   for (const ord of orders) {
     if (ord.status === "PAID" && !payOrderMap.has(ord.id)) {
       anomalies.push({
+        id: `anom_order_paid_no_pay_${ord.id}`,
         type: "ORDER_PAID_WITHOUT_PAYMENT",
-        description: `Order ${ord.id} is marked PAID but has no payment record`,
-        recordId: ord.id,
+        severity: "CRITICAL",
+        entityType: "order",
+        entityId: ord.id,
+        description: `Order ${ord.id} is marked PAID but has no verified captured payment record`,
+        detectedAt: nowIso,
+        status: "OPEN",
+      });
+    }
+  }
+
+  // 5. Check: Duplicate payments for same order
+  const orderPaymentCounts: Record<string, number> = {};
+  for (const p of payments) {
+    orderPaymentCounts[p.orderId] = (orderPaymentCounts[p.orderId] || 0) + 1;
+    if (orderPaymentCounts[p.orderId] > 1) {
+      anomalies.push({
+        id: `anom_dup_pay_${p.orderId}_${p.id}`,
+        type: "DUPLICATE_PAYMENT_DETECTED",
+        severity: "CRITICAL",
+        entityType: "payment",
+        entityId: p.id,
+        description: `Order ${p.orderId} has multiple captured payment records`,
+        detectedAt: nowIso,
+        status: "OPEN",
       });
     }
   }
 
   return anomalies;
+}
+
+export const detectFinancialOrphans = detectFinancialAnomalies;
+
+/**
+ * Section 12 & 13: Complete End-to-End Financial Trace Resolver.
+ */
+export async function getTransactionTrace(transactionId: string) {
+  const db = getFirebaseDb();
+  if (!db) return null;
+
+  // Search in payments first
+  const payRef = doc(db, BILLING_COLLECTIONS.PAYMENTS || "payments", transactionId);
+  let paySnap = await getDoc(payRef);
+
+  let payment: PaymentRecord | null = null;
+  let orderId = transactionId;
+
+  if (paySnap.exists()) {
+    payment = { id: paySnap.id, ...paySnap.data() } as PaymentRecord;
+    orderId = payment.orderId;
+  } else {
+    // Search in orders
+    const ordRef = doc(db, BILLING_COLLECTIONS.ORDERS || "orders", transactionId);
+    const ordSnap = await getDoc(ordRef);
+    if (ordSnap.exists()) {
+      orderId = ordSnap.id;
+    }
+  }
+
+  // Fetch all related entities by orderId
+  const [ordSnap, invSnap, txSnap] = await Promise.all([
+    getDoc(doc(db, BILLING_COLLECTIONS.ORDERS || "orders", orderId)),
+    getDoc(doc(db, BILLING_COLLECTIONS.INVOICES || "invoices", `inv_${orderId}`)),
+    getDoc(doc(db, BILLING_COLLECTIONS.FINANCE_TRANSACTIONS || "financeTransactions", `tx_${orderId}`)),
+  ]);
+
+  const order = ordSnap.exists() ? ({ id: ordSnap.id, ...ordSnap.data() } as InternalOrder) : null;
+  const invoice = invSnap.exists() ? ({ id: invSnap.id, ...invSnap.data() } as InvoiceRecord) : null;
+  const financeTx = txSnap.exists() ? ({ id: txSnap.id, ...txSnap.data() } as FinanceTransactionRecord) : null;
+
+  let school: any = null;
+  let subscription: SchoolSubscription | null = null;
+
+  const schoolId = payment?.schoolId || order?.schoolId;
+  if (schoolId) {
+    const [schoolSnap, subSnap] = await Promise.all([
+      getDoc(doc(db, "schools", schoolId)),
+      getDoc(doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId)),
+    ]);
+    if (schoolSnap.exists()) school = { id: schoolSnap.id, ...schoolSnap.data() };
+    if (subSnap.exists()) subscription = subSnap.data() as SchoolSubscription;
+  }
+
+  return {
+    orderId,
+    payment,
+    order,
+    invoice,
+    financeTx,
+    school,
+    subscription,
+    hasReconciliationIssue: !payment || !order || !invoice || !financeTx,
+  };
 }
 
 /**
