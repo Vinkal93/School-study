@@ -50,14 +50,13 @@ export function FooterBottomBar() {
         <div className="flex items-center gap-1 text-[11px] text-slate-700 dark:text-slate-300">
           <span>Developed by</span>
           <a
-            href="https://www.google.com/search?q=Vinkal+Prajapati"
+            href={footerConfig?.developerUrl || "https://vinkal.sbci.online"}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label="Search Vinkal Prajapati on Google"
+            aria-label={`Visit ${footerConfig?.developerName || "Vinkal Prajapati"} website`}
             className="group inline-flex items-center gap-1 font-bold text-slate-900 underline-offset-2 transition-all duration-200 hover:text-blue-600 hover:underline dark:text-slate-100 dark:hover:text-blue-400"
           >
-            <span>Vinkal Prajapati</span>
-            <Search className="h-2.5 w-2.5 opacity-0 transition-all duration-200 group-hover:opacity-100 group-hover:translate-x-0.5" />
+            <span>{footerConfig?.developerName || "Vinkal Prajapati"}</span>
           </a>
           <span className="text-slate-400 dark:text-slate-600">•</span>
           <Link

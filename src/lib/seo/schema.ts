@@ -92,8 +92,9 @@ export function getPersonSchema() {
     "@type": "Person",
     name: "Vinkal Prajapati",
     jobTitle: ["Developer", "Educator", "Technology Creator"],
-    url: `${siteConfig.url}/about-developer`,
-    sameAs: ["https://www.google.com/search?q=Vinkal+Prajapati"],
+    url: "https://vinkal.sbci.online",
+    image: `${siteConfig.url}/images/developer.jpg`,
+    sameAs: ["https://vinkal.sbci.online"],
     description:
       "Developer, educator, and technology creator behind School Study, building practical digital products for education and everyday users.",
     knowsAbout: [

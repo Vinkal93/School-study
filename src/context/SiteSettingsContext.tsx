@@ -29,44 +29,22 @@ export function SiteSettingsProvider({
 
   const fetchSettings = async () => {
     try {
-      const data = await getPublicSiteSettings();
-      setSettings(data);
-    } catch (err) {
-      console.error("Failed to load site settings:", err);
+      const res = await fetch("/api/site-settings", { cache: "no-store" });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.settings) {
+          setSettings(json.settings);
+        }
+      }
+    } catch {
+      // Graceful fallback to default settings without console error spam
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    // Realtime subscription to published settings
-    const db = getFirebaseDb();
-    if (!db) {
-      fetchSettings();
-      return;
-    }
-
-    try {
-      const unsub = onSnapshot(
-        doc(db, "siteSettings", "global"),
-        (snap) => {
-          if (snap.exists()) {
-            setSettings({ ...DEFAULT_SITE_SETTINGS, ...snap.data() } as SiteSettings);
-          } else {
-            setSettings(DEFAULT_SITE_SETTINGS);
-          }
-          setLoading(false);
-        },
-        (error) => {
-          console.warn("Realtime site settings listener error, falling back:", error);
-          fetchSettings();
-        }
-      );
-
-      return () => unsub();
-    } catch (e) {
-      fetchSettings();
-    }
+    fetchSettings();
   }, []);
 
   return (

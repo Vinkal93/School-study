@@ -84,6 +84,8 @@ export interface SiteSettings {
     showLegal: boolean;
     showCopyright: boolean;
     copyrightText: string; // Supports {YEAR}
+    developerName?: string;
+    developerUrl?: string;
   };
   contact: {
     email: string;
@@ -181,6 +183,8 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
     showLegal: true,
     showCopyright: true,
     copyrightText: "© {YEAR} School Study. All rights reserved.",
+    developerName: "Vinkal Prajapati",
+    developerUrl: "https://vinkal.sbci.online",
   },
   contact: {
     email: "sbci224234@gmail.com",
