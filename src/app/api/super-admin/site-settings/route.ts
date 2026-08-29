@@ -11,31 +11,39 @@ import { getFirebaseDb } from "@/lib/firebase/client";
 import { doc, getDoc } from "firebase/firestore";
 
 export async function GET() {
-  try {
-    const published = await getPublicSiteSettings();
-    const versions = await getSiteSettingsVersions();
+  let published = DEFAULT_SITE_SETTINGS;
+  let versions: any[] = [];
+  let draft: SiteSettings | null = null;
 
+  try {
+    published = await getPublicSiteSettings();
+  } catch (e) {
+    published = DEFAULT_SITE_SETTINGS;
+  }
+
+  try {
+    versions = await getSiteSettingsVersions();
+  } catch (e) {
+    versions = [];
+  }
+
+  try {
     const db = getFirebaseDb();
-    let draft: SiteSettings | null = null;
     if (db) {
       const draftSnap = await getDoc(doc(db, "siteSettings", "draft"));
       if (draftSnap.exists()) {
         draft = { ...DEFAULT_SITE_SETTINGS, ...draftSnap.data() } as SiteSettings;
       }
     }
-
-    return NextResponse.json({
-      published,
-      draft: draft || published,
-      versions,
-    });
-  } catch (error: any) {
-    console.error("Super Admin Site Settings GET Error:", error);
-    return NextResponse.json(
-      { error: "Failed to load site settings: " + (error.message || "") },
-      { status: 500 }
-    );
+  } catch (e) {
+    draft = null;
   }
+
+  return NextResponse.json({
+    published,
+    draft: draft || published,
+    versions,
+  });
 }
 
 export async function POST(request: Request) {

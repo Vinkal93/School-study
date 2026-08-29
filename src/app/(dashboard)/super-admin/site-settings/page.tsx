@@ -62,14 +62,19 @@ export default function SuperAdminSiteSettingsPage() {
     setLoading(true);
     try {
       const res = await fetch("/api/super-admin/site-settings");
-      if (!res.ok) throw new Error("Failed to fetch site settings");
-      const json = await res.json();
-      setPublishedSettings(json.published || DEFAULT_SITE_SETTINGS);
-      setSettings(json.draft || json.published || DEFAULT_SITE_SETTINGS);
-      setVersions(json.versions || []);
+      if (res.ok) {
+        const json = await res.json();
+        setPublishedSettings(json.published || DEFAULT_SITE_SETTINGS);
+        setSettings(json.draft || json.published || DEFAULT_SITE_SETTINGS);
+        setVersions(json.versions || []);
+      } else {
+        setPublishedSettings(DEFAULT_SITE_SETTINGS);
+        setSettings(DEFAULT_SITE_SETTINGS);
+      }
     } catch (err: any) {
-      console.error(err);
-      setStatusMessage({ type: "error", text: "Failed to load settings from server." });
+      console.warn("Could not fetch site settings, using default configuration:", err);
+      setPublishedSettings(DEFAULT_SITE_SETTINGS);
+      setSettings(DEFAULT_SITE_SETTINGS);
     } finally {
       setLoading(false);
     }
