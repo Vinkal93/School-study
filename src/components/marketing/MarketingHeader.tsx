@@ -18,11 +18,14 @@ import {
 } from "lucide-react";
 import { ThemeToggle } from "@/components/common/theme-toggle";
 
+import { useSiteSettings } from "@/context/SiteSettingsContext";
+
 interface MarketingHeaderProps {
   currentPath?: string;
 }
 
 export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
+  const { settings } = useSiteSettings();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [megaMenuOpen, setMegaMenuOpen] = useState(false);
   const megaMenuRef = useRef<HTMLDivElement>(null);
@@ -68,15 +71,14 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
     };
   }, [mobileMenuOpen]);
 
-  const navLinks = [
-    { label: "Home", href: "/" },
-    { label: "Features", href: "/features" },
-    { label: "Pricing", href: "/pricing" },
-    { label: "Download", href: "/download" },
-    { label: "School ERP", href: "/school-erp" },
-    { label: "Developer", href: "/about-developer" },
-    { label: "Contact", href: "/contact" },
-  ];
+  const headerConfig = settings.header;
+  if (!headerConfig.enabled) {
+    return null;
+  }
+
+  const navLinks = (headerConfig.navigation || [])
+    .filter((i) => i.enabled)
+    .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
 
   return (
     <header className="sticky top-3 sm:top-4 z-50 max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 mb-2 sm:mb-4">
@@ -96,10 +98,10 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
           </div>
           <div>
             <span className="text-base sm:text-lg font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight block">
-              School Study
+              {headerConfig.brandName || "School Study"}
             </span>
             <span className="text-[9px] sm:text-[10px] font-bold text-blue-600 dark:text-blue-400 tracking-wide uppercase block -mt-0.5">
-              Smart School Management
+              {headerConfig.tagline || "Smart School Management"}
             </span>
           </div>
         </Link>
@@ -133,11 +135,13 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
           </div>
 
           {navLinks.map((link) => {
-            const isActive = currentPath === link.href;
+            const isActive = currentPath === link.url;
             return (
               <Link
-                key={link.href}
-                href={link.href}
+                key={link.id || link.url}
+                href={link.url}
+                target={link.openInNewTab ? "_blank" : undefined}
+                rel={link.openInNewTab ? "noopener noreferrer" : undefined}
                 onClick={() => setMegaMenuOpen(false)}
                 className={`px-3.5 py-2 rounded-full transition-all hover:bg-slate-100 dark:hover:bg-slate-800/80 ${
                   isActive
@@ -151,17 +155,29 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
           })}
         </nav>
 
-        {/* Right Action Buttons — Theme Toggle & Login Pill Button (Contact button removed as requested) */}
+        {/* Right Action Buttons — Theme Toggle & CTAs */}
         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-          <ThemeToggle />
+          {headerConfig.showThemeToggle !== false && <ThemeToggle />}
 
-          {/* Login Button (Pill style with ChatGPT Glass UI in dark mode) */}
-          <Link
-            href="/login"
-            className="inline-flex items-center justify-center px-5 py-2.5 text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-800/90 dark:border dark:border-white/15 rounded-full transition-all min-h-[40px] sm:min-h-[44px] shadow-sm"
-          >
-            Login
-          </Link>
+          {/* Secondary CTA */}
+          {headerConfig.secondaryCta?.enabled && (
+            <Link
+              href={headerConfig.secondaryCta.url}
+              className="hidden sm:inline-flex items-center justify-center px-4 py-2 text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200 hover:text-blue-600 border border-slate-200 dark:border-slate-800 rounded-full transition-all"
+            >
+              {headerConfig.secondaryCta.label}
+            </Link>
+          )}
+
+          {/* Primary CTA / Login Button */}
+          {headerConfig.primaryCta?.enabled !== false && (
+            <Link
+              href={headerConfig.primaryCta?.url || "/login"}
+              className="inline-flex items-center justify-center px-5 py-2.5 text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-800/90 dark:border dark:border-white/15 rounded-full transition-all min-h-[40px] sm:min-h-[44px] shadow-sm"
+            >
+              {headerConfig.primaryCta?.label || "Login"}
+            </Link>
+          )}
 
           {/* Mobile Hamburger Toggle Button */}
           <button
@@ -438,11 +454,13 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
           <div className="bg-white dark:bg-slate-950 border-b border-slate-200 dark:border-white/15 max-h-[calc(100dvh-5rem)] overflow-y-auto p-5 pb-8 shadow-2xl flex flex-col justify-between">
             <nav className="flex flex-col space-y-1.5" aria-label="Mobile Navigation">
               {navLinks.map((link) => {
-                const isActive = currentPath === link.href;
+                const isActive = currentPath === link.url;
                 return (
                   <Link
-                    key={link.href}
-                    href={link.href}
+                    key={link.id || link.url}
+                    href={link.url}
+                    target={link.openInNewTab ? "_blank" : undefined}
+                    rel={link.openInNewTab ? "noopener noreferrer" : undefined}
                     onClick={() => setMobileMenuOpen(false)}
                     className={`flex items-center justify-between px-4 py-3 rounded-xl text-sm font-semibold transition-all min-h-[48px] ${
                       isActive

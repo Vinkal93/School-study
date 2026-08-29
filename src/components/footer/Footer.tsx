@@ -5,9 +5,20 @@ import { FooterBrand } from "./FooterBrand";
 import { FooterLinkGroup } from "./FooterLinkGroup";
 import { FooterContact } from "./FooterContact";
 import { FooterBottomBar } from "./FooterBottomBar";
-import { FOOTER_NAVIGATION } from "./footerData";
+import { useSiteSettings } from "@/context/SiteSettingsContext";
 
 export function Footer() {
+  const { settings } = useSiteSettings();
+  const footerConfig = settings.footer;
+
+  if (!footerConfig.enabled) {
+    return null;
+  }
+
+  const activeColumns = (footerConfig.columns || [])
+    .filter((col) => col.enabled)
+    .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+
   return (
     <footer
       id="contact"
@@ -30,14 +41,16 @@ export function Footer() {
             <FooterBrand />
           </div>
 
-          {/* Columns 2-4: Navigation Groups (Product, Solutions, Modules) */}
-          <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 md:col-span-2 lg:col-span-3">
-            {FOOTER_NAVIGATION.slice(0, 3).map((group) => (
-              <FooterLinkGroup key={group.id} group={group} />
-            ))}
-          </div>
+          {/* Dynamic Navigation Columns */}
+          {footerConfig.showNavigation && activeColumns.length > 0 && (
+            <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 md:col-span-2 lg:col-span-3">
+              {activeColumns.map((col) => (
+                <FooterLinkGroup key={col.id} column={col} />
+              ))}
+            </div>
+          )}
 
-          {/* Column 5: Contact Information */}
+          {/* Column: Contact Information */}
           <div className="md:col-span-2 lg:col-span-1">
             <FooterContact />
           </div>

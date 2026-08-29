@@ -488,45 +488,6 @@ export default function LandingPage() {
             </div>
           </div>
         </section>
-
-        {/* ==========================================
-            CTA BANNER
-        ========================================== */}
-        <section className="py-12 bg-white dark:bg-gray-950">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="rounded-3xl bg-blue-50/70 dark:bg-gray-900 border border-blue-100 dark:border-gray-800 p-8 sm:p-12 flex flex-col md:flex-row items-center justify-between gap-8 shadow-sm">
-              {/* School Building Graphic + Text */}
-              <div className="flex items-center gap-6 text-center md:text-left flex-col md:flex-row">
-                <div className="h-20 w-20 rounded-2xl bg-blue-600 text-white flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/20">
-                  <School className="h-10 w-10" />
-                </div>
-                <div className="space-y-1">
-                  <h2 className="text-2xl sm:text-3xl font-extrabold text-gray-900 dark:text-white">
-                    Ready to Transform Your School?
-                  </h2>
-                  <p className="text-sm sm:text-base text-gray-600 dark:text-gray-300">
-                    Modernize attendance, student records, and faculty workflows from one simple platform.
-                  </p>
-                </div>
-              </div>
-
-              {/* Action Button & No Credit Card Badge */}
-              <div className="flex flex-col items-center gap-2 flex-shrink-0">
-                <Link
-                  href="/login"
-                  className="inline-flex items-center gap-2 px-8 py-4 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-lg shadow-blue-500/30 hover:shadow-blue-500/40 active:scale-95 transition-all"
-                >
-                  Get Started for Free
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-                <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
-                  Instant access • No credit card required
-                </span>
-              </div>
-            </div>
-          </div>
-        </section>
       </main>
 
       {/* ==========================================

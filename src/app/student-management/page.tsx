@@ -10,7 +10,7 @@ import {
   Sparkles,
   ShieldCheck,
 } from "lucide-react";
-import { MarketingHeader, MarketingCTA, RelatedModules } from "@/components/marketing";
+import { MarketingHeader, RelatedModules } from "@/components/marketing";
 import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import { Footer } from "@/components/footer";
 import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";

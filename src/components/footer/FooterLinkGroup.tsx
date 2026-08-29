@@ -2,30 +2,37 @@
 
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import type { FooterGroup } from "./footerData";
+import { FooterColumn } from "@/lib/cms/siteSettings";
 
 interface FooterLinkGroupProps {
-  group: FooterGroup;
+  column: FooterColumn;
 }
 
-export function FooterLinkGroup({ group }: FooterLinkGroupProps) {
+export function FooterLinkGroup({ column }: FooterLinkGroupProps) {
+  const activeLinks = (column.links || [])
+    .filter((l) => l.enabled)
+    .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+
+  if (!column.enabled || activeLinks.length === 0) {
+    return null;
+  }
+
   return (
     <div>
       {/* Section Title */}
       <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-slate-200">
-        {group.title}
+        {column.title}
       </h4>
 
-      {/* Links List (Always visible) */}
+      {/* Links List */}
       <ul className="mt-3 space-y-2.5">
-        {group.links.map((link) => {
-          const Icon = link.icon;
-          const isAnchor = link.href.startsWith("#");
+        {activeLinks.map((link) => {
+          const isExternal = link.url.startsWith("http") || link.openInNewTab;
+          const isAnchor = link.url.startsWith("#");
 
           const LinkContent = (
             <span className="group flex items-center justify-between text-xs text-slate-700 transition-all duration-200 hover:text-blue-600 dark:text-slate-300 dark:hover:text-blue-400">
               <span className="flex items-center gap-2">
-                <Icon className="h-3.5 w-3.5 text-slate-500 transition-colors duration-200 group-hover:text-blue-600 dark:text-slate-400 dark:group-hover:text-blue-400" />
                 <span className="font-semibold">{link.label}</span>
               </span>
               <ArrowRight className="h-3 w-3 -translate-x-1 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100" />
@@ -33,13 +40,18 @@ export function FooterLinkGroup({ group }: FooterLinkGroupProps) {
           );
 
           return (
-            <li key={link.label}>
-              {isAnchor ? (
-                <a href={link.href} className="block py-0.5">
+            <li key={link.id || link.label}>
+              {isExternal || isAnchor ? (
+                <a
+                  href={link.url}
+                  target={link.openInNewTab ? "_blank" : undefined}
+                  rel={link.openInNewTab ? "noopener noreferrer" : undefined}
+                  className="block py-0.5"
+                >
                   {LinkContent}
                 </a>
               ) : (
-                <Link href={link.href} className="block py-0.5">
+                <Link href={link.url} className="block py-0.5">
                   {LinkContent}
                 </Link>
               )}

@@ -2,9 +2,17 @@
 
 import Link from "next/link";
 import { GraduationCap, Smartphone, ArrowRight } from "lucide-react";
+import { useSiteSettings } from "@/context/SiteSettingsContext";
 import { FooterSocials } from "./FooterSocials";
 
 export function FooterBrand() {
+  const { settings } = useSiteSettings();
+  const footerConfig = settings.footer;
+  const brandName = settings.header?.brandName || "School Study";
+  const tagline = settings.header?.tagline || "Smart School Management";
+
+  if (!footerConfig.showBrand) return null;
+
   return (
     <div className="space-y-4 lg:max-w-sm">
       {/* Brand Logo & Name */}
@@ -14,18 +22,20 @@ export function FooterBrand() {
         </div>
         <div>
           <span className="block text-lg font-extrabold tracking-tight text-slate-900 dark:text-white">
-            School Study
+            {brandName}
           </span>
           <span className="block text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
-            Smart School Management
+            {tagline}
           </span>
         </div>
       </Link>
 
       {/* Description */}
-      <p className="text-xs leading-relaxed text-slate-700 sm:text-sm dark:text-slate-300 font-medium">
-        A simple, modern platform designed to help schools manage students, teachers, and everyday operations with ease.
-      </p>
+      {footerConfig.showDescription && (
+        <p className="text-xs leading-relaxed text-slate-700 sm:text-sm dark:text-slate-300 font-medium">
+          {footerConfig.description || "A simple, modern platform designed to help schools manage students, teachers, and everyday operations with ease."}
+        </p>
+      )}
 
       {/* App Download CTA Button */}
       <div>

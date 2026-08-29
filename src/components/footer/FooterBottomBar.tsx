@@ -1,17 +1,44 @@
 "use client";
 
+import React from "react";
 import Link from "next/link";
 import { Heart, Search } from "lucide-react";
 import { BackToTop } from "./BackToTop";
 
+import { useSiteSettings } from "@/context/SiteSettingsContext";
+
 export function FooterBottomBar() {
+  const { settings } = useSiteSettings();
   const currentYear = new Date().getFullYear();
+
+  const footerConfig = settings.footer;
+  const copyrightTemplate = footerConfig?.copyrightText || "© {YEAR} School Study. All rights reserved.";
+  const renderedCopyright = copyrightTemplate.replace(/\{YEAR\}/gi, currentYear.toString());
+
+  const legalLinks = (settings.legal || [])
+    .filter((l) => l.enabled)
+    .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
 
   return (
     <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-slate-200/80 pt-8 text-xs text-slate-700 sm:flex-row dark:border-slate-800/80 dark:text-slate-300">
       {/* Copyright */}
-      <div className="flex items-center gap-1.5 text-center sm:text-left font-medium">
-        <span>© {currentYear} School Study. All rights reserved.</span>
+      <div className="flex flex-col sm:flex-row items-center gap-3 text-center sm:text-left font-medium">
+        {footerConfig?.showCopyright !== false && (
+          <span>{renderedCopyright}</span>
+        )}
+
+        {footerConfig?.showLegal !== false && legalLinks.length > 0 && (
+          <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+            {legalLinks.map((l, idx) => (
+              <React.Fragment key={l.id || l.label}>
+                {idx > 0 && <span>•</span>}
+                <Link href={l.url} className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+                  {l.label}
+                </Link>
+              </React.Fragment>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Crafted Badge & Developer Credit */}

@@ -23,7 +23,7 @@ import {
   NoticeColourIcon,
   SecurityColourIcon,
 } from "@/components/common/ColouredIcons";
-import { MarketingHeader, MarketingCTA } from "@/components/marketing";
+import { MarketingHeader } from "@/components/marketing";
 import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import { Footer } from "@/components/footer";
 import { constructMetadata, siteConfig, getBreadcrumbSchema, getFaqSchema, getSoftwareAppSchema } from "@/lib/seo";

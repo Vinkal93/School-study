@@ -23,6 +23,7 @@ import {
   Sliders,
   History,
   MessageSquare,
+  CreditCard,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
@@ -82,9 +83,19 @@ const roleNavItems: Record<string, NavItem[]> = {
       icon: <BarChart3 className="h-5 w-5" />,
     },
     {
+      label: "Finance Center",
+      href: "/super-admin/finance",
+      icon: <CreditCard className="h-5 w-5 text-emerald-500" />,
+    },
+    {
       label: "Pricing & Plans",
       href: "/super-admin/pricing",
       icon: <Sliders className="h-5 w-5 text-blue-500" />,
+    },
+    {
+      label: "Site Settings (CMS)",
+      href: "/super-admin/site-settings",
+      icon: <LayoutDashboard className="h-5 w-5 text-purple-500" />,
     },
     {
       label: "Settings",
