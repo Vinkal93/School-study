@@ -22,6 +22,7 @@ import {
   User,
   LogIn,
   CreditCard,
+  Smartphone,
   LucideIcon,
 } from "lucide-react";
 
@@ -46,7 +47,8 @@ export const FOOTER_NAVIGATION: FooterGroup[] = [
     links: [
       { label: "Platform Overview", href: "/", icon: LayoutDashboard },
       { label: "Core Features", href: "/features", icon: Sparkles },
-      { label: "Pricing", href: "/pricing", icon: CreditCard },
+      { label: "Pricing Plans", href: "/pricing", icon: CreditCard },
+      { label: "Download App", href: "/download", icon: Smartphone, badge: "New APK & PWA" },
       { label: "School Management", href: "/school-management", icon: School },
       { label: "School ERP", href: "/school-erp", icon: Workflow },
     ],

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { GraduationCap } from "lucide-react";
+import { GraduationCap, Smartphone, ArrowRight } from "lucide-react";
 import { FooterSocials } from "./FooterSocials";
 
 export function FooterBrand() {
@@ -27,8 +27,20 @@ export function FooterBrand() {
         A simple, modern platform designed to help schools manage students, teachers, and everyday operations with ease.
       </p>
 
+      {/* App Download CTA Button */}
+      <div>
+        <Link
+          href="/download"
+          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800/80 text-blue-700 dark:text-blue-300 text-xs font-bold hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-all shadow-xs group"
+        >
+          <Smartphone className="h-4 w-4 text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform" />
+          <span>Download Mobile App (APK & PWA)</span>
+          <ArrowRight className="h-3.5 w-3.5 opacity-70 group-hover:translate-x-0.5 transition-transform" />
+        </Link>
+      </div>
+
       {/* Social Links */}
-      <div className="pt-2">
+      <div className="pt-1">
         <FooterSocials />
       </div>
     </div>

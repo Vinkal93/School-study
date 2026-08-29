@@ -72,6 +72,7 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
     { label: "Home", href: "/" },
     { label: "Features", href: "/features" },
     { label: "Pricing", href: "/pricing" },
+    { label: "Download", href: "/download" },
     { label: "School ERP", href: "/school-erp" },
     { label: "Developer", href: "/about-developer" },
     { label: "Contact", href: "/contact" },
