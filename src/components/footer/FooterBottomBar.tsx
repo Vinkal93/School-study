@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { Heart, Search } from "lucide-react";
+import { Heart, Search, Code2, ExternalLink, User } from "lucide-react";
 import { BackToTop } from "./BackToTop";
 
 import { useSiteSettings } from "@/context/SiteSettingsContext";
@@ -47,7 +47,8 @@ export function FooterBottomBar() {
           <span>Crafted for modern educational institutions</span>
           <Heart className="h-3 w-3 text-red-500/90 fill-red-500/90" />
         </div>
-        <div className="flex items-center gap-1 text-[11px] text-slate-700 dark:text-slate-300">
+        <div className="flex items-center gap-1.5 text-[11px] text-slate-700 dark:text-slate-300">
+          <Code2 className="h-3 w-3 text-blue-600 dark:text-blue-400" />
           <span>Developed by</span>
           <a
             href={footerConfig?.developerUrl || "https://vinkal.sbci.online"}
@@ -57,13 +58,15 @@ export function FooterBottomBar() {
             className="group inline-flex items-center gap-1 font-bold text-slate-900 underline-offset-2 transition-all duration-200 hover:text-blue-600 hover:underline dark:text-slate-100 dark:hover:text-blue-400"
           >
             <span>{footerConfig?.developerName || "Vinkal Prajapati"}</span>
+            <ExternalLink className="h-2.5 w-2.5 text-blue-500 opacity-70 group-hover:opacity-100 transition-opacity" />
           </a>
           <span className="text-slate-400 dark:text-slate-600">•</span>
           <Link
             href="/about-developer"
-            className="font-semibold text-slate-700 transition-colors hover:text-blue-600 dark:text-slate-300 dark:hover:text-blue-400"
+            className="inline-flex items-center gap-1 font-semibold text-slate-700 transition-colors hover:text-blue-600 dark:text-slate-300 dark:hover:text-blue-400"
           >
-            About
+            <User className="h-3 w-3 text-indigo-500" />
+            <span>About</span>
           </Link>
         </div>
       </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, ChevronRight } from "lucide-react";
 import { FooterColumn } from "@/lib/cms/siteSettings";
 
 interface FooterLinkGroupProps {
@@ -32,7 +32,8 @@ export function FooterLinkGroup({ column }: FooterLinkGroupProps) {
 
           const LinkContent = (
             <span className="group flex items-center justify-between text-xs text-slate-700 transition-all duration-200 hover:text-blue-600 dark:text-slate-300 dark:hover:text-blue-400">
-              <span className="flex items-center gap-2">
+              <span className="flex items-center gap-1.5">
+                <ChevronRight className="h-3.5 w-3.5 text-blue-500/80 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-blue-600 dark:text-blue-400/80 dark:group-hover:text-blue-400" />
                 <span className="font-semibold">{link.label}</span>
               </span>
               <ArrowRight className="h-3 w-3 -translate-x-1 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100" />
