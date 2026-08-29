@@ -32,7 +32,7 @@ export default function SuperAdminLoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authenticatedUid, setAuthenticatedUid] = useState<string | null>(null);
 
-  const { signIn, signOut } = useAuth();
+  const { signIn, signOut, refreshProfile, firebaseUser } = useAuth();
   const router = useRouter();
 
   // Step 1: Verify Email & Password, and auto-provision Super Admin profile
@@ -45,6 +45,7 @@ export default function SuperAdminLoginPage() {
 
       // Auto-provision/ensure user has Super Admin role for manual Firebase Auth accounts
       await ensureSuperAdminProfile(profile.uid, email);
+      await refreshProfile();
 
       setAuthenticatedUid(profile.uid);
       setStep("pin");
@@ -74,8 +75,16 @@ export default function SuperAdminLoginPage() {
         return;
       }
 
+      const uid = authenticatedUid || firebaseUser?.uid;
+      const userEmail = firebaseUser?.email || email;
+
+      if (uid && userEmail) {
+        await ensureSuperAdminProfile(uid, userEmail);
+        await refreshProfile();
+      }
+
       toast.success("Security PIN verified! Welcome Super Admin!");
-      router.push("/super-admin");
+      window.location.href = "/super-admin";
     } catch (error: any) {
       toast.error("PIN verification error. Please try again.");
     } finally {

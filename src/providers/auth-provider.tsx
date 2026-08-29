@@ -26,6 +26,7 @@ interface AuthContextType {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<AppUser>;
   signOut: () => Promise<void>;
+  refreshProfile: () => Promise<AppUser | null>;
   impersonateUser: (targetUser: AppUser) => void;
   stopImpersonating: () => void;
 }
@@ -187,6 +188,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.push("/super-admin");
   }, [router]);
 
+  const refreshProfile = useCallback(async (): Promise<AppUser | null> => {
+    if (firebaseUser) {
+      try {
+        const updated = await getUserProfile(firebaseUser.uid, firebaseUser.email);
+        if (updated) {
+          setOriginalProfile(updated);
+          return updated;
+        }
+      } catch (e) {
+        console.warn("Failed to refresh user profile:", e);
+      }
+    }
+    return null;
+  }, [firebaseUser]);
+
   const effectiveProfile = impersonatedUser || originalProfile;
 
   return (
@@ -199,6 +215,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         signIn,
         signOut,
+        refreshProfile,
         impersonateUser,
         stopImpersonating,
       }}
