@@ -65,13 +65,18 @@ export async function triggerRazorpayCheckout(input: CheckoutOptionsInput): Prom
     }
 
     // 3. Open Razorpay Checkout Modal (Section 8)
-    const options = {
+    const isRealRazorpayOrderId =
+      orderData.razorpayOrderId &&
+      !orderData.razorpayOrderId.startsWith("order_test_") &&
+      !orderData.razorpayOrderId.startsWith("order_fallback_") &&
+      !orderData.razorpayOrderId.startsWith("order_fb_");
+
+    const options: any = {
       key: orderData.key,
       amount: orderData.amount,
       currency: orderData.currency || "INR",
       name: "School Study",
       description: `${orderData.planName} (${billingCycle.toUpperCase()})`,
-      order_id: orderData.razorpayOrderId,
       handler: async function (response: any) {
         // Section 9: Call server-side signature verification API
         try {
@@ -114,6 +119,10 @@ export async function triggerRazorpayCheckout(input: CheckoutOptionsInput): Prom
         color: "#2563EB",
       },
     };
+
+    if (isRealRazorpayOrderId) {
+      options.order_id = orderData.razorpayOrderId;
+    }
 
     const paymentObject = new (window as any).Razorpay(options);
     paymentObject.open();
