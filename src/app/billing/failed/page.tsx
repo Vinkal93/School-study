@@ -26,10 +26,10 @@ export default function PaymentFailedPage() {
           </p>
         </div>
 
-        {/* Buttons (Section 22) */}
+        {/* Buttons (Section 12 & 13) */}
         <div className="flex flex-col sm:flex-row items-center gap-2 pt-2">
           <Link
-            href="/pricing"
+            href="/admin/billing"
             className="w-full sm:flex-1 inline-flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-3 px-4 rounded-xl text-xs sm:text-sm shadow-md active:scale-95 transition-all"
           >
             <RefreshCw className="h-4 w-4" />
@@ -37,11 +37,11 @@ export default function PaymentFailedPage() {
           </Link>
 
           <Link
-            href="/pricing"
+            href="/admin/billing"
             className="w-full sm:flex-1 inline-flex items-center justify-center gap-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold py-3 px-4 rounded-xl text-xs sm:text-sm transition-all"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back to Pricing
+            Back to Billing
           </Link>
         </div>
       </div>

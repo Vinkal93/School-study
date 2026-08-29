@@ -60,8 +60,13 @@ export async function POST(request: Request) {
     let discountAmount = 0;
     let taxAmount = 0; // Tax calculation if applicable
 
-    if (couponCode && couponCode.toUpperCase() === "SAVE20") {
-      discountAmount = Math.round(baseAmount * 0.2); // 20% discount
+    if (couponCode) {
+      const cleanCoupon = couponCode.trim().toUpperCase();
+      if (cleanCoupon === "SAVE20" || cleanCoupon === "WELCOME20") {
+        discountAmount = Math.round(baseAmount * 0.2); // 20% discount
+      } else if (cleanCoupon === "FLAT500") {
+        discountAmount = 50000; // ₹500 in paise
+      }
     }
 
     const finalAmount = Math.max(0, baseAmount - discountAmount + taxAmount);

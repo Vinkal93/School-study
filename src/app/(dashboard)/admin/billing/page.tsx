@@ -19,6 +19,9 @@ import {
   CheckCircle2,
   Lock,
   Sparkles,
+  Zap,
+  Receipt,
+  ExternalLink,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { getFirebaseDb } from "@/lib/firebase/client";
@@ -31,6 +34,7 @@ import {
 } from "@/lib/billing";
 import type { SchoolSubscription, EffectiveEntitlement } from "@/types";
 import { PaymentRecord, InvoiceRecord } from "@/lib/payments/fulfillment";
+import { RechargeModal } from "@/components/billing/RechargeModal";
 
 function formatRupees(paise: number): string {
   return `₹${Math.round(paise / 100).toLocaleString("en-IN")}`;
@@ -45,69 +49,125 @@ export default function SchoolAdminBillingPage() {
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [invoicesMap, setInvoicesMap] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    async function loadBillingData() {
-      if (authLoading || !profile?.schoolId) {
-        setLoading(false);
-        return;
-      }
+  // Recharge Modal State
+  const [showRechargeModal, setShowRechargeModal] = useState(false);
+  const [selectedRechargePlan, setSelectedRechargePlan] = useState("plan_starter");
+  const [selectedRechargeCycle, setSelectedRechargeCycle] = useState<"monthly" | "annual">("monthly");
 
-      try {
-        const db = getFirebaseDb();
-        if (!db) return;
-
-        // 1. Load School Subscription & Effective Entitlement
-        const [subSnap, entData] = await Promise.all([
-          getDoc(doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, profile.schoolId)),
-          getEffectiveEntitlement(profile.schoolId),
-        ]);
-
-        if (subSnap.exists()) {
-          const subData = subSnap.data() as SchoolSubscription;
-          setSubscription(subData);
-          const computed = calculateSubscriptionState(subData, DEFAULT_GLOBAL_ACCESS_POLICY);
-          setSubState(computed);
-        }
-
-        setEntitlement(entData);
-
-        // 2. Load Payment History for this school
-        const payRef = collection(db, BILLING_COLLECTIONS.PAYMENTS || "payments");
-        const qPay = query(payRef, where("schoolId", "==", profile.schoolId));
-        const paySnap = await getDocs(qPay);
-        const pList = paySnap.docs.map((d) => ({ id: d.id, ...d.data() } as PaymentRecord));
-        setPayments(pList);
-
-        // 3. Load Invoices Map for this school
-        const invRef = collection(db, BILLING_COLLECTIONS.INVOICES || "invoices");
-        const qInv = query(invRef, where("schoolId", "==", profile.schoolId));
-        const invSnap = await getDocs(qInv);
-        const iMap: Record<string, string> = {};
-        for (const d of invSnap.docs) {
-          const inv = d.data() as InvoiceRecord;
-          iMap[inv.paymentId || d.id] = inv.invoiceNumber;
-        }
-        setInvoicesMap(iMap);
-      } catch (err) {
-        console.error("Failed to load school admin billing data:", err);
-      } finally {
-        setLoading(false);
-      }
+  const loadBillingData = async () => {
+    if (authLoading || !profile?.schoolId) {
+      setLoading(false);
+      return;
     }
 
+    try {
+      const db = getFirebaseDb();
+      if (!db) return;
+
+      // 1. Load School Subscription & Effective Entitlement
+      const [subSnap, entData] = await Promise.all([
+        getDoc(doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, profile.schoolId)),
+        getEffectiveEntitlement(profile.schoolId),
+      ]);
+
+      if (subSnap.exists()) {
+        const subData = subSnap.data() as SchoolSubscription;
+        setSubscription(subData);
+        const computed = calculateSubscriptionState(subData, DEFAULT_GLOBAL_ACCESS_POLICY);
+        setSubState(computed);
+        setSelectedRechargePlan(subData.planId || "plan_starter");
+        setSelectedRechargeCycle(subData.billingCycle || "monthly");
+      }
+
+      setEntitlement(entData);
+
+      // 2. Load Payment History for this school
+      const payRef = collection(db, BILLING_COLLECTIONS.PAYMENTS || "payments");
+      const qPay = query(payRef, where("schoolId", "==", profile.schoolId));
+      const paySnap = await getDocs(qPay);
+      const pList = paySnap.docs.map((d) => ({ id: d.id, ...d.data() } as PaymentRecord));
+      pList.sort((a, b) => new Date(b.capturedAt || b.createdAt).getTime() - new Date(a.capturedAt || a.createdAt).getTime());
+      setPayments(pList);
+
+      // 3. Load Invoices Map for this school
+      const invRef = collection(db, BILLING_COLLECTIONS.INVOICES || "invoices");
+      const qInv = query(invRef, where("schoolId", "==", profile.schoolId));
+      const invSnap = await getDocs(qInv);
+      const iMap: Record<string, string> = {};
+      for (const d of invSnap.docs) {
+        const inv = d.data() as InvoiceRecord;
+        iMap[inv.paymentId || d.id] = inv.invoiceNumber;
+      }
+      setInvoicesMap(iMap);
+    } catch (err) {
+      console.error("Failed to load school admin billing data:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     loadBillingData();
   }, [profile, authLoading]);
 
+  const openRechargeForPlan = (planId: string, cycle: "monthly" | "annual" = "monthly") => {
+    setSelectedRechargePlan(planId);
+    setSelectedRechargeCycle(cycle);
+    setShowRechargeModal(true);
+  };
+
+  // Status message mapping (Section 2)
+  const getStatusDescription = () => {
+    if (!subState) return "Checking subscription status...";
+    if (subState.accessMode === "FULL_ACCESS") {
+      return "Your plan is active and operating with full privileges.";
+    }
+    if (subState.accessMode === "EXPIRING") {
+      return `Your plan expires in ${subState.daysRemaining} days. Recharge now to ensure uninterrupted operations.`;
+    }
+    if (subState.accessMode === "GRACE_ACCESS") {
+      return `Your plan has expired (${subState.graceRemaining} days grace period remaining). Please recharge now to avoid access restriction.`;
+    }
+    if (subState.accessMode === "RESTRICTED_ACCESS") {
+      return "Your plan and grace period have expired. Access has been restricted to view-only mode.";
+    }
+    if (subState.accessMode === "NO_ACCESS") {
+      return "Your subscription has expired or is suspended. Recharge to continue using School Study.";
+    }
+    return "Your plan is active.";
+  };
+
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-7xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-          <CreditCard className="h-6 w-6 text-blue-600 dark:text-blue-400" />
-          School Billing & Subscription
-        </h1>
-        <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-          Manage your plan, check real-time resource limits, renewal deadlines, and access billing invoices.
-        </p>
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+            <CreditCard className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+            School Billing & Subscription
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
+            Manage your plan, check real-time resource limits, renewal deadlines, and access billing invoices.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={loadBillingData}
+            disabled={loading}
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            <span>Refresh</span>
+          </button>
+          <button
+            onClick={() => openRechargeForPlan(subscription?.planId || "plan_starter", subscription?.billingCycle || "monthly")}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 active:scale-95 transition-all cursor-pointer"
+          >
+            <Zap className="h-3.5 w-3.5" />
+            <span>Recharge / Renew Now</span>
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -117,7 +177,41 @@ export default function SchoolAdminBillingPage() {
         </div>
       ) : (
         <>
-          {/* Over-limit or Near-Limit Global Warning */}
+          {/* Status Alert Banner (Section 2) */}
+          {subState && subState.accessMode !== "FULL_ACCESS" && (
+            <div
+              className={`rounded-2xl border p-4 flex items-center justify-between gap-4 ${
+                subState.accessMode === "EXPIRING"
+                  ? "border-amber-200 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/40 text-amber-900 dark:text-amber-300"
+                  : "border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/40 text-red-900 dark:text-red-300"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                {subState.accessMode === "EXPIRING" ? (
+                  <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
+                ) : (
+                  <AlertCircle className="h-5 w-5 text-red-600 shrink-0" />
+                )}
+                <div className="text-xs sm:text-sm">
+                  <span className="font-bold">
+                    {subState.accessMode === "EXPIRING" ? "Subscription Expiring Soon: " : "Plan Renewal Required: "}
+                  </span>
+                  <span>{getStatusDescription()}</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => openRechargeForPlan(subscription?.planId || "plan_starter", subscription?.billingCycle || "monthly")}
+                className={`px-4 py-1.5 rounded-xl text-white font-bold text-xs shrink-0 transition-all cursor-pointer shadow-xs ${
+                  subState.accessMode === "EXPIRING" ? "bg-amber-600 hover:bg-amber-700" : "bg-red-600 hover:bg-red-700"
+                }`}
+              >
+                Recharge Now
+              </button>
+            </div>
+          )}
+
+          {/* Over-limit Global Warning (Section 15) */}
           {entitlement &&
             (entitlement.limits.students.isOverLimit ||
               entitlement.limits.teachers.isOverLimit ||
@@ -130,12 +224,12 @@ export default function SchoolAdminBillingPage() {
                     One or more resources currently exceed your plan limit. Your existing data remains safe and fully accessible, but you cannot create new records until your plan is upgraded.
                   </p>
                 </div>
-                <Link
-                  href="/pricing"
-                  className="px-3.5 py-1.5 rounded-xl bg-red-600 text-white font-bold text-xs hover:bg-red-700 shrink-0 transition-all"
+                <button
+                  onClick={() => openRechargeForPlan("plan_professional", "monthly")}
+                  className="px-3.5 py-1.5 rounded-xl bg-red-600 text-white font-bold text-xs hover:bg-red-700 shrink-0 transition-all cursor-pointer"
                 >
                   Upgrade Now
-                </Link>
+                </button>
               </div>
             )}
 
@@ -149,6 +243,7 @@ export default function SchoolAdminBillingPage() {
                 <h2 className="text-xl font-black text-slate-900 dark:text-white capitalize mt-0.5">
                   {entitlement?.plan.name || subscription?.planId || "Starter"} Plan
                 </h2>
+                <p className="text-xs text-slate-500 mt-1">{getStatusDescription()}</p>
               </div>
 
               <div className="flex items-center gap-2">
@@ -162,13 +257,13 @@ export default function SchoolAdminBillingPage() {
                   {subState?.status || subscription?.status || "ACTIVE"}
                 </span>
 
-                <Link
-                  href="/pricing"
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-xl text-xs shadow-sm transition-all active:scale-95"
+                <button
+                  onClick={() => openRechargeForPlan(subscription?.planId || "plan_starter", subscription?.billingCycle || "monthly")}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-xl text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
                 >
                   <span>Recharge / Upgrade</span>
                   <ArrowRight className="h-3.5 w-3.5" />
-                </Link>
+                </button>
               </div>
             </div>
 
@@ -215,13 +310,13 @@ export default function SchoolAdminBillingPage() {
                     Live document counts enforced directly by your active plan version.
                   </p>
                 </div>
-                <Link
-                  href="/pricing"
-                  className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                <button
+                  onClick={() => openRechargeForPlan("plan_professional", "monthly")}
+                  className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
                 >
                   <span>Increase Limits</span>
                   <ArrowRight className="h-3 w-3" />
-                </Link>
+                </button>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -243,7 +338,6 @@ export default function SchoolAdminBillingPage() {
                         </span>
                       </div>
 
-                      {/* Progress Bar */}
                       {!s.isUnlimited && (
                         <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
                           <div
@@ -284,7 +378,6 @@ export default function SchoolAdminBillingPage() {
                         </span>
                       </div>
 
-                      {/* Progress Bar */}
                       {!t.isUnlimited && (
                         <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
                           <div
@@ -325,7 +418,6 @@ export default function SchoolAdminBillingPage() {
                         </span>
                       </div>
 
-                      {/* Progress Bar */}
                       {!c.isUnlimited && (
                         <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
                           <div
@@ -366,7 +458,6 @@ export default function SchoolAdminBillingPage() {
                         </span>
                       </div>
 
-                      {/* Progress Bar */}
                       {!st.isUnlimited && (
                         <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
                           <div
@@ -392,44 +483,56 @@ export default function SchoolAdminBillingPage() {
             </div>
           )}
 
-          {/* Feature Entitlements Overview */}
-          {entitlement && (
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                Included Features & Modules
-              </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                {Object.entries(entitlement.features).map(([featKey, isAllowed]) => {
-                  const formattedName = featKey
-                    .split("_")
-                    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-                    .join(" ");
-
-                  return (
-                    <div
-                      key={featKey}
-                      className={`p-3 rounded-2xl border flex items-center gap-2.5 text-xs font-semibold ${
-                        isAllowed
-                          ? "border-emerald-200/80 bg-emerald-50/40 text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300"
-                          : "border-slate-200/80 bg-slate-50/40 text-slate-400 dark:border-slate-800 dark:bg-slate-900/40"
-                      }`}
-                    >
-                      {isAllowed ? (
-                        <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-                      ) : (
-                        <Lock className="h-4 w-4 text-slate-400 shrink-0" />
-                      )}
-                      <span className="truncate">{formattedName}</span>
-                    </div>
-                  );
-                })}
+          {/* Quick Sub-navigation Cards for Payments & Invoices */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Link
+              href="/admin/billing/payments"
+              className="p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs hover:border-blue-500 transition-all flex items-center justify-between group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-2xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 flex items-center justify-center">
+                  <CreditCard className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-900 dark:text-white group-hover:text-blue-600">
+                    Payment History
+                  </h3>
+                  <p className="text-xs text-slate-500">View complete transaction ledger & payment status</p>
+                </div>
               </div>
-            </div>
-          )}
+              <ArrowRight className="h-4 w-4 text-slate-400 group-hover:translate-x-1 transition-transform" />
+            </Link>
 
-          {/* Payment History Table */}
+            <Link
+              href="/admin/billing/invoices"
+              className="p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs hover:border-blue-500 transition-all flex items-center justify-between group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center">
+                  <FileText className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-900 dark:text-white group-hover:text-emerald-600">
+                    Tax Invoices & Receipts
+                  </h3>
+                  <p className="text-xs text-slate-500">Download official GST invoice PDFs</p>
+                </div>
+              </div>
+              <ArrowRight className="h-4 w-4 text-slate-400 group-hover:translate-x-1 transition-transform" />
+            </Link>
+          </div>
+
+          {/* Payment History Table Preview */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">Payment & Invoice History</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">Recent Payments</h3>
+              <Link
+                href="/admin/billing/payments"
+                className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                View All Payments ({payments.length}) →
+              </Link>
+            </div>
 
             {payments.length === 0 ? (
               <p className="text-xs text-slate-500 py-6 text-center">No payment transactions recorded for your school.</p>
@@ -448,7 +551,7 @@ export default function SchoolAdminBillingPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {payments.map((p) => {
+                    {payments.slice(0, 5).map((p) => {
                       const invId = `inv_${p.orderId}`;
                       const invNum = invoicesMap[p.id] || `INV-${p.orderId?.slice(-6).toUpperCase()}`;
                       return (
@@ -456,7 +559,7 @@ export default function SchoolAdminBillingPage() {
                           <td className="p-3 font-mono text-slate-600 dark:text-slate-400">
                             {new Date(p.capturedAt || p.createdAt).toLocaleDateString("en-IN")}
                           </td>
-                          <td className="p-3 font-semibold capitalize text-blue-600 dark:text-blue-400">{p.planId}</td>
+                          <td className="p-3 font-semibold capitalize text-blue-600 dark:text-blue-400">{p.planId.replace("plan_", "")}</td>
                           <td className="p-3 font-semibold uppercase">{p.billingCycle}</td>
                           <td className="p-3 font-extrabold text-emerald-600 dark:text-emerald-400">{formatRupees(p.amount)}</td>
                           <td className="p-3 font-bold text-emerald-600">{p.status}</td>
@@ -478,6 +581,35 @@ export default function SchoolAdminBillingPage() {
             )}
           </div>
         </>
+      )}
+
+      {/* Real Server-Controlled Recharge Modal */}
+      {profile?.schoolId && profile?.uid && (
+        <RechargeModal
+          isOpen={showRechargeModal}
+          onClose={() => setShowRechargeModal(false)}
+          schoolId={profile.schoolId}
+          userId={profile.uid}
+          initialPlanId={selectedRechargePlan}
+          initialBillingCycle={selectedRechargeCycle}
+          currentPlanId={subscription?.planId}
+          currentUsage={
+            entitlement
+              ? {
+                  schoolId: profile.schoolId,
+                  students: entitlement.limits.students.current,
+                  teachers: entitlement.limits.teachers.current,
+                  classes: entitlement.limits.classes.current,
+                  staff: entitlement.limits.staff.current,
+                  lastReconciledAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                }
+              : undefined
+          }
+          onSuccess={() => {
+            loadBillingData();
+          }}
+        />
       )}
     </div>
   );

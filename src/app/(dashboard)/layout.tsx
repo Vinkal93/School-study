@@ -8,6 +8,7 @@ import { MobileNavProvider } from "@/context/mobile-nav-context";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { getRedirectByRole, isRoleAllowedForPath } from "@/lib/utils/redirect-by-role";
+import { SubscriptionReminderBanner, SubscriptionReminderModal } from "@/components/billing";
 
 export default function DashboardLayout({
   children,
@@ -73,6 +74,8 @@ export default function DashboardLayout({
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden min-w-0">
           <Topbar />
+          <SubscriptionReminderBanner />
+          <SubscriptionReminderModal />
           <main className="flex-1 overflow-y-auto p-3.5 sm:p-6 pb-24 md:pb-6 focus:outline-none">
             {children}
           </main>
