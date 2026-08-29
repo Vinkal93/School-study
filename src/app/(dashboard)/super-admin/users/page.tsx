@@ -266,7 +266,7 @@ function UsersManagementContent() {
         </div>
 
         {/* Role Filter Pills */}
-        <div className="flex items-center gap-2 overflow-x-auto pt-2 border-t border-gray-100 dark:border-gray-800">
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pt-2 border-t border-gray-100 dark:border-gray-800">
           <span className="text-xs font-medium text-gray-500 dark:text-gray-400 hidden sm:inline-block">
             Role Filter:
           </span>

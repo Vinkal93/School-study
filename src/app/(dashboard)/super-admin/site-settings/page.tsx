@@ -310,7 +310,7 @@ export default function SuperAdminSiteSettingsPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2 text-xs font-bold overflow-x-auto">
+      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2 text-xs font-bold overflow-x-auto no-scrollbar">
         {[
           { id: "header", label: "Header & Navigation", icon: LayoutTemplate },
           { id: "footer", label: "Footer Columns & Links", icon: Globe },

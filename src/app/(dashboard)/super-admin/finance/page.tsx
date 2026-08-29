@@ -211,7 +211,7 @@ export default function SuperAdminFinancePage() {
       </div>
 
       {/* Sub-Navigation Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3 text-xs font-bold overflow-x-auto">
+      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3 text-xs font-bold overflow-x-auto no-scrollbar">
         <Link
           href="/super-admin/finance"
           className="px-3.5 py-1.5 rounded-xl bg-blue-600 text-white shadow-xs shrink-0"
