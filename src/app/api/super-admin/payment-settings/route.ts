@@ -15,16 +15,27 @@ export async function GET(request: Request) {
     const creds = await loadRazorpayCredentials();
 
     return NextResponse.json({
-      keyId: creds.keyId,
-      isSecretSet: creds.keySecret.length > 0,
-      maskedSecretKey: maskSecret(creds.keySecret),
-      isWebhookSecretSet: creds.webhookSecret.length > 0,
-      maskedWebhookSecret: maskSecret(creds.webhookSecret),
-      isLiveMode: creds.isLiveMode || creds.keyId.startsWith("rzp_live_"),
+      keyId: creds?.keyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "",
+      isSecretSet: Boolean(creds?.keySecret && creds.keySecret.length > 0),
+      maskedSecretKey: maskSecret(creds?.keySecret || ""),
+      isWebhookSecretSet: Boolean(creds?.webhookSecret && creds.webhookSecret.length > 0),
+      maskedWebhookSecret: maskSecret(creds?.webhookSecret || ""),
+      isLiveMode: creds?.isLiveMode || false,
     });
   } catch (error: any) {
-    console.error("GET Payment Settings Error:", error);
-    return NextResponse.json({ error: "Failed to fetch payment settings." }, { status: 500 });
+    console.warn("GET Payment Settings Notice (Using env fallback):", error);
+    const envKeyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID || "";
+    const envSecret = process.env.RAZORPAY_KEY_SECRET || "";
+    const envWebhook = process.env.RAZORPAY_WEBHOOK_SECRET || "";
+
+    return NextResponse.json({
+      keyId: envKeyId,
+      isSecretSet: envSecret.length > 0,
+      maskedSecretKey: maskSecret(envSecret),
+      isWebhookSecretSet: envWebhook.length > 0,
+      maskedWebhookSecret: maskSecret(envWebhook),
+      isLiveMode: envKeyId.startsWith("rzp_live_"),
+    });
   }
 }
 
