@@ -100,9 +100,9 @@ export function PricingContent() {
   const { profile } = useAuth();
   const [isAnnual, setIsAnnual] = useState(true);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
-  const [plans, setPlans] = useState<Plan[]>([]);
-  const [activeVersions, setActiveVersions] = useState<Record<string, PlanVersion>>({});
-  const [loading, setLoading] = useState(true);
+  const [plans, setPlans] = useState<Plan[]>(DEFAULT_FALLBACK_PLANS);
+  const [activeVersions, setActiveVersions] = useState<Record<string, PlanVersion>>(DEFAULT_FALLBACK_VERSIONS);
+  const [loading, setLoading] = useState(false);
   const [processingPlanId, setProcessingPlanId] = useState<string | null>(null);
 
   useEffect(() => {
