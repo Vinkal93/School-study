@@ -3,7 +3,7 @@ import { getFirebaseDb } from "@/lib/firebase/client";
 import { doc, getDoc, setDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { BILLING_COLLECTIONS } from "@/lib/billing";
 import { verifyRazorpayWebhookSignature } from "@/lib/payments/razorpay";
-import { fulfillSuccessfulPayment, InternalOrder } from "@/lib/payments/fulfillment";
+import { fulfillSuccessfulPayment, InternalOrder, PaymentRecord } from "@/lib/payments/fulfillment";
 
 export async function POST(request: Request) {
   try {
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Database unavailable." }, { status: 500 });
     }
 
-    // 2. Webhook Idempotency Check (Section 15)
+    // 2. Webhook Idempotency Check (Section 14 & 29)
     const eventRef = doc(db, BILLING_COLLECTIONS.WEBHOOK_EVENTS || "webhookEvents", eventId);
     const eventSnap = await getDoc(eventRef);
 
@@ -42,14 +42,13 @@ export async function POST(request: Request) {
       status: "RECEIVED",
     });
 
-    // 3. Process Relevant Payment Lifecycle Events (Section 14)
-    if (eventType === "payment.captured" || eventType === "order.paid") {
-      const paymentEntity = payload.payload?.payment?.entity || {};
-      const razorpayOrderId = paymentEntity.order_id || payload.payload?.order?.entity?.id;
-      const razorpayPaymentId = paymentEntity.id || payload.payload?.payment?.entity?.id;
+    const paymentEntity = payload.payload?.payment?.entity || {};
+    const razorpayOrderId = paymentEntity.order_id || payload.payload?.order?.entity?.id;
+    const razorpayPaymentId = paymentEntity.id || payload.payload?.payment?.entity?.id;
 
+    // 3. Handle Payment Captured / Order Paid
+    if (eventType === "payment.captured" || eventType === "order.paid") {
       if (razorpayOrderId && razorpayPaymentId) {
-        // Find internal order by razorpayOrderId
         const ordersRef = collection(db, BILLING_COLLECTIONS.ORDERS || "orders");
         const q = query(ordersRef, where("razorpayOrderId", "==", razorpayOrderId));
         const ordersSnap = await getDocs(q);
@@ -60,17 +59,72 @@ export async function POST(request: Request) {
             ...ordersSnap.docs[0].data(),
           } as InternalOrder;
 
-          // Call central idempotent fulfillment service (Section 25 & 26)
           await fulfillSuccessfulPayment(internalOrder.id, razorpayPaymentId, "webhook");
         }
       }
+    }
+
+    // 4. Handle Payment Failed (Section 3)
+    else if (eventType === "payment.failed") {
+      if (razorpayOrderId) {
+        const ordersRef = collection(db, BILLING_COLLECTIONS.ORDERS || "orders");
+        const q = query(ordersRef, where("razorpayOrderId", "==", razorpayOrderId));
+        const ordersSnap = await getDocs(q);
+
+        if (!ordersSnap.empty) {
+          const orderDoc = ordersSnap.docs[0];
+          await setDoc(
+            doc(db, BILLING_COLLECTIONS.ORDERS || "orders", orderDoc.id),
+            {
+              status: "FAILED",
+              failureCode: paymentEntity.error_code || "PAYMENT_FAILED",
+              failureReason: paymentEntity.error_description || "Transaction declined by gateway/bank.",
+              failedAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true }
+          );
+        }
+      }
+    }
+
+    // 5. Handle Refund Processed / Failed Webhooks (Section 29)
+    else if (eventType === "refund.processed") {
+      const refundEntity = payload.payload?.refund?.entity || {};
+      const refundId = refundEntity.notes?.refundId || `ref_${refundEntity.id}`;
+      const refundRef = doc(db, "refunds", refundId);
+      await setDoc(
+        refundRef,
+        {
+          razorpayRefundId: refundEntity.id,
+          status: "PROCESSED",
+          processedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    }
+
+    // 6. Handle Payment Dispute Created (Section 27)
+    else if (eventType === "payment.dispute.created" || eventType === "dispute.created") {
+      const disputeEntity = payload.payload?.dispute?.entity || {};
+      const disputeId = `disp_${disputeEntity.id || Date.now()}`;
+      await setDoc(doc(db, "disputes", disputeId), {
+        id: disputeId,
+        razorpayDisputeId: disputeEntity.id,
+        paymentId: disputeEntity.payment_id,
+        amount: disputeEntity.amount || 0,
+        currency: disputeEntity.currency || "INR",
+        status: "OPEN",
+        reason: disputeEntity.reason_code || "Chargeback reported",
+        createdAt: new Date().toISOString(),
+      });
     }
 
     return NextResponse.json({ status: "success", eventId });
   } catch (error: any) {
     console.error("Razorpay Webhook Handler Error:", error);
     return NextResponse.json(
-      { error: "Webhook handler failed. " + (error.message || "") },
+      { error: "Webhook handler failed: " + (error.message || "") },
       { status: 500 }
     );
   }

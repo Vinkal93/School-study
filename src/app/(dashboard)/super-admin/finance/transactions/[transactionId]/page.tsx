@@ -210,10 +210,19 @@ export default function SuperAdminTransactionDetailPage() {
               </span>
             </div>
 
+            {payment?.refundedAmount > 0 && (
+              <div className="flex justify-between py-2 text-red-600">
+                <span>Refunded Amount</span>
+                <span className="font-mono font-bold">
+                  -{formatRupees(payment.refundedAmount)}
+                </span>
+              </div>
+            )}
+
             <div className="flex justify-between py-2 font-bold text-sm">
-              <span className="text-slate-900 dark:text-white">Net Paid Amount</span>
+              <span className="text-slate-900 dark:text-white">Net Realized Revenue</span>
               <span className="font-mono text-emerald-600 dark:text-emerald-400">
-                {formatRupees(payment?.amount || order?.finalAmount || 0)}
+                {formatRupees(Math.max(0, (payment?.amount || order?.finalAmount || 0) - (payment?.refundedAmount || 0)))}
               </span>
             </div>
           </div>

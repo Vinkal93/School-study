@@ -617,6 +617,33 @@ export async function detectFinancialAnomalies(): Promise<FinancialAnomaly[]> {
     }
   }
 
+  // 6. Check: Refund Integrity Anomaly Checks (Phase 10 Section 28)
+  try {
+    const refundsSnap = await getDocs(collection(db, "refunds"));
+    const refundsList = refundsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
+    const payMap = new Map(payments.map((p) => [p.id, p]));
+
+    for (const ref of refundsList) {
+      if (ref.status === "PROCESSED") {
+        const matchingPay = payMap.get(ref.paymentId);
+        if (!matchingPay) {
+          anomalies.push({
+            id: `anom_ref_no_pay_${ref.id}`,
+            type: "REFUND_WITHOUT_PAYMENT",
+            severity: "CRITICAL",
+            entityType: "transaction",
+            entityId: ref.id,
+            description: `Processed refund ${ref.id} references non-existent payment ${ref.paymentId}`,
+            detectedAt: nowIso,
+            status: "OPEN",
+          });
+        }
+      }
+    }
+  } catch (err) {
+    // Non-blocking
+  }
+
   return anomalies;
 }
 

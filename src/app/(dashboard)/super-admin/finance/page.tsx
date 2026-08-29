@@ -26,6 +26,7 @@ import {
   Activity,
   Layers,
   Percent,
+  RotateCcw,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -228,6 +229,19 @@ export default function SuperAdminFinancePage() {
           className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-all shrink-0"
         >
           Transaction Ledger
+        </Link>
+        <Link
+          href="/super-admin/finance/refunds"
+          className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-all shrink-0 flex items-center gap-1.5"
+        >
+          <RotateCcw className="h-3.5 w-3.5 text-red-500" />
+          <span>Refunds Ledger</span>
+        </Link>
+        <Link
+          href="/super-admin/finance/disputes"
+          className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-all shrink-0"
+        >
+          Disputes
         </Link>
         <Link
           href="/super-admin/finance/reconciliation"

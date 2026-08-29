@@ -37,8 +37,16 @@ export interface PaymentRecord {
   razorpayPaymentId: string;
   amount: number; // Integer PAISE
   currency: string;
-  status: "CAPTURED" | "FAILED" | "REFUNDED";
-  method: string;
+  method?: string;
+  refundedAmount?: number;
+  status:
+    | "CAPTURED"
+    | "FAILED"
+    | "REFUNDED"
+    | "PARTIALLY_REFUNDED"
+    | "DISPUTED"
+    | "PAYMENT_PENDING"
+    | "CANCELLED";
   planId: string;
   planVersionId: string;
   billingCycle: "monthly" | "annual";

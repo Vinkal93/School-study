@@ -15,6 +15,7 @@ import {
   Clock,
   ArrowRight,
   Receipt,
+  RotateCcw,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { getFirebaseDb } from "@/lib/firebase/client";
@@ -230,17 +231,23 @@ export default function SchoolAdminPaymentsHistoryPage() {
                         <td className="p-3">
                           <span
                             className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
-                              isSuccess
+                              p.status === "CAPTURED"
                                 ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900"
+                                : p.status === "PARTIALLY_REFUNDED"
+                                ? "bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900"
+                                : p.status === "REFUNDED"
+                                ? "bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-900"
                                 : "bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-900"
                             }`}
                           >
-                            {isSuccess ? (
+                            {p.status === "CAPTURED" ? (
                               <CheckCircle2 className="h-3 w-3" />
+                            ) : p.status === "REFUNDED" || p.status === "PARTIALLY_REFUNDED" ? (
+                              <RotateCcw className="h-3 w-3" />
                             ) : (
                               <XCircle className="h-3 w-3" />
                             )}
-                            <span>{p.status}</span>
+                            <span>{p.status.replace("_", " ")}</span>
                           </span>
                         </td>
                         <td className="p-3">
