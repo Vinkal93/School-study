@@ -18,7 +18,12 @@ import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth"
 import { getFirebaseDb, getFirebaseStorage } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/utils/constants";
 import { firebaseClientConfig } from "@/lib/firebase/config";
-import { canAccessFeature } from "@/lib/services/entitlement.service";
+import {
+  requireFeatureAccess,
+  requirePlanLimit,
+  incrementSchoolUsage,
+  decrementSchoolUsage,
+} from "@/lib/billing";
 import type { StudentProfile, CreateStudentInput } from "@/types";
 
 /**
@@ -53,8 +58,8 @@ export async function getStudents(
     }
 
     return students;
-  } catch (error: any) {
-    console.warn("Could not fetch students:", error?.message);
+  } catch (error) {
+    console.error("Failed to fetch students:", error);
     return [];
   }
 }
@@ -103,7 +108,7 @@ export async function uploadStudentPhoto(
 
 /**
  * Creates a student record, verifies unique admission number within school,
- * and provisions student login credentials via an isolated secondary Firebase App.
+ * enforces plan feature access and capacity limits, and provisions student login credentials.
  */
 export async function createStudentWithAuth(
   schoolId: string,
@@ -112,21 +117,12 @@ export async function createStudentWithAuth(
   const db = getFirebaseDb();
   const cleanAdmNo = input.admissionNumber.trim().toUpperCase();
 
-  // 1. Verify entitlement & capacity limits for student management
-  const studentsColl = collection(db, "schools", schoolId, "students");
-  const currentStudentsSnap = await getDocs(studentsColl);
-
-  const entitlement = await canAccessFeature(
-    schoolId,
-    "student_management",
-    currentStudentsSnap.size
-  );
-
-  if (!entitlement.allowed) {
-    throw new Error(entitlement.message);
-  }
+  // 1. Authoritative Backend Check: Feature Access & Plan Limit
+  await requireFeatureAccess(schoolId, "student_management");
+  await requirePlanLimit(schoolId, "students");
 
   // 2. Verify admission number uniqueness within this school
+  const studentsColl = collection(db, "schools", schoolId, "students");
   const duplicateQuery = query(
     studentsColl,
     where("admissionNumber", "==", cleanAdmNo)
@@ -214,6 +210,9 @@ export async function createStudentWithAuth(
     updatedAt: serverTimestamp(),
   });
 
+  // 5. Increment usage count atomically
+  await incrementSchoolUsage(schoolId, "students", 1);
+
   return { studentId, userId };
 }
 
@@ -258,7 +257,7 @@ export async function toggleStudentStatus(
 }
 
 /**
- * Deletes a student profile.
+ * Deletes a student profile and decrements usage count atomically.
  */
 export async function deleteStudent(
   schoolId: string,
@@ -270,4 +269,6 @@ export async function deleteStudent(
   if (userId) {
     await deleteDoc(doc(db, COLLECTIONS.USERS, userId));
   }
+  // Decrement usage count atomically
+  await decrementSchoolUsage(schoolId, "students", 1);
 }

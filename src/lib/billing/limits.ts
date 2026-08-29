@@ -1,86 +1,101 @@
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-} from "firebase/firestore";
-import { getFirebaseDb } from "@/lib/firebase/client";
-import type { PlanLimits, PlanLimitCheckResult } from "@/types";
+import type { PlanLimits, PlanLimitCheckResult, ResourceLimitKey } from "@/types";
 import { getSchoolAccess } from "./accessEngine";
+import { getSchoolUsage } from "./usage";
+import { createBillingAuditLog } from "./audit";
 
 /**
- * Section 10 & 12: Reusable Limit Engine Foundation (checkPlanLimit).
- * Reads actual Firestore collection count (no fake counters) and checks against active plan limits.
- * Explicitly supports Unlimited capacity represented by -1.
+ * Plan Limit Key Mapping.
+ */
+const LIMIT_KEY_MAP: Record<ResourceLimitKey, keyof PlanLimits> = {
+  students: "maxStudents",
+  teachers: "maxTeachers",
+  classes: "maxClasses",
+  staff: "maxStaffAccounts",
+};
+
+/**
+ * Section 7 & 9: Real Plan Limit Engine (checkPlanLimit).
+ * 
+ * Verifies usage against active plan version limits.
+ * - Supports explicit UNLIMITED (-1).
+ * - Detects OVER_LIMIT states (where current > limit after plan downgrade or limit decrease).
+ * - Emits audit logs on limit reached or over-limit detection.
  */
 export async function checkPlanLimit(
   schoolId: string,
-  resourceType: "students" | "teachers" | "classes" | "staff" | "storage"
+  resourceType: ResourceLimitKey
 ): Promise<PlanLimitCheckResult> {
-  const db = getFirebaseDb();
-  const summary = await getSchoolAccess(schoolId);
+  const [summary, usage] = await Promise.all([
+    getSchoolAccess(schoolId),
+    getSchoolUsage(schoolId),
+  ]);
 
-  const limitKeyMap: Record<string, keyof PlanLimits> = {
-    students: "maxStudents",
-    teachers: "maxTeachers",
-    classes: "maxClasses",
-    staff: "maxStaffAccounts",
-  };
+  const limitKey = LIMIT_KEY_MAP[resourceType];
+  const limit =
+    summary.limits && typeof summary.limits[limitKey] === "number"
+      ? summary.limits[limitKey]
+      : 500;
 
-  const limitKey = limitKeyMap[resourceType];
-  const limit = (summary.limits && typeof summary.limits[limitKey] === "number")
-    ? summary.limits[limitKey]
-    : 500;
+  const currentCount = usage[resourceType] ?? 0;
 
-  let currentCount = 0;
-  if (db) {
-    try {
-      if (resourceType === "students") {
-        const snap = await getDocs(collection(db, "schools", schoolId, "students"));
-        currentCount = snap.size;
-      } else if (resourceType === "teachers") {
-        const snap = await getDocs(collection(db, "schools", schoolId, "teachers"));
-        currentCount = snap.size;
-      } else if (resourceType === "classes") {
-        const snap = await getDocs(collection(db, "schools", schoolId, "classes"));
-        currentCount = snap.size;
-      } else if (resourceType === "staff") {
-        const snap = await getDocs(
-          query(
-            collection(db, "users"),
-            where("schoolId", "==", schoolId),
-            where("role", "==", "school_admin")
-          )
-        );
-        currentCount = snap.size;
-      }
-    } catch (err) {
-      console.warn("Failed to fetch collection count for plan limit check:", err);
-    }
-  }
-
-  // Explicit Unlimited check (-1 represents unlimited)
+  // 1. Explicit UNLIMITED Capacity (-1)
   if (limit === -1) {
     return {
       allowed: true,
       current: currentCount,
       limit: -1,
       remaining: Infinity,
+      isOverLimit: false,
+      isUnlimited: true,
+      code: "ALLOWED",
       message: "Unlimited capacity available.",
     };
   }
 
-  const allowed = currentCount < limit;
+  // 2. Over-Limit State (e.g. 700 / 500 after downgrade)
+  const isOverLimit = currentCount > limit;
+  const isLimitReached = currentCount >= limit;
   const remaining = Math.max(0, limit - currentCount);
 
-  if (!allowed) {
+  if (isOverLimit) {
+    // Log audit log for over-limit
+    createBillingAuditLog("system", "system", "OVER_LIMIT_DETECTED", "schoolSubscription", schoolId, {
+      resourceType,
+      current: currentCount,
+      limit,
+    }).catch(() => {});
+
     return {
       allowed: false,
       current: currentCount,
       limit,
       remaining: 0,
+      isOverLimit: true,
+      isUnlimited: false,
+      code: "OVER_LIMIT",
+      reason: "OVER_LIMIT",
+      message: `Your school currently has ${currentCount} ${resourceType}, which exceeds your plan limit of ${limit}. Please upgrade your plan to add more.`,
+    };
+  }
+
+  if (isLimitReached) {
+    // Log audit log for limit reached
+    createBillingAuditLog("system", "system", "LIMIT_REACHED", "schoolSubscription", schoolId, {
+      resourceType,
+      current: currentCount,
+      limit,
+    }).catch(() => {});
+
+    return {
+      allowed: false,
+      current: currentCount,
+      limit,
+      remaining: 0,
+      isOverLimit: false,
+      isUnlimited: false,
+      code: "LIMIT_REACHED",
       reason: "LIMIT_REACHED",
-      message: `You have reached the ${resourceType} limit for your current plan.`,
+      message: `Plan capacity limit reached (${currentCount}/${limit} ${resourceType}). Please upgrade your plan to add more.`,
     };
   }
 
@@ -89,6 +104,28 @@ export async function checkPlanLimit(
     current: currentCount,
     limit,
     remaining,
+    isOverLimit: false,
+    isUnlimited: false,
+    code: "ALLOWED",
     message: "Capacity available.",
   };
+}
+
+/**
+ * Server-side requirement helper. Throws 403-equivalent Error if plan limit is reached.
+ */
+export async function requirePlanLimit(
+  schoolId: string,
+  resourceType: ResourceLimitKey
+): Promise<PlanLimitCheckResult> {
+  const result = await checkPlanLimit(schoolId, resourceType);
+  if (!result.allowed) {
+    const error: any = new Error(result.message);
+    error.code = result.code || "LIMIT_EXCEEDED";
+    error.status = 403;
+    error.limit = result.limit;
+    error.current = result.current;
+    throw error;
+  }
+  return result;
 }

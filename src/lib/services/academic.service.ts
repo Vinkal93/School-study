@@ -13,6 +13,12 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
+import {
+  requireFeatureAccess,
+  requirePlanLimit,
+  incrementSchoolUsage,
+  decrementSchoolUsage,
+} from "@/lib/billing";
 import type { AcademicYear, SchoolClass, Section } from "@/types";
 
 // ==========================================
@@ -154,6 +160,11 @@ export async function createClass(
   }
 ): Promise<string> {
   const db = getFirebaseDb();
+
+  // 1. Authoritative Backend Check: Feature Access & Plan Limit
+  await requireFeatureAccess(schoolId, "class_management");
+  await requirePlanLimit(schoolId, "classes");
+
   const classDocRef = doc(collection(db, "schools", schoolId, "classes"));
   const classId = classDocRef.id;
 
@@ -194,24 +205,27 @@ export async function createClass(
   });
 
   await batch.commit();
+
+  // 2. Increment usage count atomically
+  await incrementSchoolUsage(schoolId, "classes", 1);
+
   return classId;
 }
 
 /**
- * Updates a class's name or numerical order.
+ * Updates a class's name, order, or academic year.
  */
 export async function updateClass(
   schoolId: string,
   classId: string,
-  data: { name?: string; order?: number }
+  data: { name?: string; order?: number; academicYearId?: string }
 ): Promise<void> {
   const db = getFirebaseDb();
   const classDocRef = doc(db, "schools", schoolId, "classes", classId);
-  const updateData: any = { updatedAt: serverTimestamp() };
-  if (data.name !== undefined) updateData.name = data.name.trim();
-  if (data.order !== undefined) updateData.order = data.order;
-
-  await updateDoc(classDocRef, updateData);
+  await updateDoc(classDocRef, {
+    ...data,
+    updatedAt: serverTimestamp(),
+  });
 }
 
 /**
@@ -231,7 +245,7 @@ export async function toggleClassStatus(
 }
 
 /**
- * Deletes a class and all its subcollection sections.
+ * Deletes a class and all its subcollection sections and decrements usage count atomically.
  */
 export async function deleteClass(
   schoolId: string,
@@ -255,6 +269,9 @@ export async function deleteClass(
   batch.delete(doc(db, "schools", schoolId, "classes", classId));
 
   await batch.commit();
+
+  // Decrement usage count atomically
+  await decrementSchoolUsage(schoolId, "classes", 1);
 }
 
 /**

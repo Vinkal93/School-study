@@ -160,9 +160,55 @@ export interface SchoolAccessSummary {
   limits: PlanLimits;
 }
 
+export interface SchoolUsage {
+  schoolId: string;
+  students: number;
+  teachers: number;
+  classes: number;
+  staff: number;
+  lastReconciledAt: string;
+  updatedAt: string;
+}
+
+export type ResourceLimitKey = "students" | "teachers" | "classes" | "staff";
+
+export interface ResourceLimitStatus {
+  current: number;
+  limit: number;
+  remaining: number;
+  isOverLimit: boolean;
+  isUnlimited: boolean;
+}
+
+export interface EffectiveEntitlement {
+  schoolId: string;
+  subscriptionStatus: SubscriptionStatus;
+  accessMode: AccessMode;
+  plan: {
+    id: string;
+    name: string;
+    slug: string;
+    version: number;
+  };
+  features: Record<string, boolean>;
+  limits: {
+    students: ResourceLimitStatus;
+    teachers: ResourceLimitStatus;
+    classes: ResourceLimitStatus;
+    staff: ResourceLimitStatus;
+  };
+  isExpired: boolean;
+  isInGrace: boolean;
+  daysRemaining: number;
+  expiresAt: string;
+  graceEndsAt: string;
+}
+
 export interface FeatureCheckResult {
   allowed: boolean;
+  code?: string;
   reason: string;
+  feature?: string;
   message: string;
   accessMode: AccessMode;
   limitInfo?: {
@@ -176,6 +222,9 @@ export interface PlanLimitCheckResult {
   current: number;
   limit: number;
   remaining: number;
+  isOverLimit?: boolean;
+  isUnlimited?: boolean;
+  code?: string;
   reason?: string;
   message: string;
 }
@@ -254,6 +303,8 @@ export type BillingAuditAction =
   | "PLAN_ARCHIVED"
   | "PLAN_FEATURE_UPDATED"
   | "PLAN_LIMIT_UPDATED"
+  | "PLAN_FEATURE_CHANGED"
+  | "PLAN_LIMIT_CHANGED"
   | "POPULAR_PLAN_CHANGED"
   | "SUBSCRIPTION_UPDATED"
   | "ACCESS_POLICY_UPDATED"
@@ -264,6 +315,10 @@ export type BillingAuditAction =
   | "EXPIRY_MODE_UPDATED"
   | "FEATURE_RESTRICTION_UPDATED"
   | "MANUAL_ACCESS_CHANGE"
+  | "LIMIT_REACHED"
+  | "OVER_LIMIT_DETECTED"
+  | "USAGE_RECONCILED"
+  | "MANUAL_ENTITLEMENT_OVERRIDE"
   | "FINANCE_VIEW"
   | "INVOICE_VIEW"
   | "REPORT_EXPORT";

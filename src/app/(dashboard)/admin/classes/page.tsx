@@ -31,7 +31,8 @@ import {
   createSection,
   deleteSection,
 } from "@/lib/services/academic.service";
-import type { AcademicYear, SchoolClass, Section } from "@/types";
+import { checkPlanLimit } from "@/lib/billing";
+import type { AcademicYear, SchoolClass, Section, PlanLimitCheckResult } from "@/types";
 import { toast } from "sonner";
 
 export default function AdminClassesPage() {
@@ -40,6 +41,7 @@ export default function AdminClassesPage() {
 
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
+  const [limitStatus, setLimitStatus] = useState<PlanLimitCheckResult | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Modals state
@@ -66,12 +68,14 @@ export default function AdminClassesPage() {
     if (!schoolId) return;
     setLoading(true);
     try {
-      const [years, cls] = await Promise.all([
+      const [years, cls, limitRes] = await Promise.all([
         getAcademicYears(schoolId),
         getClassesWithSections(schoolId),
+        checkPlanLimit(schoolId, "classes"),
       ]);
       setAcademicYears(years);
       setClasses(cls);
+      setLimitStatus(limitRes);
     } catch (err) {
       console.error("Failed to load academic data:", err);
       toast.error("Failed to load classes and academic years.");
@@ -244,19 +248,48 @@ export default function AdminClassesPage() {
           </button>
           <button
             onClick={() => {
+              if (limitStatus && !limitStatus.allowed) {
+                toast.error(
+                  `Class limit reached (${limitStatus.current}/${limitStatus.limit}). Upgrade plan to add more classes.`
+                );
+                return;
+              }
               setEditingClass(null);
               setClassNameInput("");
               setClassOrderInput(classes.length + 1);
               setInitialSectionsInput("A, B");
               setIsClassModalOpen(true);
             }}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700"
+            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white shadow-sm transition-all ${
+              limitStatus && !limitStatus.allowed
+                ? "bg-slate-500 hover:bg-slate-600 opacity-90 cursor-pointer"
+                : "bg-blue-600 hover:bg-blue-700"
+            }`}
           >
             <Plus className="h-4 w-4" />
-            Add New Class
+            <span>Add New Class</span>
           </button>
         </div>
       </div>
+
+      {/* Plan Capacity Limit Warning Banner */}
+      {limitStatus && !limitStatus.allowed && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/40 p-4 flex items-center justify-between gap-4 text-red-800 dark:text-red-300">
+          <div className="flex items-center gap-3">
+            <XCircle className="h-5 w-5 text-red-600 shrink-0" />
+            <div className="text-xs sm:text-sm">
+              <span className="font-bold">Class Capacity Limit Reached ({limitStatus.current}/${limitStatus.limit}). </span>
+              <span>Your school has reached the maximum class limit for your current plan.</span>
+            </div>
+          </div>
+          <Link
+            href="/admin/billing"
+            className="px-3.5 py-1.5 rounded-xl bg-red-600 text-white font-bold text-xs hover:bg-red-700 shrink-0 transition-all shadow-xs"
+          >
+            Upgrade Plan
+          </Link>
+        </div>
+      )}
 
       {/* Classes List */}
       {loading ? (

@@ -56,6 +56,13 @@ export async function uploadTeacherPhoto(
   return await compressImageToBase64(file, 400, 400, 0.75);
 }
 
+import {
+  requireFeatureAccess,
+  requirePlanLimit,
+  incrementSchoolUsage,
+  decrementSchoolUsage,
+} from "@/lib/billing";
+
 /**
  * Creates a new teacher, provisions their Firebase Auth account, and creates their user + teacher docs.
  */
@@ -64,6 +71,10 @@ export async function createTeacherWithAuth(
   input: CreateTeacherInput
 ): Promise<{ teacherId: string; userId: string }> {
   const db = getFirebaseDb();
+
+  // 1. Authoritative Backend Check: Feature Access & Plan Limit
+  await requireFeatureAccess(schoolId, "teacher_management");
+  await requirePlanLimit(schoolId, "teachers");
 
   const secondaryAppName = `teacher-auth-${Date.now()}`;
   const secondaryApp = initializeApp(firebaseClientConfig, secondaryAppName);
@@ -134,6 +145,9 @@ export async function createTeacherWithAuth(
     updatedAt: serverTimestamp(),
   });
 
+  // 2. Increment usage count atomically
+  await incrementSchoolUsage(schoolId, "teachers", 1);
+
   return { teacherId, userId };
 }
 
@@ -193,7 +207,7 @@ export async function assignTeacherToClass(
 }
 
 /**
- * Deletes a teacher profile and user record from Firebase.
+ * Deletes a teacher profile and user record from Firebase and decrements usage count atomically.
  */
 export async function deleteTeacher(
   schoolId: string,
@@ -205,4 +219,6 @@ export async function deleteTeacher(
   if (userId) {
     await deleteDoc(doc(db, COLLECTIONS.USERS, userId));
   }
+  // Decrement usage count atomically
+  await decrementSchoolUsage(schoolId, "teachers", 1);
 }
