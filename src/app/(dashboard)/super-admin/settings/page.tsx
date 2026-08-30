@@ -46,6 +46,7 @@ export default function PlatformSettingsPage() {
   const [rzpKeySecret, setRzpKeySecret] = useState("");
   const [rzpWebhookSecret, setRzpWebhookSecret] = useState("");
   const [isLiveMode, setIsLiveMode] = useState(false);
+  const [isSecretSet, setIsSecretSet] = useState(false);
   const [maskedSecret, setMaskedSecret] = useState("");
   const [loadingRzp, setLoadingRzp] = useState(true);
   const [savingRzp, setSavingRzp] = useState(false);
@@ -71,6 +72,7 @@ export default function PlatformSettingsPage() {
           const data = await res.json();
           setRzpKeyId(data.keyId || "");
           setMaskedSecret(data.maskedSecretKey || "");
+          setIsSecretSet(Boolean(data.isSecretSet));
           setIsLiveMode(data.isLiveMode ?? data.keyId?.startsWith("rzp_live_"));
         }
       } catch (err) {
@@ -146,6 +148,17 @@ export default function PlatformSettingsPage() {
 
   const handleSaveRzpSettings = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!rzpKeyId.trim()) {
+      toast.error("Razorpay Key ID is required.");
+      return;
+    }
+
+    if (!isSecretSet && !rzpKeySecret.trim()) {
+      toast.error("Razorpay Secret Key is required for initial configuration.");
+      return;
+    }
+
     setSavingRzp(true);
 
     try {
@@ -153,9 +166,9 @@ export default function PlatformSettingsPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          keyId: rzpKeyId,
-          keySecret: rzpKeySecret,
-          webhookSecret: rzpWebhookSecret,
+          keyId: rzpKeyId.trim(),
+          keySecret: rzpKeySecret.trim(),
+          webhookSecret: rzpWebhookSecret.trim(),
           isLiveMode,
           actorEmail: profile?.email || "super_admin",
         }),
@@ -165,6 +178,7 @@ export default function PlatformSettingsPage() {
       if (res.ok && data.success) {
         toast.success("Razorpay Payment Gateway Credentials updated securely!");
         setMaskedSecret(data.maskedSecretKey || "");
+        setIsSecretSet(true);
         setRzpKeySecret(""); // Clear raw input field after saving for security
       } else {
         toast.error(data.error || "Failed to save payment settings.");
@@ -202,15 +216,26 @@ export default function PlatformSettingsPage() {
             </p>
           </div>
 
-          <span
-            className={`px-3 py-1 text-xs font-extrabold rounded-full uppercase ${
-              isLiveMode
-                ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300"
-                : "bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300"
-            }`}
-          >
-            {isLiveMode ? "LIVE Mode" : "TEST Mode"}
-          </span>
+          <div className="flex items-center gap-2">
+            {isSecretSet ? (
+              <span className="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200">
+                Secret Configured
+              </span>
+            ) : (
+              <span className="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200">
+                Secret Required
+              </span>
+            )}
+            <span
+              className={`px-3 py-1 text-xs font-extrabold rounded-full uppercase ${
+                isLiveMode
+                  ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300"
+                  : "bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300"
+              }`}
+            >
+              {isLiveMode ? "LIVE Mode" : "TEST Mode"}
+            </span>
+          </div>
         </div>
 
         {loadingRzp ? (
@@ -252,7 +277,11 @@ export default function PlatformSettingsPage() {
                     type={showSecret ? "text" : "password"}
                     value={rzpKeySecret}
                     onChange={(e) => setRzpKeySecret(e.target.value)}
-                    placeholder={maskedSecret ? `Currently set: ${maskedSecret}` : "Enter new Razorpay Secret Key"}
+                    placeholder={
+                      isSecretSet
+                        ? `Currently set: ${maskedSecret || "••••••••••••••••"}`
+                        : "Enter Razorpay Secret Key (Required)"
+                    }
                     className="w-full pl-3.5 pr-10 py-2.5 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm font-mono font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   <button
@@ -264,7 +293,9 @@ export default function PlatformSettingsPage() {
                   </button>
                 </div>
                 <p className="text-[11px] text-gray-400 mt-1">
-                  {maskedSecret ? `Active Secret: ${maskedSecret}` : "Leave blank to keep existing stored secret."}
+                  {isSecretSet
+                    ? `Active Secret: ${maskedSecret || "••••••••••••••••"}`
+                    : "Enter secret key from Razorpay dashboard to enable payments."}
                 </p>
               </div>
             </div>

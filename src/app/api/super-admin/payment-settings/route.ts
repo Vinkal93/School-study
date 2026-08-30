@@ -58,8 +58,15 @@ export async function POST(request: Request) {
     const existingData = existingSnap.exists() ? (existingSnap.data() as RazorpayCredentials) : null;
 
     let finalSecret = existingData?.keySecret || process.env.RAZORPAY_KEY_SECRET || "";
-    if (keySecret && !keySecret.includes("*") && !keySecret.includes("•")) {
+    if (keySecret && typeof keySecret === "string" && keySecret.trim().length > 0 && !keySecret.includes("*") && !keySecret.includes("•")) {
       finalSecret = keySecret.trim();
+    }
+
+    if (!finalSecret || finalSecret.trim().length === 0) {
+      return NextResponse.json(
+        { error: "Razorpay Secret Key is required. Please enter your Secret Key from the Razorpay Dashboard." },
+        { status: 400 }
+      );
     }
 
     let finalWebhookSecret = existingData?.webhookSecret || process.env.RAZORPAY_WEBHOOK_SECRET || "";
