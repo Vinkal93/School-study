@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
 import { getAuth, type Auth } from "firebase/auth";
-import { getFirestore, type Firestore } from "firebase/firestore";
+import { initializeFirestore, getFirestore, type Firestore } from "firebase/firestore";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
 import { firebaseClientConfig } from "./config";
 
@@ -29,7 +29,15 @@ export function getFirebaseAuth(): Auth {
 
 export function getFirebaseDb(): Firestore {
   if (!dbInstance) {
-    dbInstance = getFirestore(getFirebaseApp());
+    const app = getFirebaseApp();
+    try {
+      dbInstance = initializeFirestore(app, {
+        experimentalAutoDetectLongPolling: true,
+        ignoreUndefinedProperties: true,
+      });
+    } catch {
+      dbInstance = getFirestore(app);
+    }
   }
   return dbInstance;
 }

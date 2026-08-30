@@ -24,6 +24,7 @@ import {
   Shield,
   UserCog,
   Workflow,
+  LogIn,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/common/theme-toggle";
 import { MarketingHeader } from "@/components/marketing";
@@ -98,11 +99,11 @@ export default function LandingPage() {
                   </Link>
 
                   <Link
-                    href="/student/login"
-                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-semibold text-slate-700 dark:text-slate-200 bg-white/80 dark:bg-slate-900/80 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm transition-all"
+                    href="/login"
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-bold text-slate-800 dark:text-slate-200 bg-white/90 dark:bg-slate-900/90 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm transition-all"
                   >
-                    <GraduationCap className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                    <span>Student Portal</span>
+                    <LogIn className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                    <span>Login Portal</span>
                   </Link>
                 </div>
 

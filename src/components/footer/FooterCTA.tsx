@@ -23,14 +23,16 @@ export function FooterCTA() {
         
         {/* LEFT SECTION: Take School Study Anywhere */}
         <div className="lg:col-span-6 flex flex-col sm:flex-row items-center gap-6 text-center sm:text-left">
-          {/* Mini Phone Graphic */}
-          <div className="relative w-24 h-32 bg-blue-600 rounded-2xl p-1.5 shadow-lg flex-shrink-0 flex flex-col justify-between items-center text-white">
-            <div className="w-6 h-1 bg-white/40 rounded-full mx-auto" />
-            <div className="w-full h-20 bg-white dark:bg-slate-900 rounded-xl flex flex-col items-center justify-center p-1 text-center shadow-inner">
-              <span className="text-sm">🎓</span>
-              <span className="text-[7px] font-black text-slate-900 dark:text-white mt-0.5">School Study</span>
-            </div>
-            <div className="w-3 h-3 rounded-full border border-white/60 mx-auto" />
+          {/* App Illustration */}
+          <div className="relative w-28 h-28 sm:w-32 sm:h-32 flex-shrink-0 flex items-center justify-center bg-blue-50/60 dark:bg-slate-800/80 rounded-2xl p-2 border border-blue-100/80 dark:border-slate-700/80 shadow-xs">
+            <img
+              src="/images/footer-mobile-app.png"
+              alt="School Study Mobile App Illustration"
+              width={120}
+              height={120}
+              className="w-full h-full object-contain dark:invert dark:brightness-150 select-none"
+              loading="lazy"
+            />
           </div>
 
           {/* Text & Download Buttons */}

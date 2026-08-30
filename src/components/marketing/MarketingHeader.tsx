@@ -169,11 +169,11 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
             </Link>
           )}
 
-          {/* Primary CTA / Login Button */}
+          {/* Primary CTA / Login Button (Hidden on mobile, accessible in hamburger menu drawer) */}
           {headerConfig.primaryCta?.enabled !== false && (
             <Link
               href={headerConfig.primaryCta?.url || "/login"}
-              className="inline-flex items-center justify-center px-5 py-2.5 text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-800/90 dark:border dark:border-white/15 rounded-full transition-all min-h-[40px] sm:min-h-[44px] shadow-sm"
+              className="hidden sm:inline-flex items-center justify-center px-5 py-2.5 text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-800/90 dark:border dark:border-white/15 rounded-full transition-all min-h-[40px] sm:min-h-[44px] shadow-sm"
             >
               {headerConfig.primaryCta?.label || "Login"}
             </Link>
