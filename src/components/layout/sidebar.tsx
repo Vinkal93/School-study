@@ -134,6 +134,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       href: "/admin/notices",
       icon: <Bell className="h-5 w-5" />,
     },
+    {
+      label: "Subscription & Billing",
+      href: "/admin/billing",
+      icon: <CreditCard className="h-5 w-5 text-blue-500" />,
+    },
   ],
   teacher: [
     {
