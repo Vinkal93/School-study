@@ -10,6 +10,8 @@ import { useEffect } from "react";
 import { getRedirectByRole, isRoleAllowedForPath } from "@/lib/utils/redirect-by-role";
 import { SubscriptionReminderBanner, SubscriptionReminderModal } from "@/components/billing";
 
+import { Spinner } from "@/components/common/Spinner";
+
 export default function DashboardLayout({
   children,
 }: {
@@ -37,7 +39,7 @@ export default function DashboardLayout({
   if (loading) {
     return (
       <div className="flex min-h-screen min-h-[100dvh] items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
+        <Spinner size="lg" />
       </div>
     );
   }
@@ -50,7 +52,7 @@ export default function DashboardLayout({
   if (profile && !isRoleAllowedForPath(profile.role, pathname)) {
     return (
       <div className="flex min-h-screen min-h-[100dvh] items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
+        <Spinner size="lg" />
       </div>
     );
   }

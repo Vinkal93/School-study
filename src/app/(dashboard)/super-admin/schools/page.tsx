@@ -17,6 +17,8 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { getAllSchools, updateSchoolStatus } from "@/lib/services/school.service";
+import { VerifyBadge } from "@/components/common/VerifyBadge";
+import { Spinner } from "@/components/common/Spinner";
 import type { School, SchoolStatus } from "@/types";
 import { toast } from "sonner";
 
@@ -186,7 +188,12 @@ export default function SchoolsManagementPage() {
                           </div>
                         )}
                         <div>
-                          <p className="font-semibold text-gray-900 dark:text-white">{s.name}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-gray-900 dark:text-white">{s.name}</p>
+                            {s.verificationBadge && s.verificationBadge !== "none" && (
+                              <VerifyBadge type={s.verificationBadge as any} size="xs" />
+                            )}
+                          </div>
                           {s.phone && (
                             <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
                               <Phone className="h-3 w-3" />

@@ -16,6 +16,18 @@
   --foreground: #f8fafc;
 }
 
+@property --angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes shimmer-spin {
+  to {
+    --angle: 360deg;
+  }
+}
+
 html {
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;

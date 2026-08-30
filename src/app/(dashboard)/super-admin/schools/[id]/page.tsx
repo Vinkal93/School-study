@@ -40,6 +40,8 @@ import { getClassesWithSections } from "@/lib/services/academic.service";
 import { getActivityLogs } from "@/lib/services/audit.service";
 import { fetchSchoolUsersExplorer } from "@/lib/services/super-admin.service";
 import { UserProfileInspector } from "@/components/super-admin/UserProfileInspector";
+import { VerifyBadge, type VerifyBadgeType } from "@/components/common/VerifyBadge";
+import { Spinner } from "@/components/common/Spinner";
 import { useAuth } from "@/hooks/use-auth";
 import type {
   School,
@@ -191,6 +193,28 @@ export default function SchoolDetailPage() {
       toast.error(err.message || "Failed to update status.");
     } finally {
       setTogglingSchoolStatus(false);
+    }
+  };
+
+  const handleUpdateBadge = async (badgeType: "none" | "basic" | "gold" | "premium") => {
+    if (!school || !currentUser) return;
+    try {
+      const res = await fetch(`/api/super-admin/schools/${school.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          performerUid: currentUser.uid,
+          verificationBadge: badgeType === "none" ? null : badgeType,
+          reason: `Verification badge set to ${badgeType} by Super Admin (${currentUser.name || currentUser.email})`,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update verification badge");
+
+      setSchool((prev) => (prev ? { ...prev, verificationBadge: badgeType === "none" ? null : badgeType } : null));
+      toast.success(`Verification badge updated to "${badgeType === "none" ? "Unverified" : badgeType.toUpperCase()}"!`);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to update verification badge");
     }
   };
 
@@ -347,10 +371,13 @@ export default function SchoolDetailPage() {
               </div>
             )}
             <div>
-              <div className="flex items-center gap-2.5">
+              <div className="flex flex-wrap items-center gap-2.5">
                 <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
                   {school.name}
                 </h1>
+                {school.verificationBadge && school.verificationBadge !== "none" && (
+                  <VerifyBadge type={school.verificationBadge as any} size="sm" />
+                )}
                 <span className="font-mono text-xs px-2.5 py-0.5 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-bold">
                   School ID: {school.code}
                 </span>
@@ -368,6 +395,21 @@ export default function SchoolDetailPage() {
                   )}
                   {school.status.charAt(0).toUpperCase() + school.status.slice(1)}
                 </span>
+
+                {/* Super Admin Badge Quick Selector */}
+                <div className="flex items-center gap-1.5 ml-auto sm:ml-2">
+                  <span className="text-[11px] font-bold text-gray-500">Badge:</span>
+                  <select
+                    value={school.verificationBadge || "none"}
+                    onChange={(e) => handleUpdateBadge(e.target.value as any)}
+                    className="text-xs font-semibold bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="none">No Badge</option>
+                    <option value="basic">🛡️ Basic Verified (Blue)</option>
+                    <option value="gold">👑 Gold Verified</option>
+                    <option value="premium">💎 Premium Verified</option>
+                  </select>
+                </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-y-1 gap-x-4 mt-2 text-xs text-gray-600 dark:text-gray-400">

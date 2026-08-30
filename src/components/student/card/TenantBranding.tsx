@@ -1,11 +1,10 @@
-"use client";
-
 import React, { useState } from "react";
 import { Building2, ShieldCheck } from "lucide-react";
+import { VerifyIcon, VerifyBadge } from "@/components/common/VerifyBadge";
 import { TenantCardData } from "./types";
 
 interface TenantBrandingProps {
-  tenant: TenantCardData;
+  tenant: TenantCardData & { verificationBadge?: string | null };
 }
 
 export function TenantBranding({ tenant }: TenantBrandingProps) {
@@ -30,11 +29,16 @@ export function TenantBranding({ tenant }: TenantBrandingProps) {
         )}
       </div>
 
-      {/* School Name */}
+      {/* School Name & Verification */}
       <div className="min-w-0">
-        <p className="text-xs sm:text-sm font-extrabold text-blue-950 dark:text-blue-200 tracking-tight leading-tight truncate">
-          {shortName}
-        </p>
+        <div className="flex items-center justify-end gap-1">
+          <p className="text-xs sm:text-sm font-extrabold text-blue-950 dark:text-blue-200 tracking-tight leading-tight truncate">
+            {shortName}
+          </p>
+          {tenant.verificationBadge && tenant.verificationBadge !== "none" && (
+            <VerifyIcon type={tenant.verificationBadge as any} size="xs" />
+          )}
+        </div>
         <p className="text-[10px] sm:text-[11px] font-semibold text-slate-500 dark:text-slate-400 leading-tight truncate">
           {schoolName}
         </p>

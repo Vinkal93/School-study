@@ -1,6 +1,7 @@
 import { Timestamp } from "firebase/firestore";
 
 export type SchoolStatus = "active" | "inactive";
+export type SchoolVerifyBadge = "none" | "basic" | "gold" | "premium";
 
 export interface School {
   id: string;
@@ -13,6 +14,7 @@ export interface School {
   email?: string;
   logoUrl?: string;
   status: SchoolStatus;
+  verificationBadge?: SchoolVerifyBadge | null;
   adminId?: string; // UID of primary school admin
   adminEmail?: string;
   setupCompleted?: boolean;

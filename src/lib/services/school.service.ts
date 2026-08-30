@@ -165,6 +165,21 @@ export async function updateSchoolStatus(
   });
 }
 
+/**
+ * Updates a school's verification badge (none / basic / gold / premium).
+ */
+export async function updateSchoolVerificationBadge(
+  schoolId: string,
+  verificationBadge: "none" | "basic" | "gold" | "premium"
+): Promise<void> {
+  const db = getFirebaseDb();
+  const docRef = doc(db, COLLECTIONS.SCHOOLS, schoolId);
+  await updateDoc(docRef, {
+    verificationBadge: verificationBadge === "none" ? null : verificationBadge,
+    updatedAt: serverTimestamp(),
+  });
+}
+
 export interface SuperAdminStats {
   totalSchools: number;
   activeSchools: number;

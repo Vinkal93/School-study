@@ -30,6 +30,9 @@ import { ThemeToggle } from "@/components/common/theme-toggle";
 import { MarketingHeader } from "@/components/marketing";
 import { Footer } from "@/components/footer";
 import { MarqueeText } from "@/components/common/MarqueeText";
+import { FlipWords } from "@/components/common/FlipWords";
+import { NumberTicker } from "@/components/common/NumberTicker";
+import { BentoGridFeatures } from "@/components/marketing/BentoGridFeatures";
 import { constructMetadata, getHomepageJsonLd, siteConfig } from "@/lib/seo";
 
 export const metadata: Metadata = constructMetadata({
@@ -76,12 +79,13 @@ export default function LandingPage() {
                   <span>Next-Generation School ERP & Management</span>
                 </div>
 
-                {/* Primary H1 */}
-                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-slate-900 dark:text-white leading-[1.15]">
+                {/* Primary H1 with FlipWords Animation */}
+                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-slate-900 dark:text-white leading-[1.18]">
                   Simple School Management Software for{" "}
-                  <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 dark:from-blue-400 dark:via-indigo-400 dark:to-purple-300 bg-clip-text text-transparent inline-block">
-                    Modern Schools
-                  </span>
+                  <FlipWords
+                    words={["Modern Schools", "Smart Colleges", "Future Academies", "Growing Institutes", "Next-Gen Schools"]}
+                    className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 dark:from-blue-400 dark:via-indigo-400 dark:to-purple-300 bg-clip-text text-transparent font-black px-0"
+                  />
                 </h1>
 
                 {/* Subheading */}
@@ -92,7 +96,7 @@ export default function LandingPage() {
                 {/* Action Buttons */}
                 <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3 pt-2">
                   <Link
-                    href="/login"
+                    href="/register"
                     className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-blue-500/35 active:scale-95 transition-all"
                   >
                     <span>Get Started for Free</span>
@@ -101,21 +105,32 @@ export default function LandingPage() {
 
                   <Link
                     href="/login"
-                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-bold text-slate-800 dark:text-slate-200 bg-white/90 dark:bg-slate-900/90 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm transition-all"
+                    className="relative w-full sm:w-auto inline-flex items-center justify-center p-[1.5px] rounded-xl overflow-hidden group shadow-sm active:scale-95 transition-transform"
                   >
-                    <LogIn className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                    <span>Login Portal</span>
+                    <div
+                      className="absolute inset-0"
+                      style={{
+                        background: "conic-gradient(from var(--angle, 0deg), transparent 25%, #06b6d4 40%, #3b82f6 50%, transparent 60%)",
+                        animation: "shimmer-spin 2.5s linear infinite",
+                      }}
+                    />
+                    <span className="relative z-10 inline-flex items-center justify-center gap-2 w-full h-full px-6 py-3 text-sm font-bold text-slate-800 dark:text-white bg-white dark:bg-slate-900 rounded-[10.5px] group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 transition-colors">
+                      <LogIn className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                      <span>Login Portal</span>
+                    </span>
                   </Link>
                 </div>
 
-                {/* 4-Stat Trust Bar */}
+                {/* 4-Stat Trust Bar with NumberTicker */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-6 border-t border-slate-200/80 dark:border-slate-800/80">
                   <div className="flex items-center gap-2.5">
                     <div className="h-9 w-9 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0">
                       <Building2 className="h-4 w-4" />
                     </div>
                     <div>
-                      <p className="text-base font-black text-slate-900 dark:text-white leading-tight">5000+</p>
+                      <p className="text-base font-black text-slate-900 dark:text-white leading-tight">
+                        <NumberTicker value={5000} suffix="+" />
+                      </p>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Active Schools</p>
                     </div>
                   </div>
@@ -125,7 +140,9 @@ export default function LandingPage() {
                       <Users className="h-4 w-4" />
                     </div>
                     <div>
-                      <p className="text-base font-black text-slate-900 dark:text-white leading-tight">1.2M+</p>
+                      <p className="text-base font-black text-slate-900 dark:text-white leading-tight">
+                        <NumberTicker value={1.2} decimalPlaces={1} suffix="M+" />
+                      </p>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Students Managed</p>
                     </div>
                   </div>
@@ -135,7 +152,9 @@ export default function LandingPage() {
                       <ShieldCheck className="h-4 w-4" />
                     </div>
                     <div>
-                      <p className="text-base font-black text-slate-900 dark:text-white leading-tight">99.9%</p>
+                      <p className="text-base font-black text-slate-900 dark:text-white leading-tight">
+                        <NumberTicker value={99.9} decimalPlaces={1} suffix="%" />
+                      </p>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Data Security</p>
                     </div>
                   </div>
@@ -145,7 +164,9 @@ export default function LandingPage() {
                       <Phone className="h-4 w-4" />
                     </div>
                     <div>
-                      <p className="text-base font-black text-slate-900 dark:text-white leading-tight">24/7</p>
+                      <p className="text-base font-black text-slate-900 dark:text-white leading-tight">
+                        <NumberTicker value={24} suffix="/7" />
+                      </p>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Support</p>
                     </div>
                   </div>
@@ -807,6 +828,11 @@ export default function LandingPage() {
             </div>
           </div>
         </section>
+
+        {/* ==========================================
+            BENTO GRID INTELLIGENT INFRASTRUCTURE
+        ========================================== */}
+        <BentoGridFeatures />
 
         {/* ==========================================
             HOW IT WORKS (BENEFITS)

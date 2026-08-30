@@ -9,11 +9,24 @@ import { GlobalSearchModal } from "@/components/super-admin/GlobalSearchModal";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+import { getSchoolById } from "@/lib/services/school.service";
+import { VerifyBadge } from "@/components/common/VerifyBadge";
+import type { School } from "@/types";
+
 export function Topbar() {
   const { profile, signOut } = useAuth();
   const { toggleMobileNav } = useMobileNav();
   const [searchModalOpen, setSearchModalOpen] = useState(false);
+  const [school, setSchool] = useState<School | null>(null);
   const router = useRouter();
+
+  useEffect(() => {
+    if (profile?.schoolId) {
+      getSchoolById(profile.schoolId).then((s) => {
+        if (s) setSchool(s);
+      }).catch(() => {});
+    }
+  }, [profile?.schoolId]);
 
   // Global keyboard shortcut (Ctrl+K or Cmd+K)
   useEffect(() => {
@@ -61,9 +74,14 @@ export function Topbar() {
             <Menu className="h-5 w-5" />
           </button>
 
-          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 hidden sm:block">
-            {profile?.role ? roleLabelMap[profile.role] || "Dashboard" : "Dashboard"}
-          </h2>
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-sm font-bold text-gray-800 dark:text-gray-200 hidden sm:block">
+              {school?.name || (profile?.role ? roleLabelMap[profile.role] || "Dashboard" : "Dashboard")}
+            </h2>
+            {school?.verificationBadge && school.verificationBadge !== "none" && (
+              <VerifyBadge type={school.verificationBadge as any} size="xs" />
+            )}
+          </div>
         </div>
 
         {/* Center: Global Search Bar for Super Admin */}
