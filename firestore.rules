@@ -17,9 +17,14 @@ service cloud.firestore {
       );
     }
 
+    // Helper: Is owner or user self?
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
     // ==========================================
-    // BILLING & ENTITLEMENT ENGINE COLLECTIONS
-    // Client write protection: Browser cannot alter plans, versions, policies, or subscriptions
+    // SENSITIVE FINANCIAL & SUBSCRIPTION COLLECTIONS
+    // Server-Only Write Access (Client write forbidden to prevent tampering)
     // ==========================================
     match /plans/{planId} {
       allow read: if true;
@@ -42,32 +47,99 @@ service cloud.firestore {
     }
 
     match /schoolSubscriptions/{schoolId} {
-      allow read: if true;
-      allow write: if isSuperAdmin() || !exists(/databases/$(database)/documents/schoolSubscriptions/$(schoolId));
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
     }
 
-    match /subscriptionNotifications/{notifId} {
+    match /schoolSubscriptions/{schoolId}/history/{historyId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    match /orders/{orderId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    match /invoices/{invoiceId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    match /financeTransactions/{txId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    match /coupons/{couponId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    match /couponRedemptions/{redemptionId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    match /refunds/{refundId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    match /disputes/{disputeId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    // ==========================================
+    // CMS & SITE CONTROL
+    // ==========================================
+    match /siteSettings/{docId} {
       allow read: if true;
-      allow write: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    match /siteSettingsVersions/{versionId} {
+      allow read: if isSuperAdmin();
+      allow write: if isSuperAdmin();
+    }
+
+    // ==========================================
+    // CONTACT INQUIRIES
+    // ==========================================
+    match /contactInquiries/{inquiryId} {
+      allow read: if isSuperAdmin();
+      allow create: if true; // Public contact form submission
+      allow update, delete: if isSuperAdmin();
+
+      match /notes/{noteId} {
+        allow read, write: if isSuperAdmin();
+      }
     }
 
     // ==========================================
     // USERS COLLECTION
     // ==========================================
     match /users/{userId} {
-      allow read: if true;
-      allow write: if isAuthenticated() || !exists(/databases/$(database)/documents/users/$(userId));
+      allow read: if isAuthenticated();
+      allow create, update: if isOwner(userId) || isSuperAdmin();
+      allow delete: if isSuperAdmin();
     }
 
     // ==========================================
-    // SCHOOLS & NESTED COLLECTIONS
+    // SCHOOLS & NESTED COLLECTIONS (MULTI-TENANT)
     // ==========================================
     match /schools/{schoolId} {
-      allow read: if true;
-      allow write: if isAuthenticated();
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
 
       match /{document=**} {
-        allow read: if true;
+        allow read: if isAuthenticated();
         allow write: if isAuthenticated();
       }
     }
@@ -77,56 +149,54 @@ service cloud.firestore {
     // Absolute Immutability: Update and delete are strictly forbidden
     // ==========================================
     match /audit_logs/{logId} {
-      allow read: if true;
-      allow create: if true;
+      allow read: if isSuperAdmin();
+      allow create: if isAuthenticated();
       allow update, delete: if false;
     }
 
     match /login_logs/{logId} {
-      allow read: if true;
-      allow create: if true;
+      allow read: if isSuperAdmin();
+      allow create: if isAuthenticated();
       allow update, delete: if false;
     }
 
     match /activity_logs/{logId} {
-      allow read: if true;
-      allow create: if true;
+      allow read: if isSuperAdmin();
+      allow create: if isAuthenticated();
       allow update, delete: if false;
     }
 
     match /account_restrictions/{docId} {
-      allow read: if true;
-      allow write: if isAuthenticated();
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
     }
 
     match /platform_analytics/{docId} {
-      allow read: if true;
-      allow write: if isAuthenticated();
+      allow read: if isSuperAdmin();
+      allow write: if isSuperAdmin();
     }
 
     // ==========================================
     // AGGREGATED STATS COLLECTIONS
     // ==========================================
     match /schoolStats/{schoolId} {
-      allow read: if true;
+      allow read: if isAuthenticated();
       allow write: if isAuthenticated();
     }
 
     match /platformStats/{docId} {
-      allow read: if true;
-      allow write: if isAuthenticated();
+      allow read: if isSuperAdmin();
+      allow write: if isSuperAdmin();
     }
 
     match /dailyStats/{date} {
-      allow read: if true;
-      allow write: if isAuthenticated();
+      allow read: if isSuperAdmin();
+      allow write: if isSuperAdmin();
     }
 
-    // ==========================================
-    // ALL OTHER COLLECTIONS
-    // ==========================================
+    // Default Fallback: Authenticated access required
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated();
     }
   }
 }

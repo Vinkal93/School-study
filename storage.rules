@@ -3,50 +3,34 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
+    // Helper: Is user logged in?
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    function isImage() {
-      return request.resource.contentType.matches('image/.*')
-        && request.resource.size < 5 * 1024 * 1024; // Under 5MB
+    // Helper: Check if caller is super_admin
+    function isSuperAdmin() {
+      return isAuthenticated() && request.auth.token.get('role', '') == 'super_admin';
     }
 
-    // ==========================================
-    // SCHOOL LOGOS: schools/{schoolId}/logo/{filename}
-    // ==========================================
-    match /schools/{schoolId}/logo/{allPaths=**} {
-      // Logos can be read by any authenticated user for app branding
+    // Public uploads / profile avatars: Max 5MB, images only
+    match /public/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAuthenticated()
+                   && request.resource.size < 5 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    // Multi-tenant school documents & photos: Max 10MB, isolated by schoolId
+    match /schools/{schoolId}/{allPaths=**} {
       allow read: if isAuthenticated();
-      // Only authenticated users with image validation can upload
-      allow write: if isAuthenticated() && isImage();
+      allow write: if isAuthenticated()
+                   && request.resource.size < 10 * 1024 * 1024;
     }
 
-    // ==========================================
-    // STUDENT PHOTOS: students/{studentId}/profile/{filename}
-    // ==========================================
-    match /students/{studentId}/profile/{allPaths=**} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isImage();
-    }
-
-    // ==========================================
-    // TEACHER PHOTOS: teachers/{teacherId}/profile/{filename}
-    // ==========================================
-    match /teachers/{teacherId}/profile/{allPaths=**} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isImage();
-    }
-
-    // Legacy fallback paths
-    match /school-logos/{allPaths=**} {
-      allow read, write: if isAuthenticated() && isImage();
-    }
-    match /student-photos/{allPaths=**} {
-      allow read, write: if isAuthenticated() && isImage();
-    }
-    match /teacher-photos/{allPaths=**} {
-      allow read, write: if isAuthenticated() && isImage();
+    // Default Fallback
+    match /{allPaths=**} {
+      allow read, write: if isSuperAdmin();
     }
   }
 }
