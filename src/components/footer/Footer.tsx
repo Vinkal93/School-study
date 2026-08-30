@@ -31,9 +31,6 @@ export function Footer() {
       />
 
       <div className="mx-auto max-w-7xl px-4 pt-16 pb-12 sm:px-6 lg:px-8">
-        {/* Top CTA Area */}
-        <FooterCTA />
-
         {/* Main Footer Content Grid */}
         <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-6 lg:gap-10">
           {/* Column 1: Brand, Tagline, Bio, Socials */}
@@ -55,6 +52,9 @@ export function Footer() {
             <FooterContact />
           </div>
         </div>
+
+        {/* Middle Dual Action Banner: Mobile App + Newsletter */}
+        <FooterCTA />
 
         {/* Bottom Bar: Copyright, Made with care, Back to top */}
         <FooterBottomBar />

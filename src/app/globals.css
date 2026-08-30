@@ -15,6 +15,7 @@
 html {
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
+  cursor: url('/cursors/Normal.cur'), default;
 }
 
 body {
@@ -27,11 +28,70 @@ body {
   overflow-x: hidden;
   min-height: 100vh;
   min-height: 100dvh;
+  cursor: url('/cursors/Normal.cur'), default;
   /* Edge-to-edge: extend app background behind system bars */
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
   padding-left: env(safe-area-inset-left, 0px);
   padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* Custom Cursors */
+a,
+button,
+[role="button"],
+input[type="submit"],
+input[type="button"],
+input[type="reset"],
+select,
+.cursor-pointer {
+  cursor: url('/cursors/Link.cur'), pointer;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+input[type="search"],
+input[type="tel"],
+input[type="url"],
+textarea,
+.cursor-text {
+  cursor: url('/cursors/Text-Select.cur'), text;
+}
+
+[disabled],
+.disabled,
+.cursor-not-allowed {
+  cursor: url('/cursors/Unavailable.cur'), not-allowed !important;
+}
+
+.cursor-help {
+  cursor: url('/cursors/Help.cur'), help;
+}
+
+.cursor-move {
+  cursor: url('/cursors/Move.cur'), move;
+}
+
+.cursor-crosshair {
+  cursor: url('/cursors/Precision-Select.cur'), crosshair;
+}
+
+.cursor-ew-resize {
+  cursor: url('/cursors/Horizontal-Resize.cur'), ew-resize;
+}
+
+.cursor-ns-resize {
+  cursor: url('/cursors/Vertical-Resize.cur'), ns-resize;
+}
+
+.cursor-nwse-resize {
+  cursor: url('/cursors/Diagonal-Resize-1.cur'), nwse-resize;
+}
+
+.cursor-nesw-resize {
+  cursor: url('/cursors/Diagonal-Resize-2.cur'), nesw-resize;
 }
 
 /* Touch & tap target optimization for mobile */
