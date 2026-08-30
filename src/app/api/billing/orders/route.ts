@@ -198,6 +198,10 @@ export async function POST(request: Request) {
       // Use fallback key ID
     }
 
+    if (!keyId || keyId.trim().length === 0) {
+      keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID || "";
+    }
+
     // 6. Return checkout-safe payload
     return NextResponse.json({
       orderId: internalOrder.id,
@@ -211,12 +215,13 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error("API Order Creation Error:", error);
     const fallbackOrderId = `ord_fb_${Date.now()}`;
+    const fallbackKey = getRazorpayKeyId() || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
     return NextResponse.json({
       orderId: fallbackOrderId,
       razorpayOrderId: `order_fb_${Date.now()}`,
       amount: 99900,
       currency: "INR",
-      key: getRazorpayKeyId(),
+      key: fallbackKey,
       planName: "Starter Plan",
       billingCycle: "monthly",
     });

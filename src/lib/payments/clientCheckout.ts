@@ -71,8 +71,32 @@ export async function triggerRazorpayCheckout(input: CheckoutOptionsInput): Prom
       !orderData.razorpayOrderId.startsWith("order_fallback_") &&
       !orderData.razorpayOrderId.startsWith("order_fb_");
 
+    let activeKey = orderData.key || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
+    if (!activeKey) {
+      try {
+        const { doc, getDoc } = await import("firebase/firestore");
+        const { getFirebaseDb } = await import("@/lib/firebase/client");
+        const clientDb = getFirebaseDb();
+        if (clientDb) {
+          const snap = await getDoc(doc(clientDb, "paymentSettings", "razorpay"));
+          if (snap.exists()) {
+            activeKey = (snap.data() as any).keyId || "";
+          }
+        }
+      } catch (e) {
+        console.warn("Client fallback key lookup notice:", e);
+      }
+    }
+
+    if (!activeKey || activeKey.includes("SNtWUOzpKkEtBR")) {
+      const msg = "Razorpay API credentials are not configured yet. Please go to Super Admin Settings (/super-admin/settings) and save your real Razorpay Key ID & Secret Key from dashboard.razorpay.com.";
+      if (onError) onError(msg);
+      alert(msg);
+      return;
+    }
+
     const options: any = {
-      key: orderData.key,
+      key: activeKey,
       amount: orderData.amount,
       currency: orderData.currency || "INR",
       name: "School Study",

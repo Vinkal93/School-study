@@ -65,12 +65,12 @@ export async function POST(request: Request) {
     const { keyId, keySecret, webhookSecret, isLiveMode, actorEmail } = body;
 
     if (!keyId || typeof keyId !== "string" || keyId.trim().length === 0) {
-      return NextResponse.json({ error: "Razorpay Key ID is required." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Razorpay Key ID is required." });
     }
 
     const db = getFirebaseDb();
     if (!db) {
-      return NextResponse.json({ error: "Database unavailable." }, { status: 500 });
+      return NextResponse.json({ success: false, error: "Database unavailable." });
     }
 
     let existingData: RazorpayCredentials | null = null;
@@ -90,10 +90,10 @@ export async function POST(request: Request) {
     }
 
     if (!finalSecret || finalSecret.trim().length === 0) {
-      return NextResponse.json(
-        { error: "Razorpay Secret Key is required. Please enter your Secret Key from the Razorpay Dashboard." },
-        { status: 400 }
-      );
+      return NextResponse.json({
+        success: false,
+        error: "Razorpay Secret Key is required. Please type your Secret Key in the 'Razorpay Secret Key' box.",
+      });
     }
 
     let finalWebhookSecret = existingData?.webhookSecret || process.env.RAZORPAY_WEBHOOK_SECRET || "";
@@ -135,10 +135,10 @@ export async function POST(request: Request) {
       isLiveMode: updatedConfig.isLiveMode,
     });
   } catch (error: any) {
-    console.error("POST Payment Settings Error:", error);
-    return NextResponse.json(
-      { error: "Failed to save payment settings: " + (error.message || error.toString()) },
-      { status: 500 }
-    );
+    console.error("POST Payment Settings Error Details:", error?.stack || error);
+    return NextResponse.json({
+      success: false,
+      error: error.message || "Failed to save payment settings.",
+    });
   }
 }

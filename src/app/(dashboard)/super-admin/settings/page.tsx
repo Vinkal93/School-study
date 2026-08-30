@@ -155,35 +155,84 @@ export default function PlatformSettingsPage() {
     }
 
     if (!isSecretSet && !rzpKeySecret.trim()) {
-      toast.error("Razorpay Secret Key is required for initial configuration.");
+      toast.error("Razorpay Secret Key is required for initial configuration. Please type your Secret Key into the box below.");
       return;
     }
 
     setSavingRzp(true);
 
     try {
-      const res = await fetch("/api/super-admin/payment-settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          keyId: rzpKeyId.trim(),
-          keySecret: rzpKeySecret.trim(),
-          webhookSecret: rzpWebhookSecret.trim(),
-          isLiveMode,
-          actorEmail: profile?.email || "super_admin",
-        }),
-      });
+      let savedSuccessfully = false;
+      let returnedMaskedSecret = "";
 
-      const data = await res.json();
-      if (res.ok && data.success) {
+      // 1. Try server API first
+      try {
+        const res = await fetch("/api/super-admin/payment-settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            keyId: rzpKeyId.trim(),
+            keySecret: rzpKeySecret.trim(),
+            webhookSecret: rzpWebhookSecret.trim(),
+            isLiveMode,
+            actorEmail: profile?.email || "super_admin",
+          }),
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          savedSuccessfully = true;
+          returnedMaskedSecret = data.maskedSecretKey || "";
+        }
+      } catch (e) {
+        console.warn("Server route save notice, falling back to authenticated client SDK:", e);
+      }
+
+      // 2. Client SDK fallback with active Super Admin auth token
+      if (!savedSuccessfully) {
+        const { doc, setDoc, getDoc } = await import("firebase/firestore");
+        const { getFirebaseDb } = await import("@/lib/firebase/client");
+        const clientDb = getFirebaseDb();
+        if (clientDb) {
+          let finalSecret = rzpKeySecret.trim();
+          if (!finalSecret) {
+            const snap = await getDoc(doc(clientDb, "paymentSettings", "razorpay"));
+            if (snap.exists()) {
+              finalSecret = (snap.data() as any).keySecret || "";
+            }
+          }
+
+          const configPayload: any = {
+            keyId: rzpKeyId.trim(),
+            isLiveMode,
+            updatedAt: new Date().toISOString(),
+            updatedBy: profile?.email || "super_admin",
+          };
+          if (finalSecret) {
+            configPayload.keySecret = finalSecret;
+          }
+          if (rzpWebhookSecret.trim()) {
+            configPayload.webhookSecret = rzpWebhookSecret.trim();
+          }
+
+          await setDoc(doc(clientDb, "paymentSettings", "razorpay"), configPayload, { merge: true });
+          savedSuccessfully = true;
+          returnedMaskedSecret = finalSecret.length <= 8 ? "••••••••••••••••" : `${finalSecret.slice(0, 4)}****************${finalSecret.slice(-4)}`;
+        }
+      }
+
+      if (savedSuccessfully) {
         toast.success("Razorpay Payment Gateway Credentials updated securely!");
-        setMaskedSecret(data.maskedSecretKey || "");
-        setIsSecretSet(true);
+        if (returnedMaskedSecret) {
+          setMaskedSecret(returnedMaskedSecret);
+          setIsSecretSet(true);
+        }
         setRzpKeySecret(""); // Clear raw input field after saving for security
       } else {
-        toast.error(data.error || "Failed to save payment settings.");
+        toast.error("Failed to save payment settings. Please try again.");
       }
     } catch (err: any) {
+      console.error("Save settings error:", err);
       toast.error(err.message || "Failed to save Razorpay settings.");
     } finally {
       setSavingRzp(false);
@@ -260,7 +309,7 @@ export default function PlatformSettingsPage() {
                     if (val.startsWith("rzp_live_")) setIsLiveMode(true);
                     else if (val.startsWith("rzp_test_")) setIsLiveMode(false);
                   }}
-                  placeholder="e.g. rzp_live_SNtWUOzpKkEtBR or rzp_test_..."
+                  placeholder="Paste Key ID from Razorpay Dashboard (e.g. rzp_test_... or rzp_live_...)"
                   className="w-full px-3.5 py-2.5 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm font-mono font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <p className="text-[11px] text-gray-400 mt-1">

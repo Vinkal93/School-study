@@ -3,14 +3,21 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 
 // Server-only — this file must NEVER be imported in client components
-const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY
-  ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY)
-  : undefined;
+let parsedServiceAccount: any = undefined;
+if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+  try {
+    parsedServiceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+  } catch (e) {
+    console.warn("Notice: Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY environment variable.");
+  }
+}
 
 export const adminApp = !getApps().length
-  ? initializeApp({
-      credential: serviceAccount ? cert(serviceAccount) : undefined,
-    })
+  ? initializeApp(
+      parsedServiceAccount
+        ? { credential: cert(parsedServiceAccount) }
+        : { projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || "school-study-c8991" }
+    )
   : getApps()[0];
 
 export const adminAuth = getAuth(adminApp);

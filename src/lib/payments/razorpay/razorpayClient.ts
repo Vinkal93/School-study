@@ -16,46 +16,39 @@ export interface RazorpayCredentials {
  * 2. Process environment variables (`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`)
  */
 export async function loadRazorpayCredentials(): Promise<RazorpayCredentials> {
-  let keyId = process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
-  let keySecret = process.env.RAZORPAY_KEY_SECRET || "";
-  let webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || "";
-  let isLiveMode = keyId.startsWith("rzp_live_");
+  // 1. Start with Vercel / Environment Variable defaults (Secondary Fallback)
+  const envKeyId = process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
+  const envKeySecret = process.env.RAZORPAY_KEY_SECRET || "";
+  const envWebhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || "";
+  const envIsLiveMode = envKeyId.startsWith("rzp_live_");
 
+  let keyId = envKeyId;
+  let keySecret = envKeySecret;
+  let webhookSecret = envWebhookSecret;
+  let isLiveMode = envIsLiveMode;
+
+  // 2. Check Super Admin Dynamic Firestore configuration (Primary Priority)
   try {
-    if (typeof window === "undefined") {
-      try {
-        const { adminDb } = await import("@/lib/firebase/admin");
-        if (adminDb) {
-          const snap = await adminDb.doc("paymentSettings/razorpay").get();
-          if (snap.exists) {
-            const data = snap.data() as Partial<RazorpayCredentials>;
-            if (data.keyId) keyId = data.keyId;
-            if (data.keySecret) keySecret = data.keySecret;
-            if (data.webhookSecret !== undefined) webhookSecret = data.webhookSecret;
-            if (typeof data.isLiveMode === "boolean") isLiveMode = data.isLiveMode;
-            return { keyId, keySecret, webhookSecret, isLiveMode };
-          }
-        }
-      } catch (e) {
-        // Fallback to client DB if adminDb fails
-      }
-    }
-
     const db = getFirebaseDb();
     if (db) {
       const docRef = doc(db, "paymentSettings", "razorpay");
       const snap = await getDoc(docRef);
       if (snap.exists()) {
         const data = snap.data() as Partial<RazorpayCredentials>;
-        if (data.keyId) keyId = data.keyId;
-        if (data.keySecret) keySecret = data.keySecret;
-        if (data.webhookSecret !== undefined) webhookSecret = data.webhookSecret;
+        if (data.keyId && data.keyId.trim().length > 0) keyId = data.keyId.trim();
+        if (data.keySecret && data.keySecret.trim().length > 0) keySecret = data.keySecret.trim();
+        if (data.webhookSecret !== undefined && data.webhookSecret.trim().length > 0) webhookSecret = data.webhookSecret.trim();
         if (typeof data.isLiveMode === "boolean") isLiveMode = data.isLiveMode;
       }
     }
   } catch (err) {
-    console.warn("Could not load dynamic Razorpay config from Firestore, falling back to process.env:", err);
+    console.warn("Notice: Firestore dynamic settings lookup fallback to Vercel env:", err);
   }
+
+  // 3. Fallback to Vercel env variables if Firestore values were empty or incomplete
+  if (!keyId || keyId.trim().length === 0) keyId = envKeyId;
+  if (!keySecret || keySecret.trim().length === 0) keySecret = envKeySecret;
+  if (!webhookSecret || webhookSecret.trim().length === 0) webhookSecret = envWebhookSecret;
 
   return { keyId, keySecret, webhookSecret, isLiveMode };
 }
