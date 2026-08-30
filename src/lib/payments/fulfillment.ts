@@ -7,6 +7,7 @@ import type {
   GlobalAccessPolicy,
 } from "@/types";
 import { BILLING_COLLECTIONS, createBillingAuditLog, getGlobalAccessPolicy } from "@/lib/billing";
+import { recordSubscriptionHistory } from "@/lib/billing/subscriptionEngine";
 
 export interface InternalOrder {
   id: string;
@@ -222,6 +223,23 @@ export async function fulfillSuccessfulPayment(
     updatedAt: nowIso,
   };
   await setDoc(subRef, updatedSubscription, { merge: true });
+
+  // Record Subscription History
+  await recordSubscriptionHistory(order.schoolId, {
+    subscriptionId: order.schoolId,
+    schoolId: order.schoolId,
+    action: subSnap.exists() ? "RENEWED" : "CREATED",
+    newPlanId: order.planId,
+    newPlanVersionId: order.planVersionId,
+    oldStatus: subSnap.exists() ? (subSnap.data() as any).status : "NONE",
+    newStatus: "ACTIVE",
+    orderId: order.id,
+    paymentId,
+    actorId: order.userId || "system",
+    actorRole: "user",
+    reason: `Fulfilling payment for ${order.planId} (${order.billingCycle})`,
+    timestamp: nowIso,
+  });
 
   // 4. Generate Invoice (Section 19)
   const yearStr = new Date(nowMs).getFullYear();

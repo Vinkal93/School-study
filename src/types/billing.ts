@@ -75,7 +75,25 @@ export interface SchoolSubscription {
   startsAt: string;
   expiresAt: string;
   graceEndsAt: string;
-  source: "manual_admin" | "self_onboarding" | "system_trial";
+  currentPeriodStart?: string;
+  currentPeriodEnd?: string;
+  cancelAtPeriodEnd?: boolean;
+  cancelledAt?: string | null;
+  cancelledBy?: string | null;
+  renewalStatus?: "NONE" | "SUCCESS" | "FAILED" | "PENDING";
+  pendingChange?: {
+    type: "DOWNGRADE" | "PLAN_CHANGE";
+    targetPlanId: string;
+    targetPlanVersionId: string;
+    targetPlanName?: string;
+    effectiveAt: string;
+    createdBy: string;
+    createdAt: string;
+  } | null;
+  suspendedAt?: string | null;
+  suspendedBy?: string | null;
+  suspensionReason?: string | null;
+  source: "manual_admin" | "self_onboarding" | "system_trial" | "renewal_payment" | "upgrade_payment";
   lastPaymentId: string | null;
   lastOrderId: string | null;
   createdAt: string;
