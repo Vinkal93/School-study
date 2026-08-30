@@ -13,6 +13,14 @@ service firebase.storage {
       return isAuthenticated() && request.auth.token.get('role', '') == 'super_admin';
     }
 
+    // Helper: Check if caller belongs to target school
+    function isSchoolMember(schoolId) {
+      return isAuthenticated() && (
+        isSuperAdmin() ||
+        request.auth.token.get('schoolId', '') == schoolId
+      );
+    }
+
     // Public uploads / profile avatars: Max 5MB, images only
     match /public/{allPaths=**} {
       allow read: if true;
@@ -21,11 +29,11 @@ service firebase.storage {
                    && request.resource.contentType.matches('image/.*');
     }
 
-    // Multi-tenant school documents & photos: Max 10MB, isolated by schoolId
+    // Multi-tenant school documents & photos: Max 15MB, strictly isolated by schoolId
     match /schools/{schoolId}/{allPaths=**} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated()
-                   && request.resource.size < 10 * 1024 * 1024;
+      allow read: if isSchoolMember(schoolId);
+      allow write: if isSchoolMember(schoolId)
+                   && request.resource.size < 15 * 1024 * 1024;
     }
 
     // Default Fallback

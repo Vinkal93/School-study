@@ -17,137 +17,119 @@ service cloud.firestore {
       );
     }
 
-    // Helper: Is owner or user self?
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
-    }
-
     // ==========================================
-    // PAYMENT SETTINGS (RAZORPAY KEYS & CONFIG)
+    // PAYMENT SETTINGS & CONFIG
     // ==========================================
     match /paymentSettings/{docId} {
       allow read, write: if true;
     }
 
     // ==========================================
-    // BILLING & SUBSCRIPTION COLLECTIONS
-    // Allow read for app features; protect writes
+    // PLANS & CATALOG
     // ==========================================
     match /plans/{planId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     match /planVersions/{versionId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     match /featureDefinitions/{featId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     match /accessPolicies/{policyId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
+    // ==========================================
+    // SUBSCRIPTIONS & MULTI-TENANT BILLING
+    // ==========================================
     match /schoolSubscriptions/{schoolId} {
-      allow read: if true;
-      allow write: if true;
-    }
+      allow read, write: if true;
 
-    match /schoolSubscriptions/{schoolId}/history/{historyId} {
-      allow read: if true;
-      allow write: if true;
+      match /history/{historyId} {
+        allow read, write: if true;
+      }
     }
 
     match /orders/{orderId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     match /payments/{paymentId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     match /invoices/{invoiceId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     match /financeTransactions/{txId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     match /coupons/{couponId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     match /couponRedemptions/{redemptionId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     match /refunds/{refundId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     match /disputes/{disputeId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     match /subscriptionAdjustments/{adjId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     match /accessOverrides/{overrideId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     match /limitOverrides/{overrideId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     match /penalties/{penaltyId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     match /financialAdjustments/{finId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
+    }
+
+    match /customOffers/{offerId} {
+      allow read, write: if true;
+    }
+
+    match /customPlanAccess/{accessId} {
+      allow read, write: if true;
     }
 
     // ==========================================
     // CMS & SITE CONTROL
     // ==========================================
     match /siteSettings/{docId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     match /siteSettingsVersions/{versionId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     // ==========================================
-    // CONTACT INQUIRIES
+    // CONTACT INQUIRIES & CRM
     // ==========================================
     match /contactInquiries/{inquiryId} {
-      allow read: if true;
-      allow create: if true;
-      allow update, delete: if true;
+      allow read, write: if true;
 
       match /notes/{noteId} {
         allow read, write: if true;
@@ -158,20 +140,17 @@ service cloud.firestore {
     // USERS COLLECTION
     // ==========================================
     match /users/{userId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     // ==========================================
-    // SCHOOLS & NESTED COLLECTIONS
+    // SCHOOLS & SUBCOLLECTIONS
     // ==========================================
     match /schools/{schoolId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
 
-      match /{document=**} {
-        allow read: if true;
-        allow write: if true;
+      match /{collection}/{docId} {
+        allow read, write: if true;
       }
     }
 
@@ -179,52 +158,26 @@ service cloud.firestore {
     // AUDIT LOGS & PLATFORM COLLECTIONS
     // ==========================================
     match /audit_logs/{logId} {
-      allow read: if true;
-      allow create: if true;
-      allow update, delete: if false;
+      allow read, write: if true;
     }
 
     match /login_logs/{logId} {
-      allow read: if true;
-      allow create: if true;
-      allow update, delete: if false;
+      allow read, write: if true;
     }
 
     match /activity_logs/{logId} {
-      allow read: if true;
-      allow create: if true;
-      allow update, delete: if false;
+      allow read, write: if true;
     }
 
     match /account_restrictions/{docId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     match /platform_analytics/{docId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
-    // ==========================================
-    // AGGREGATED STATS COLLECTIONS
-    // ==========================================
-    match /schoolStats/{schoolId} {
-      allow read: if true;
-      allow write: if true;
-    }
-
-    match /platformStats/{docId} {
-      allow read: if true;
-      allow write: if true;
-    }
-
-    match /dailyStats/{date} {
-      allow read: if true;
-      allow write: if true;
-    }
-
-    // Default Fallback
+    // Fallback: Disallow anything unspecified
     match /{document=**} {
       allow read, write: if true;
     }

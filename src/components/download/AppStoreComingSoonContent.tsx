@@ -74,7 +74,7 @@ export function AppStoreComingSoonContent() {
             <div className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
               <div className="flex items-start gap-2">
                 <span className="font-bold text-blue-600">1.</span>
-                <span>Open <strong>schoolstudy.in</strong> in Apple Safari on your iPhone.</span>
+                <span>Open <strong>school.sbci.online</strong> in Apple Safari on your iPhone.</span>
               </div>
               <div className="flex items-start gap-2">
                 <span className="font-bold text-blue-600">2.</span>

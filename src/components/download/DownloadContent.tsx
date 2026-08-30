@@ -100,7 +100,7 @@ export function DownloadContent() {
     },
     {
       q: "How do I install the app on an iPhone or iPad?",
-      a: "Open https://schoolstudy.in or school.sbci.online in Safari, tap the 'Share' icon (square with arrow), and select 'Add to Home Screen'. The app will install with full app capabilities and offline support.",
+      a: "Open https://school.sbci.online in Safari, tap the 'Share' icon (square with arrow), and select 'Add to Home Screen'. The app will install with full app capabilities and offline support.",
     },
     {
       q: "Does the app support real-time attendance and fee notifications?",
@@ -433,7 +433,7 @@ export function DownloadContent() {
                     </span>
                     <h4 className="font-bold text-sm text-slate-900 dark:text-white">Open in Chrome</h4>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      Visit <strong className="text-blue-600">schoolstudy.in</strong> or <strong className="text-blue-600">school.sbci.online</strong> in Chrome browser.
+                      Visit <strong className="text-blue-600">school.sbci.online</strong> in Chrome browser.
                     </p>
                   </div>
 
@@ -479,7 +479,7 @@ export function DownloadContent() {
                     </span>
                     <h4 className="font-bold text-sm text-slate-900 dark:text-white">Open in Safari</h4>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      Open <strong className="text-blue-600">schoolstudy.in</strong> in Apple Safari on your iPhone or iPad.
+                      Open <strong className="text-blue-600">school.sbci.online</strong> in Apple Safari on your iPhone or iPad.
                     </p>
                   </div>
 

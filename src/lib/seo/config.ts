@@ -6,8 +6,8 @@ const getSiteUrl = (): string => {
   if (process.env.NEXT_PUBLIC_SITE_URL) {
     return process.env.NEXT_PUBLIC_SITE_URL.replace(/\/+$/, "");
   }
-  // Production fallback domain (never localhost for canonical foundation)
-  return "https://schoolstudy.in";
+  // Production canonical domain
+  return "https://school.sbci.online";
 };
 
 export const siteConfig = {

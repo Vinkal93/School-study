@@ -24,6 +24,7 @@ import {
   History,
   MessageSquare,
   CreditCard,
+  FileText,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
@@ -88,6 +89,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       icon: <CreditCard className="h-5 w-5 text-emerald-500" />,
     },
     {
+      label: "Reports & Offers",
+      href: "/super-admin/reports",
+      icon: <FileText className="h-5 w-5 text-purple-500" />,
+    },
+    {
       label: "Pricing & Plans",
       href: "/super-admin/pricing",
       icon: <Sliders className="h-5 w-5 text-blue-500" />,
@@ -128,6 +134,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       label: "Attendance",
       href: "/admin/attendance",
       icon: <ClipboardCheck className="h-5 w-5" />,
+    },
+    {
+      label: "Reports & Exports",
+      href: "/admin/reports",
+      icon: <FileText className="h-5 w-5 text-indigo-500" />,
     },
     {
       label: "Notices",

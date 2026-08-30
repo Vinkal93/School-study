@@ -12,6 +12,7 @@ import {
   Building2,
   BookOpen,
   MessageSquare,
+  FileText,
 } from "lucide-react";
 
 interface NavItem {
@@ -24,15 +25,16 @@ const mobileRoleNavItems: Record<string, NavItem[]> = {
   super_admin: [
     { label: "Dashboard", href: "/super-admin", icon: <LayoutDashboard className="h-5 w-5" /> },
     { label: "Schools", href: "/super-admin/schools", icon: <Building2 className="h-5 w-5" /> },
+    { label: "Reports", href: "/super-admin/reports", icon: <FileText className="h-5 w-5" /> },
     { label: "Inquiries", href: "/super-admin/inquiries", icon: <MessageSquare className="h-5 w-5" /> },
     { label: "Users", href: "/super-admin/users", icon: <Users className="h-5 w-5" /> },
   ],
   school_admin: [
     { label: "Overview", href: "/admin", icon: <LayoutDashboard className="h-5 w-5" /> },
-    { label: "Teachers", href: "/admin/teachers", icon: <Users className="h-5 w-5" /> },
     { label: "Students", href: "/admin/students", icon: <GraduationCap className="h-5 w-5" /> },
+    { label: "Teachers", href: "/admin/teachers", icon: <Users className="h-5 w-5" /> },
     { label: "Attendance", href: "/admin/attendance", icon: <ClipboardCheck className="h-5 w-5" /> },
-    { label: "Notices", href: "/admin/notices", icon: <Bell className="h-5 w-5" /> },
+    { label: "Reports", href: "/admin/reports", icon: <FileText className="h-5 w-5" /> },
   ],
   teacher: [
     { label: "Home", href: "/teacher", icon: <LayoutDashboard className="h-5 w-5" /> },

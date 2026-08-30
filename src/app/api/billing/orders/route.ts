@@ -119,12 +119,25 @@ export async function POST(request: Request) {
       }
     }
 
+    // Check for active custom offer for this school
+    let activeCustomOffer: any = null;
+    try {
+      const { getSchoolActiveCustomOffer } = await import("@/lib/billing/customOffers");
+      activeCustomOffer = await getSchoolActiveCustomOffer(schoolId, planId);
+    } catch (e) {}
+
     // 3. Server-side price calculation in integer PAISE (Section 5)
     let baseAmount = billingCycle === "annual" ? planVersion.annualPrice * 12 : planVersion.monthlyPrice;
     let discountAmount = 0;
     let taxAmount = 0; // Tax calculation if applicable
 
-    if (couponCode) {
+    if (activeCustomOffer && activeCustomOffer.customPricePaise !== undefined) {
+      if (billingCycle === "monthly") {
+        baseAmount = activeCustomOffer.customPricePaise;
+      }
+    }
+
+    if (couponCode && !activeCustomOffer) {
       const cleanCoupon = couponCode.trim().toUpperCase();
       if (cleanCoupon === "SAVE20" || cleanCoupon === "WELCOME20") {
         discountAmount = Math.round(baseAmount * 0.2); // 20% discount

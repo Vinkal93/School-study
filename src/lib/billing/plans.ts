@@ -33,6 +33,8 @@ export const BILLING_COLLECTIONS = {
   LIMIT_OVERRIDES: "limitOverrides",
   PENALTIES: "penalties",
   FINANCIAL_ADJUSTMENTS: "financialAdjustments",
+  CUSTOM_OFFERS: "customOffers",
+  CUSTOM_ACCESS: "customPlanAccess",
 } as const;
 
 export interface CreatePlanInput {

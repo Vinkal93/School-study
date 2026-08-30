@@ -7,7 +7,7 @@ import type { Plan } from "@/types";
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { planId, billingCycle = "monthly", couponCode } = body;
+    const { planId, billingCycle = "monthly", couponCode, schoolId } = body;
 
     if (!planId) {
       return NextResponse.json(
@@ -21,6 +21,13 @@ export async function POST(request: Request) {
         { error: "Invalid billingCycle. Must be 'monthly' or 'annual'." },
         { status: 400 }
       );
+    }
+
+    // Check for school-specific custom offer
+    let activeCustomOffer: any = null;
+    if (schoolId) {
+      const { getSchoolActiveCustomOffer } = await import("@/lib/billing/customOffers");
+      activeCustomOffer = await getSchoolActiveCustomOffer(schoolId, planId);
     }
 
     const db = getFirebaseDb();
@@ -107,7 +114,7 @@ export async function POST(request: Request) {
     }
 
     // 2. Server-side price calculation in integer PAISE
-    const baseAmount =
+    let baseAmount =
       billingCycle === "annual"
         ? planVersion.annualPrice * 12
         : planVersion.monthlyPrice;
@@ -116,7 +123,16 @@ export async function POST(request: Request) {
     let couponValid = false;
     let couponMessage = "";
 
-    if (couponCode) {
+    // Apply custom offer discount if school has an active offer
+    if (activeCustomOffer && activeCustomOffer.customPricePaise !== undefined) {
+      if (billingCycle === "monthly") {
+        baseAmount = activeCustomOffer.customPricePaise;
+        couponMessage = `Special school offer applied: ₹${(activeCustomOffer.customPricePaise / 100).toLocaleString("en-IN")}/mo`;
+        couponValid = true;
+      }
+    }
+
+    if (couponCode && !activeCustomOffer) {
       const cleanCoupon = couponCode.trim().toUpperCase();
       if (cleanCoupon === "SAVE20" || cleanCoupon === "WELCOME20") {
         discountAmount = Math.round(baseAmount * 0.2); // 20% discount
