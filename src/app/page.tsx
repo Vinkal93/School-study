@@ -29,6 +29,7 @@ import {
 import { ThemeToggle } from "@/components/common/theme-toggle";
 import { MarketingHeader } from "@/components/marketing";
 import { Footer } from "@/components/footer";
+import { MarqueeText } from "@/components/common/MarqueeText";
 import { constructMetadata, getHomepageJsonLd, siteConfig } from "@/lib/seo";
 
 export const metadata: Metadata = constructMetadata({
@@ -877,6 +878,11 @@ export default function LandingPage() {
           </div>
         </section>
       </main>
+
+      {/* ==========================================
+          INTERACTIVE ANIMATED SCHOOL STUDY MARQUEE
+      ========================================== */}
+      <MarqueeText />
 
       {/* ==========================================
           ADVANCED MODERN PRODUCT FOOTER
