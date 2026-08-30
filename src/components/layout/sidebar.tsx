@@ -306,6 +306,7 @@ export function Sidebar() {
                         <Link
                           key={sub.href}
                           href={sub.href}
+                          prefetch={true}
                           onClick={closeMobileNav}
                           className={cn(
                             "block rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
@@ -328,6 +329,7 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
+              prefetch={true}
               onClick={closeMobileNav}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",

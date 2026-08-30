@@ -103,6 +103,31 @@ service cloud.firestore {
       allow write: if true;
     }
 
+    match /subscriptionAdjustments/{adjId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /accessOverrides/{overrideId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /limitOverrides/{overrideId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /penalties/{penaltyId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /financialAdjustments/{finId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
     // ==========================================
     // CMS & SITE CONTROL
     // ==========================================

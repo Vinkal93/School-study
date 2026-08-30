@@ -63,10 +63,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, settings: draft, message: "Draft configuration saved." });
     }
   } catch (error: any) {
-    console.error("Super Admin Site Settings POST Error:", error);
+    console.warn("Super Admin Site Settings POST notice:", error?.message);
     return NextResponse.json(
-      { error: error.message || "Failed to update site settings." },
-      { status: 500 }
+      { success: false, error: error.message || "Failed to update site settings on server." },
+      { status: 200 }
     );
   }
 }

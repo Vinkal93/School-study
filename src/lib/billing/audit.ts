@@ -3,25 +3,57 @@ import { getFirebaseDb } from "@/lib/firebase/client";
 import type { BillingAuditAction, BillingAuditLogEntry } from "@/types";
 import { BILLING_COLLECTIONS } from "./plans";
 
+export interface CreateBillingAuditLogInput {
+  actorId: string;
+  actorRole: string;
+  action: BillingAuditAction;
+  targetType: "plan" | "planVersion" | "schoolSubscription" | "accessPolicy" | "financeReport" | "invoice" | "adjustment" | "override" | "penalty";
+  targetId: string;
+  metadata?: Record<string, any>;
+}
+
 /**
  * Section 19: Audit Log Utility (createBillingAuditLog).
  * Structured audit record creation for sensitive billing and subscription changes.
- * Never stores passwords, secrets, or raw payment tokens.
+ * Supports both single config object and positional parameters.
  */
 export async function createBillingAuditLog(
-  actorId: string,
-  actorRole: string,
-  action: BillingAuditAction,
-  targetType: "plan" | "planVersion" | "schoolSubscription" | "accessPolicy",
-  targetId: string,
+  actorIdOrInput: string | CreateBillingAuditLogInput,
+  actorRole?: string,
+  action?: BillingAuditAction,
+  targetType?: "plan" | "planVersion" | "schoolSubscription" | "accessPolicy" | "financeReport" | "invoice" | "adjustment" | "override" | "penalty",
+  targetId?: string,
   metadata: Record<string, any> = {}
 ): Promise<void> {
   try {
     const db = getFirebaseDb();
     if (!db) return;
 
+    let finalActorId: string;
+    let finalActorRole: string;
+    let finalAction: BillingAuditAction;
+    let finalTargetType: any;
+    let finalTargetId: string;
+    let finalMetadata: Record<string, any>;
+
+    if (typeof actorIdOrInput === "object") {
+      finalActorId = actorIdOrInput.actorId;
+      finalActorRole = actorIdOrInput.actorRole;
+      finalAction = actorIdOrInput.action;
+      finalTargetType = actorIdOrInput.targetType;
+      finalTargetId = actorIdOrInput.targetId;
+      finalMetadata = actorIdOrInput.metadata || {};
+    } else {
+      finalActorId = actorIdOrInput;
+      finalActorRole = actorRole || "super_admin";
+      finalAction = action!;
+      finalTargetType = targetType || "schoolSubscription";
+      finalTargetId = targetId || "";
+      finalMetadata = metadata || {};
+    }
+
     const auditRef = doc(collection(db, BILLING_COLLECTIONS.AUDIT_LOGS));
-    const sanitizedMetadata = { ...metadata };
+    const sanitizedMetadata = { ...finalMetadata };
 
     // Strip sensitive fields if accidentally passed
     delete sanitizedMetadata.password;
@@ -35,11 +67,11 @@ export async function createBillingAuditLog(
 
     const auditEntry: BillingAuditLogEntry = {
       id: auditRef.id,
-      actorId,
-      actorRole,
-      action,
-      targetType,
-      targetId,
+      actorId: finalActorId,
+      actorRole: finalActorRole,
+      action: finalAction,
+      targetType: finalTargetType,
+      targetId: finalTargetId,
       metadata: sanitizedMetadata,
       timestamp: new Date().toISOString(),
     };

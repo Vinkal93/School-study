@@ -31,6 +31,8 @@ import {
   Phone,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { useAppQuery, appQueryClient } from "@/lib/cache";
+import { PageSkeleton } from "@/components/common/skeletons";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 import {
@@ -52,15 +54,6 @@ export default function SchoolAdminBillingPage() {
   const { profile, loading: authLoading } = useAuth();
   const schoolId = profile?.schoolId || "";
 
-  const [loading, setLoading] = useState(true);
-  const [subscription, setSubscription] = useState<SchoolSubscription | null>(null);
-  const [subState, setSubState] = useState<ReturnType<typeof calculateSubscriptionState> | null>(null);
-  const [entitlement, setEntitlement] = useState<EffectiveEntitlement | null>(null);
-  const [history, setHistory] = useState<any[]>([]);
-  const [payments, setPayments] = useState<PaymentRecord[]>([]);
-  const [invoicesMap, setInvoicesMap] = useState<Record<string, string>>({});
-  const [siteSettings, setSiteSettings] = useState<any | null>(null);
-
   // Modals & Drawers
   const [showRechargeModal, setShowRechargeModal] = useState(false);
   const [selectedRechargePlan, setSelectedRechargePlan] = useState("plan_starter");
@@ -71,31 +64,34 @@ export default function SchoolAdminBillingPage() {
   const [targetDowngradePlan, setTargetDowngradePlan] = useState("plan_starter");
   const [submittingAction, setSubmittingAction] = useState(false);
 
-  const loadBillingData = async () => {
-    if (authLoading || !schoolId) {
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    try {
+  // SWR Cached Query for Billing Data
+  const {
+    data: billingBundle,
+    isLoading: isBillingLoading,
+    refetch: refetchBilling,
+  } = useAppQuery(
+    schoolId ? `schoolBilling:${schoolId}` : null,
+    async () => {
       // 1. Fetch Subscription & Entitlements via API
       const res = await fetch(`/api/billing/subscription?schoolId=${schoolId}`);
       const json = await res.json();
 
+      let sub: SchoolSubscription | null = null;
+      let hist: any[] = [];
+      let computedSubState: ReturnType<typeof calculateSubscriptionState> | null = null;
+
       if (json.success) {
-        setSubscription(json.subscription);
-        setHistory(json.history || []);
+        sub = json.subscription;
+        hist = json.history || [];
         if (json.subscription) {
-          const computed = calculateSubscriptionState(json.subscription, DEFAULT_GLOBAL_ACCESS_POLICY);
-          setSubState(computed);
-          setSelectedRechargePlan(json.subscription.planId || "plan_starter");
-          setSelectedRechargeCycle(json.subscription.billingCycle || "monthly");
+          computedSubState = calculateSubscriptionState(json.subscription, DEFAULT_GLOBAL_ACCESS_POLICY);
         }
       }
 
       const entData = await getEffectiveEntitlement(schoolId);
-      setEntitlement(entData);
+
+      let pList: PaymentRecord[] = [];
+      let iMap: Record<string, string> = {};
 
       const db = getFirebaseDb();
       if (db) {
@@ -103,40 +99,55 @@ export default function SchoolAdminBillingPage() {
         const payRef = collection(db, BILLING_COLLECTIONS.PAYMENTS || "payments");
         const qPay = query(payRef, where("schoolId", "==", schoolId));
         const paySnap = await getDocs(qPay);
-        const pList = paySnap.docs.map((d) => ({ id: d.id, ...d.data() } as PaymentRecord));
+        pList = paySnap.docs.map((d) => ({ id: d.id, ...d.data() } as PaymentRecord));
         pList.sort((a, b) => new Date(b.capturedAt || b.createdAt).getTime() - new Date(a.capturedAt || a.createdAt).getTime());
-        setPayments(pList);
 
         // 3. Load Invoices Map for this school
         const invRef = collection(db, BILLING_COLLECTIONS.INVOICES || "invoices");
         const qInv = query(invRef, where("schoolId", "==", schoolId));
         const invSnap = await getDocs(qInv);
-        const iMap: Record<string, string> = {};
         for (const d of invSnap.docs) {
           const inv = d.data() as InvoiceRecord;
           iMap[inv.paymentId || d.id] = inv.invoiceNumber;
         }
-        setInvoicesMap(iMap);
       }
 
       // 4. Load Public Site Settings for Support Contact
+      let siteSet: any = null;
       try {
         const siteRes = await fetch("/api/site-settings");
         const siteJson = await siteRes.json();
-        if (siteJson.published) setSiteSettings(siteJson.published);
+        if (siteJson.published) siteSet = siteJson.published;
       } catch (e) {
-        // Safe fallback if site-settings unavailable
+        // Safe fallback
       }
-    } catch (err) {
-      console.error("Failed to load school admin billing data:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  useEffect(() => {
-    loadBillingData();
-  }, [schoolId, authLoading]);
+      return {
+        subscription: sub,
+        subState: computedSubState,
+        entitlement: entData,
+        history: hist,
+        payments: pList,
+        invoicesMap: iMap,
+        siteSettings: siteSet,
+      };
+    },
+    { enabled: !!schoolId && !authLoading, staleTime: 30_000 }
+  );
+
+  const subscription = billingBundle?.subscription || null;
+  const subState = billingBundle?.subState || null;
+  const entitlement = billingBundle?.entitlement || null;
+  const history = billingBundle?.history || [];
+  const payments = billingBundle?.payments || [];
+  const invoicesMap = billingBundle?.invoicesMap || {};
+  const siteSettings = billingBundle?.siteSettings || null;
+
+  const loading = isBillingLoading && !billingBundle;
+
+  const loadBillingData = () => {
+    refetchBilling(true);
+  };
 
   const openRechargeForPlan = (planId: string, cycle: "monthly" | "annual" = "monthly") => {
     setSelectedRechargePlan(planId);
@@ -333,10 +344,7 @@ export default function SchoolAdminBillingPage() {
       </div>
 
       {loading ? (
-        <div className="flex justify-center items-center py-16 text-slate-400 gap-2">
-          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
-          <span className="text-sm font-medium">Fetching real-time subscription lifecycle state...</span>
-        </div>
+        <PageSkeleton hasStats={true} hasTable={true} className="py-2" />
       ) : (
         <>
           {/* Status Alert Banner */}

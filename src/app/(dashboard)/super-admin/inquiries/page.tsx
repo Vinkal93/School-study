@@ -1,8 +1,11 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useRouter } from "next/navigation";
+import { useAppQuery, appQueryClient } from "@/lib/cache";
+import { useDebounce } from "@/hooks/use-debounce";
+import { TableSkeleton } from "@/components/common/skeletons";
 import {
   MessageSquare,
   Search,
@@ -31,23 +34,9 @@ export default function SuperAdminInquiriesPage() {
   const { firebaseUser, profile, loading: authLoading } = useAuth();
   const router = useRouter();
 
-  // Data states
-  const [inquiries, setInquiries] = useState<Inquiry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  // Summary Counts state
-  const [counts, setCounts] = useState({
-    total: 0,
-    new: 0,
-    inProgress: 0,
-    waiting: 0,
-    resolved: 0,
-    urgent: 0,
-  });
-
   // Filter & Search states
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search, 250);
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [priorityFilter, setPriorityFilter] = useState<string>("ALL");
   const [sourceFilter, setSourceFilter] = useState<string>("ALL");
@@ -55,8 +44,6 @@ export default function SuperAdminInquiriesPage() {
   const [sortBy, setSortBy] = useState<string>("newest");
   const [page, setPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(20);
-  const [totalPages, setTotalPages] = useState<number>(1);
-  const [totalItems, setTotalItems] = useState<number>(0);
 
   // Active Selected Inquiry Drawer ID
   const [selectedInquiryId, setSelectedInquiryId] = useState<string | null>(null);
@@ -67,12 +54,20 @@ export default function SuperAdminInquiriesPage() {
     }
   }, [firebaseUser, profile, authLoading, router]);
 
-  const loadInquiries = async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  const queryKey = profile?.role === "super_admin"
+    ? `inquiries:${debouncedSearch}:${statusFilter}:${priorityFilter}:${sourceFilter}:${dateFilter}:${sortBy}:${page}:${pageSize}`
+    : null;
+
+  const {
+    data: inquiryBundle,
+    isLoading: isInquiryLoading,
+    error: inquiryError,
+    refetch: refetchInquiries,
+  } = useAppQuery(
+    queryKey,
+    async () => {
       const params = new URLSearchParams({
-        search,
+        search: debouncedSearch,
         status: statusFilter,
         priority: priorityFilter,
         source: sourceFilter,
@@ -89,28 +84,31 @@ export default function SuperAdminInquiriesPage() {
         throw new Error(json.error || "Failed to load inquiries from server.");
       }
 
-      setInquiries(json.inquiries || []);
-      setCounts(json.counts || { total: 0, new: 0, inProgress: 0, waiting: 0, resolved: 0, urgent: 0 });
-      setTotalPages(json.pagination?.totalPages || 1);
-      setTotalItems(json.pagination?.totalItems || 0);
-    } catch (err: any) {
-      console.error("Inquiry fetch error:", err);
-      setError(err.message || "Unable to communicate with inquiries database.");
-    } finally {
-      setLoading(false);
-    }
-  };
+      return {
+        inquiries: (json.inquiries || []) as Inquiry[],
+        counts: json.counts || { total: 0, new: 0, inProgress: 0, waiting: 0, resolved: 0, urgent: 0 },
+        totalPages: (json.pagination?.totalPages || 1) as number,
+        totalItems: (json.pagination?.totalItems || 0) as number,
+      };
+    },
+    { enabled: profile?.role === "super_admin", staleTime: 20_000 }
+  );
 
-  useEffect(() => {
-    if (profile?.role === "super_admin") {
-      loadInquiries();
-    }
-  }, [profile, statusFilter, priorityFilter, sourceFilter, dateFilter, sortBy, page, pageSize]);
+  const inquiries = inquiryBundle?.inquiries || [];
+  const counts = inquiryBundle?.counts || { total: 0, new: 0, inProgress: 0, waiting: 0, resolved: 0, urgent: 0 };
+  const totalPages = inquiryBundle?.totalPages || 1;
+  const totalItems = inquiryBundle?.totalItems || 0;
+  const loading = isInquiryLoading && !inquiryBundle;
+  const error = inquiryError ? (inquiryError.message || "Failed to load inquiries.") : null;
+
+  const loadInquiries = () => {
+    refetchInquiries(true);
+  };
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setPage(1);
-    loadInquiries();
+    refetchInquiries(true);
   };
 
   const getStatusBadge = (status: InquiryStatus) => {
@@ -355,10 +353,7 @@ export default function SuperAdminInquiriesPage() {
       {/* Inquiry List Table (Desktop) / Cards (Mobile) */}
       <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/60 shadow-xs overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center space-y-3">
-            <RefreshCw className="h-8 w-8 animate-spin text-blue-600 mx-auto" />
-            <p className="text-xs text-slate-600 dark:text-slate-400 font-medium">Fetching real inquiries from Firestore...</p>
-          </div>
+          <TableSkeleton rows={6} />
         ) : inquiries.length === 0 ? (
           <div className="p-12 text-center space-y-3">
             <MessageSquare className="h-10 w-10 text-slate-300 dark:text-slate-700 mx-auto" />

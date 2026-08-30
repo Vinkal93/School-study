@@ -31,13 +31,20 @@ const FEATURE_KEY_ALIASES: Record<string, string[]> = {
   billing: ["billing"],
 };
 
+import { getActiveAccessOverrides } from "./subscriptionAdjustmentEngine";
+
 /**
  * Section 3: Resolves effective feature flags for a school as a Boolean dictionary.
- * Flow: School -> Active Subscription -> Plan Version -> Allowed Features -> Expiry/Access Policy -> Dictionary
+ * Flow: Security/Suspension -> Manual Restrictions -> Subscription Status -> Plan Features -> Manual Grants
  */
 export async function getPlanFeatures(schoolId: string): Promise<Record<string, boolean>> {
-  const summary = await getSchoolAccess(schoolId);
+  const [summary, overrides] = await Promise.all([
+    getSchoolAccess(schoolId),
+    getActiveAccessOverrides(schoolId),
+  ]);
   const permissions: Record<string, boolean> = {};
+
+  const hasTempAccess = overrides.some((o) => o.type === "TEMPORARY_ACCESS");
 
   const allKnownFeatures = [
     "student_management",
@@ -56,6 +63,31 @@ export async function getPlanFeatures(schoolId: string): Promise<Record<string, 
   ];
 
   for (const featureKey of allKnownFeatures) {
+    // 1. Check if explicitly restricted by Super Admin override
+    const isRestricted = overrides.some(
+      (o) => o.type === "FEATURE_RESTRICT" && (o.featureKey === featureKey || o.featureKey === "all")
+    );
+    if (isRestricted) {
+      permissions[featureKey] = false;
+      continue;
+    }
+
+    // 2. Check if explicitly granted by Super Admin override
+    const isGranted = overrides.some(
+      (o) => o.type === "FEATURE_GRANT" && (o.featureKey === featureKey || o.featureKey === "all")
+    );
+    if (isGranted) {
+      permissions[featureKey] = true;
+      continue;
+    }
+
+    // 3. Temporary Access grants standard allowed features
+    if (hasTempAccess && summary.status !== "SUSPENDED") {
+      permissions[featureKey] = true;
+      continue;
+    }
+
+    // 4. Default plan permission check
     const isIncluded = isFeatureAllowedInList(featureKey, summary.allowedFeatures);
     const dependenciesMet = checkDependencies(featureKey, summary.allowedFeatures);
     permissions[featureKey] = summary.accessMode !== "NO_ACCESS" && isIncluded && dependenciesMet;

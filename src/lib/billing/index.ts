@@ -10,4 +10,5 @@ export * from "./middleware";
 export * from "./reminders";
 export * from "./audit";
 export * from "./subscriptionLifecycle";
+export * from "./subscriptionAdjustmentEngine";
 export * from "./finance";

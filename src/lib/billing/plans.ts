@@ -28,6 +28,11 @@ export const BILLING_COLLECTIONS = {
   INVOICES: "invoices",
   FINANCE_TRANSACTIONS: "financeTransactions",
   WEBHOOK_EVENTS: "webhookEvents",
+  SUBSCRIPTION_ADJUSTMENTS: "subscriptionAdjustments",
+  ACCESS_OVERRIDES: "accessOverrides",
+  LIMIT_OVERRIDES: "limitOverrides",
+  PENALTIES: "penalties",
+  FINANCIAL_ADJUSTMENTS: "financialAdjustments",
 } as const;
 
 export interface CreatePlanInput {

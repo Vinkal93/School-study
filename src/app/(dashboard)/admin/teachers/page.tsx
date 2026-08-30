@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useState, type FormEvent, type ChangeEvent } from "react";
+import { useEffect, useState, useMemo, type FormEvent, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
+import { useAppQuery, appQueryClient } from "@/lib/cache";
+import { useDebounce } from "@/hooks/use-debounce";
+import { TableSkeleton } from "@/components/common/skeletons";
 import {
   Users,
   Plus,
@@ -43,11 +46,37 @@ export default function AdminTeachersPage() {
   const { profile } = useAuth();
   const schoolId = profile?.schoolId || "";
 
-  const [teachers, setTeachers] = useState<TeacherProfile[]>([]);
-  const [classes, setClasses] = useState<SchoolClass[]>([]);
-  const [limitStatus, setLimitStatus] = useState<PlanLimitCheckResult | null>(null);
-  const [loading, setLoading] = useState(true);
+  // 1. SWR Queries with Stale-While-Revalidate caching
+  const {
+    data: cachedTeachers,
+    isLoading: isTeachersLoading,
+    refetch: refetchTeachers,
+    setData: setTeachersCache,
+  } = useAppQuery<TeacherProfile[]>(
+    schoolId ? `teachers:${schoolId}` : null,
+    () => getTeachers(schoolId),
+    { enabled: !!schoolId, staleTime: 30_000 }
+  );
+
+  const { data: cachedClasses, isLoading: isClassesLoading } = useAppQuery<SchoolClass[]>(
+    schoolId ? `classes:${schoolId}` : null,
+    () => getClassesWithSections(schoolId),
+    { enabled: !!schoolId, staleTime: 60_000 }
+  );
+
+  const { data: cachedLimit, refetch: refetchLimit } = useAppQuery<PlanLimitCheckResult>(
+    schoolId ? `planLimit:${schoolId}:teachers` : null,
+    () => checkPlanLimit(schoolId, "teachers"),
+    { enabled: !!schoolId, staleTime: 30_000 }
+  );
+
+  const teachers = useMemo(() => cachedTeachers || [], [cachedTeachers]);
+  const classes = useMemo(() => cachedClasses || [], [cachedClasses]);
+  const limitStatus = cachedLimit || null;
+  const loading = (isTeachersLoading || isClassesLoading) && teachers.length === 0;
+
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearch = useDebounce(searchQuery, 250);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
@@ -83,27 +112,8 @@ export default function AdminTeachersPage() {
 
   const loadData = async () => {
     if (!schoolId) return;
-    setLoading(true);
-    try {
-      const [tchData, clsData, limitRes] = await Promise.all([
-        getTeachers(schoolId),
-        getClassesWithSections(schoolId),
-        checkPlanLimit(schoolId, "teachers"),
-      ]);
-      setTeachers(tchData);
-      setClasses(clsData);
-      setLimitStatus(limitRes);
-    } catch (err) {
-      console.error("Failed to load teachers:", err);
-      toast.error("Failed to load teachers and classes.");
-    } finally {
-      setLoading(false);
-    }
+    await Promise.all([refetchTeachers(true), refetchLimit(true)]);
   };
-
-  useEffect(() => {
-    loadData();
-  }, [schoolId]);
 
   const handlePhotoChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -140,8 +150,8 @@ export default function AdminTeachersPage() {
     try {
       const newPhotoUrl = await uploadTeacherPhoto(editPhotoFile, schoolId, photoEditingTeacher.teacherCode);
       await updateTeacher(schoolId, photoEditingTeacher.id, { photoUrl: newPhotoUrl });
-      setTeachers((prev) =>
-        prev.map((t) => (t.id === photoEditingTeacher.id ? { ...t, photoUrl: newPhotoUrl } : t))
+      setTeachersCache((prev) =>
+        (prev || []).map((t) => (t.id === photoEditingTeacher.id ? { ...t, photoUrl: newPhotoUrl } : t))
       );
       toast.success(`Photo updated successfully for "${photoEditingTeacher.name}"!`);
       setPhotoEditingTeacher(null);
@@ -204,7 +214,10 @@ export default function AdminTeachersPage() {
       toast.success(`Teacher "${name}" and login account created successfully!`);
       setIsAddModalOpen(false);
       resetForm();
-      loadData();
+      appQueryClient.invalidateCache(`teachers:${schoolId}`);
+      appQueryClient.invalidateCache(`planLimit:${schoolId}:*`);
+      appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
+      refetchTeachers(true);
     } catch (err: any) {
       toast.error(err.message || "Failed to create teacher.");
     } finally {
@@ -230,8 +243,8 @@ export default function AdminTeachersPage() {
     setTogglingId(teacher.id);
     try {
       await toggleTeacherStatus(schoolId, teacher.id, teacher.userId, nextStatus);
-      setTeachers((prev) =>
-        prev.map((t) => (t.id === teacher.id ? { ...t, status: nextStatus } : t))
+      setTeachersCache((prev) =>
+        (prev || []).map((t) => (t.id === teacher.id ? { ...t, status: nextStatus } : t))
       );
       toast.success(
         `Teacher "${teacher.name}" is now ${nextStatus === "active" ? "Active" : "Inactive"}.`
@@ -259,10 +272,23 @@ export default function AdminTeachersPage() {
         sectionName: selectedSection?.name || "",
       });
 
+      setTeachersCache((prev) =>
+        (prev || []).map((t) =>
+          t.id === assigningTeacher.id
+            ? {
+                ...t,
+                assignedClassId: assignClassId,
+                assignedClassName: selectedClass?.name || "",
+                assignedSectionId: assignSectionId,
+                assignedSectionName: selectedSection?.name || "",
+              }
+            : t
+        )
+      );
+
       toast.success(`Class assignment updated for "${assigningTeacher.name}".`);
       setIsAssignModalOpen(false);
       setAssigningTeacher(null);
-      loadData();
     } catch (err) {
       toast.error("Failed to update assignment.");
     } finally {
@@ -278,7 +304,9 @@ export default function AdminTeachersPage() {
     ) {
       try {
         await deleteTeacher(schoolId, teacher.id, teacher.userId);
-        setTeachers((prev) => prev.filter((t) => t.id !== teacher.id));
+        setTeachersCache((prev) => (prev || []).filter((t) => t.id !== teacher.id));
+        appQueryClient.invalidateCache(`planLimit:${schoolId}:*`);
+        appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
         toast.success(`Teacher "${teacher.name}" permanently deleted from Firebase!`);
       } catch (err: any) {
         toast.error(err.message || "Failed to delete teacher.");
@@ -286,17 +314,22 @@ export default function AdminTeachersPage() {
     }
   };
 
-  const filteredTeachers = teachers.filter((t) => {
-    const matchesSearch =
-      t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      t.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      t.teacherCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (t.phone && t.phone.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (t.assignedClassName && t.assignedClassName.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredTeachers = useMemo(() => {
+    return teachers.filter((t) => {
+      const q = debouncedSearch.toLowerCase().trim();
+      const matchesSearch =
+        !q ||
+        t.name.toLowerCase().includes(q) ||
+        t.teacherCode.toLowerCase().includes(q) ||
+        t.email.toLowerCase().includes(q) ||
+        (t.assignedClassName && t.assignedClassName.toLowerCase().includes(q)) ||
+        (t.phone && t.phone.toLowerCase().includes(q));
 
-    const matchesStatus = statusFilter === "all" ? true : t.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+      const matchesStatus = statusFilter === "all" ? true : t.status === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [teachers, debouncedSearch, statusFilter]);
 
   // Sections for currently selected class in Add Modal
   const availableSectionsForAdd =
@@ -445,12 +478,11 @@ export default function AdminTeachersPage() {
       </div>
 
       {/* Teachers Table */}
-      <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-950 overflow-hidden">
-        {loading ? (
-          <div className="flex h-64 items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          </div>
-        ) : filteredTeachers.length === 0 ? (
+      {loading ? (
+        <TableSkeleton rows={5} />
+      ) : (
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-950 overflow-hidden">
+          {filteredTeachers.length === 0 ? (
           <div className="text-center py-16">
             <Users className="mx-auto h-12 w-12 text-gray-400" />
             <h3 className="mt-2 text-base font-semibold text-gray-900 dark:text-white">
@@ -720,6 +752,7 @@ export default function AdminTeachersPage() {
           </>
         )}
       </div>
+      )}
 
       {/* ==========================================
           MODAL: ADD NEW TEACHER

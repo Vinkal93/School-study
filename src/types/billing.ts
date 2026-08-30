@@ -339,15 +339,118 @@ export type BillingAuditAction =
   | "MANUAL_ENTITLEMENT_OVERRIDE"
   | "FINANCE_VIEW"
   | "INVOICE_VIEW"
-  | "REPORT_EXPORT";
+  | "REPORT_EXPORT"
+  | "SUBSCRIPTION_ADJUSTMENT_CREATED"
+  | "SUBSCRIPTION_PERIOD_EXTENDED"
+  | "SUBSCRIPTION_PERIOD_REDUCED"
+  | "CUSTOM_PERIOD_ADJUSTED"
+  | "TEMP_ACCESS_GRANTED"
+  | "FEATURE_ACCESS_GRANTED"
+  | "FEATURE_ACCESS_RESTRICTED"
+  | "FEATURE_ACCESS_RESTORED"
+  | "LIMIT_OVERRIDE_CREATED"
+  | "LIMIT_OVERRIDE_REVOKED"
+  | "SUBSCRIPTION_SUSPENDED"
+  | "SUBSCRIPTION_RESUMED"
+  | "PENALTY_CREATED"
+  | "PENALTY_WAIVED"
+  | "MANUAL_CREDIT_CREATED";
 
 export interface BillingAuditLogEntry {
   id: string;
   actorId: string;
   actorRole: string;
   action: BillingAuditAction;
-  targetType: "plan" | "planVersion" | "schoolSubscription" | "accessPolicy" | "financeReport" | "invoice";
+  targetType: "plan" | "planVersion" | "schoolSubscription" | "accessPolicy" | "financeReport" | "invoice" | "adjustment" | "override" | "penalty";
   targetId: string;
   metadata: Record<string, any>;
   timestamp: string;
 }
+
+export type SubscriptionAdjustmentType =
+  | "ADD_DAYS"
+  | "REMOVE_DAYS"
+  | "ADD_MONTHS"
+  | "REMOVE_MONTHS"
+  | "CUSTOM_PERIOD_ADJUSTMENT"
+  | "TEMPORARY_EXTENSION"
+  | "MANUAL_CREDIT"
+  | "PENALTY"
+  | "ACCESS_OVERRIDE"
+  | "SUSPENSION"
+  | "RESTORE_ACCESS";
+
+export interface SubscriptionAdjustmentRecord {
+  id: string;
+  schoolId: string;
+  subscriptionId: string;
+  type: SubscriptionAdjustmentType;
+  value?: number;
+  unit?: "days" | "months" | "date" | "currency";
+  previousStartAt?: string;
+  previousEndAt?: string;
+  newStartAt?: string;
+  newEndAt?: string;
+  amount?: number; // integer PAISE if financial
+  currency?: string;
+  reason: string;
+  actorId: string;
+  actorRole: string;
+  status: "APPLIED" | "REVERTED" | "CANCELLED";
+  createdAt: string;
+  metadata?: Record<string, any>;
+}
+
+export interface AccessOverrideRecord {
+  id: string;
+  schoolId: string;
+  type: "FEATURE_GRANT" | "FEATURE_RESTRICT" | "TEMPORARY_ACCESS";
+  featureKey?: string;
+  enabled: boolean;
+  startAt: string;
+  endAt: string;
+  reason: string;
+  createdBy: string;
+  status: "ACTIVE" | "EXPIRED" | "REVOKED";
+  createdAt: string;
+}
+
+export interface LimitOverrideRecord {
+  id: string;
+  schoolId: string;
+  limitKey: "students" | "teachers" | "classes" | "staff";
+  overrideValue: number;
+  startAt: string;
+  endAt: string;
+  reason: string;
+  createdBy: string;
+  status: "ACTIVE" | "EXPIRED" | "REVOKED";
+  createdAt: string;
+}
+
+export interface PenaltyRecord {
+  id: string;
+  schoolId: string;
+  amount: number; // integer PAISE
+  currency: string;
+  reason: string;
+  dueDate: string;
+  status: "PENDING" | "PAID" | "WAIVED";
+  createdBy: string;
+  createdAt: string;
+  paidAt?: string | null;
+  paymentId?: string | null;
+}
+
+export interface FinancialAdjustmentRecord {
+  id: string;
+  schoolId: string;
+  type: "MANUAL_CREDIT" | "MANUAL_CHARGE" | "PENALTY";
+  amount: number; // integer PAISE
+  currency: string;
+  reason: string;
+  actorId: string;
+  reference?: string;
+  createdAt: string;
+}
+

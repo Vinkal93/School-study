@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
+import { useAppQuery } from "@/lib/cache";
+import { PageSkeleton } from "@/components/common/skeletons";
 import {
   Users,
   GraduationCap,
@@ -13,7 +15,6 @@ import {
   ClipboardCheck,
   CheckCircle2,
   Building2,
-  Loader2,
   Settings,
 } from "lucide-react";
 import { getSchoolById } from "@/lib/services/school.service";
@@ -22,45 +23,33 @@ import type { School } from "@/types";
 
 export default function SchoolAdminPage() {
   const { profile } = useAuth();
-  const [school, setSchool] = useState<School | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [counts, setCounts] = useState({
-    teachers: 0,
-    students: 0,
-    classes: 0,
-    academicYears: 0,
-  });
+  const schoolId = profile?.schoolId || "";
 
-  useEffect(() => {
-    async function load() {
-      if (profile?.schoolId) {
-        try {
-          const [s, setupData] = await Promise.all([
-            getSchoolById(profile.schoolId),
-            getSchoolSetupData(profile.schoolId),
-          ]);
-          setSchool(s);
-          setCounts({
-            teachers: setupData.teachers.length,
-            students: setupData.students.length,
-            classes: setupData.classes.length,
-            academicYears: setupData.academicYears.length,
-          });
-        } catch (err) {
-          console.error("Failed to load school admin dashboard:", err);
-        }
-      }
-      setLoading(false);
-    }
-    load();
-  }, [profile]);
+  // 1. Cached School Profile Query (30s staleTime, 5min cacheTime)
+  const { data: school, isLoading: isSchoolLoading } = useAppQuery<School | null>(
+    schoolId ? `schoolProfile:${schoolId}` : null,
+    () => getSchoolById(schoolId),
+    { enabled: !!schoolId, staleTime: 60_000 }
+  );
 
-  if (loading) {
-    return (
-      <div className="flex h-96 items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-      </div>
-    );
+  // 2. Cached Setup & Metric Counts Query
+  const { data: setupData, isLoading: isSetupLoading } = useAppQuery(
+    schoolId ? `schoolSetupData:${schoolId}` : null,
+    () => getSchoolSetupData(schoolId),
+    { enabled: !!schoolId, staleTime: 30_000 }
+  );
+
+  const counts = {
+    teachers: setupData?.teachers?.length || 0,
+    students: setupData?.students?.length || 0,
+    classes: setupData?.classes?.length || 0,
+    academicYears: setupData?.academicYears?.length || 0,
+  };
+
+  const isLoading = (isSchoolLoading || isSetupLoading) && !school && !setupData;
+
+  if (isLoading) {
+    return <PageSkeleton hasStats={true} hasTable={false} className="py-4" />;
   }
 
   const isSetupIncomplete = !school?.setupCompleted;

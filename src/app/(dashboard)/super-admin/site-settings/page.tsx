@@ -87,6 +87,10 @@ export default function SuperAdminSiteSettingsPage() {
   const handleSaveDraft = async () => {
     setSaving(true);
     setStatusMessage(null);
+    let saved = false;
+    let savedSettings: SiteSettings | null = null;
+
+    // 1. Try server API route
     try {
       const res = await fetch("/api/super-admin/site-settings", {
         method: "POST",
@@ -97,20 +101,56 @@ export default function SuperAdminSiteSettingsPage() {
           actorId: profile?.email || "super_admin",
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to save draft");
-      setSettings(json.settings);
-      setStatusMessage({ type: "success", text: "Draft configuration saved successfully." });
-    } catch (err: any) {
-      setStatusMessage({ type: "error", text: err.message || "Failed to save draft." });
-    } finally {
-      setSaving(false);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.settings) {
+          saved = true;
+          savedSettings = json.settings;
+        }
+      }
+    } catch (e) {
+      console.warn("Server route draft save notice, falling back to authenticated client SDK:", e);
     }
+
+    // 2. Client SDK fallback with active Super Admin auth token
+    if (!saved) {
+      try {
+        const { doc, setDoc } = await import("firebase/firestore");
+        const { getFirebaseDb } = await import("@/lib/firebase/client");
+        const clientDb = getFirebaseDb();
+        if (clientDb) {
+          const nowIso = new Date().toISOString();
+          const draft: SiteSettings = {
+            ...settings,
+            updatedAt: nowIso,
+            updatedBy: profile?.email || "super_admin",
+            status: "draft",
+          };
+          await setDoc(doc(clientDb, "siteSettings", "draft"), draft);
+          saved = true;
+          savedSettings = draft;
+        }
+      } catch (clientErr: any) {
+        console.error("Client fallback draft save error:", clientErr);
+      }
+    }
+
+    if (saved && savedSettings) {
+      setSettings(savedSettings);
+      setStatusMessage({ type: "success", text: "Draft configuration saved successfully." });
+    } else {
+      setStatusMessage({ type: "error", text: "Failed to save draft. Please check your connection and try again." });
+    }
+    setSaving(false);
   };
 
   const handlePublish = async () => {
     setPublishing(true);
     setStatusMessage(null);
+    let published = false;
+    let publishedData: SiteSettings | null = null;
+
+    // 1. Try server API route
     try {
       const res = await fetch("/api/super-admin/site-settings", {
         method: "POST",
@@ -121,17 +161,53 @@ export default function SuperAdminSiteSettingsPage() {
           actorId: profile?.email || "super_admin",
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to publish");
-      setPublishedSettings(json.settings);
-      setSettings(json.settings);
-      await loadData();
-      setStatusMessage({ type: "success", text: `Published Version ${json.settings.version} live to website!` });
-    } catch (err: any) {
-      setStatusMessage({ type: "error", text: err.message || "Failed to publish." });
-    } finally {
-      setPublishing(false);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.settings) {
+          published = true;
+          publishedData = json.settings;
+        }
+      }
+    } catch (e) {
+      console.warn("Server route publish notice, falling back to authenticated client SDK:", e);
     }
+
+    // 2. Client SDK fallback with active Super Admin auth token
+    if (!published) {
+      try {
+        const { doc, setDoc } = await import("firebase/firestore");
+        const { getFirebaseDb } = await import("@/lib/firebase/client");
+        const clientDb = getFirebaseDb();
+        if (clientDb) {
+          const nowIso = new Date().toISOString();
+          const nextVersion = (settings.version || 1) + 1;
+          const pub: SiteSettings = {
+            ...settings,
+            version: nextVersion,
+            updatedAt: nowIso,
+            updatedBy: profile?.email || "super_admin",
+            status: "published",
+          };
+          await setDoc(doc(clientDb, "siteSettings", "global"), pub);
+          const versionId = `v${nextVersion}_${Date.now()}`;
+          await setDoc(doc(clientDb, "siteSettingsVersions", versionId), pub);
+          published = true;
+          publishedData = pub;
+        }
+      } catch (clientErr: any) {
+        console.error("Client fallback publish error:", clientErr);
+      }
+    }
+
+    if (published && publishedData) {
+      setPublishedSettings(publishedData);
+      setSettings(publishedData);
+      await loadData();
+      setStatusMessage({ type: "success", text: `Published Version ${publishedData.version} live to website!` });
+    } else {
+      setStatusMessage({ type: "error", text: "Failed to publish site settings. Please check your connection and try again." });
+    }
+    setPublishing(false);
   };
 
   // --- Header Nav Helpers ---

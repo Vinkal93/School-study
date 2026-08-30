@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useState, type FormEvent, type ChangeEvent } from "react";
+import { useEffect, useState, useMemo, type FormEvent, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
+import { useAppQuery, appQueryClient } from "@/lib/cache";
+import { useDebounce } from "@/hooks/use-debounce";
+import { TableSkeleton } from "@/components/common/skeletons";
 import {
   GraduationCap,
   Plus,
@@ -42,13 +45,38 @@ export default function AdminStudentsPage() {
   const { profile } = useAuth();
   const schoolId = profile?.schoolId || "";
 
-  const [students, setStudents] = useState<StudentProfile[]>([]);
-  const [classes, setClasses] = useState<SchoolClass[]>([]);
-  const [limitStatus, setLimitStatus] = useState<PlanLimitCheckResult | null>(null);
-  const [loading, setLoading] = useState(true);
+  // 1. SWR Queries with Stale-While-Revalidate caching
+  const {
+    data: cachedStudents,
+    isLoading: isStudentsLoading,
+    refetch: refetchStudents,
+    setData: setStudentsCache,
+  } = useAppQuery<StudentProfile[]>(
+    schoolId ? `students:${schoolId}` : null,
+    () => getStudents(schoolId),
+    { enabled: !!schoolId, staleTime: 30_000 }
+  );
 
-  // Filters
+  const { data: cachedClasses, isLoading: isClassesLoading } = useAppQuery<SchoolClass[]>(
+    schoolId ? `classes:${schoolId}` : null,
+    () => getClassesWithSections(schoolId),
+    { enabled: !!schoolId, staleTime: 60_000 }
+  );
+
+  const { data: cachedLimit, refetch: refetchLimit } = useAppQuery<PlanLimitCheckResult>(
+    schoolId ? `planLimit:${schoolId}:students` : null,
+    () => checkPlanLimit(schoolId, "students"),
+    { enabled: !!schoolId, staleTime: 30_000 }
+  );
+
+  const students = useMemo(() => cachedStudents || [], [cachedStudents]);
+  const classes = useMemo(() => cachedClasses || [], [cachedClasses]);
+  const limitStatus = cachedLimit || null;
+  const loading = (isStudentsLoading || isClassesLoading) && students.length === 0;
+
+  // Filters with debounced search
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearch = useDebounce(searchQuery, 250);
   const [selectedClassFilter, setSelectedClassFilter] = useState("all");
   const [selectedSectionFilter, setSelectedSectionFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
@@ -81,27 +109,8 @@ export default function AdminStudentsPage() {
 
   const loadData = async () => {
     if (!schoolId) return;
-    setLoading(true);
-    try {
-      const [stuData, clsData, limitRes] = await Promise.all([
-        getStudents(schoolId),
-        getClassesWithSections(schoolId),
-        checkPlanLimit(schoolId, "students"),
-      ]);
-      setStudents(stuData);
-      setClasses(clsData);
-      setLimitStatus(limitRes);
-    } catch (err) {
-      console.error("Failed to load students data:", err);
-      toast.error("Failed to load students and classes.");
-    } finally {
-      setLoading(false);
-    }
+    await Promise.all([refetchStudents(true), refetchLimit(true)]);
   };
-
-  useEffect(() => {
-    loadData();
-  }, [schoolId]);
 
   const handlePhotoChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -138,8 +147,8 @@ export default function AdminStudentsPage() {
     try {
       const newPhotoUrl = await uploadStudentPhoto(editPhotoFile, schoolId, photoEditingStudent.admissionNumber);
       await updateStudent(schoolId, photoEditingStudent.id, { photoUrl: newPhotoUrl });
-      setStudents((prev) =>
-        prev.map((s) => (s.id === photoEditingStudent.id ? { ...s, photoUrl: newPhotoUrl } : s))
+      setStudentsCache((prev) =>
+        (prev || []).map((s) => (s.id === photoEditingStudent.id ? { ...s, photoUrl: newPhotoUrl } : s))
       );
       toast.success(`Photo updated successfully for "${photoEditingStudent.name}"!`);
       setPhotoEditingStudent(null);
@@ -198,7 +207,10 @@ export default function AdminStudentsPage() {
       toast.success(`Student "${name}" enrolled successfully with login credentials!`);
       setIsAddModalOpen(false);
       resetForm();
-      loadData();
+      appQueryClient.invalidateCache(`students:${schoolId}`);
+      appQueryClient.invalidateCache(`planLimit:${schoolId}:*`);
+      appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
+      refetchStudents(true);
     } catch (err: any) {
       toast.error(err.message || "Failed to enroll student.");
     } finally {
@@ -224,8 +236,8 @@ export default function AdminStudentsPage() {
     setTogglingId(stu.id);
     try {
       await toggleStudentStatus(schoolId, stu.id, stu.userId, nextStatus);
-      setStudents((prev) =>
-        prev.map((s) => (s.id === stu.id ? { ...s, status: nextStatus } : s))
+      setStudentsCache((prev) =>
+        (prev || []).map((s) => (s.id === stu.id ? { ...s, status: nextStatus } : s))
       );
       toast.success(
         `Student "${stu.name}" is now ${nextStatus === "active" ? "Active" : "Inactive"}.`
@@ -245,7 +257,9 @@ export default function AdminStudentsPage() {
     ) {
       try {
         await deleteStudent(schoolId, stu.id, stu.userId);
-        setStudents((prev) => prev.filter((s) => s.id !== stu.id));
+        setStudentsCache((prev) => (prev || []).filter((s) => s.id !== stu.id));
+        appQueryClient.invalidateCache(`planLimit:${schoolId}:*`);
+        appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
         toast.success(`Student "${stu.name}" permanently deleted from Firebase!`);
       } catch (err: any) {
         toast.error(err.message || "Failed to delete student.");
@@ -253,19 +267,23 @@ export default function AdminStudentsPage() {
     }
   };
 
-  const filteredStudents = students.filter((s) => {
-    const matchesSearch =
-      s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.admissionNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (s.phone && s.phone.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredStudents = useMemo(() => {
+    return students.filter((s) => {
+      const q = debouncedSearch.toLowerCase().trim();
+      const matchesSearch =
+        !q ||
+        s.name.toLowerCase().includes(q) ||
+        s.admissionNumber.toLowerCase().includes(q) ||
+        s.email.toLowerCase().includes(q) ||
+        (s.phone && s.phone.toLowerCase().includes(q));
 
-    const matchesClass = selectedClassFilter === "all" ? true : s.classId === selectedClassFilter;
-    const matchesSection = selectedSectionFilter === "all" ? true : s.sectionId === selectedSectionFilter;
-    const matchesStatus = statusFilter === "all" ? true : s.status === statusFilter;
+      const matchesClass = selectedClassFilter === "all" ? true : s.classId === selectedClassFilter;
+      const matchesSection = selectedSectionFilter === "all" ? true : s.sectionId === selectedSectionFilter;
+      const matchesStatus = statusFilter === "all" ? true : s.status === statusFilter;
 
-    return matchesSearch && matchesClass && matchesSection && matchesStatus;
-  });
+      return matchesSearch && matchesClass && matchesSection && matchesStatus;
+    });
+  }, [students, debouncedSearch, selectedClassFilter, selectedSectionFilter, statusFilter]);
 
   const availableSectionsForAdd =
     classes.find((c) => c.id === selectedClassId)?.sections || [];
@@ -455,12 +473,11 @@ export default function AdminStudentsPage() {
       </div>
 
       {/* Students Table */}
-      <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-950 overflow-hidden">
-        {loading ? (
-          <div className="flex h-64 items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          </div>
-        ) : filteredStudents.length === 0 ? (
+      {loading ? (
+        <TableSkeleton rows={6} />
+      ) : (
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-950 overflow-hidden">
+          {filteredStudents.length === 0 ? (
           <div className="text-center py-16">
             <GraduationCap className="mx-auto h-12 w-12 text-gray-400" />
             <h3 className="mt-2 text-base font-semibold text-gray-900 dark:text-white">
@@ -693,6 +710,7 @@ export default function AdminStudentsPage() {
           </>
         )}
       </div>
+      )}
 
       {/* ==========================================
           MODAL: ENROLL NEW STUDENT
