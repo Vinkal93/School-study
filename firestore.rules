@@ -26,8 +26,7 @@ service cloud.firestore {
     // PAYMENT SETTINGS (RAZORPAY KEYS & CONFIG)
     // ==========================================
     match /paymentSettings/{docId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if isSuperAdmin();
     }
 
     // ==========================================

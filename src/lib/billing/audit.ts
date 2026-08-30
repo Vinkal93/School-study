@@ -27,6 +27,11 @@ export async function createBillingAuditLog(
     delete sanitizedMetadata.password;
     delete sanitizedMetadata.token;
     delete sanitizedMetadata.secret;
+    delete sanitizedMetadata.keySecret;
+    delete sanitizedMetadata.webhookSecret;
+    delete sanitizedMetadata.rawSecret;
+    delete sanitizedMetadata.privateKey;
+    delete sanitizedMetadata.apiKey;
 
     const auditEntry: BillingAuditLogEntry = {
       id: auditRef.id,

@@ -22,6 +22,25 @@ export async function loadRazorpayCredentials(): Promise<RazorpayCredentials> {
   let isLiveMode = keyId.startsWith("rzp_live_");
 
   try {
+    if (typeof window === "undefined") {
+      try {
+        const { adminDb } = await import("@/lib/firebase/admin");
+        if (adminDb) {
+          const snap = await adminDb.doc("paymentSettings/razorpay").get();
+          if (snap.exists) {
+            const data = snap.data() as Partial<RazorpayCredentials>;
+            if (data.keyId) keyId = data.keyId;
+            if (data.keySecret) keySecret = data.keySecret;
+            if (data.webhookSecret !== undefined) webhookSecret = data.webhookSecret;
+            if (typeof data.isLiveMode === "boolean") isLiveMode = data.isLiveMode;
+            return { keyId, keySecret, webhookSecret, isLiveMode };
+          }
+        }
+      } catch (e) {
+        // Fallback to client DB if adminDb fails
+      }
+    }
+
     const db = getFirebaseDb();
     if (db) {
       const docRef = doc(db, "paymentSettings", "razorpay");
