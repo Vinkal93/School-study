@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { getFirebaseDb } from "@/lib/firebase/client";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import { RazorpayCredentials } from "@/lib/payments/razorpay";
 import { createBillingAuditLog } from "@/lib/billing";
 
@@ -16,10 +18,11 @@ export async function GET(request: Request) {
     let isLiveMode = keyId.startsWith("rzp_live_");
 
     try {
-      const { adminDb } = await import("@/lib/firebase/admin");
-      if (adminDb) {
-        const snap = await adminDb.doc("paymentSettings/razorpay").get();
-        if (snap.exists) {
+      const db = getFirebaseDb();
+      if (db) {
+        const docRef = doc(db, "paymentSettings", "razorpay");
+        const snap = await getDoc(docRef);
+        if (snap.exists()) {
           const data = snap.data() as Partial<RazorpayCredentials>;
           if (data.keyId) keyId = data.keyId;
           if (data.keySecret) keySecret = data.keySecret;
@@ -28,7 +31,7 @@ export async function GET(request: Request) {
         }
       }
     } catch (e) {
-      console.warn("Notice: adminDb lookup fallback in GET payment-settings:", e);
+      console.warn("GET Payment Settings lookup notice:", e);
     }
 
     return NextResponse.json({
@@ -40,7 +43,7 @@ export async function GET(request: Request) {
       isLiveMode,
     });
   } catch (error: any) {
-    console.warn("GET Payment Settings Exception (Using env fallback):", error);
+    console.warn("GET Payment Settings Exception:", error);
     const envKeyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID || "";
     const envSecret = process.env.RAZORPAY_KEY_SECRET || "";
     const envWebhook = process.env.RAZORPAY_WEBHOOK_SECRET || "";
@@ -65,35 +68,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Razorpay Key ID is required." }, { status: 400 });
     }
 
-    let existingData: RazorpayCredentials | null = null;
-    let dbMethod: "admin" | "client" = "admin";
-
-    try {
-      const { adminDb } = await import("@/lib/firebase/admin");
-      if (adminDb) {
-        const snap = await adminDb.doc("paymentSettings/razorpay").get();
-        if (snap.exists) {
-          existingData = snap.data() as RazorpayCredentials;
-        }
-      }
-    } catch (e) {
-      dbMethod = "client";
+    const db = getFirebaseDb();
+    if (!db) {
+      return NextResponse.json({ error: "Database unavailable." }, { status: 500 });
     }
 
-    if (dbMethod === "client" || !existingData) {
-      try {
-        const { getFirebaseDb } = await import("@/lib/firebase/client");
-        const { doc, getDoc } = await import("firebase/firestore");
-        const clientDb = getFirebaseDb();
-        if (clientDb) {
-          const snap = await getDoc(doc(clientDb, "paymentSettings", "razorpay"));
-          if (snap.exists()) {
-            existingData = snap.data() as RazorpayCredentials;
-          }
-        }
-      } catch (e) {
-        // Safe continuation
+    let existingData: RazorpayCredentials | null = null;
+    try {
+      const docRef = doc(db, "paymentSettings", "razorpay");
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        existingData = snap.data() as RazorpayCredentials;
       }
+    } catch (e) {
+      console.warn("Notice: Existing payment settings lookup:", e);
     }
 
     let finalSecret = existingData?.keySecret || process.env.RAZORPAY_KEY_SECRET || "";
@@ -122,26 +110,8 @@ export async function POST(request: Request) {
       updatedBy: actorEmail || "super_admin",
     };
 
-    // Save to Firestore via Admin SDK (with Client SDK fallback)
-    let saved = false;
-    try {
-      const { adminDb } = await import("@/lib/firebase/admin");
-      if (adminDb) {
-        await adminDb.doc("paymentSettings/razorpay").set(updatedConfig, { merge: true });
-        saved = true;
-      }
-    } catch (e) {
-      // Fallback
-    }
-
-    if (!saved) {
-      const { getFirebaseDb } = await import("@/lib/firebase/client");
-      const { doc, setDoc } = await import("firebase/firestore");
-      const clientDb = getFirebaseDb();
-      if (clientDb) {
-        await setDoc(doc(clientDb, "paymentSettings", "razorpay"), updatedConfig, { merge: true });
-      }
-    }
+    const docRef = doc(db, "paymentSettings", "razorpay");
+    await setDoc(docRef, updatedConfig, { merge: true });
 
     try {
       await createBillingAuditLog(
