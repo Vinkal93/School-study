@@ -63,7 +63,7 @@ export async function POST(request: Request) {
     }
 
     let finalWebhookSecret = existingData?.webhookSecret || process.env.RAZORPAY_WEBHOOK_SECRET || "";
-    if (webhookSecret !== undefined && !webhookSecret.includes("*") && !webhookSecret.includes("•")) {
+    if (webhookSecret && typeof webhookSecret === "string" && webhookSecret.trim().length > 0 && !webhookSecret.includes("*") && !webhookSecret.includes("•")) {
       finalWebhookSecret = webhookSecret.trim();
     }
 
@@ -97,6 +97,6 @@ export async function POST(request: Request) {
     });
   } catch (error: any) {
     console.error("POST Payment Settings Error:", error);
-    return NextResponse.json({ error: "Failed to save payment settings." }, { status: 500 });
+    return NextResponse.json({ error: "Failed to save payment settings: " + (error.message || error.toString()) }, { status: 500 });
   }
 }
