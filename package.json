@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "backup:firestore": "node scripts/backup-firestore.mjs",
+    "restore:firestore": "node scripts/restore-firestore.mjs",
     "seed:super-admin": "node scripts/create-super-admin.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

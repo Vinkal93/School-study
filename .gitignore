@@ -23,6 +23,8 @@
 # misc
 .DS_Store
 *.pem
+/backups/
+*.sha256
 
 # debug
 npm-debug.log*
