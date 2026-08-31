@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { BILLING_COLLECTIONS, getActivePlanVersion } from "@/lib/billing";
-import { createRazorpayOrder, getRazorpayKeyId, loadRazorpayCredentials } from "@/lib/payments/razorpay";
+import { createRazorpayOrder, loadRazorpayCredentials, mapRazorpayError } from "@/lib/payments/razorpay";
 import type { Plan } from "@/types";
 import { InternalOrder } from "@/lib/payments/fulfillment";
 
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     const db = getFirebaseDb();
     if (!db) {
       return NextResponse.json(
-        { error: "Database unavailable." },
+        { error: "Database service unavailable." },
         { status: 500 }
       );
     }
@@ -37,18 +37,16 @@ export async function POST(request: Request) {
     let planData: Plan | null = null;
     let planVersion: any = null;
 
-    if (db) {
-      try {
-        const planRef = doc(db, BILLING_COLLECTIONS.PLANS, planId);
-        const planSnap = await getDoc(planRef);
+    try {
+      const planRef = doc(db, BILLING_COLLECTIONS.PLANS, planId);
+      const planSnap = await getDoc(planRef);
 
-        if (planSnap.exists()) {
-          planData = { id: planSnap.id, ...planSnap.data() } as Plan;
-          planVersion = await getActivePlanVersion(planId);
-        }
-      } catch (err) {
-        console.warn("Firestore plan lookup notice, using fallback catalog for orders:", err);
+      if (planSnap.exists()) {
+        planData = { id: planSnap.id, ...planSnap.data() } as Plan;
+        planVersion = await getActivePlanVersion(planId);
       }
+    } catch (err) {
+      console.warn("[Orders] Firestore plan lookup notice, using standard catalog:", err);
     }
 
     // Fallback static catalog mapping if database document is missing
@@ -126,10 +124,10 @@ export async function POST(request: Request) {
       activeCustomOffer = await getSchoolActiveCustomOffer(schoolId, planId);
     } catch (e) {}
 
-    // 3. Server-side price calculation in integer PAISE (Section 5)
+    // 2. Server-side authoritative price calculation in integer PAISE
     let baseAmount = billingCycle === "annual" ? planVersion.annualPrice * 12 : planVersion.monthlyPrice;
     let discountAmount = 0;
-    let taxAmount = 0; // Tax calculation if applicable
+    let taxAmount = 0;
 
     if (activeCustomOffer && activeCustomOffer.customPricePaise !== undefined) {
       if (billingCycle === "monthly") {
@@ -151,8 +149,24 @@ export async function POST(request: Request) {
     const nowIso = new Date().toISOString();
     const expiresAtIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
-    // 4. Create Razorpay Order via SDK using dynamic credentials (Section 7)
-    let razorpayOrder: any = null;
+    // 3. Resolve Razorpay credentials
+    const creds = await loadRazorpayCredentials();
+    if (!creds.keyId || !creds.keySecret) {
+      console.error("[Razorpay] Credentials missing on server.");
+      return NextResponse.json(
+        {
+          error:
+            "Razorpay API credentials (Key ID or Secret) are not configured. Please check your environment variables or Super Admin Settings.",
+          code: "CONFIGURATION_ERROR",
+        },
+        { status: 500 }
+      );
+    }
+
+    console.log(`[Razorpay] Order creation started for plan: ${planData.name}, mode: ${creds.isLiveMode ? "LIVE" : "TEST"}`);
+
+    // 4. Create Razorpay Order via SDK
+    let razorpayOrder: any;
     try {
       razorpayOrder = await createRazorpayOrder({
         amount: finalAmount,
@@ -165,15 +179,20 @@ export async function POST(request: Request) {
           billingCycle,
         },
       });
-    } catch (e) {
-      razorpayOrder = {
-        id: `order_fallback_${Date.now()}`,
-        amount: finalAmount,
-        currency: "INR",
-      };
+      console.log(`[Razorpay] Order created successfully: ${razorpayOrder.id}`);
+    } catch (err: any) {
+      const mapped = mapRazorpayError(err);
+      console.error(`[Razorpay] Order creation failed [${mapped.code}]:`, mapped.message);
+      return NextResponse.json(
+        {
+          error: mapped.userMessage,
+          code: mapped.code,
+        },
+        { status: mapped.httpStatus }
+      );
     }
 
-    // 5. Store Internal Order Record (Section 6)
+    // 5. Store Internal Order Record
     const internalOrder: InternalOrder = {
       id: orderId,
       schoolId,
@@ -193,50 +212,29 @@ export async function POST(request: Request) {
       expiresAt: expiresAtIso,
     };
 
-    if (db) {
-      try {
-        const orderRef = doc(db, BILLING_COLLECTIONS.ORDERS || "orders", orderId);
-        await setDoc(orderRef, internalOrder);
-      } catch (err) {
-        console.warn("Notice: Internal order doc creation fallback:", err);
-      }
-    }
-
-    // Load active public Key ID dynamically
-    let keyId = getRazorpayKeyId();
     try {
-      const creds = await loadRazorpayCredentials();
-      if (creds?.keyId) keyId = creds.keyId;
-    } catch (e) {
-      // Use fallback key ID
+      const orderRef = doc(db, BILLING_COLLECTIONS.ORDERS || "orders", orderId);
+      await setDoc(orderRef, internalOrder);
+    } catch (err) {
+      console.warn("[Orders] Notice: Internal order doc creation error:", err);
     }
 
-    if (!keyId || keyId.trim().length === 0) {
-      keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID || "";
-    }
-
-    // 6. Return checkout-safe payload
+    // 6. Return safe checkout payload
     return NextResponse.json({
       orderId: internalOrder.id,
       razorpayOrderId: razorpayOrder.id,
       amount: finalAmount,
       currency: "INR",
-      key: keyId,
+      key: creds.keyId,
       planName: planData.name,
       billingCycle,
     });
   } catch (error: any) {
-    console.error("API Order Creation Error:", error);
-    const fallbackOrderId = `ord_fb_${Date.now()}`;
-    const fallbackKey = getRazorpayKeyId() || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
-    return NextResponse.json({
-      orderId: fallbackOrderId,
-      razorpayOrderId: `order_fb_${Date.now()}`,
-      amount: 99900,
-      currency: "INR",
-      key: fallbackKey,
-      planName: "Starter Plan",
-      billingCycle: "monthly",
-    });
+    const mapped = mapRazorpayError(error);
+    console.error(`[Razorpay] API Order Creation Unexpected Error [${mapped.code}]:`, mapped.message);
+    return NextResponse.json(
+      { error: mapped.userMessage, code: mapped.code },
+      { status: mapped.httpStatus }
+    );
   }
 }

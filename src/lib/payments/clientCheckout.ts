@@ -29,7 +29,7 @@ function loadRazorpayScript(): Promise<boolean> {
 }
 
 /**
- * Client-Side Razorpay Checkout Trigger (Sections 4, 8, 9).
+ * Client-Side Razorpay Checkout Trigger.
  * Invokes POST /api/billing/orders server-side, then opens Razorpay Checkout modal.
  */
 export async function triggerRazorpayCheckout(input: CheckoutOptionsInput): Promise<void> {
@@ -44,7 +44,7 @@ export async function triggerRazorpayCheckout(input: CheckoutOptionsInput): Prom
       return;
     }
 
-    // 2. Call server-side order creation API (Section 4)
+    // 2. Call server-side order creation API
     const res = await fetch("/api/billing/orders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -64,13 +64,7 @@ export async function triggerRazorpayCheckout(input: CheckoutOptionsInput): Prom
       return;
     }
 
-    // 3. Open Razorpay Checkout Modal (Section 8)
-    const isRealRazorpayOrderId =
-      orderData.razorpayOrderId &&
-      !orderData.razorpayOrderId.startsWith("order_test_") &&
-      !orderData.razorpayOrderId.startsWith("order_fallback_") &&
-      !orderData.razorpayOrderId.startsWith("order_fb_");
-
+    // 3. Resolve active public Razorpay Key ID
     let activeKey = orderData.key || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
     if (!activeKey) {
       try {
@@ -84,14 +78,13 @@ export async function triggerRazorpayCheckout(input: CheckoutOptionsInput): Prom
           }
         }
       } catch (e) {
-        console.warn("Client fallback key lookup notice:", e);
+        console.warn("Client key lookup notice:", e);
       }
     }
 
-    if (!activeKey || activeKey.includes("SNtWUOzpKkEtBR")) {
-      const msg = "Razorpay API credentials are not configured yet. Please go to Super Admin Settings (/super-admin/settings) and save your real Razorpay Key ID & Secret Key from dashboard.razorpay.com.";
+    if (!activeKey) {
+      const msg = "Razorpay Key ID is not configured on the server. Please check your environment variables or Super Admin Settings.";
       if (onError) onError(msg);
-      alert(msg);
       return;
     }
 
@@ -100,9 +93,10 @@ export async function triggerRazorpayCheckout(input: CheckoutOptionsInput): Prom
       amount: orderData.amount,
       currency: orderData.currency || "INR",
       name: "School Study",
-      description: `${orderData.planName} (${billingCycle.toUpperCase()})`,
+      description: `${orderData.planName || "School Subscription"} (${billingCycle.toUpperCase()})`,
+      order_id: orderData.razorpayOrderId,
       handler: async function (response: any) {
-        // Section 9: Call server-side signature verification API
+        // Call server-side signature verification API
         try {
           const verifyRes = await fetch("/api/billing/verify", {
             method: "POST",
@@ -143,10 +137,6 @@ export async function triggerRazorpayCheckout(input: CheckoutOptionsInput): Prom
         color: "#2563EB",
       },
     };
-
-    if (isRealRazorpayOrderId) {
-      options.order_id = orderData.razorpayOrderId;
-    }
 
     const paymentObject = new (window as any).Razorpay(options);
     paymentObject.open();

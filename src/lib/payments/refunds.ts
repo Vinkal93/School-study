@@ -106,51 +106,29 @@ export async function getRefundableAmount(paymentId: string): Promise<RefundCalc
   };
 }
 
+import { getRazorpayClientAsync } from "@/lib/payments/razorpay";
+
 /**
- * Server-side Razorpay Gateway Refund Executor.
+ * Server-side Razorpay Gateway Refund Executor using central resolver.
  */
 async function callRazorpayRefundApi(
   razorpayPaymentId: string,
   amountPaise: number,
   notes: Record<string, string>
 ): Promise<{ id: string; status: string }> {
-  const keyId = process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
-  const keySecret = process.env.RAZORPAY_KEY_SECRET || "";
+  try {
+    const client = await getRazorpayClientAsync();
+    const result = await (client.payments as any).refund(razorpayPaymentId, {
+      amount: amountPaise,
+      speed: "normal",
+      notes,
+    });
 
-  if (keyId && keySecret && !keyId.includes("test_mock")) {
-    try {
-      const authHeader = `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString("base64")}`;
-      const res = await fetch(`https://api.razorpay.com/v1/payments/${razorpayPaymentId}/refund`, {
-        method: "POST",
-        headers: {
-          Authorization: authHeader,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          amount: amountPaise,
-          speed: "normal",
-          notes,
-        }),
-      });
-
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.error?.description || `Razorpay Refund API error (status ${res.status})`);
-      }
-
-      const json = await res.json();
-      return { id: json.id, status: json.status || "processed" };
-    } catch (err: any) {
-      console.error("Razorpay refund API call failed:", err);
-      throw err;
-    }
+    return { id: result.id, status: result.status || "processed" };
+  } catch (err: any) {
+    console.error("[Razorpay] Refund API call failed:", err?.error?.description || err?.message || err);
+    throw err;
   }
-
-  // Deterministic local mock response when gateway keys are in test simulation
-  return {
-    id: `rfnd_sim_${Date.now()}_${Math.random().toString(36).slice(-5)}`,
-    status: "processed",
-  };
 }
 
 /**

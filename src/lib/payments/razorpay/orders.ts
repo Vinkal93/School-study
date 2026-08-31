@@ -1,4 +1,4 @@
-import { getRazorpayClientAsync, getRazorpayClient } from "./razorpayClient";
+import { getRazorpayClientAsync } from "./razorpayClient";
 
 export interface CreateRazorpayOrderInput {
   amount: number; // Integer PAISE (e.g. 199900 = ₹1,999)
@@ -20,46 +20,26 @@ export interface RazorpayOrderResult {
 }
 
 /**
- * Creates Razorpay order server-side via official Razorpay SDK / API (Section 7).
- * Respects dynamic Super Admin keys from Firestore or process.env fallback.
+ * Creates Razorpay order server-side via official Razorpay SDK / API.
+ * Respects dynamic Super Admin keys from Firestore or environment variable fallback.
  */
 export async function createRazorpayOrder(
   input: CreateRazorpayOrderInput
 ): Promise<RazorpayOrderResult> {
-  try {
-    const client = await getRazorpayClientAsync();
-    const orderOptions = {
-      amount: input.amount,
-      currency: input.currency || "INR",
-      receipt: input.receipt,
-      notes: input.notes || {},
-    };
+  const client = await getRazorpayClientAsync();
+  const orderOptions = {
+    amount: Math.round(input.amount),
+    currency: input.currency || "INR",
+    receipt: input.receipt,
+    notes: input.notes || {},
+  };
 
+  try {
     const razorpayOrder = await client.orders.create(orderOptions);
     return razorpayOrder as unknown as RazorpayOrderResult;
-  } catch (err) {
-    const syncClient = getRazorpayClient();
-    if (syncClient) {
-      const razorpayOrder = await syncClient.orders.create({
-        amount: input.amount,
-        currency: input.currency || "INR",
-        receipt: input.receipt,
-        notes: input.notes || {},
-      });
-      return razorpayOrder as unknown as RazorpayOrderResult;
-    }
-
-    // Return deterministic fallback order structure for test environment when API keys missing
-    return {
-      id: `order_test_${input.receipt}_${Date.now()}`,
-      entity: "order",
-      amount: input.amount,
-      amount_paid: 0,
-      amount_due: input.amount,
-      currency: input.currency || "INR",
-      receipt: input.receipt,
-      status: "created",
-      created_at: Math.floor(Date.now() / 1000),
-    };
+  } catch (err: any) {
+    const errorDesc = err?.error?.description || err?.message || "Razorpay API error";
+    console.error("[Razorpay] Order creation API failed:", errorDesc);
+    throw new Error(errorDesc);
   }
 }

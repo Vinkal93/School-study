@@ -16,6 +16,7 @@ import {
   Eye,
   EyeOff,
   Save,
+  Zap,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { updateSuperAdminPin } from "@/lib/services/security-pin.service";
@@ -51,6 +52,8 @@ export default function PlatformSettingsPage() {
   const [loadingRzp, setLoadingRzp] = useState(true);
   const [savingRzp, setSavingRzp] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
+  const [testingRzp, setTestingRzp] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string; mode?: string; status?: string } | null>(null);
 
   useEffect(() => {
     async function loadPolicy() {
@@ -227,6 +230,7 @@ export default function PlatformSettingsPage() {
           setMaskedSecret(returnedMaskedSecret);
           setIsSecretSet(true);
         }
+        setTestResult(null); // Reset previous test status on new key save
         setRzpKeySecret(""); // Clear raw input field after saving for security
       } else {
         toast.error("Failed to save payment settings. Please try again.");
@@ -236,6 +240,35 @@ export default function PlatformSettingsPage() {
       toast.error(err.message || "Failed to save Razorpay settings.");
     } finally {
       setSavingRzp(false);
+    }
+  };
+
+  const handleTestRzpConnection = async () => {
+    setTestingRzp(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/super-admin/payment-settings/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          keyId: rzpKeyId.trim() || undefined,
+          keySecret: rzpKeySecret.trim() || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        toast.success(data.message);
+        setTestResult({ success: true, message: data.message, mode: data.mode, status: data.status || "CONNECTION_SUCCESS" });
+      } else {
+        toast.error(data.error || "Razorpay API test failed.");
+        setTestResult({ success: false, message: data.error || "Authentication failed.", mode: data.mode, status: data.status || "AUTHENTICATION_FAILED" });
+      }
+    } catch (err: any) {
+      toast.error("Failed to connect to test endpoint.");
+      setTestResult({ success: false, message: err.message || "Network error", status: "NETWORK_ERROR" });
+    } finally {
+      setTestingRzp(false);
     }
   };
 
@@ -266,19 +299,27 @@ export default function PlatformSettingsPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            {isSecretSet ? (
-              <span className="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200">
-                Secret Configured
+            {testResult?.status === "CONNECTION_SUCCESS" ? (
+              <span className="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" /> Connected
+              </span>
+            ) : testResult?.status === "AUTHENTICATION_FAILED" ? (
+              <span className="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 flex items-center gap-1">
+                <AlertCircle className="h-3 w-3" /> Authentication Failed
+              </span>
+            ) : isSecretSet && rzpKeyId ? (
+              <span className="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200">
+                Configured (Not Tested)
               </span>
             ) : (
               <span className="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200">
-                Secret Required
+                Not Configured
               </span>
             )}
             <span
               className={`px-3 py-1 text-xs font-extrabold rounded-full uppercase ${
                 isLiveMode
-                  ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300"
+                  ? "bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-300"
                   : "bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300"
               }`}
             >
@@ -376,7 +417,24 @@ export default function PlatformSettingsPage() {
               </div>
             </div>
 
-            <div className="pt-2">
+            {testResult && (
+              <div
+                className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 ${
+                  testResult.success
+                    ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900"
+                    : "bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-900"
+                }`}
+              >
+                {testResult.success ? (
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                ) : (
+                  <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
+                )}
+                <span>{testResult.message}</span>
+              </div>
+            )}
+
+            <div className="pt-2 flex flex-wrap items-center gap-3">
               <button
                 type="submit"
                 disabled={savingRzp}
@@ -391,6 +449,25 @@ export default function PlatformSettingsPage() {
                   <>
                     <Save className="h-4 w-4" />
                     <span>Save Razorpay Credentials</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleTestRzpConnection}
+                disabled={testingRzp || savingRzp}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs sm:text-sm rounded-xl border border-slate-300 dark:border-slate-700 active:scale-95 transition-all disabled:opacity-50"
+              >
+                {testingRzp ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                    <span>Testing Connection...</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="h-4 w-4 text-amber-500" />
+                    <span>Test Razorpay Connection</span>
                   </>
                 )}
               </button>
