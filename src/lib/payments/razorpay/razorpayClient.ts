@@ -35,7 +35,8 @@ export async function loadRazorpayCredentials(): Promise<RazorpayCredentials> {
   let webhookSecret = "";
   let isLiveMode = false;
 
-  // 1. Primary: Check Super Admin Dynamic Firestore configuration first
+  // 1. Primary: Check Super Admin Dynamic Firestore configuration
+  // Tier A: Firebase Client SDK
   try {
     const db = getFirebaseDb();
     if (db) {
@@ -43,22 +44,41 @@ export async function loadRazorpayCredentials(): Promise<RazorpayCredentials> {
       const snap = await getDoc(docRef);
       if (snap.exists()) {
         const data = snap.data() as Partial<RazorpayCredentials>;
-        if (data.keyId && data.keyId.trim().length > 0) {
-          keyId = data.keyId.trim();
-        }
-        if (data.keySecret && data.keySecret.trim().length > 0) {
-          keySecret = data.keySecret.trim();
-        }
-        if (data.webhookSecret !== undefined && data.webhookSecret.trim().length > 0) {
-          webhookSecret = data.webhookSecret.trim();
-        }
-        if (typeof data.isLiveMode === "boolean") {
-          isLiveMode = data.isLiveMode;
-        }
+        if (data?.keyId && data.keyId.trim().length > 0) keyId = data.keyId.trim();
+        if (data?.keySecret && data.keySecret.trim().length > 0) keySecret = data.keySecret.trim();
+        if (data?.webhookSecret !== undefined && data.webhookSecret.trim().length > 0) webhookSecret = data.webhookSecret.trim();
+        if (typeof data?.isLiveMode === "boolean") isLiveMode = data.isLiveMode;
       }
     }
   } catch (err: any) {
-    console.warn("[Razorpay] Notice: Firestore dynamic settings lookup unauthenticated on server, falling back to environment.");
+    // Non-blocking fallback
+  }
+
+  // Tier B: Direct Firestore REST API (Works on Vercel serverless without auth overhead)
+  if (!keyId || !keySecret) {
+    try {
+      const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || "school-study-c8991";
+      const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "";
+      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/paymentSettings/razorpay${apiKey ? `?key=${apiKey}` : ""}`;
+      const res = await fetch(url, { cache: "no-store" });
+      if (res.ok) {
+        const json = await res.json();
+        const fields = json?.fields;
+        if (fields) {
+          const restKeyId = fields.keyId?.stringValue?.trim();
+          const restKeySecret = fields.keySecret?.stringValue?.trim();
+          const restWebhook = fields.webhookSecret?.stringValue?.trim();
+          const restLive = fields.isLiveMode?.booleanValue;
+
+          if (!keyId && restKeyId) keyId = restKeyId;
+          if (!keySecret && restKeySecret) keySecret = restKeySecret;
+          if (!webhookSecret && restWebhook) webhookSecret = restWebhook;
+          if (typeof restLive === "boolean") isLiveMode = restLive;
+        }
+      }
+    } catch (restErr) {
+      // Non-blocking fallback
+    }
   }
 
   // 2. Secondary Fallback: Use Environment variables if Firestore values were not found or incomplete
