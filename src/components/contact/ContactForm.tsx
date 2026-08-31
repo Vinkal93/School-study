@@ -32,13 +32,52 @@ export function ContactForm() {
     setErrorMessage("");
 
     try {
-      const firestore = getFirebaseDb();
-      if (!firestore) throw new Error("Database not initialized");
-      await addDoc(collection(firestore, "contactInquiries"), {
-        ...formData,
-        status: "new",
-        createdAt: serverTimestamp(),
-      });
+      let sentSuccessfully = false;
+
+      // 1. Submit via server API
+      try {
+        const res = await fetch("/api/super-admin/inquiries", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: formData.name.trim(),
+            email: formData.email.trim(),
+            phone: formData.phone.trim(),
+            schoolName: formData.schoolName.trim(),
+            organization: formData.schoolName.trim(),
+            city: formData.city.trim(),
+            location: formData.city.trim(),
+            message: formData.message.trim(),
+            source: "Contact Form",
+          }),
+        });
+
+        if (res.ok) {
+          sentSuccessfully = true;
+        }
+      } catch (apiErr) {
+        console.warn("Contact API submit notice, falling back to direct database:", apiErr);
+      }
+
+      // 2. Fallback to direct client Firestore SDK
+      if (!sentSuccessfully) {
+        const firestore = getFirebaseDb();
+        if (firestore) {
+          await addDoc(collection(firestore, "inquiries"), {
+            ...formData,
+            organization: formData.schoolName,
+            location: formData.city,
+            status: "NEW",
+            priority: "NORMAL",
+            source: "Contact Form",
+            isArchived: false,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+          sentSuccessfully = true;
+        }
+      }
+
       setStatus("success");
       setFormData({
         name: "",

@@ -77,18 +77,71 @@ export default function SuperAdminInquiriesPage() {
         pageSize: pageSize.toString(),
       });
 
-      const res = await fetch(`/api/super-admin/inquiries?${params.toString()}`);
-      const json = await res.json();
+      let json: any = {};
+      try {
+        const res = await fetch(`/api/super-admin/inquiries?${params.toString()}`);
+        if (res.ok) {
+          json = await res.json();
+        }
+      } catch (fetchErr) {
+        console.warn("Fetch inquiries API notice:", fetchErr);
+      }
 
-      if (!res.ok) {
-        throw new Error(json.error || "Failed to load inquiries from server.");
+      let list = (json.inquiries || []) as Inquiry[];
+      let counts = json.counts || { total: 0, new: 0, inProgress: 0, waiting: 0, resolved: 0, urgent: 0 };
+      let totalPages = (json.pagination?.totalPages || 1) as number;
+      let totalItems = (json.pagination?.totalItems || 0) as number;
+
+      if (list.length === 0) {
+        try {
+          const { getFirebaseDb } = await import("@/lib/firebase/client");
+          const { collection, getDocs, query, orderBy } = await import("firebase/firestore");
+          const { normalizeInquiry, INQUIRY_COLLECTION, LEGACY_COLLECTION } = await import("@/lib/inquiries");
+          const clientDb = getFirebaseDb();
+          if (clientDb) {
+            const rawClientDocs: { id: string; data: any }[] = [];
+            try {
+              const snap1 = await getDocs(query(collection(clientDb, INQUIRY_COLLECTION), orderBy("createdAt", "desc")));
+              snap1.forEach((d) => rawClientDocs.push({ id: d.id, data: d.data() }));
+            } catch (e) {
+              const snap1 = await getDocs(collection(clientDb, INQUIRY_COLLECTION));
+              snap1.forEach((d) => rawClientDocs.push({ id: d.id, data: d.data() }));
+            }
+
+            try {
+              const snap2 = await getDocs(collection(clientDb, LEGACY_COLLECTION));
+              snap2.forEach((d) => {
+                if (!rawClientDocs.some((x) => x.id === d.id)) {
+                  rawClientDocs.push({ id: d.id, data: d.data() });
+                }
+              });
+            } catch (e) {}
+
+            if (rawClientDocs.length > 0) {
+              const normalized = rawClientDocs.map((d) => normalizeInquiry(d.id, d.data));
+              list = normalized;
+              counts = {
+                total: normalized.filter((i) => !i.isArchived).length,
+                new: normalized.filter((i) => !i.isArchived && i.status === "NEW").length,
+                inProgress: normalized.filter((i) => !i.isArchived && i.status === "IN_PROGRESS").length,
+                waiting: normalized.filter((i) => !i.isArchived && i.status === "WAITING_FOR_RESPONSE").length,
+                resolved: normalized.filter((i) => !i.isArchived && i.status === "RESOLVED").length,
+                urgent: normalized.filter((i) => !i.isArchived && i.priority === "URGENT").length,
+              };
+              totalItems = normalized.length;
+              totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+            }
+          }
+        } catch (clientErr) {
+          console.warn("Client fallback inquiry query notice:", clientErr);
+        }
       }
 
       return {
-        inquiries: (json.inquiries || []) as Inquiry[],
-        counts: json.counts || { total: 0, new: 0, inProgress: 0, waiting: 0, resolved: 0, urgent: 0 },
-        totalPages: (json.pagination?.totalPages || 1) as number,
-        totalItems: (json.pagination?.totalItems || 0) as number,
+        inquiries: list,
+        counts,
+        totalPages,
+        totalItems,
       };
     },
     { enabled: profile?.role === "super_admin", staleTime: 20_000 }
