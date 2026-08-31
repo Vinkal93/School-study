@@ -1,7 +1,4 @@
 import type { ReportDataResult, ReportColumnDef } from "@/types/reports";
-import * as XLSX from "xlsx";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
 
 /**
  * Sanitizes a cell string against CSV Formula Injection vulnerabilities.
@@ -34,9 +31,11 @@ export function exportToCsv(dataResult: ReportDataResult): string {
 }
 
 /**
- * Exports report dataset to a real .xlsx Excel binary buffer using XLSX.
+ * Exports report dataset to a real .xlsx Excel binary buffer with lazy dynamic import of XLSX.
  */
-export function exportToExcel(dataResult: ReportDataResult): Uint8Array {
+export async function exportToExcel(dataResult: ReportDataResult): Promise<Uint8Array> {
+  const XLSX = await import("xlsx");
+
   // 1. Prepare worksheet rows
   const sheetData: any[][] = [];
 
@@ -88,9 +87,12 @@ export function exportToExcel(dataResult: ReportDataResult): Uint8Array {
 }
 
 /**
- * Exports report dataset to a real Vector PDF with header, summary cards, and autoTable.
+ * Exports report dataset to a real Vector PDF with lazy dynamic import of jsPDF & autoTable.
  */
-export function exportToPdf(dataResult: ReportDataResult): Uint8Array {
+export async function exportToPdf(dataResult: ReportDataResult): Promise<Uint8Array> {
+  const { jsPDF } = await import("jspdf");
+  const autoTable = (await import("jspdf-autotable")).default;
+
   const doc = new jsPDF({
     orientation: "landscape",
     unit: "mm",

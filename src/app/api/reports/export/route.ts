@@ -82,7 +82,7 @@ export async function POST(request: Request) {
 
     // B. EXCEL (.XLSX) EXPORT
     if (format === "xlsx") {
-      const excelBuffer = exportToExcel(reportResult);
+      const excelBuffer = await exportToExcel(reportResult);
       const filename = `${sanitizedTitle}_${timestamp}.xlsx`;
 
       await createBillingAuditLog(
@@ -105,7 +105,7 @@ export async function POST(request: Request) {
 
     // C. PDF EXPORT
     if (format === "pdf") {
-      const pdfBuffer = exportToPdf(reportResult);
+      const pdfBuffer = await exportToPdf(reportResult);
       const filename = `${sanitizedTitle}_${timestamp}.pdf`;
 
       await createBillingAuditLog(
