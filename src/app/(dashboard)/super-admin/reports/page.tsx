@@ -88,13 +88,16 @@ export default function SuperAdminReportsPage() {
     setSelectedReportType(type);
     setLoadingReport(true);
     try {
+      const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
       const res = await fetch("/api/reports/preview", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+          ...(firebaseUser?.uid ? { "x-user-id": firebaseUser.uid } : {}),
+        },
         body: JSON.stringify({
           reportType: type,
-          actorId: profile?.email || firebaseUser?.uid || "super_admin",
-          actorRole: "super_admin",
         }),
       });
       const json = await res.json();
@@ -111,14 +114,17 @@ export default function SuperAdminReportsPage() {
   const handleExport = async (format: ReportExportFormat) => {
     setExportingFormat(format);
     try {
+      const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
       const res = await fetch("/api/reports/export", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+          ...(firebaseUser?.uid ? { "x-user-id": firebaseUser.uid } : {}),
+        },
         body: JSON.stringify({
           reportType: selectedReportType,
           format,
-          actorId: profile?.email || "super_admin",
-          actorRole: "super_admin",
         }),
       });
 

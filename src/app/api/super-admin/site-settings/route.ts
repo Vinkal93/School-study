@@ -15,6 +15,64 @@ export async function GET() {
   let versions: any[] = [];
   let draft: SiteSettings | null = null;
 
+  // 1. Try Firebase Admin on server
+  try {
+    if (typeof window === "undefined") {
+      const { adminDb } = await import("@/lib/firebase/admin");
+      if (adminDb) {
+        const pubSnap = await adminDb.collection("siteSettings").doc("global").get();
+        if (pubSnap.exists) {
+          const data = pubSnap.data() as SiteSettings;
+          published = {
+            ...DEFAULT_SITE_SETTINGS,
+            ...data,
+            header: {
+              ...DEFAULT_SITE_SETTINGS.header,
+              ...(data.header || {}),
+              navigation: data.header?.navigation || DEFAULT_SITE_SETTINGS.header.navigation,
+            },
+            footer: {
+              ...DEFAULT_SITE_SETTINGS.footer,
+              ...(data.footer || {}),
+              columns: data.footer?.columns || DEFAULT_SITE_SETTINGS.footer.columns,
+            },
+          };
+        }
+
+        const draftSnap = await adminDb.collection("siteSettings").doc("draft").get();
+        if (draftSnap.exists) {
+          const dData = draftSnap.data() as SiteSettings;
+          draft = {
+            ...DEFAULT_SITE_SETTINGS,
+            ...dData,
+            header: {
+              ...DEFAULT_SITE_SETTINGS.header,
+              ...(dData.header || {}),
+              navigation: dData.header?.navigation || DEFAULT_SITE_SETTINGS.header.navigation,
+            },
+            footer: {
+              ...DEFAULT_SITE_SETTINGS.footer,
+              ...(dData.footer || {}),
+              columns: dData.footer?.columns || DEFAULT_SITE_SETTINGS.footer.columns,
+            },
+          };
+        }
+
+        const versSnap = await adminDb.collection("siteSettingsVersions").get();
+        versions = versSnap.docs.map((d) => d.data() as SiteSettings);
+        versions.sort((a, b) => (b.version || 0) - (a.version || 0));
+
+        return NextResponse.json({
+          published,
+          draft: draft || published,
+          versions,
+        });
+      }
+    }
+  } catch (adminErr) {
+    // Non-blocking fallback
+  }
+
   try {
     published = await getPublicSiteSettings();
   } catch (e) {

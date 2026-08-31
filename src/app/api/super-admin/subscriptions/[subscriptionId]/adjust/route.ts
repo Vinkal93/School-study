@@ -27,15 +27,19 @@ export async function POST(
       return NextResponse.json({ error: "Subscription ID is required." }, { status: 400 });
     }
 
+    const { requireSuperAdmin } = await import("@/lib/auth/serverAuth");
+    const auth = await requireSuperAdmin(request);
+    if (auth.errorResponse) return auth.errorResponse;
+
     const body = await request.json();
+    const actorId = auth.user!.uid;
+    const actorRole = auth.user!.role;
     const {
       action,
       type,
       value,
       customDate,
       reason,
-      actorId = "super_admin",
-      actorRole = "super_admin",
       requestId,
       // Overrides & Penalties fields
       featureKey,

@@ -3,6 +3,7 @@ import { generateSchoolReport, generateGlobalSuperAdminReport } from "@/lib/repo
 import { exportToCsv, exportToExcel, exportToPdf } from "@/lib/reports/exportEngine";
 import type { SchoolReportType, SuperAdminReportType, ReportExportFormat } from "@/types/reports";
 import { createBillingAuditLog } from "@/lib/billing/audit";
+import { requireSchoolAdmin, requireSuperAdmin } from "@/lib/auth/serverAuth";
 
 export async function POST(request: Request) {
   try {
@@ -13,37 +14,22 @@ export async function POST(request: Request) {
       format = "csv",
       filters = {},
       userPlanTier = "PROFESSIONAL",
-      actorId = "admin",
-      actorRole = "school_admin",
     } = body;
 
     if (!reportType) {
       return NextResponse.json({ error: "reportType is required." }, { status: 400 });
     }
 
-    // Plan Gate: Starter plan users cannot export confidential datasets
-    if (userPlanTier === "STARTER" && actorRole !== "super_admin") {
-      await createBillingAuditLog(
-        actorId,
-        actorRole,
-        "REPORT_EXPORT_FAILED" as any,
-        "schoolSubscription",
-        schoolId || "unauthorized",
-        { reportType, reason: "BLOCKED_STARTER_PLAN" }
-      );
-      return NextResponse.json(
-        { error: "Export is an advanced feature. Please upgrade to Professional or Enterprise plan to export CSV, Excel, and PDF reports." },
-        { status: 403 }
-      );
-    }
-
     let reportResult;
+    let actorId = "system";
+    let actorRole = "admin";
 
     // 1. Global Super Admin Reports
     if (reportType.startsWith("GLOBAL_")) {
-      if (actorRole !== "super_admin") {
-        return NextResponse.json({ error: "Unauthorized. Global reports require Super Admin privileges." }, { status: 403 });
-      }
+      const auth = await requireSuperAdmin(request);
+      if (auth.errorResponse) return auth.errorResponse;
+      actorId = auth.user!.uid;
+      actorRole = auth.user!.role;
       reportResult = await generateGlobalSuperAdminReport(reportType as SuperAdminReportType, filters);
     }
     // 2. School-Scoped Reports
@@ -51,6 +37,28 @@ export async function POST(request: Request) {
       if (!schoolId) {
         return NextResponse.json({ error: "schoolId is required." }, { status: 400 });
       }
+
+      const auth = await requireSchoolAdmin(request, schoolId);
+      if (auth.errorResponse) return auth.errorResponse;
+      actorId = auth.user!.uid;
+      actorRole = auth.user!.role;
+
+      // Plan Gate: Starter plan users cannot export confidential datasets
+      if (userPlanTier === "STARTER" && actorRole !== "super_admin") {
+        await createBillingAuditLog(
+          actorId,
+          actorRole,
+          "REPORT_EXPORT_FAILED" as any,
+          "schoolSubscription",
+          schoolId || "unauthorized",
+          { reportType, reason: "BLOCKED_STARTER_PLAN" }
+        );
+        return NextResponse.json(
+          { error: "Export is an advanced feature. Please upgrade to Professional or Enterprise plan to export CSV, Excel, and PDF reports." },
+          { status: 403 }
+        );
+      }
+
       reportResult = await generateSchoolReport(schoolId, reportType as SchoolReportType, filters, userPlanTier);
     }
 

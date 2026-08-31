@@ -21,8 +21,15 @@ export async function POST(
 ) {
   try {
     const { inquiryId } = await params;
+    const { requireSuperAdmin } = await import("@/lib/auth/serverAuth");
+    const auth = await requireSuperAdmin(request);
+    if (auth.errorResponse) return auth.errorResponse;
+
     const body = await request.json();
-    const { note, authorId = "super_admin", authorName = "Super Admin", authorEmail = "" } = body;
+    const authorId = auth.user!.uid;
+    const authorEmail = auth.user!.email;
+    const authorName = "Super Admin";
+    const { note } = body;
 
     if (!note || typeof note !== "string" || note.trim().length === 0) {
       return NextResponse.json({ error: "Note content cannot be empty." }, { status: 400 });

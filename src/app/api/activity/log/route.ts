@@ -30,9 +30,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const ipAddress = req.headers.get("x-forwarded-for") || "client-direct";
+    const ipAddress = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || "client-direct";
     const userAgent = req.headers.get("user-agent") || "unknown";
     const { browser, platform, deviceType } = parseUserAgentInfo(userAgent);
+
+    // Sanitize metadata to strip passwords, tokens, API keys
+    const sanitizedMetadata = { ...(metadata || {}) };
+    const sensitiveKeys = ["password", "token", "secretKey", "apiKey", "keySecret", "authSecret", "credentials"];
+    for (const key of Object.keys(sanitizedMetadata)) {
+      if (sensitiveKeys.some((s) => key.toLowerCase().includes(s.toLowerCase()))) {
+        delete sanitizedMetadata[key];
+      }
+    }
 
     const db = getFirebaseDb();
 
@@ -50,7 +59,7 @@ export async function POST(req: NextRequest) {
       entityName: entityName || "",
       status,
       failureReason: failureReason || null,
-      metadata,
+      metadata: sanitizedMetadata,
       ipAddress,
       userAgent,
       browser,

@@ -113,6 +113,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(
     async (email: string, password: string): Promise<AppUser> => {
       setLoading(true);
+      const userAgent = typeof navigator !== "undefined" ? navigator.userAgent : "";
+      const { parseUserAgentInfo, logLoginAttempt } = await import("@/lib/services/audit.service");
+      const { browser, platform, deviceType } = parseUserAgentInfo(userAgent);
+
       try {
         const fbUser = await signInWithEmail(email, password);
         const userProfile = await getUserProfile(fbUser.uid, fbUser.email);
@@ -120,6 +124,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!userProfile) {
           await signOutUser();
           setLoading(false);
+          logLoginAttempt({
+            uid: fbUser.uid,
+            email: fbUser.email || email.trim().toLowerCase(),
+            role: "student",
+            userAgent,
+            browser,
+            platform,
+            deviceType,
+            status: "failed",
+            failureReason: "Account profile not found",
+          }).catch((e) => console.warn("Notice: Login logging notice:", e));
           throw new Error("Account not found. Please contact admin.");
         }
 
@@ -130,10 +145,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         ) {
           await signOutUser();
           setLoading(false);
+          logLoginAttempt({
+            uid: fbUser.uid,
+            email: userProfile.email,
+            role: userProfile.role,
+            schoolId: userProfile.schoolId || null,
+            userAgent,
+            browser,
+            platform,
+            deviceType,
+            status: "failed",
+            failureReason: `Account status is ${userProfile.status}`,
+          }).catch((e) => console.warn("Notice: Login logging notice:", e));
           throw new Error(
             "Your account has been suspended or deactivated. Please contact platform admin."
           );
         }
+
+        // Record successful login event
+        logLoginAttempt({
+          uid: fbUser.uid,
+          email: userProfile.email,
+          role: userProfile.role,
+          schoolId: userProfile.schoolId || null,
+          userAgent,
+          browser,
+          platform,
+          deviceType,
+          status: "success",
+        }).catch((e) => console.warn("Notice: Login logging notice:", e));
 
         setFirebaseUser(fbUser);
         setOriginalProfile(userProfile);
@@ -144,6 +184,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return userProfile;
       } catch (error) {
         setLoading(false);
+        logLoginAttempt({
+          uid: "unknown",
+          email: email.trim().toLowerCase(),
+          role: "student",
+          userAgent,
+          browser,
+          platform,
+          deviceType,
+          status: "failed",
+          failureReason: error instanceof Error ? error.message : "Invalid credentials",
+        }).catch((e) => console.warn("Notice: Failed login logging notice:", e));
+
         if (error instanceof Error) {
           throw error;
         }

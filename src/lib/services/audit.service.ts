@@ -162,26 +162,44 @@ export async function getLoginLogs(
 ): Promise<LoginLogEntry[]> {
   try {
     const db = getFirebaseDb();
-    let q = query(
-      collection(db, AUDIT_COLLECTIONS.LOGIN_LOGS),
-      orderBy("timestamp", "desc"),
-      limit(limitCount)
-    );
+    let q;
 
-    if (uid) {
-      q = query(
-        collection(db, AUDIT_COLLECTIONS.LOGIN_LOGS),
-        where("uid", "==", uid),
-        orderBy("timestamp", "desc"),
-        limit(limitCount)
-      );
+    try {
+      if (uid) {
+        q = query(
+          collection(db, AUDIT_COLLECTIONS.LOGIN_LOGS),
+          where("uid", "==", uid),
+          orderBy("timestamp", "desc"),
+          limit(limitCount)
+        );
+      } else {
+        q = query(
+          collection(db, AUDIT_COLLECTIONS.LOGIN_LOGS),
+          orderBy("timestamp", "desc"),
+          limit(limitCount)
+        );
+      }
+      const snap = await getDocs(q);
+      return snap.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...(docSnap.data() as Omit<LoginLogEntry, "id">),
+      }));
+    } catch (indexErr) {
+      // Fallback: Query without orderBy and sort in memory
+      const simpleQuery = uid
+        ? query(collection(db, AUDIT_COLLECTIONS.LOGIN_LOGS), where("uid", "==", uid), limit(limitCount))
+        : query(collection(db, AUDIT_COLLECTIONS.LOGIN_LOGS), limit(limitCount));
+      const snap = await getDocs(simpleQuery);
+      const items = snap.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...(docSnap.data() as Omit<LoginLogEntry, "id">),
+      }));
+      return items.sort((a: any, b: any) => {
+        const tA = a.timestamp?.seconds || (typeof a.timestamp === "string" ? new Date(a.timestamp).getTime() : 0);
+        const tB = b.timestamp?.seconds || (typeof b.timestamp === "string" ? new Date(b.timestamp).getTime() : 0);
+        return tB - tA;
+      });
     }
-
-    const snap = await getDocs(q);
-    return snap.docs.map((docSnap) => ({
-      id: docSnap.id,
-      ...(docSnap.data() as Omit<LoginLogEntry, "id">),
-    }));
   } catch (error) {
     console.warn("Could not fetch login logs:", error);
     return [];

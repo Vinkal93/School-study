@@ -17,6 +17,7 @@ import {
   CreditCard,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/common/theme-toggle";
+import { TextSizeToggle } from "@/components/common/TextSizeToggle";
 
 import { useSiteSettings } from "@/context/SiteSettingsContext";
 
@@ -77,13 +78,13 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
   }
 
   const navLinks = (headerConfig.navigation || [])
-    .filter((i) => i.enabled)
+    .filter((i) => i.enabled !== false && i.enabled === true)
     .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
 
   return (
     <header className="sticky top-3 sm:top-4 z-50 max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 mb-2 sm:mb-4">
       {/* Floating Pill Container with ChatGPT-style Glass UI & Crisp Dark Outline */}
-      <div className="relative rounded-full border border-slate-200/90 dark:border-white/15 bg-white/90 dark:bg-slate-950/80 shadow-xl shadow-slate-900/5 dark:shadow-[0_0_20px_rgba(255,255,255,0.06)] backdrop-blur-xl px-4 sm:px-6 py-2.5 flex items-center justify-between transition-all">
+      <div className="relative rounded-full border border-slate-200/90 dark:border-white/15 bg-white/90 dark:bg-slate-950/80 shadow-xl shadow-slate-900/5 dark:shadow-[0_0_20px_rgba(255,255,255,0.06)] backdrop-blur-xl px-4 sm:px-6 py-2 flex items-center justify-between transition-all">
         {/* Brand Logo */}
         <Link
           href="/"
@@ -106,10 +107,10 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
           </div>
         </Link>
 
-        {/* Desktop Navigation Links */}
+        {/* Desktop Navigation Links — Responsive for screens from 1024px / lg onwards */}
         <nav
           aria-label="Marketing Navigation"
-          className="hidden xl:flex items-center gap-1 lg:gap-2 text-xs lg:text-sm font-semibold text-slate-700 dark:text-slate-200"
+          className="hidden lg:flex items-center gap-1 xl:gap-2 text-xs xl:text-sm font-semibold text-slate-700 dark:text-slate-200"
         >
           {/* Solutions / Mega Menu Trigger */}
           <div className="relative">
@@ -119,7 +120,7 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
               onClick={() => setMegaMenuOpen(!megaMenuOpen)}
               onMouseEnter={() => setMegaMenuOpen(true)}
               aria-expanded={megaMenuOpen}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full transition-all hover:bg-slate-100 dark:hover:bg-slate-800/80 dark:hover:border-white/10 ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all hover:bg-slate-100 dark:hover:bg-slate-800/80 dark:hover:border-white/10 ${
                 megaMenuOpen
                   ? "bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400 dark:border-white/15"
                   : "text-slate-700 dark:text-slate-200"
@@ -127,7 +128,7 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
             >
               <span>Solutions</span>
               <ChevronDown
-                className={`h-4 w-4 transition-transform duration-200 ${
+                className={`h-3.5 w-3.5 transition-transform duration-200 ${
                   megaMenuOpen ? "rotate-180 text-blue-600 dark:text-blue-400" : ""
                 }`}
               />
@@ -143,7 +144,7 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
                 target={link.openInNewTab ? "_blank" : undefined}
                 rel={link.openInNewTab ? "noopener noreferrer" : undefined}
                 onClick={() => setMegaMenuOpen(false)}
-                className={`px-3.5 py-2 rounded-full transition-all hover:bg-slate-100 dark:hover:bg-slate-800/80 ${
+                className={`px-3 py-1.5 rounded-full transition-all hover:bg-slate-100 dark:hover:bg-slate-800/80 ${
                   isActive
                     ? "bg-blue-50 text-blue-600 dark:bg-blue-950/70 dark:text-blue-300 dark:border dark:border-blue-800/50 font-bold"
                     : "text-slate-700 hover:text-slate-900 dark:text-slate-200 dark:hover:text-white"
@@ -155,8 +156,13 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
           })}
         </nav>
 
-        {/* Right Action Buttons — Theme Toggle & CTAs */}
+        {/* Right Action Buttons — Text Size Controller, Theme Toggle & CTAs */}
         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+          {/* Accessibility Text Zoom Controller (A- / A / A+ / A++) */}
+          <div className="hidden sm:flex items-center">
+            <TextSizeToggle />
+          </div>
+
           {headerConfig.showThemeToggle !== false && <ThemeToggle />}
 
           {/* Secondary CTA */}
@@ -169,11 +175,11 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
             </Link>
           )}
 
-          {/* Primary CTA / Login Button (Hidden on mobile, accessible in hamburger menu drawer) */}
+          {/* Primary CTA / Login Button */}
           {headerConfig.primaryCta?.enabled !== false && (
             <Link
               href={headerConfig.primaryCta?.url || "/login"}
-              className="hidden sm:inline-flex items-center justify-center px-5 py-2.5 text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-800/90 dark:border dark:border-white/15 rounded-full transition-all min-h-[40px] sm:min-h-[44px] shadow-sm"
+              className="hidden sm:inline-flex items-center justify-center px-4 sm:px-5 py-2 text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-800/90 dark:border dark:border-white/15 rounded-full transition-all min-h-[38px] sm:min-h-[42px] shadow-xs"
             >
               {headerConfig.primaryCta?.label || "Login"}
             </Link>
@@ -187,7 +193,7 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
               setMobileMenuOpen(!mobileMenuOpen);
               setMegaMenuOpen(false);
             }}
-            className="xl:hidden inline-flex items-center justify-center p-2 rounded-full text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 dark:border dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px] min-w-[44px] transition-colors"
+            className="lg:hidden inline-flex items-center justify-center p-2 rounded-full text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 dark:border dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px] min-w-[44px] transition-colors"
           >
             {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
           </button>
@@ -450,7 +456,7 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
           MOBILE SLIDE-OUT DRAWER
       ========================================== */}
       {mobileMenuOpen && (
-        <div className="xl:hidden fixed inset-0 top-20 z-50 bg-slate-950/70 backdrop-blur-md transition-opacity">
+        <div className="lg:hidden fixed inset-0 top-20 z-50 bg-slate-950/70 backdrop-blur-md transition-opacity">
           <div className="bg-white dark:bg-slate-950 border-b border-slate-200 dark:border-white/15 max-h-[calc(100dvh-5rem)] overflow-y-auto p-5 pb-8 shadow-2xl flex flex-col justify-between">
             <nav className="flex flex-col space-y-1.5" aria-label="Mobile Navigation">
               {navLinks.map((link) => {

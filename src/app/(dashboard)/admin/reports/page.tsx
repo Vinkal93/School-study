@@ -126,16 +126,19 @@ export default function SchoolAdminReportsPage() {
     setSelectedReport(report);
     setLoading(true);
     try {
+      const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
       const res = await fetch("/api/reports/preview", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+          ...(firebaseUser?.uid ? { "x-user-id": firebaseUser.uid } : {}),
+        },
         body: JSON.stringify({
           reportType: report.type,
           schoolId,
           filters: { search, status: statusFilter },
           userPlanTier: planTier,
-          actorId: profile?.email || firebaseUser?.uid || "admin",
-          actorRole: "school_admin",
         }),
       });
 
@@ -159,17 +162,20 @@ export default function SchoolAdminReportsPage() {
 
     setExportingFormat(format);
     try {
+      const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
       const res = await fetch("/api/reports/export", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+          ...(firebaseUser?.uid ? { "x-user-id": firebaseUser.uid } : {}),
+        },
         body: JSON.stringify({
           reportType: selectedReport.type,
           schoolId,
           format,
           filters: { search, status: statusFilter },
           userPlanTier: planTier,
-          actorId: profile?.email || firebaseUser?.uid || "admin",
-          actorRole: "school_admin",
         }),
       });
 

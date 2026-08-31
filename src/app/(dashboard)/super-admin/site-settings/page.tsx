@@ -44,7 +44,7 @@ import { Footer } from "@/components/footer";
 import { SiteSettingsProvider } from "@/context/SiteSettingsContext";
 
 export default function SuperAdminSiteSettingsPage() {
-  const { profile } = useAuth();
+  const { profile, firebaseUser } = useAuth();
   const [activeTab, setActiveTab] = useState<
     "header" | "footer" | "contact" | "social" | "legal" | "preview" | "history"
   >("header");
@@ -61,7 +61,7 @@ export default function SuperAdminSiteSettingsPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/super-admin/site-settings");
+      const res = await fetch("/api/super-admin/site-settings", { cache: "no-store" });
       if (res.ok) {
         const json = await res.json();
         setPublishedSettings(json.published || DEFAULT_SITE_SETTINGS);
@@ -90,15 +90,20 @@ export default function SuperAdminSiteSettingsPage() {
     let saved = false;
     let savedSettings: SiteSettings | null = null;
 
-    // 1. Try server API route
+    // 1. Try server API route with auth token
     try {
+      const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
       const res = await fetch("/api/super-admin/site-settings", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+          ...(firebaseUser?.uid ? { "x-user-id": firebaseUser.uid } : {}),
+        },
         body: JSON.stringify({
           action: "draft",
           settings,
-          actorId: profile?.email || "super_admin",
+          actorId: profile?.email || firebaseUser?.uid || "super_admin",
         }),
       });
       if (res.ok) {
@@ -123,7 +128,7 @@ export default function SuperAdminSiteSettingsPage() {
           const draft: SiteSettings = {
             ...settings,
             updatedAt: nowIso,
-            updatedBy: profile?.email || "super_admin",
+            updatedBy: profile?.email || firebaseUser?.uid || "super_admin",
             status: "draft",
           };
           await setDoc(doc(clientDb, "siteSettings", "draft"), draft);
@@ -150,15 +155,20 @@ export default function SuperAdminSiteSettingsPage() {
     let published = false;
     let publishedData: SiteSettings | null = null;
 
-    // 1. Try server API route
+    // 1. Try server API route with auth token
     try {
+      const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
       const res = await fetch("/api/super-admin/site-settings", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+          ...(firebaseUser?.uid ? { "x-user-id": firebaseUser.uid } : {}),
+        },
         body: JSON.stringify({
           action: "publish",
           settings,
-          actorId: profile?.email || "super_admin",
+          actorId: profile?.email || firebaseUser?.uid || "super_admin",
         }),
       });
       if (res.ok) {
@@ -185,7 +195,7 @@ export default function SuperAdminSiteSettingsPage() {
             ...settings,
             version: nextVersion,
             updatedAt: nowIso,
-            updatedBy: profile?.email || "super_admin",
+            updatedBy: profile?.email || firebaseUser?.uid || "super_admin",
             status: "published",
           };
           await setDoc(doc(clientDb, "siteSettings", "global"), pub);
@@ -202,7 +212,6 @@ export default function SuperAdminSiteSettingsPage() {
     if (published && publishedData) {
       setPublishedSettings(publishedData);
       setSettings(publishedData);
-      await loadData();
       setStatusMessage({ type: "success", text: `Published Version ${publishedData.version} live to website!` });
     } else {
       setStatusMessage({ type: "error", text: "Failed to publish site settings. Please check your connection and try again." });

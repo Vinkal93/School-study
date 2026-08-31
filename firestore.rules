@@ -3,183 +3,306 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper: Is user logged in?
+    // ==========================================
+    // SECURITY HELPER FUNCTIONS
+    // ==========================================
+
+    // Helper: Is user authenticated?
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    // Helper: Check if caller is super_admin
+    // Helper: Is user Super Admin?
     function isSuperAdmin() {
       return isAuthenticated() && (
+        request.auth.token.get('role', '') == 'super_admin' ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'super_admin') ||
-        request.auth.token.get('role', '') == 'super_admin'
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'super_admin')
+      );
+    }
+
+    // Helper: Does user belong to target school?
+    function isSchoolMember(schoolId) {
+      return isAuthenticated() && (
+        isSuperAdmin() ||
+        request.auth.token.get('schoolId', '') == schoolId ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('schoolId', '') == schoolId)
+      );
+    }
+
+    // Helper: Is user School Admin for target school?
+    function isSchoolAdmin(schoolId) {
+      return isAuthenticated() && (
+        isSuperAdmin() ||
+        (isSchoolMember(schoolId) && (
+          request.auth.token.get('role', '') == 'admin' ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'admin')
+        ))
+      );
+    }
+
+    // Helper: Is user updating their own profile without escalating role/school?
+    function isSelfProfileValid(userId) {
+      return isAuthenticated() && request.auth.uid == userId && (
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'schoolId', 'status'])
       );
     }
 
     // ==========================================
-    // PAYMENT SETTINGS & CONFIG
+    // 1. USERS COLLECTION
     // ==========================================
-    match /paymentSettings/{docId} {
-      allow read, write: if true;
-    }
+    match /users/{userId} {
+      // User can read own doc; School Admin can read members of own school; Super Admin can read all
+      allow read: if isAuthenticated() && (
+        request.auth.uid == userId ||
+        isSuperAdmin() ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', '')))
+      );
 
-    // ==========================================
-    // PLANS & CATALOG
-    // ==========================================
-    match /plans/{planId} {
-      allow read, write: if true;
-    }
+      // Create: User can create own profile upon registration; Super Admin can create any
+      allow create: if isAuthenticated() && (
+        request.auth.uid == userId ||
+        isSuperAdmin()
+      );
 
-    match /planVersions/{versionId} {
-      allow read, write: if true;
-    }
+      // Update: User can update own profile (without role escalation); Super Admin can update any
+      allow update: if isSuperAdmin() || isSelfProfileValid(userId);
 
-    match /featureDefinitions/{featId} {
-      allow read, write: if true;
-    }
-
-    match /accessPolicies/{policyId} {
-      allow read, write: if true;
+      // Delete: Super Admin only
+      allow delete: if isSuperAdmin();
     }
 
     // ==========================================
-    // SUBSCRIPTIONS & MULTI-TENANT BILLING
+    // 2. SCHOOLS & TENANT SUBCOLLECTIONS
+    // ==========================================
+    match /schools/{schoolId} {
+      // Read: Members of the school or Super Admin
+      allow read: if isSchoolMember(schoolId);
+
+      // Write/Create/Delete: School Admin for own school or Super Admin
+      allow write: if isSchoolAdmin(schoolId);
+
+      // Nested Tenant Subcollections (students, teachers, classes, attendance, notices, fees, etc.)
+      match /{collection}/{docId} {
+        allow read: if isSchoolMember(schoolId);
+        allow write: if isSchoolAdmin(schoolId);
+      }
+    }
+
+    // ==========================================
+    // 3. SUBSCRIPTIONS, ORDERS & INVOICES
     // ==========================================
     match /schoolSubscriptions/{schoolId} {
-      allow read, write: if true;
+      allow read: if isSchoolMember(schoolId);
+      allow write: if isSuperAdmin();
 
       match /history/{historyId} {
-        allow read, write: if true;
+        allow read: if isSchoolMember(schoolId);
+        allow write: if isSuperAdmin();
       }
     }
 
     match /orders/{orderId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+      );
+      allow write: if isSuperAdmin();
     }
 
     match /payments/{paymentId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+      );
+      allow write: if isSuperAdmin();
     }
 
     match /invoices/{invoiceId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+      );
+      allow write: if isSuperAdmin();
     }
 
     match /financeTransactions/{txId} {
-      allow read, write: if true;
-    }
-
-    match /coupons/{couponId} {
-      allow read, write: if true;
-    }
-
-    match /couponRedemptions/{redemptionId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+      );
+      allow write: if isSuperAdmin();
     }
 
     match /refunds/{refundId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+      );
+      allow write: if isSuperAdmin();
     }
 
     match /disputes/{disputeId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+      );
+      allow write: if isSuperAdmin();
     }
 
-    match /subscriptionAdjustments/{adjId} {
-      allow read, write: if true;
+    match /coupons/{couponId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
     }
 
-    match /accessOverrides/{overrideId} {
-      allow read, write: if true;
+    match /couponRedemptions/{redemptionId} {
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+      );
+      allow write: if isSuperAdmin();
     }
 
-    match /limitOverrides/{overrideId} {
-      allow read, write: if true;
+    // ==========================================
+    // 4. PRICING PLANS & FEATURE DEFINITIONS
+    // ==========================================
+    match /plans/{planId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
     }
 
-    match /penalties/{penaltyId} {
-      allow read, write: if true;
+    match /planVersions/{versionId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
     }
 
-    match /financialAdjustments/{finId} {
-      allow read, write: if true;
+    match /featureDefinitions/{featId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    match /accessPolicies/{policyId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
     }
 
     match /customOffers/{offerId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
     }
 
     match /customPlanAccess/{accessId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    match /accessOverrides/{overrideId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    match /limitOverrides/{overrideId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    match /penalties/{penaltyId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    match /financialAdjustments/{finId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    match /subscriptionAdjustments/{adjId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
     }
 
     // ==========================================
-    // CMS & SITE CONTROL
+    // 5. PAYMENT SETTINGS & CONFIGURATION
+    // ==========================================
+    match /paymentSettings/{docId} {
+      allow read: if isSuperAdmin();
+      allow write: if isSuperAdmin();
+    }
+
+    // ==========================================
+    // 6. CMS & SITE SETTINGS
     // ==========================================
     match /siteSettings/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isSuperAdmin();
     }
 
     match /siteSettingsVersions/{versionId} {
-      allow read, write: if true;
+      allow read: if isSuperAdmin();
+      allow write: if isSuperAdmin();
     }
 
     // ==========================================
-    // CONTACT INQUIRIES & CRM
+    // 7. CONTACT INQUIRIES & CRM
     // ==========================================
-    match /contactInquiries/{inquiryId} {
-      allow read, write: if true;
+    match /inquiries/{inquiryId} {
+      allow create: if true; // Public contact form submission
+      allow read, update, delete: if isSuperAdmin();
 
       match /notes/{noteId} {
-        allow read, write: if true;
+        allow read, write: if isSuperAdmin();
+      }
+
+      match /activities/{activityId} {
+        allow create: if true;
+        allow read, update, delete: if isSuperAdmin();
+      }
+    }
+
+    match /contactInquiries/{inquiryId} {
+      allow create: if true; // Legacy contact form mirror
+      allow read, update, delete: if isSuperAdmin();
+
+      match /notes/{noteId} {
+        allow read, write: if isSuperAdmin();
       }
     }
 
     // ==========================================
-    // USERS COLLECTION
-    // ==========================================
-    match /users/{userId} {
-      allow read, write: if true;
-    }
-
-    // ==========================================
-    // SCHOOLS & SUBCOLLECTIONS
-    // ==========================================
-    match /schools/{schoolId} {
-      allow read, write: if true;
-
-      match /{collection}/{docId} {
-        allow read, write: if true;
-      }
-    }
-
-    // ==========================================
-    // AUDIT LOGS & PLATFORM COLLECTIONS
+    // 8. AUDIT & LOGGING (IMMUTABLE APPEND-ONLY)
     // ==========================================
     match /audit_logs/{logId} {
-      allow read, write: if true;
+      allow read: if isSuperAdmin();
+      allow create: if isAuthenticated() || isSuperAdmin();
+      allow update, delete: if false; // Immutable
     }
 
     match /login_logs/{logId} {
-      allow read, write: if true;
+      allow read: if isSuperAdmin();
+      allow create: if isAuthenticated();
+      allow update, delete: if false; // Immutable
     }
 
     match /activity_logs/{logId} {
-      allow read, write: if true;
+      allow read: if isSuperAdmin();
+      allow create: if isAuthenticated();
+      allow update, delete: if false; // Immutable
     }
 
     match /account_restrictions/{docId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
     }
 
     match /platform_analytics/{docId} {
-      allow read, write: if true;
+      allow read, write: if isSuperAdmin();
     }
 
     // Fallback: Disallow anything unspecified
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if isSuperAdmin();
     }
   }
 }

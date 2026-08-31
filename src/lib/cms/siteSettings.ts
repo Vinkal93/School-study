@@ -217,6 +217,36 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
  * Public Source of Truth: Reads published site settings.
  */
 export async function getPublicSiteSettings(): Promise<SiteSettings> {
+  // 1. Try Firebase Admin on server if available
+  try {
+    if (typeof window === "undefined") {
+      const { adminDb } = await import("@/lib/firebase/admin");
+      if (adminDb) {
+        const snap = await adminDb.collection("siteSettings").doc("global").get();
+        if (snap.exists) {
+          const data = snap.data() as SiteSettings;
+          return {
+            ...DEFAULT_SITE_SETTINGS,
+            ...data,
+            header: {
+              ...DEFAULT_SITE_SETTINGS.header,
+              ...(data.header || {}),
+              navigation: data.header?.navigation || DEFAULT_SITE_SETTINGS.header.navigation,
+            },
+            footer: {
+              ...DEFAULT_SITE_SETTINGS.footer,
+              ...(data.footer || {}),
+              columns: data.footer?.columns || DEFAULT_SITE_SETTINGS.footer.columns,
+            },
+          };
+        }
+      }
+    }
+  } catch (adminErr) {
+    // Non-blocking fallback to client SDK
+  }
+
+  // 2. Client SDK query
   const db = getFirebaseDb();
   if (!db) return DEFAULT_SITE_SETTINGS;
 
@@ -225,7 +255,21 @@ export async function getPublicSiteSettings(): Promise<SiteSettings> {
     const snap = await getDoc(docRef);
 
     if (snap.exists()) {
-      return { ...DEFAULT_SITE_SETTINGS, ...snap.data() } as SiteSettings;
+      const data = snap.data() as SiteSettings;
+      return {
+        ...DEFAULT_SITE_SETTINGS,
+        ...data,
+        header: {
+          ...DEFAULT_SITE_SETTINGS.header,
+          ...(data.header || {}),
+          navigation: data.header?.navigation || DEFAULT_SITE_SETTINGS.header.navigation,
+        },
+        footer: {
+          ...DEFAULT_SITE_SETTINGS.footer,
+          ...(data.footer || {}),
+          columns: data.footer?.columns || DEFAULT_SITE_SETTINGS.footer.columns,
+        },
+      };
     }
   } catch (err) {
     console.error("Failed to fetch public site settings from Firestore:", err);
@@ -238,9 +282,6 @@ export async function getPublicSiteSettings(): Promise<SiteSettings> {
  * Super Admin: Saves a draft configuration.
  */
 export async function saveSiteSettingsDraft(settings: SiteSettings, actorId: string): Promise<SiteSettings> {
-  const db = getFirebaseDb();
-  if (!db) throw new Error("Database unavailable.");
-
   const nowIso = new Date().toISOString();
   const draft: SiteSettings = {
     ...settings,
@@ -249,7 +290,24 @@ export async function saveSiteSettingsDraft(settings: SiteSettings, actorId: str
     status: "draft",
   };
 
-  await setDoc(doc(db, "siteSettings", "draft"), draft);
+  // 1. Try Firebase Admin on server
+  try {
+    if (typeof window === "undefined") {
+      const { adminDb } = await import("@/lib/firebase/admin");
+      if (adminDb) {
+        await adminDb.collection("siteSettings").doc("draft").set(draft);
+        return draft;
+      }
+    }
+  } catch (adminErr) {
+    console.warn("Notice: Admin DB draft save notice, using client SDK:", adminErr);
+  }
+
+  // 2. Fallback to client SDK
+  const db = getFirebaseDb();
+  if (db) {
+    await setDoc(doc(db, "siteSettings", "draft"), draft);
+  }
   return draft;
 }
 
@@ -257,9 +315,6 @@ export async function saveSiteSettingsDraft(settings: SiteSettings, actorId: str
  * Super Admin: Publishes the live configuration and archives a version.
  */
 export async function publishSiteSettings(settings: SiteSettings, actorId: string): Promise<SiteSettings> {
-  const db = getFirebaseDb();
-  if (!db) throw new Error("Database unavailable.");
-
   const nowIso = new Date().toISOString();
   const nextVersion = (settings.version || 1) + 1;
 
@@ -271,20 +326,43 @@ export async function publishSiteSettings(settings: SiteSettings, actorId: strin
     status: "published",
   };
 
-  // 1. Update active global doc
-  await setDoc(doc(db, "siteSettings", "global"), published);
-
-  // 2. Archive snapshot in version history
   const versionId = `v${nextVersion}_${Date.now()}`;
-  await setDoc(doc(db, "siteSettingsVersions", versionId), published);
 
-  // 3. Audit Logging
-  await createBillingAuditLog(actorId, "super_admin", "MANUAL_ACCESS_CHANGE", "accessPolicy", "globalSiteSettings", {
-    actionType: "SITE_SETTINGS_PUBLISHED",
-    version: nextVersion,
-    versionId,
-    timestamp: nowIso,
-  });
+  // 1. Try Firebase Admin on server
+  try {
+    if (typeof window === "undefined") {
+      const { adminDb } = await import("@/lib/firebase/admin");
+      if (adminDb) {
+        await adminDb.collection("siteSettings").doc("global").set(published);
+        await adminDb.collection("siteSettingsVersions").doc(versionId).set(published);
+
+        await createBillingAuditLog(actorId, "super_admin", "MANUAL_ACCESS_CHANGE", "accessPolicy", "globalSiteSettings", {
+          actionType: "SITE_SETTINGS_PUBLISHED",
+          version: nextVersion,
+          versionId,
+          timestamp: nowIso,
+        }).catch(() => {});
+
+        return published;
+      }
+    }
+  } catch (adminErr) {
+    console.warn("Notice: Admin DB publish notice, using client SDK:", adminErr);
+  }
+
+  // 2. Fallback to client SDK
+  const db = getFirebaseDb();
+  if (db) {
+    await setDoc(doc(db, "siteSettings", "global"), published);
+    await setDoc(doc(db, "siteSettingsVersions", versionId), published);
+
+    await createBillingAuditLog(actorId, "super_admin", "MANUAL_ACCESS_CHANGE", "accessPolicy", "globalSiteSettings", {
+      actionType: "SITE_SETTINGS_PUBLISHED",
+      version: nextVersion,
+      versionId,
+      timestamp: nowIso,
+    }).catch(() => {});
+  }
 
   return published;
 }

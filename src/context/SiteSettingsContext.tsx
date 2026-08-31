@@ -45,6 +45,41 @@ export function SiteSettingsProvider({
 
   useEffect(() => {
     fetchSettings();
+
+    // Attach Realtime listener to siteSettings/global
+    try {
+      const db = getFirebaseDb();
+      if (db) {
+        const unsubscribe = onSnapshot(
+          doc(db, "siteSettings", "global"),
+          (snapshot) => {
+            if (snapshot.exists()) {
+              const data = snapshot.data() as SiteSettings;
+              setSettings({
+                ...DEFAULT_SITE_SETTINGS,
+                ...data,
+                header: {
+                  ...DEFAULT_SITE_SETTINGS.header,
+                  ...(data.header || {}),
+                  navigation: data.header?.navigation || DEFAULT_SITE_SETTINGS.header.navigation,
+                },
+                footer: {
+                  ...DEFAULT_SITE_SETTINGS.footer,
+                  ...(data.footer || {}),
+                  columns: data.footer?.columns || DEFAULT_SITE_SETTINGS.footer.columns,
+                },
+              });
+            }
+          },
+          (err) => {
+            console.warn("Notice: Realtime site settings listener notice:", err?.message);
+          }
+        );
+        return () => unsubscribe();
+      }
+    } catch (e) {
+      // Non-blocking fallback
+    }
   }, []);
 
   return (

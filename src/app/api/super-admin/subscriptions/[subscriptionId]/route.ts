@@ -32,6 +32,10 @@ export async function GET(
       return NextResponse.json({ error: "Subscription ID is required." }, { status: 400 });
     }
 
+    const { requireSuperAdmin } = await import("@/lib/auth/serverAuth");
+    const auth = await requireSuperAdmin(request);
+    if (auth.errorResponse) return auth.errorResponse;
+
     const subscription = await getCurrentSubscription(subscriptionId);
     const resolvedState = resolveSubscriptionStatus(subscription);
     const history = await getSubscriptionHistory(subscriptionId);

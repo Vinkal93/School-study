@@ -2,23 +2,27 @@ import { NextResponse } from "next/server";
 import { generateSchoolReport, generateGlobalSuperAdminReport } from "@/lib/reports/reportEngine";
 import type { SchoolReportType, SuperAdminReportType } from "@/types/reports";
 import { createBillingAuditLog } from "@/lib/billing/audit";
+import { requireSchoolAdmin, requireSuperAdmin } from "@/lib/auth/serverAuth";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { reportType, schoolId, filters = {}, userPlanTier = "PROFESSIONAL", actorId = "admin", actorRole = "school_admin" } = body;
+    const { reportType, schoolId, filters = {}, userPlanTier = "PROFESSIONAL" } = body;
 
     if (!reportType) {
       return NextResponse.json({ error: "reportType is required." }, { status: 400 });
     }
 
     let reportResult;
+    let actorId = "system";
+    let actorRole = "admin";
 
     // 1. Global Super Admin Reports
     if (reportType.startsWith("GLOBAL_")) {
-      if (actorRole !== "super_admin") {
-        return NextResponse.json({ error: "Unauthorized. Global platform reports require Super Admin role." }, { status: 403 });
-      }
+      const auth = await requireSuperAdmin(request);
+      if (auth.errorResponse) return auth.errorResponse;
+      actorId = auth.user!.uid;
+      actorRole = auth.user!.role;
       reportResult = await generateGlobalSuperAdminReport(reportType as SuperAdminReportType, filters);
     }
     // 2. School-Scoped Reports
@@ -26,18 +30,26 @@ export async function POST(request: Request) {
       if (!schoolId) {
         return NextResponse.json({ error: "schoolId is required for school reports." }, { status: 400 });
       }
+
+      const auth = await requireSchoolAdmin(request, schoolId);
+      if (auth.errorResponse) return auth.errorResponse;
+      actorId = auth.user!.uid;
+      actorRole = auth.user!.role;
+
       reportResult = await generateSchoolReport(schoolId, reportType as SchoolReportType, filters, userPlanTier);
     }
 
     // Audit Logging
-    await createBillingAuditLog(
-      actorId,
-      actorRole,
-      "REPORT_VIEWED" as any,
-      "schoolSubscription",
-      schoolId || "global",
-      { reportType, totalRecords: reportResult.totalRecords, isRestricted: reportResult.isRestricted }
-    );
+    try {
+      await createBillingAuditLog(
+        actorId,
+        actorRole,
+        "REPORT_VIEWED" as any,
+        "schoolSubscription",
+        schoolId || "global",
+        { reportType, totalRecords: reportResult.totalRecords, isRestricted: reportResult.isRestricted }
+      );
+    } catch (e) {}
 
     return NextResponse.json({
       success: true,
