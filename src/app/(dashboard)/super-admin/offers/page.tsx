@@ -126,16 +126,19 @@ export default function SuperAdminOffersPage() {
 
   // Filtered Schools for Selector
   const filteredSchools = useMemo(() => {
-    if (!schoolsList) return [];
-    if (!schoolSearchQuery.trim()) return schoolsList.slice(0, 5);
+    if (!schoolsList || schoolsList.length === 0) return [];
+    if (!schoolSearchQuery.trim()) return schoolsList.slice(0, 10);
     const q = schoolSearchQuery.toLowerCase().trim();
-    return schoolsList.filter(
-      (s: any) =>
-        s.name.toLowerCase().includes(q) ||
-        s.id.toLowerCase().includes(q) ||
-        (s.adminEmail || "").toLowerCase().includes(q) ||
-        (s.adminName || "").toLowerCase().includes(q)
-    );
+    return schoolsList
+      .filter(
+        (s: any) =>
+          (s.name || "").toLowerCase().includes(q) ||
+          (s.id || "").toLowerCase().includes(q) ||
+          (s.adminEmail || "").toLowerCase().includes(q) ||
+          (s.adminName || "").toLowerCase().includes(q) ||
+          (s.code || "").toLowerCase().includes(q)
+      )
+      .slice(0, 15);
   }, [schoolsList, schoolSearchQuery]);
 
   // Selected Plan Object
