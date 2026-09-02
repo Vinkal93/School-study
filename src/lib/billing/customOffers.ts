@@ -11,6 +11,7 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
+import { adminDb } from "@/lib/firebase/admin";
 import type { CustomOfferRecord, OfferStatus, OfferType } from "@/types/reports";
 import { BILLING_COLLECTIONS, getActivePlan } from "./plans";
 import { createBillingAuditLog } from "./audit";
@@ -135,7 +136,16 @@ export async function createCustomOffer(
     updatedAt: now.toISOString(),
   };
 
-  await setDoc(offerRef, offerRecord);
+  if (adminDb) {
+    try {
+      await adminDb.collection(BILLING_COLLECTIONS.CUSTOM_OFFERS || "customOffers").doc(offerId).set(offerRecord);
+    } catch (adminErr) {
+      const db = getFirebaseDb();
+      if (db) await setDoc(offerRef, offerRecord);
+    }
+  } else {
+    await setDoc(offerRef, offerRecord);
+  }
 
   // Write immutable audit log
   await createBillingAuditLog(
@@ -165,15 +175,29 @@ export async function listAllCustomOffers(options?: {
   statusFilter?: string;
   search?: string;
 }): Promise<CustomOfferRecord[]> {
-  const db = getFirebaseDb();
-  if (!db) return [];
-
   try {
-    const snap = await getDocs(collection(db, BILLING_COLLECTIONS.CUSTOM_OFFERS));
+    let rawDocs: any[] = [];
+
+    if (adminDb) {
+      try {
+        const snap = await adminDb.collection(BILLING_COLLECTIONS.CUSTOM_OFFERS || "customOffers").get();
+        rawDocs = snap.docs.map((d) => d.data());
+      } catch (e) {
+        // Fallback to client SDK
+      }
+    }
+
+    if (rawDocs.length === 0) {
+      const db = getFirebaseDb();
+      if (db) {
+        const snap = await getDocs(collection(db, BILLING_COLLECTIONS.CUSTOM_OFFERS));
+        rawDocs = snap.docs.map((d) => d.data());
+      }
+    }
+
     const nowMs = Date.now();
 
-    let list: CustomOfferRecord[] = snap.docs.map((d) => {
-      const data = d.data() as CustomOfferRecord;
+    let list: CustomOfferRecord[] = rawDocs.map((data) => {
       let computedStatus = data.status || "ACTIVE";
 
       // Temporal Expiry Check
@@ -291,6 +315,31 @@ export async function deactivateCustomOffer(
   offerId: string,
   actorId: string = "super_admin"
 ): Promise<CustomOfferRecord> {
+  if (adminDb) {
+    try {
+      const docRef = adminDb.collection(BILLING_COLLECTIONS.CUSTOM_OFFERS || "customOffers").doc(offerId);
+      const snap = await docRef.get();
+      if (snap.exists) {
+        const offer = snap.data() as CustomOfferRecord;
+        await docRef.update({
+          status: "DEACTIVATED",
+          updatedAt: new Date().toISOString(),
+        });
+        await createBillingAuditLog(
+          actorId,
+          "super_admin",
+          "CUSTOM_OFFER_DEACTIVATED" as any,
+          "schoolSubscription",
+          offer.schoolId,
+          { offerId, schoolName: offer.schoolName }
+        );
+        return { ...offer, status: "DEACTIVATED" };
+      }
+    } catch (e) {
+      // Fallback to client SDK
+    }
+  }
+
   const db = getFirebaseDb();
   if (!db) throw new Error("Database service unavailable.");
 
