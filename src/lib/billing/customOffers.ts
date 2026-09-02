@@ -12,19 +12,6 @@ import {
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import type { CustomOfferRecord, OfferStatus, OfferType } from "@/types/reports";
-
-/**
- * Server-only dynamic loader for Firebase Admin DB to prevent bundling in client components.
- */
-async function getAdminDbInstance() {
-  if (typeof window !== "undefined") return null;
-  try {
-    const adminModule = await import("@/lib/firebase/admin");
-    return adminModule.adminDb || null;
-  } catch (e) {
-    return null;
-  }
-}
 import { BILLING_COLLECTIONS, getActivePlan } from "./plans";
 import { createBillingAuditLog } from "./audit";
 import { updateSchoolSubscription } from "./subscriptions";
@@ -156,13 +143,8 @@ export async function createCustomOffer(
   memoryOffersStore.set(offerId, offerRecord);
 
   try {
-    const adminDb = await getAdminDbInstance();
-    if (adminDb) {
-      await adminDb.collection(BILLING_COLLECTIONS.CUSTOM_OFFERS || "customOffers").doc(offerId).set(offerRecord);
-    } else {
-      const db = getFirebaseDb();
-      if (db) await setDoc(offerRef, offerRecord);
-    }
+    const db = getFirebaseDb();
+    if (db) await setDoc(offerRef, offerRecord);
   } catch (writeErr: any) {
     console.warn("Notice: Firestore offer write fallback to memory store:", writeErr?.message);
   }
@@ -197,27 +179,15 @@ export async function listAllCustomOffers(options?: {
 }): Promise<CustomOfferRecord[]> {
   try {
     let rawDocs: any[] = [];
-    const adminDb = await getAdminDbInstance();
 
-    if (adminDb) {
-      try {
-        const snap = await adminDb.collection(BILLING_COLLECTIONS.CUSTOM_OFFERS || "customOffers").get();
+    try {
+      const db = getFirebaseDb();
+      if (db) {
+        const snap = await getDocs(collection(db, BILLING_COLLECTIONS.CUSTOM_OFFERS));
         rawDocs = snap.docs.map((d) => d.data());
-      } catch (e) {
-        // Fallback to client SDK
       }
-    }
-
-    if (rawDocs.length === 0) {
-      try {
-        const db = getFirebaseDb();
-        if (db) {
-          const snap = await getDocs(collection(db, BILLING_COLLECTIONS.CUSTOM_OFFERS));
-          rawDocs = snap.docs.map((d) => d.data());
-        }
-      } catch (e) {
-        // Fallback to in-memory store
-      }
+    } catch (e) {
+      // Fallback to in-memory store
     }
 
     // Merge in-memory store offers if not present
@@ -347,32 +317,6 @@ export async function deactivateCustomOffer(
   offerId: string,
   actorId: string = "super_admin"
 ): Promise<CustomOfferRecord> {
-  const adminDb = await getAdminDbInstance();
-  if (adminDb) {
-    try {
-      const docRef = adminDb.collection(BILLING_COLLECTIONS.CUSTOM_OFFERS || "customOffers").doc(offerId);
-      const snap = await docRef.get();
-      if (snap.exists) {
-        const offer = snap.data() as CustomOfferRecord;
-        await docRef.update({
-          status: "DEACTIVATED",
-          updatedAt: new Date().toISOString(),
-        });
-        await createBillingAuditLog(
-          actorId,
-          "super_admin",
-          "CUSTOM_OFFER_DEACTIVATED" as any,
-          "schoolSubscription",
-          offer.schoolId,
-          { offerId, schoolName: offer.schoolName }
-        );
-        return { ...offer, status: "DEACTIVATED" };
-      }
-    } catch (e) {
-      // Fallback to client SDK
-    }
-  }
-
   const db = getFirebaseDb();
   if (!db) throw new Error("Database service unavailable.");
 

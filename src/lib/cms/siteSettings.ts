@@ -217,36 +217,6 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
  * Public Source of Truth: Reads published site settings.
  */
 export async function getPublicSiteSettings(): Promise<SiteSettings> {
-  // 1. Try Firebase Admin on server if available
-  try {
-    if (typeof window === "undefined") {
-      const { adminDb } = await import("@/lib/firebase/admin");
-      if (adminDb) {
-        const snap = await adminDb.collection("siteSettings").doc("global").get();
-        if (snap.exists) {
-          const data = snap.data() as SiteSettings;
-          return {
-            ...DEFAULT_SITE_SETTINGS,
-            ...data,
-            header: {
-              ...DEFAULT_SITE_SETTINGS.header,
-              ...(data.header || {}),
-              navigation: data.header?.navigation || DEFAULT_SITE_SETTINGS.header.navigation,
-            },
-            footer: {
-              ...DEFAULT_SITE_SETTINGS.footer,
-              ...(data.footer || {}),
-              columns: data.footer?.columns || DEFAULT_SITE_SETTINGS.footer.columns,
-            },
-          };
-        }
-      }
-    }
-  } catch (adminErr) {
-    // Non-blocking fallback to client SDK
-  }
-
-  // 2. Client SDK query
   const db = getFirebaseDb();
   if (!db) return DEFAULT_SITE_SETTINGS;
 
@@ -290,20 +260,7 @@ export async function saveSiteSettingsDraft(settings: SiteSettings, actorId: str
     status: "draft",
   };
 
-  // 1. Try Firebase Admin on server
-  try {
-    if (typeof window === "undefined") {
-      const { adminDb } = await import("@/lib/firebase/admin");
-      if (adminDb) {
-        await adminDb.collection("siteSettings").doc("draft").set(draft);
-        return draft;
-      }
-    }
-  } catch (adminErr) {
-    console.warn("Notice: Admin DB draft save notice, using client SDK:", adminErr);
-  }
-
-  // 2. Fallback to client SDK
+  // Client SDK write
   const db = getFirebaseDb();
   if (db) {
     await setDoc(doc(db, "siteSettings", "draft"), draft);
@@ -328,29 +285,7 @@ export async function publishSiteSettings(settings: SiteSettings, actorId: strin
 
   const versionId = `v${nextVersion}_${Date.now()}`;
 
-  // 1. Try Firebase Admin on server
-  try {
-    if (typeof window === "undefined") {
-      const { adminDb } = await import("@/lib/firebase/admin");
-      if (adminDb) {
-        await adminDb.collection("siteSettings").doc("global").set(published);
-        await adminDb.collection("siteSettingsVersions").doc(versionId).set(published);
-
-        await createBillingAuditLog(actorId, "super_admin", "MANUAL_ACCESS_CHANGE", "accessPolicy", "globalSiteSettings", {
-          actionType: "SITE_SETTINGS_PUBLISHED",
-          version: nextVersion,
-          versionId,
-          timestamp: nowIso,
-        }).catch(() => {});
-
-        return published;
-      }
-    }
-  } catch (adminErr) {
-    console.warn("Notice: Admin DB publish notice, using client SDK:", adminErr);
-  }
-
-  // 2. Fallback to client SDK
+  // Client SDK write
   const db = getFirebaseDb();
   if (db) {
     await setDoc(doc(db, "siteSettings", "global"), published);
