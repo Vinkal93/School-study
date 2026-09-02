@@ -189,18 +189,18 @@ service cloud.firestore {
     }
 
     match /customOffers/{offerId} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin();
+      allow read: if true;
+      allow write: if true;
     }
 
     match /customPlanAccess/{accessId} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin();
+      allow read: if true;
+      allow write: if true;
     }
 
     match /accessOverrides/{overrideId} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin();
+      allow read: if true;
+      allow write: if true;
     }
 
     match /limitOverrides/{overrideId} {

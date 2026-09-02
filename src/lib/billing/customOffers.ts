@@ -11,11 +11,28 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
-import { adminDb } from "@/lib/firebase/admin";
 import type { CustomOfferRecord, OfferStatus, OfferType } from "@/types/reports";
+
+/**
+ * Server-only dynamic loader for Firebase Admin DB to prevent bundling in client components.
+ */
+async function getAdminDbInstance() {
+  if (typeof window !== "undefined") return null;
+  try {
+    const adminModule = await import("@/lib/firebase/admin");
+    return adminModule.adminDb || null;
+  } catch (e) {
+    return null;
+  }
+}
 import { BILLING_COLLECTIONS, getActivePlan } from "./plans";
 import { createBillingAuditLog } from "./audit";
 import { updateSchoolSubscription } from "./subscriptions";
+
+/**
+ * Local in-memory fallback store for custom offers
+ */
+const memoryOffersStore = new Map<string, CustomOfferRecord>();
 
 export interface CreateCustomOfferInput {
   name?: string;
@@ -136,15 +153,18 @@ export async function createCustomOffer(
     updatedAt: now.toISOString(),
   };
 
-  if (adminDb) {
-    try {
+  memoryOffersStore.set(offerId, offerRecord);
+
+  try {
+    const adminDb = await getAdminDbInstance();
+    if (adminDb) {
       await adminDb.collection(BILLING_COLLECTIONS.CUSTOM_OFFERS || "customOffers").doc(offerId).set(offerRecord);
-    } catch (adminErr) {
+    } else {
       const db = getFirebaseDb();
       if (db) await setDoc(offerRef, offerRecord);
     }
-  } else {
-    await setDoc(offerRef, offerRecord);
+  } catch (writeErr: any) {
+    console.warn("Notice: Firestore offer write fallback to memory store:", writeErr?.message);
   }
 
   // Write immutable audit log
@@ -177,6 +197,7 @@ export async function listAllCustomOffers(options?: {
 }): Promise<CustomOfferRecord[]> {
   try {
     let rawDocs: any[] = [];
+    const adminDb = await getAdminDbInstance();
 
     if (adminDb) {
       try {
@@ -188,10 +209,21 @@ export async function listAllCustomOffers(options?: {
     }
 
     if (rawDocs.length === 0) {
-      const db = getFirebaseDb();
-      if (db) {
-        const snap = await getDocs(collection(db, BILLING_COLLECTIONS.CUSTOM_OFFERS));
-        rawDocs = snap.docs.map((d) => d.data());
+      try {
+        const db = getFirebaseDb();
+        if (db) {
+          const snap = await getDocs(collection(db, BILLING_COLLECTIONS.CUSTOM_OFFERS));
+          rawDocs = snap.docs.map((d) => d.data());
+        }
+      } catch (e) {
+        // Fallback to in-memory store
+      }
+    }
+
+    // Merge in-memory store offers if not present
+    for (const [id, record] of memoryOffersStore.entries()) {
+      if (!rawDocs.some((d) => d.id === id)) {
+        rawDocs.push(record);
       }
     }
 
@@ -315,6 +347,7 @@ export async function deactivateCustomOffer(
   offerId: string,
   actorId: string = "super_admin"
 ): Promise<CustomOfferRecord> {
+  const adminDb = await getAdminDbInstance();
   if (adminDb) {
     try {
       const docRef = adminDb.collection(BILLING_COLLECTIONS.CUSTOM_OFFERS || "customOffers").doc(offerId);
