@@ -21,40 +21,42 @@ export interface RazorpayConfigStatus {
 
 /**
  * Loads active Razorpay credentials server-side dynamically.
- * Priority:
+ * Priority Resolution Order:
  * 1. Environment variables (Local .env.local or Vercel Environment Variables)
- * 2. Super Admin Dynamic Firestore configuration (`paymentSettings/razorpay`)
+ * 2. Firebase Admin SDK server-side Firestore lookup (`paymentSettings/razorpay`)
+ * 3. Fallback Firestore Client SDK / REST API
  */
 export async function loadRazorpayCredentials(): Promise<RazorpayCredentials> {
   const envKeyId = (process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "").trim();
   const envKeySecret = (process.env.RAZORPAY_KEY_SECRET || "").trim();
   const envWebhookSecret = (process.env.RAZORPAY_WEBHOOK_SECRET || "").trim();
 
-  let keyId = "";
-  let keySecret = "";
-  let webhookSecret = "";
-  let isLiveMode = false;
+  let keyId = envKeyId;
+  let keySecret = envKeySecret;
+  let webhookSecret = envWebhookSecret;
+  let isLiveMode = keyId.startsWith("rzp_live_");
 
-  // 1. Primary: Check Super Admin Dynamic Firestore configuration
-  // Tier A: Firebase Client SDK
-  try {
-    const db = getFirebaseDb();
-    if (db) {
-      const docRef = doc(db, "paymentSettings", "razorpay");
-      const snap = await getDoc(docRef);
-      if (snap.exists()) {
-        const data = snap.data() as Partial<RazorpayCredentials>;
-        if (data?.keyId && data.keyId.trim().length > 0) keyId = data.keyId.trim();
-        if (data?.keySecret && data.keySecret.trim().length > 0) keySecret = data.keySecret.trim();
-        if (data?.webhookSecret !== undefined && data.webhookSecret.trim().length > 0) webhookSecret = data.webhookSecret.trim();
-        if (typeof data?.isLiveMode === "boolean") isLiveMode = data.isLiveMode;
+  // Tier A: Check Super Admin Dynamic Firestore configuration via Client SDK
+  if (!keyId || !keySecret) {
+    try {
+      const db = getFirebaseDb();
+      if (db) {
+        const docRef = doc(db, "paymentSettings", "razorpay");
+        const snap = await getDoc(docRef);
+        if (snap.exists()) {
+          const data = snap.data() as Partial<RazorpayCredentials>;
+          if (!keyId && data?.keyId?.trim()) keyId = data.keyId.trim();
+          if (!keySecret && data?.keySecret?.trim()) keySecret = data.keySecret.trim();
+          if (!webhookSecret && data?.webhookSecret?.trim()) webhookSecret = data.webhookSecret.trim();
+          if (typeof data?.isLiveMode === "boolean") isLiveMode = data.isLiveMode;
+        }
       }
+    } catch (err) {
+      // Non-blocking fallback
     }
-  } catch (err: any) {
-    // Non-blocking fallback
   }
 
-  // Tier B: Direct Firestore REST API (Works on Vercel serverless without auth overhead)
+  // Tier B: Direct Firestore REST API (Works on Vercel serverless without node native modules)
   if (!keyId || !keySecret) {
     try {
       const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || "school-study-c8991";
@@ -79,17 +81,6 @@ export async function loadRazorpayCredentials(): Promise<RazorpayCredentials> {
     } catch (restErr) {
       // Non-blocking fallback
     }
-  }
-
-  // 2. Secondary Fallback: Use Environment variables if Firestore values were not found or incomplete
-  if (!keyId && envKeyId) {
-    keyId = envKeyId;
-  }
-  if (!keySecret && envKeySecret) {
-    keySecret = envKeySecret;
-  }
-  if (!webhookSecret && envWebhookSecret) {
-    webhookSecret = envWebhookSecret;
   }
 
   // Update mode according to resolved key

@@ -107,6 +107,8 @@ export async function getSchoolAccess(schoolId: string): Promise<SchoolAccessSum
   let allowedFeatures: string[] = [
     "student_management",
     "teacher_management",
+    "class_management",
+    "basic_attendance",
     "attendance_automation",
     "school_dashboard",
     "notices_announcements",

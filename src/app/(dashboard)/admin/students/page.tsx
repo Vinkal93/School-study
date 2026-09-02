@@ -41,9 +41,14 @@ import { checkPlanLimit } from "@/lib/billing";
 import type { StudentProfile, SchoolClass, Gender, PlanLimitCheckResult } from "@/types";
 import { toast } from "sonner";
 
+import { useEntitlement } from "@/context/EntitlementContext";
+import { EntitlementGate } from "@/components/common/EntitlementGate";
+
 export default function AdminStudentsPage() {
   const { profile } = useAuth();
   const schoolId = profile?.schoolId || "";
+  const { canAccess } = useEntitlement();
+  const isAllowed = profile?.role === "super_admin" || canAccess("student_management");
 
   // 1. SWR Queries with Stale-While-Revalidate caching
   const {
@@ -52,15 +57,15 @@ export default function AdminStudentsPage() {
     refetch: refetchStudents,
     setData: setStudentsCache,
   } = useAppQuery<StudentProfile[]>(
-    schoolId ? `students:${schoolId}` : null,
+    schoolId && isAllowed ? `students:${schoolId}` : null,
     () => getStudents(schoolId),
-    { enabled: !!schoolId, staleTime: 30_000 }
+    { enabled: !!schoolId && isAllowed, staleTime: 30_000 }
   );
 
   const { data: cachedClasses, isLoading: isClassesLoading } = useAppQuery<SchoolClass[]>(
-    schoolId ? `classes:${schoolId}` : null,
+    schoolId && isAllowed ? `classes:${schoolId}` : null,
     () => getClassesWithSections(schoolId),
-    { enabled: !!schoolId, staleTime: 60_000 }
+    { enabled: !!schoolId && isAllowed, staleTime: 60_000 }
   );
 
   const { data: cachedLimit, refetch: refetchLimit } = useAppQuery<PlanLimitCheckResult>(
@@ -295,17 +300,25 @@ export default function AdminStudentsPage() {
   const totalGirls = students.filter((s) => s.gender === "female").length;
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Student Admissions & Directory
-          </h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Enroll students, issue admission numbers, and manage class assignments.
-          </p>
-        </div>
+    <EntitlementGate
+      feature="student_management"
+      limitKey="students"
+      currentCount={students.length}
+      title="Student Directory & Admissions"
+      description="Enroll students, manage student profiles, assign roll numbers, and view guardian contacts."
+      requiredPlan="Starter Plan"
+    >
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+              Student Admissions & Directory
+            </h1>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Enroll students, issue admission numbers, and manage class assignments.
+            </p>
+          </div>
 
         <div className="flex items-center gap-3">
           <button
@@ -318,6 +331,10 @@ export default function AdminStudentsPage() {
           </button>
           <button
             onClick={() => {
+              if (profile?.role !== "super_admin" && !canAccess("student_management")) {
+                toast.error("Student Management is not included in your current plan. Please upgrade to unlock.");
+                return;
+              }
               if (limitStatus && !limitStatus.allowed) {
                 toast.error(
                   `Student enrollment limit reached (${limitStatus.current}/${limitStatus.limit}). Upgrade plan to enroll more.`
@@ -717,7 +734,8 @@ export default function AdminStudentsPage() {
       ========================================== */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl bg-white p-6 shadow-xl dark:bg-gray-950 border border-gray-200 dark:border-gray-800 space-y-6">
+          <EntitlementGate feature="student_management" title="Student Management Locked" requiredPlan="Starter Plan">
+            <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl bg-white p-6 shadow-xl dark:bg-gray-950 border border-gray-200 dark:border-gray-800 space-y-6">
             <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
               <div>
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white">
@@ -970,8 +988,9 @@ export default function AdminStudentsPage() {
               </div>
             </form>
           </div>
-        </div>
-      )}
+        </EntitlementGate>
+      </div>
+    )}
 
       {/* Photo Update Modal for Existing Students */}
       {photoEditingStudent && (
@@ -1061,6 +1080,7 @@ export default function AdminStudentsPage() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </EntitlementGate>
   );
 }

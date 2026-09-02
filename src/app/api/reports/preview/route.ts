@@ -3,11 +3,12 @@ import { generateSchoolReport, generateGlobalSuperAdminReport } from "@/lib/repo
 import type { SchoolReportType, SuperAdminReportType } from "@/types/reports";
 import { createBillingAuditLog } from "@/lib/billing/audit";
 import { requireSchoolAdmin, requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { requireEntitlement, buildEntitlementErrorResponse } from "@/lib/billing/middleware";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { reportType, schoolId, filters = {}, userPlanTier = "PROFESSIONAL" } = body;
+    const { reportType, schoolId, filters = {} } = body;
 
     if (!reportType) {
       return NextResponse.json({ error: "reportType is required." }, { status: 400 });
@@ -36,7 +37,16 @@ export async function POST(request: Request) {
       actorId = auth.user!.uid;
       actorRole = auth.user!.role;
 
-      reportResult = await generateSchoolReport(schoolId, reportType as SchoolReportType, filters, userPlanTier);
+      // Authoritative Server-Side Entitlement Check
+      if (actorRole !== "super_admin") {
+        try {
+          await requireEntitlement(schoolId, { feature: "advanced_reports" });
+        } catch (entErr: any) {
+          return buildEntitlementErrorResponse(entErr);
+        }
+      }
+
+      reportResult = await generateSchoolReport(schoolId, reportType as SchoolReportType, filters);
     }
 
     // Audit Logging

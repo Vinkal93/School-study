@@ -49,3 +49,15 @@ export async function verifyRazorpayPaymentSignatureAsync(input: VerifySignature
   const secret = creds.keySecret || process.env.RAZORPAY_KEY_SECRET || "";
   return verifyRazorpayPaymentSignature({ ...input, secret });
 }
+
+export function verifyRazorpaySignature(
+  orderId: string,
+  paymentId: string,
+  signature: string
+): boolean {
+  return verifyRazorpayPaymentSignature({
+    razorpay_order_id: orderId,
+    razorpay_payment_id: paymentId,
+    razorpay_signature: signature,
+  });
+}

@@ -108,9 +108,13 @@ const SCHOOL_REPORTS: ReportMetaCard[] = [
   },
 ];
 
+import { useEntitlement } from "@/context/EntitlementContext";
+import { EntitlementGate } from "@/components/common/EntitlementGate";
+
 export default function SchoolAdminReportsPage() {
   const { firebaseUser, profile } = useAuth();
   const schoolId = profile?.schoolId || "";
+  const { canAccess } = useEntitlement();
   const planTier = ((profile as any)?.planTier || "PROFESSIONAL").toUpperCase() as "STARTER" | "PROFESSIONAL" | "ENTERPRISE";
 
   const [selectedReport, setSelectedReport] = useState<ReportMetaCard | null>(null);
@@ -123,6 +127,10 @@ export default function SchoolAdminReportsPage() {
   const [statusFilter, setStatusFilter] = useState("");
 
   const loadReport = async (report: ReportMetaCard) => {
+    if (profile?.role !== "super_admin" && !canAccess("advanced_reports")) {
+      toast.error("Advanced Reports is locked on your current plan.");
+      return;
+    }
     setSelectedReport(report);
     setLoading(true);
     try {
@@ -204,29 +212,35 @@ export default function SchoolAdminReportsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-            <FileText className="h-6 w-6 text-blue-600" />
-            <span>School Reports & Data Export Center</span>
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Generate, analyze, and export real-time verified school records in CSV, Excel, and PDF formats.
-          </p>
-        </div>
+    <EntitlementGate
+      feature="advanced_reports"
+      title="School Reports & Data Export Center"
+      description="Generate, analyze, and export real-time verified school records in CSV, Excel, and PDF formats."
+      requiredPlan="Professional Plan"
+    >
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
+              <FileText className="h-6 w-6 text-blue-600" />
+              <span>School Reports & Data Export Center</span>
+            </h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+              Generate, analyze, and export real-time verified school records in CSV, Excel, and PDF formats.
+            </p>
+          </div>
 
-        <div className="flex items-center gap-3">
-          <Link
-            href="/admin/billing"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 transition-colors"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            <span>Plan: {planTier}</span>
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/admin/billing"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 transition-colors"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              <span>Plan: {planTier}</span>
+            </Link>
+          </div>
         </div>
-      </div>
 
       {/* Reports Directory Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -431,6 +445,7 @@ export default function SchoolAdminReportsPage() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </EntitlementGate>
   );
 }

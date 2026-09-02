@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getFirebaseDb } from "@/lib/firebase/client";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { adminDb } from "@/lib/firebase/admin";
 import { RazorpayCredentials } from "@/lib/payments/razorpay";
 import { createBillingAuditLog } from "@/lib/billing";
 
@@ -18,11 +17,9 @@ export async function GET(request: Request) {
     let isLiveMode = keyId.startsWith("rzp_live_");
 
     try {
-      const db = getFirebaseDb();
-      if (db) {
-        const docRef = doc(db, "paymentSettings", "razorpay");
-        const snap = await getDoc(docRef);
-        if (snap.exists()) {
+      if (adminDb) {
+        const snap = await adminDb.collection("paymentSettings").doc("razorpay").get();
+        if (snap.exists) {
           const data = snap.data() as Partial<RazorpayCredentials>;
           if (data.keyId) keyId = data.keyId;
           if (data.keySecret) keySecret = data.keySecret;
@@ -31,7 +28,7 @@ export async function GET(request: Request) {
         }
       }
     } catch (e) {
-      console.warn("GET Payment Settings lookup notice:", e);
+      console.warn("GET Payment Settings adminDb lookup notice:", e);
     }
 
     return NextResponse.json({
@@ -71,12 +68,10 @@ export async function POST(request: Request) {
     const cleanKeyId = keyId.trim();
 
     let existingData: RazorpayCredentials | null = null;
-    const db = getFirebaseDb();
-    if (db) {
+    if (adminDb) {
       try {
-        const docRef = doc(db, "paymentSettings", "razorpay");
-        const snap = await getDoc(docRef);
-        if (snap.exists()) {
+        const snap = await adminDb.collection("paymentSettings").doc("razorpay").get();
+        if (snap.exists) {
           existingData = snap.data() as RazorpayCredentials;
         }
       } catch (e) {
@@ -149,13 +144,13 @@ export async function POST(request: Request) {
       // Non-blocking in serverless environments
     }
 
-    // 3. Try persisting to Firestore
-    if (db) {
+    // 3. Persist to Firestore via Admin SDK
+    if (adminDb) {
       try {
-        const docRef = doc(db, "paymentSettings", "razorpay");
-        await setDoc(docRef, updatedConfig, { merge: true });
+        await adminDb.collection("paymentSettings").doc("razorpay").set(updatedConfig, { merge: true });
+        console.log("[Razorpay Settings] Persisted credentials via adminDb to paymentSettings/razorpay");
       } catch (firestoreErr) {
-        console.warn("[Razorpay Settings] Firestore write skipped/unauthenticated, credentials persisted in environment.");
+        console.warn("[Razorpay Settings] adminDb write notice:", firestoreErr);
       }
     }
 
@@ -178,6 +173,8 @@ export async function POST(request: Request) {
       keyId: updatedConfig.keyId,
       isSecretSet: updatedConfig.keySecret.length > 0,
       maskedSecretKey: maskSecret(updatedConfig.keySecret),
+      isWebhookSecretSet: updatedConfig.webhookSecret.length > 0,
+      maskedWebhookSecret: maskSecret(updatedConfig.webhookSecret),
       isLiveMode: updatedConfig.isLiveMode,
     });
   } catch (error: any) {

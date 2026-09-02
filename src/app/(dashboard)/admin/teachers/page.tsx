@@ -42,9 +42,14 @@ import { checkPlanLimit } from "@/lib/billing";
 import type { TeacherProfile, SchoolClass, Section, PlanLimitCheckResult } from "@/types";
 import { toast } from "sonner";
 
+import { useEntitlement } from "@/context/EntitlementContext";
+import { EntitlementGate } from "@/components/common/EntitlementGate";
+
 export default function AdminTeachersPage() {
   const { profile } = useAuth();
   const schoolId = profile?.schoolId || "";
+  const { canAccess } = useEntitlement();
+  const isAllowed = profile?.role === "super_admin" || canAccess("teacher_management");
 
   // 1. SWR Queries with Stale-While-Revalidate caching
   const {
@@ -53,15 +58,15 @@ export default function AdminTeachersPage() {
     refetch: refetchTeachers,
     setData: setTeachersCache,
   } = useAppQuery<TeacherProfile[]>(
-    schoolId ? `teachers:${schoolId}` : null,
+    schoolId && isAllowed ? `teachers:${schoolId}` : null,
     () => getTeachers(schoolId),
-    { enabled: !!schoolId, staleTime: 30_000 }
+    { enabled: !!schoolId && isAllowed, staleTime: 30_000 }
   );
 
   const { data: cachedClasses, isLoading: isClassesLoading } = useAppQuery<SchoolClass[]>(
-    schoolId ? `classes:${schoolId}` : null,
+    schoolId && isAllowed ? `classes:${schoolId}` : null,
     () => getClassesWithSections(schoolId),
-    { enabled: !!schoolId, staleTime: 60_000 }
+    { enabled: !!schoolId && isAllowed, staleTime: 60_000 }
   );
 
   const { data: cachedLimit, refetch: refetchLimit } = useAppQuery<PlanLimitCheckResult>(
@@ -335,147 +340,158 @@ export default function AdminTeachersPage() {
   const availableSectionsForAdd =
     classes.find((c) => c.id === selectedClassId)?.sections || [];
 
-  // Sections for currently selected class in Assign Modal
   const availableSectionsForAssign =
     classes.find((c) => c.id === assignClassId)?.sections || [];
 
   const assignedCount = teachers.filter((t) => t.assignedClassId).length;
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Faculty & Teacher Management
-          </h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Onboard teachers, provision login credentials, and assign class teachers.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            onClick={loadData}
-            disabled={loading}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
-          <button
-            onClick={() => {
-              if (limitStatus && !limitStatus.allowed) {
-                toast.error(
-                  `Faculty limit reached (${limitStatus.current}/${limitStatus.limit}). Upgrade plan to add more teachers.`
-                );
-                return;
-              }
-              resetForm();
-              setIsAddModalOpen(true);
-            }}
-            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white shadow-sm transition-all ${
-              limitStatus && !limitStatus.allowed
-                ? "bg-slate-500 hover:bg-slate-600 opacity-90 cursor-pointer"
-                : "bg-blue-600 hover:bg-blue-700"
-            }`}
-          >
-            <Plus className="h-4 w-4" />
-            <span>Add New Teacher</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Plan Capacity Limit Warning Banner */}
-      {limitStatus && !limitStatus.allowed && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/40 p-4 flex items-center justify-between gap-4 text-red-800 dark:text-red-300">
-          <div className="flex items-center gap-3">
-            <XCircle className="h-5 w-5 text-red-600 shrink-0" />
-            <div className="text-xs sm:text-sm">
-              <span className="font-bold">Faculty Capacity Limit Reached ({limitStatus.current}/${limitStatus.limit}). </span>
-              <span>Your school has reached the maximum teacher account limit for your current plan.</span>
-            </div>
-          </div>
-          <Link
-            href="/admin/billing"
-            className="px-3.5 py-1.5 rounded-xl bg-red-600 text-white font-bold text-xs hover:bg-red-700 shrink-0 transition-all shadow-xs"
-          >
-            Upgrade Plan
-          </Link>
-        </div>
-      )}
-
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950 flex items-center gap-4">
-          <div className="rounded-lg bg-blue-50 p-3 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400">
-            <Users className="h-6 w-6" />
-          </div>
+    <EntitlementGate
+      feature="teacher_management"
+      limitKey="teachers"
+      currentCount={teachers.length}
+      title="Faculty & Teacher Management"
+      description="Onboard teachers, provision login credentials, and assign class teachers."
+      requiredPlan="Starter Plan"
+    >
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Total Faculty</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">{teachers.length}</p>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950 flex items-center gap-4">
-          <div className="rounded-lg bg-green-50 p-3 text-green-700 dark:bg-green-900/20 dark:text-green-400">
-            <CheckCircle2 className="h-6 w-6" />
-          </div>
-          <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Active Teachers</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">
-              {teachers.filter((t) => t.status === "active").length}
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+              Faculty & Teacher Management
+            </h1>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Onboard teachers, provision login credentials, and assign class teachers.
             </p>
           </div>
-        </div>
 
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950 flex items-center gap-4">
-          <div className="rounded-lg bg-purple-50 p-3 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400">
-            <UserCheck className="h-6 w-6" />
-          </div>
-          <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Class Teachers Assigned</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">{assignedCount}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Filter & Search */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950 flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="relative w-full sm:w-80">
-          <label htmlFor="teachers-search" className="sr-only">Search name, code, email, class</label>
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-          <input
-            id="teachers-search"
-            name="search"
-            aria-label="Search name, code, email, class"
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search name, code, email, class..."
-            className="w-full rounded-lg border border-gray-300 pl-9 pr-4 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-          />
-        </div>
-
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <span className="text-xs font-medium text-gray-500 dark:text-gray-400 hidden sm:inline-block">
-            Status:
-          </span>
-          {(["all", "active", "inactive"] as const).map((st) => (
+          <div className="flex items-center gap-3">
             <button
-              key={st}
-              onClick={() => setStatusFilter(st)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
-                statusFilter === st
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
+              onClick={loadData}
+              disabled={loading}
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
+            <button
+              onClick={() => {
+                if (profile?.role !== "super_admin" && !canAccess("teacher_management")) {
+                  toast.error("Teacher Management is not included in your current plan. Please upgrade to unlock.");
+                  return;
+                }
+                if (limitStatus && !limitStatus.allowed) {
+                  toast.error(
+                    `Faculty limit reached (${limitStatus.current}/${limitStatus.limit}). Upgrade plan to add more teachers.`
+                  );
+                  return;
+                }
+                resetForm();
+                setIsAddModalOpen(true);
+              }}
+              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white shadow-sm transition-all ${
+                limitStatus && !limitStatus.allowed
+                  ? "bg-slate-500 hover:bg-slate-600 opacity-90 cursor-pointer"
+                  : "bg-blue-600 hover:bg-blue-700"
               }`}
             >
-              {st} ({st === "all" ? teachers.length : teachers.filter((t) => t.status === st).length})
+              <Plus className="h-4 w-4" />
+              <span>Add New Teacher</span>
             </button>
-          ))}
+          </div>
         </div>
-      </div>
+
+        {/* Plan Capacity Limit Warning Banner */}
+        {limitStatus && !limitStatus.allowed && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/40 p-4 flex items-center justify-between gap-4 text-red-800 dark:text-red-300">
+            <div className="flex items-center gap-3">
+              <XCircle className="h-5 w-5 text-red-600 shrink-0" />
+              <div className="text-xs sm:text-sm">
+                <span className="font-bold">Faculty Capacity Limit Reached ({limitStatus.current}/${limitStatus.limit}). </span>
+                <span>Your school has reached the maximum teacher account limit for your current plan.</span>
+              </div>
+            </div>
+            <Link
+              href="/admin/billing"
+              className="px-3.5 py-1.5 rounded-xl bg-red-600 text-white font-bold text-xs hover:bg-red-700 shrink-0 transition-all shadow-xs"
+            >
+              Upgrade Plan
+            </Link>
+          </div>
+        )}
+
+        {/* Metrics Row */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950 flex items-center gap-4">
+            <div className="rounded-lg bg-blue-50 p-3 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400">
+              <Users className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Total Faculty</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">{teachers.length}</p>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950 flex items-center gap-4">
+            <div className="rounded-lg bg-green-50 p-3 text-green-700 dark:bg-green-900/20 dark:text-green-400">
+              <CheckCircle2 className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Active Teachers</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">
+                {teachers.filter((t) => t.status === "active").length}
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950 flex items-center gap-4">
+            <div className="rounded-lg bg-purple-50 p-3 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400">
+              <UserCheck className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Class Teachers Assigned</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">{assignedCount}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Filter & Search */}
+        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="relative w-full sm:w-80">
+            <label htmlFor="teachers-search" className="sr-only">Search name, code, email, class</label>
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+            <input
+              id="teachers-search"
+              name="search"
+              aria-label="Search name, code, email, class"
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search name, code, email, class..."
+              className="w-full rounded-lg border border-gray-300 pl-9 pr-4 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 hidden sm:inline-block">
+              Status:
+            </span>
+            {(["all", "active", "inactive"] as const).map((st) => (
+              <button
+                key={st}
+                onClick={() => setStatusFilter(st)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
+                  statusFilter === st
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
+                }`}
+              >
+                {st} ({st === "all" ? teachers.length : teachers.filter((t) => t.status === st).length})
+              </button>
+            ))}
+          </div>
+        </div>
 
       {/* Teachers Table */}
       {loading ? (
@@ -759,7 +775,8 @@ export default function AdminTeachersPage() {
       ========================================== */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl bg-white p-6 shadow-xl dark:bg-gray-950 border border-gray-200 dark:border-gray-800 space-y-6">
+          <EntitlementGate feature="teacher_management" title="Teacher Management Locked" requiredPlan="Starter Plan">
+            <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl bg-white p-6 shadow-xl dark:bg-gray-950 border border-gray-200 dark:border-gray-800 space-y-6">
             <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
               <div>
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white">
@@ -975,8 +992,9 @@ export default function AdminTeachersPage() {
               </div>
             </form>
           </div>
-        </div>
-      )}
+        </EntitlementGate>
+      </div>
+    )}
 
       {/* ==========================================
           MODAL: EDIT CLASS ASSIGNMENT
@@ -1151,6 +1169,7 @@ export default function AdminTeachersPage() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </EntitlementGate>
   );
 }

@@ -40,6 +40,7 @@ import {
   UpdatePlanInput,
 } from "@/lib/billing";
 import type { Plan, PlanVersion, FeatureDefinition, GlobalAccessPolicy, PlanStatus } from "@/types";
+import { GranularPermissionTree } from "@/components/super-admin/GranularPermissionTree";
 import { toast } from "sonner";
 
 export default function SuperAdminPricingPage() {
@@ -707,12 +708,12 @@ export default function SuperAdminPricingPage() {
 
       {/* CREATE PLAN MODAL (Section 3) */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 w-full max-w-2xl shadow-2xl space-y-5 my-8">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-2xl p-4 sm:p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl space-y-4 sm:space-y-5 my-auto">
             <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <Plus className="h-5 w-5 text-blue-600" />
-                Create New Plan & Version 1
+              <h3 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <Plus className="h-5 w-5 text-blue-600 shrink-0" />
+                <span>Create New Plan & Version 1</span>
               </h3>
               <button
                 onClick={() => setShowCreateModal(false)}
@@ -799,33 +800,15 @@ export default function SuperAdminPricingPage() {
                 </div>
               </div>
 
-              {/* Feature Checklist */}
+              {/* Granular Feature & Permission Tree */}
               <div>
                 <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-2">
-                  Included Features Checklist
+                  Granular Feature & Permission Tree
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 dark:bg-slate-900 p-3 rounded-xl border border-gray-200 dark:border-slate-800">
-                  {features.map((f) => {
-                    const isChecked = createForm.features.includes(f.key);
-                    return (
-                      <label key={f.key} className="flex items-center gap-2 cursor-pointer text-xs text-gray-800 dark:text-gray-200">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setCreateForm({ ...createForm, features: [...createForm.features, f.key] });
-                            } else {
-                              setCreateForm({ ...createForm, features: createForm.features.filter((k) => k !== f.key) });
-                            }
-                          }}
-                          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span>{f.name}</span>
-                      </label>
-                    );
-                  })}
-                </div>
+                <GranularPermissionTree
+                  selectedPermissions={createForm.features}
+                  onChangeSelected={(newPerms) => setCreateForm({ ...createForm, features: newPerms })}
+                />
               </div>
 
               {/* Limits Inputs */}
@@ -913,13 +896,13 @@ export default function SuperAdminPricingPage() {
 
       {/* EDIT PLAN MODAL (Section 4 & 5) */}
       {showEditModal && selectedPlan && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 w-full max-w-2xl shadow-2xl space-y-5 my-8">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-2xl p-4 sm:p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl space-y-4 sm:space-y-5 my-auto">
             <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
               <div>
-                <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                  <Edit className="h-5 w-5 text-blue-600" />
-                  Edit Plan: {selectedPlan.name}
+                <h3 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  <Edit className="h-5 w-5 text-blue-600 shrink-0" />
+                  <span>Edit Plan: {selectedPlan.name}</span>
                 </h3>
                 <p className="text-xs font-mono text-gray-500">ID: {selectedPlan.id}</p>
               </div>
@@ -1015,33 +998,15 @@ export default function SuperAdminPricingPage() {
                 </div>
               </div>
 
-              {/* Feature Checklist */}
+              {/* Granular Feature & Permission Tree */}
               <div>
                 <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-2">
-                  Features Checklist
+                  Dynamic Feature & Permission Configuration Tree
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 dark:bg-slate-900 p-3 rounded-xl border border-gray-200 dark:border-slate-800">
-                  {features.map((f) => {
-                    const isChecked = editForm.features.includes(f.key);
-                    return (
-                      <label key={f.key} className="flex items-center gap-2 cursor-pointer text-xs text-gray-800 dark:text-gray-200">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setEditForm({ ...editForm, features: [...editForm.features, f.key] });
-                            } else {
-                              setEditForm({ ...editForm, features: editForm.features.filter((k) => k !== f.key) });
-                            }
-                          }}
-                          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span>{f.name}</span>
-                      </label>
-                    );
-                  })}
-                </div>
+                <GranularPermissionTree
+                  selectedPermissions={editForm.features}
+                  onChangeSelected={(newPerms) => setEditForm({ ...editForm, features: newPerms })}
+                />
               </div>
 
               {/* Limits Inputs */}

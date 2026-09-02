@@ -21,22 +21,27 @@ import { getSchoolById } from "@/lib/services/school.service";
 import { getSchoolSetupData } from "@/lib/services/setup.service";
 import type { School } from "@/types";
 
+import { useEntitlement } from "@/context/EntitlementContext";
+import { EntitlementGate } from "@/components/common/EntitlementGate";
+
 export default function SchoolAdminPage() {
   const { profile } = useAuth();
   const schoolId = profile?.schoolId || "";
+  const { canAccess } = useEntitlement();
+  const isAllowed = profile?.role === "super_admin" || canAccess("school_dashboard");
 
   // 1. Cached School Profile Query (30s staleTime, 5min cacheTime)
   const { data: school, isLoading: isSchoolLoading } = useAppQuery<School | null>(
-    schoolId ? `schoolProfile:${schoolId}` : null,
+    schoolId && isAllowed ? `schoolProfile:${schoolId}` : null,
     () => getSchoolById(schoolId),
-    { enabled: !!schoolId, staleTime: 60_000 }
+    { enabled: !!schoolId && isAllowed, staleTime: 60_000 }
   );
 
   // 2. Cached Setup & Metric Counts Query
   const { data: setupData, isLoading: isSetupLoading } = useAppQuery(
-    schoolId ? `schoolSetupData:${schoolId}` : null,
+    schoolId && isAllowed ? `schoolSetupData:${schoolId}` : null,
     () => getSchoolSetupData(schoolId),
-    { enabled: !!schoolId, staleTime: 30_000 }
+    { enabled: !!schoolId && isAllowed, staleTime: 30_000 }
   );
 
   const counts = {
@@ -55,8 +60,14 @@ export default function SchoolAdminPage() {
   const isSetupIncomplete = !school?.setupCompleted;
 
   return (
-    <div className="space-y-8 max-w-7xl mx-auto">
-      {/* Welcome Header */}
+    <EntitlementGate
+      feature="school_dashboard"
+      title="School Admin Dashboard"
+      description="Real-time school metrics, faculty counts, student enrollments, and operational status."
+      requiredPlan="Starter Plan"
+    >
+      <div className="space-y-8 max-w-7xl mx-auto">
+        {/* Welcome Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold text-blue-600 dark:text-blue-400">
@@ -179,7 +190,8 @@ export default function SchoolAdminPage() {
         />
       </div>
     </div>
-  );
+  </EntitlementGate>
+);
 }
 
 function StatCard({

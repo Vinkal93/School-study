@@ -6,6 +6,7 @@ import { getEffectiveEntitlement } from "./entitlement";
 
 export interface EntitlementRequirementOptions {
   feature?: string;
+  permission?: string;
   limit?: ResourceLimitKey;
 }
 
@@ -24,9 +25,10 @@ export async function requireEntitlement(
     throw error;
   }
 
-  // 1. Verify Feature Access if requested
-  if (options.feature) {
-    await requireFeatureAccess(schoolId, options.feature);
+  // 1. Verify Granular Permission or Feature Access if requested
+  const targetKey = options.permission || options.feature;
+  if (targetKey) {
+    await requireFeatureAccess(schoolId, targetKey);
   }
 
   // 2. Verify Capacity Limit if requested

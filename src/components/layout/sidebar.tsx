@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useMobileNav } from "@/context/mobile-nav-context";
+import { useEntitlement } from "@/context/EntitlementContext";
 import {
   LayoutDashboard,
   Building2,
@@ -25,6 +26,8 @@ import {
   MessageSquare,
   CreditCard,
   FileText,
+  Lock,
+  Sparkles,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
@@ -38,6 +41,7 @@ interface NavItem {
   label: string;
   href: string;
   icon: React.ReactNode;
+  featureKey?: string;
   subItems?: SubNavItem[];
 }
 
@@ -87,6 +91,15 @@ const roleNavItems: Record<string, NavItem[]> = {
       label: "Finance Center",
       href: "/super-admin/finance",
       icon: <CreditCard className="h-5 w-5 text-emerald-500" />,
+      subItems: [
+        { label: "Finance Overview", href: "/super-admin/finance" },
+        { label: "Offers & Promotions", href: "/super-admin/offers" },
+      ],
+    },
+    {
+      label: "Offers & Promotions",
+      href: "/super-admin/offers",
+      icon: <Sparkles className="h-5 w-5 text-amber-500" />,
     },
     {
       label: "Reports & Offers",
@@ -118,31 +131,37 @@ const roleNavItems: Record<string, NavItem[]> = {
     {
       label: "Teachers",
       href: "/admin/teachers",
+      featureKey: "teacher_management",
       icon: <Users className="h-5 w-5" />,
     },
     {
       label: "Students",
       href: "/admin/students",
+      featureKey: "student_management",
       icon: <GraduationCap className="h-5 w-5" />,
     },
     {
       label: "Classes",
       href: "/admin/classes",
+      featureKey: "class_management",
       icon: <BookOpen className="h-5 w-5" />,
     },
     {
       label: "Attendance",
       href: "/admin/attendance",
+      featureKey: "basic_attendance",
       icon: <ClipboardCheck className="h-5 w-5" />,
     },
     {
       label: "Reports & Exports",
       href: "/admin/reports",
+      featureKey: "advanced_reports",
       icon: <FileText className="h-5 w-5 text-indigo-500" />,
     },
     {
       label: "Notices",
       href: "/admin/notices",
+      featureKey: "notices_announcements",
       icon: <Bell className="h-5 w-5" />,
     },
     {
@@ -210,6 +229,7 @@ export function Sidebar() {
 
   const { profile } = useAuth();
   const { isOpen, closeMobileNav } = useMobileNav();
+  const { canAccess } = useEntitlement();
 
   // Expanded sections state
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
@@ -336,6 +356,8 @@ export function Sidebar() {
             );
           }
 
+          const isLocked = item.featureKey ? !canAccess(item.featureKey) : false;
+
           return (
             <Link
               key={item.href}
@@ -350,7 +372,16 @@ export function Sidebar() {
               )}
             >
               {item.icon}
-              {(!collapsed || isOpen) && <span>{item.label}</span>}
+              {(!collapsed || isOpen) && (
+                <span className="flex-1 flex items-center justify-between">
+                  <span>{item.label}</span>
+                  {isLocked && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400 text-[10px] font-bold">
+                      <Lock className="h-3 w-3" />
+                    </span>
+                  )}
+                </span>
+              )}
             </Link>
           );
         })}

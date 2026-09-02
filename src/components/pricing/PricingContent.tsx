@@ -102,7 +102,7 @@ export function PricingContent() {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [plans, setPlans] = useState<Plan[]>(DEFAULT_FALLBACK_PLANS);
   const [activeVersions, setActiveVersions] = useState<Record<string, PlanVersion>>(DEFAULT_FALLBACK_VERSIONS);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [processingPlanId, setProcessingPlanId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -132,6 +132,43 @@ export function PricingContent() {
     loadPublicPlans();
   }, []);
 
+  // Auto-checkout effect when returning from login/registration
+  useEffect(() => {
+    if (!profile?.uid || !profile?.schoolId || loading) return;
+
+    try {
+      const stored = sessionStorage.getItem("pending_checkout");
+      const urlParams = new URLSearchParams(window.location.search);
+      const autoCheckoutParam = urlParams.get("autoCheckout");
+      const checkoutPlanId = urlParams.get("checkoutPlanId");
+      const checkoutCycle = urlParams.get("billingCycle");
+
+      let targetPlanId = checkoutPlanId;
+      let targetCycle = checkoutCycle;
+
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          if (!targetPlanId) targetPlanId = parsed.planId;
+          if (!targetCycle) targetCycle = parsed.billingCycle;
+        } catch (e) {}
+      }
+
+      if (targetPlanId && (autoCheckoutParam === "true" || stored)) {
+        sessionStorage.removeItem("pending_checkout");
+        const foundPlan = plans.find((p) => p.id === targetPlanId || p.slug === targetPlanId);
+        if (foundPlan) {
+          if (targetCycle === "monthly") setIsAnnual(false);
+          else if (targetCycle === "annual") setIsAnnual(true);
+          toast.success(`Welcome back! Resuming checkout for ${foundPlan.name}...`);
+          handleSelectPlan(foundPlan);
+        }
+      }
+    } catch (e) {
+      console.warn("Auto-checkout retrieval notice:", e);
+    }
+  }, [profile, loading, plans]);
+
   const toggleFaq = (index: number) => {
     setOpenFaq(openFaq === index ? null : index);
   };
@@ -143,8 +180,17 @@ export function PricingContent() {
     }
 
     if (!profile?.uid || !profile?.schoolId) {
-      toast.info("Please log in with your School Admin account to subscribe.");
-      window.location.href = `/login?redirect=/pricing`;
+      toast.info("Please sign in or register your school to continue checkout.");
+      const checkoutData = {
+        planId: plan.id,
+        planSlug: plan.slug,
+        billingCycle: isAnnual ? "annual" : "monthly",
+      };
+      try {
+        sessionStorage.setItem("pending_checkout", JSON.stringify(checkoutData));
+      } catch (e) {}
+
+      window.location.href = `/login?redirect=/pricing%3FautoCheckout%3Dtrue%26checkoutPlanId%3D${plan.id}%26billingCycle%3D${isAnnual ? "annual" : "monthly"}`;
       return;
     }
 
@@ -252,7 +298,7 @@ export function PricingContent() {
           <span className="text-sm">Fetching active plans catalog...</span>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch">
+        <div className={`grid grid-cols-1 ${activePlans.length === 2 ? "md:grid-cols-2 max-w-4xl mx-auto" : activePlans.length >= 4 ? "md:grid-cols-2 lg:grid-cols-4" : "md:grid-cols-3"} gap-8 items-stretch`}>
           {activePlans.map((p) => {
             const ver = activeVersions[p.id] || DEFAULT_FALLBACK_VERSIONS[p.id];
             const monthlyRs = ver ? Math.round(ver.monthlyPrice / 100) : (p.slug === "starter" ? 999 : p.slug === "professional" ? 1999 : 0);
@@ -293,12 +339,17 @@ export function PricingContent() {
                   <div className="space-y-3 pt-2">
                     <p className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Features Included:</p>
                     <ul className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
-                      {(p.features.length > 0 ? p.features : DEFAULT_FALLBACK_PLANS.find((df) => df.slug === p.slug)?.features || []).map((feat, idx) => (
-                        <li key={idx} className="flex items-center gap-2">
-                          <Check className="h-4 w-4 text-emerald-500 shrink-0" />
-                          <span>{feat}</span>
-                        </li>
-                      ))}
+                      {(p.features.length > 0 ? p.features : DEFAULT_FALLBACK_PLANS.find((df) => df.slug === p.slug)?.features || []).map((feat, idx) => {
+                        const formattedFeat = feat.includes("_")
+                          ? feat.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")
+                          : feat;
+                        return (
+                          <li key={idx} className="flex items-center gap-2">
+                            <Check className="h-4 w-4 text-emerald-500 shrink-0" />
+                            <span>{formattedFeat}</span>
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                 </div>

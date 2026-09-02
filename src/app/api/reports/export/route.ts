@@ -5,6 +5,8 @@ import type { SchoolReportType, SuperAdminReportType, ReportExportFormat } from 
 import { createBillingAuditLog } from "@/lib/billing/audit";
 import { requireSchoolAdmin, requireSuperAdmin } from "@/lib/auth/serverAuth";
 
+import { requireEntitlement, buildEntitlementErrorResponse } from "@/lib/billing/middleware";
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -43,20 +45,21 @@ export async function POST(request: Request) {
       actorId = auth.user!.uid;
       actorRole = auth.user!.role;
 
-      // Plan Gate: Starter plan users cannot export confidential datasets
-      if (userPlanTier === "STARTER" && actorRole !== "super_admin") {
-        await createBillingAuditLog(
-          actorId,
-          actorRole,
-          "REPORT_EXPORT_FAILED" as any,
-          "schoolSubscription",
-          schoolId || "unauthorized",
-          { reportType, reason: "BLOCKED_STARTER_PLAN" }
-        );
-        return NextResponse.json(
-          { error: "Export is an advanced feature. Please upgrade to Professional or Enterprise plan to export CSV, Excel, and PDF reports." },
-          { status: 403 }
-        );
+      // Authoritative Server-Side Entitlement Check
+      if (actorRole !== "super_admin") {
+        try {
+          await requireEntitlement(schoolId, { feature: "advanced_reports" });
+        } catch (entErr: any) {
+          await createBillingAuditLog(
+            actorId,
+            actorRole,
+            "REPORT_EXPORT_FAILED" as any,
+            "schoolSubscription",
+            schoolId || "unauthorized",
+            { reportType, reason: entErr.message }
+          );
+          return buildEntitlementErrorResponse(entErr);
+        }
       }
 
       reportResult = await generateSchoolReport(schoolId, reportType as SchoolReportType, filters, userPlanTier);

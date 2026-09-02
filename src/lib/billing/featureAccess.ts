@@ -37,6 +37,8 @@ import { getActiveAccessOverrides } from "./subscriptionAdjustmentEngine";
  * Section 3: Resolves effective feature flags for a school as a Boolean dictionary.
  * Flow: Security/Suspension -> Manual Restrictions -> Subscription Status -> Plan Features -> Manual Grants
  */
+import { GRANULAR_PERMISSIONS, getDefaultGranularPermissionsForPlan } from "./permissions";
+
 export async function getPlanFeatures(schoolId: string): Promise<Record<string, boolean>> {
   const [summary, overrides] = await Promise.all([
     getSchoolAccess(schoolId),
@@ -46,51 +48,72 @@ export async function getPlanFeatures(schoolId: string): Promise<Record<string, 
 
   const hasTempAccess = overrides.some((o) => o.type === "TEMPORARY_ACCESS");
 
-  const allKnownFeatures = [
-    "student_management",
-    "teacher_management",
-    "class_management",
-    "basic_attendance",
-    "attendance_automation",
-    "school_dashboard",
-    "notices_announcements",
-    "advanced_reports",
-    "student_portal",
-    "teacher_portal",
-    "billing",
-    "reports",
-    "notices",
-  ];
+  // Get plan default granular permissions
+  const planSlug = summary.planId.replace("plan_", "") || "starter";
+  const defaultGranular = getDefaultGranularPermissionsForPlan(planSlug);
 
-  for (const featureKey of allKnownFeatures) {
-    // 1. Check if explicitly restricted by Super Admin override
+  // List of all keys (granular IDs + legacy feature keys)
+  const allKnownKeys = Array.from(
+    new Set([
+      ...GRANULAR_PERMISSIONS.map((p) => p.id),
+      "student_management",
+      "teacher_management",
+      "class_management",
+      "basic_attendance",
+      "attendance_automation",
+      "school_dashboard",
+      "notices_announcements",
+      "advanced_reports",
+      "reports_export",
+      "student_portal",
+      "teacher_portal",
+      "billing",
+      "reports",
+      "notices",
+    ])
+  );
+
+  for (const permKey of allKnownKeys) {
+    // Find permission definition if it exists
+    const def = GRANULAR_PERMISSIONS.find((p) => p.id === permKey);
+    const parentFeatureKey = def ? def.featureKey : permKey;
+
+    // 1. Check if explicitly restricted by Super Admin override (for this key or its parent feature)
     const isRestricted = overrides.some(
-      (o) => o.type === "FEATURE_RESTRICT" && (o.featureKey === featureKey || o.featureKey === "all")
+      (o) =>
+        o.type === "FEATURE_RESTRICT" &&
+        (o.featureKey === permKey || o.featureKey === parentFeatureKey || o.featureKey === "all")
     );
     if (isRestricted) {
-      permissions[featureKey] = false;
+      permissions[permKey] = false;
       continue;
     }
 
-    // 2. Check if explicitly granted by Super Admin override
+    // 2. Check if explicitly granted by Super Admin override (for this key or its parent feature)
     const isGranted = overrides.some(
-      (o) => o.type === "FEATURE_GRANT" && (o.featureKey === featureKey || o.featureKey === "all")
+      (o) =>
+        o.type === "FEATURE_GRANT" &&
+        (o.featureKey === permKey || o.featureKey === parentFeatureKey || o.featureKey === "all")
     );
     if (isGranted) {
-      permissions[featureKey] = true;
+      permissions[permKey] = true;
       continue;
     }
 
     // 3. Temporary Access grants standard allowed features
     if (hasTempAccess && summary.status !== "SUSPENDED") {
-      permissions[featureKey] = true;
+      permissions[permKey] = true;
       continue;
     }
 
-    // 4. Default plan permission check
-    const isIncluded = isFeatureAllowedInList(featureKey, summary.allowedFeatures);
-    const dependenciesMet = checkDependencies(featureKey, summary.allowedFeatures);
-    permissions[featureKey] = summary.accessMode !== "NO_ACCESS" && isIncluded && dependenciesMet;
+    // 4. Check parent feature status on plan
+    const parentAllowed = isFeatureAllowedInList(parentFeatureKey, summary.allowedFeatures);
+
+    // 5. Check granular permission default or plan setting
+    const granularAllowed = defaultGranular[permKey] !== undefined ? defaultGranular[permKey] : parentAllowed;
+
+    // Effective resolution: Access Mode must not be NO_ACCESS, parent must be allowed, and granular key must be allowed
+    permissions[permKey] = summary.accessMode !== "NO_ACCESS" && parentAllowed && granularAllowed;
   }
 
   return permissions;

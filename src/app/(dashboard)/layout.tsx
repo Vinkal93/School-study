@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { MobileNavProvider } from "@/context/mobile-nav-context";
+import { EntitlementProvider } from "@/context/EntitlementContext";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { getRedirectByRole, isRoleAllowedForPath } from "@/lib/utils/redirect-by-role";
@@ -63,27 +64,31 @@ export default function DashboardLayout({
   if (isStudentRoute) {
     return (
       <MobileNavProvider>
-        <div className="min-h-screen min-h-[100dvh] bg-[#F8FAFC] dark:bg-slate-950">
-          {children}
-        </div>
+        <EntitlementProvider>
+          <div className="min-h-screen min-h-[100dvh] bg-[#F8FAFC] dark:bg-slate-950">
+            {children}
+          </div>
+        </EntitlementProvider>
       </MobileNavProvider>
     );
   }
 
   return (
     <MobileNavProvider>
-      <div className="flex h-screen h-[100dvh] overflow-hidden bg-gray-50 dark:bg-gray-900">
-        <Sidebar />
-        <div className="flex flex-1 flex-col overflow-hidden min-w-0">
-          <Topbar />
-          <SubscriptionReminderBanner />
-          <SubscriptionReminderModal />
-          <main className="flex-1 overflow-y-auto p-3.5 sm:p-6 pb-24 md:pb-6 focus:outline-none">
-            {children}
-          </main>
-          <MobileNav />
+      <EntitlementProvider>
+        <div className="flex h-screen h-[100dvh] overflow-hidden bg-gray-50 dark:bg-gray-900">
+          <Sidebar />
+          <div className="flex flex-1 flex-col overflow-hidden min-w-0">
+            <Topbar />
+            <SubscriptionReminderBanner />
+            <SubscriptionReminderModal />
+            <main className="flex-1 overflow-y-auto p-3.5 sm:p-6 pb-24 md:pb-6 focus:outline-none">
+              {children}
+            </main>
+            <MobileNav />
+          </div>
         </div>
-      </div>
+      </EntitlementProvider>
     </MobileNavProvider>
   );
 }

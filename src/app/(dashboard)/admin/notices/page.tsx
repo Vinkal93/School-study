@@ -28,11 +28,14 @@ import {
 } from "@/lib/services/notice.service";
 import { getClassesWithSections } from "@/lib/services/academic.service";
 import type { Notice, NoticeAudience, NoticeStatus, SchoolClass } from "@/types";
+import { useEntitlement } from "@/context/EntitlementContext";
+import { EntitlementGate } from "@/components/common/EntitlementGate";
 import { toast } from "sonner";
 
 export default function AdminNoticesPage() {
   const { profile } = useAuth();
   const schoolId = profile?.schoolId || "";
+  const { canAccess } = useEntitlement();
 
   const [notices, setNotices] = useState<Notice[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
@@ -54,6 +57,10 @@ export default function AdminNoticesPage() {
 
   const loadData = async () => {
     if (!schoolId) return;
+    if (profile?.role !== "super_admin" && !canAccess("notices_announcements")) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const [noticesList, clsList] = await Promise.all([
@@ -167,8 +174,14 @@ export default function AdminNoticesPage() {
   const studentNotices = notices.filter((n) => n.audience === "STUDENTS").length;
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
+    <EntitlementGate
+      feature="notices_announcements"
+      title="School Notice Board & Circulars"
+      description="Broadcast official school announcements, circulars, and target notices to teachers, students, or specific classes."
+      requiredPlan="Professional Plan"
+    >
+      <div className="space-y-6">
+        {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
@@ -190,6 +203,10 @@ export default function AdminNoticesPage() {
           </button>
           <button
             onClick={() => {
+              if (profile?.role !== "super_admin" && !canAccess("notices_announcements")) {
+                toast.error("Notices & Announcements is not included in your current plan. Please upgrade to unlock.");
+                return;
+              }
               resetForm();
               setIsAddModalOpen(true);
             }}
@@ -377,7 +394,8 @@ export default function AdminNoticesPage() {
       ========================================== */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-xl rounded-xl bg-white p-6 shadow-xl dark:bg-gray-950 border border-gray-200 dark:border-gray-800 space-y-6">
+          <EntitlementGate feature="notices_announcements" title="Notices & Announcements Locked" requiredPlan="Professional Plan">
+            <div className="w-full max-w-xl rounded-xl bg-white p-6 shadow-xl dark:bg-gray-950 border border-gray-200 dark:border-gray-800 space-y-6">
             <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
               <div>
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white">
@@ -497,8 +515,10 @@ export default function AdminNoticesPage() {
               </div>
             </form>
           </div>
-        </div>
-      )}
-    </div>
+        </EntitlementGate>
+      </div>
+    )}
+      </div>
+    </EntitlementGate>
   );
 }

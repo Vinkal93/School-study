@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   School,
@@ -21,7 +21,7 @@ import { PortalWrongRoleModal } from "@/components/auth/PortalWrongRoleModal";
 import { toast } from "sonner";
 import type { UserRole } from "@/types";
 
-export default function AdminLoginPage() {
+function AdminLoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -29,6 +29,8 @@ export default function AdminLoginPage() {
 
   const { signIn, signOut } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectParam = searchParams.get("redirect");
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -47,7 +49,11 @@ export default function AdminLoginPage() {
       }
 
       toast.success(`Welcome back, ${profile.name}!`);
-      router.push("/admin");
+      if (redirectParam) {
+        router.push(redirectParam);
+      } else {
+        router.push("/admin");
+      }
     } catch (error: any) {
       const message =
         error?.code === "auth/invalid-credential" || error?.code === "auth/user-not-found"
@@ -161,5 +167,13 @@ export default function AdminLoginPage() {
         </div>
       </div>
     </AuthLayout>
+  );
+}
+
+export default function AdminLoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <AdminLoginForm />
+    </Suspense>
   );
 }

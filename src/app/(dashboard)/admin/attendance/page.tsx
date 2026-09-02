@@ -21,9 +21,13 @@ import { getSchoolAttendanceForDate } from "@/lib/services/attendance.service";
 import type { SchoolClass, AttendanceRecord } from "@/types";
 import { toast } from "sonner";
 
+import { useEntitlement } from "@/context/EntitlementContext";
+import { EntitlementGate } from "@/components/common/EntitlementGate";
+
 export default function AdminAttendancePage() {
   const { profile } = useAuth();
   const schoolId = profile?.schoolId || "";
+  const { canAccess } = useEntitlement();
 
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
@@ -35,6 +39,10 @@ export default function AdminAttendancePage() {
 
   const loadData = async () => {
     if (!schoolId) return;
+    if (profile?.role !== "super_admin" && !canAccess("basic_attendance")) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const [clsList, attList] = await Promise.all([
@@ -73,48 +81,54 @@ export default function AdminAttendancePage() {
     classes.find((c) => c.id === selectedClassId)?.sections || [];
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            School Attendance Overview & Reports
-          </h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Monitor daily roll calls, attendance percentages, and class-by-class participation.
-          </p>
+    <EntitlementGate
+      feature="basic_attendance"
+      title="School Attendance Overview & Reports"
+      description="Monitor daily roll calls, attendance percentages, and class-by-class participation."
+      requiredPlan="Starter Plan"
+    >
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+              School Attendance Overview & Reports
+            </h1>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Monitor daily roll calls, attendance percentages, and class-by-class participation.
+            </p>
+          </div>
+
+          <button
+            onClick={loadData}
+            disabled={loading}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
         </div>
 
-        <button
-          onClick={loadData}
-          disabled={loading}
-          className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
-      </div>
-
-      {/* Filter Controls Bar */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Date Picker */}
-          <div>
-            <label htmlFor="attendance-date" className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1 cursor-pointer">
-              Select Date:
-            </label>
-            <div className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-900">
-              <Calendar className="h-3.5 w-3.5 text-gray-400" />
-              <input
-                id="attendance-date"
-                name="attendanceDate"
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="font-semibold text-gray-900 dark:text-white bg-transparent focus:outline-none"
-              />
+        {/* Filter Controls Bar */}
+        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Date Picker */}
+            <div>
+              <label htmlFor="attendance-date" className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1 cursor-pointer">
+                Select Date:
+              </label>
+              <div className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-900">
+                <Calendar className="h-3.5 w-3.5 text-gray-400" />
+                <input
+                  id="attendance-date"
+                  name="attendanceDate"
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="font-semibold text-gray-900 dark:text-white bg-transparent focus:outline-none"
+                />
+              </div>
             </div>
-          </div>
 
           {/* Class Filter */}
           <div>
@@ -288,5 +302,6 @@ export default function AdminAttendancePage() {
         )}
       </div>
     </div>
-  );
+  </EntitlementGate>
+);
 }

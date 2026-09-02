@@ -63,23 +63,53 @@ export interface ReportDataResult {
   requiredPlanFeature?: string;
 }
 
+export type OfferStatus =
+  | "DRAFT"
+  | "SCHEDULED"
+  | "ACTIVE"
+  | "PAUSED"
+  | "EXPIRED"
+  | "REDEEMED"
+  | "DEPLETED"
+  | "CANCELLED"
+  | "DEACTIVATED";
+
+export type OfferType = "ONE_TIME" | "PROMOTIONAL_RECURRING";
+
 export interface CustomOfferRecord {
-  id: string;
+  id: string; // e.g. "OFR-000124"
+  name?: string; // e.g. "Enterprise Special Offer"
   schoolId: string;
+  tenantId?: string;
   schoolName: string;
+  adminEmail?: string;
+  adminName?: string;
   originalPlanId: string;
   offerPlanId: string;
+  planName?: string;
+  billingCycle?: "monthly" | "annual";
+  offerType?: OfferType;
+  promoDurationMonths?: number;
   originalPricePaise: number;
   customPricePaise: number;
   durationDays: number;
   discountPaise: number;
+  discountPercentage?: number;
   couponCode?: string;
-  status: "ACTIVE" | "CLAIMED" | "EXPIRED";
-  expiresAt: string;
+  offerCode?: string;
+  validFrom?: string;
+  validUntil?: string;
+  maxRedemptions?: number;
+  redeemedCount?: number;
+  status: OfferStatus;
+  expiresAt: string; // ISO date string matching validUntil
   notes?: string;
+  internalReason?: string;
   createdBy: string;
   createdAt: string;
+  updatedAt?: string;
   claimedAt?: string;
+  lastRedeemedBy?: string;
   orderId?: string;
 }
 

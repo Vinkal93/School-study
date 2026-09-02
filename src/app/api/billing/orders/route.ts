@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
+import { adminDb } from "@/lib/firebase/admin";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { BILLING_COLLECTIONS, getActivePlanVersion } from "@/lib/billing";
 import { createRazorpayOrder, loadRazorpayCredentials, mapRazorpayError } from "@/lib/payments/razorpay";
-import type { Plan } from "@/types";
+import type { Plan, PlanVersion } from "@/types";
 import { InternalOrder } from "@/lib/payments/fulfillment";
 
 export async function POST(request: Request) {
@@ -26,30 +27,66 @@ export async function POST(request: Request) {
       );
     }
 
-    const db = getFirebaseDb();
-    if (!db) {
-      return NextResponse.json(
-        { error: "Database service unavailable." },
-        { status: 500 }
-      );
-    }
-
     let planData: Plan | null = null;
-    let planVersion: any = null;
+    let planVersion: PlanVersion | null = null;
 
-    try {
-      const planRef = doc(db, BILLING_COLLECTIONS.PLANS, planId);
-      const planSnap = await getDoc(planRef);
+    // 1. Primary: Authoritative Server-Side Plan Lookup via Firebase Admin SDK
+    if (adminDb) {
+      try {
+        let planSnap = await adminDb.collection(BILLING_COLLECTIONS.PLANS).doc(planId).get();
 
-      if (planSnap.exists()) {
-        planData = { id: planSnap.id, ...planSnap.data() } as Plan;
-        planVersion = await getActivePlanVersion(planId);
+        // If not found by doc ID, try looking up by slug or stripped ID
+        if (!planSnap.exists) {
+          const cleanSlug = planId.replace(/^plan_/, "").toLowerCase();
+          const slugQuery = await adminDb
+            .collection(BILLING_COLLECTIONS.PLANS)
+            .where("slug", "==", cleanSlug)
+            .limit(1)
+            .get();
+          if (!slugQuery.empty) {
+            planSnap = slugQuery.docs[0];
+          }
+        }
+
+        if (planSnap.exists) {
+          planData = { id: planSnap.id, ...planSnap.data() } as Plan;
+
+          // Fetch active version for this plan
+          const versionSnap = await adminDb
+            .collection(BILLING_COLLECTIONS.PLAN_VERSIONS)
+            .where("planId", "==", planSnap.id)
+            .where("status", "==", "ACTIVE")
+            .get();
+
+          if (!versionSnap.empty) {
+            const versions = versionSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as PlanVersion[];
+            planVersion = versions.sort((a, b) => b.version - a.version)[0];
+          }
+        }
+      } catch (adminErr) {
+        console.warn("[Orders] adminDb plan lookup notice:", adminErr);
       }
-    } catch (err) {
-      console.warn("[Orders] Firestore plan lookup notice, using standard catalog:", err);
     }
 
-    // Fallback static catalog mapping if database document is missing
+    // 2. Secondary: Client SDK Fallback if Admin SDK lookup returned nothing
+    if (!planData || !planVersion) {
+      try {
+        const db = getFirebaseDb();
+        if (db) {
+          const planRef = doc(db, BILLING_COLLECTIONS.PLANS, planId);
+          const planSnap = await getDoc(planRef);
+
+          if (planSnap.exists()) {
+            planData = { id: planSnap.id, ...planSnap.data() } as Plan;
+            planVersion = await getActivePlanVersion(planId);
+          }
+        }
+      } catch (err) {
+        console.warn("[Orders] Firestore client plan lookup notice:", err);
+      }
+    }
+
+    // 3. Tertiary: Static catalog fallback for default starter / professional plans
     if (!planData || !planVersion) {
       if (planId === "starter" || planId === "plan_starter") {
         planData = {
@@ -67,10 +104,17 @@ export async function POST(request: Request) {
         };
         planVersion = {
           id: "plan_starter_v1",
+          planId: "plan_starter",
+          version: 1,
           monthlyPrice: 99900,
           annualPrice: 79900,
-          limits: planData.limits,
+          currency: "INR",
           features: planData.features,
+          limits: planData.limits,
+          effectiveFrom: new Date().toISOString(),
+          effectiveUntil: null,
+          status: "ACTIVE",
+          createdAt: new Date().toISOString(),
         };
       } else if (planId === "professional" || planId === "plan_professional") {
         planData = {
@@ -88,10 +132,17 @@ export async function POST(request: Request) {
         };
         planVersion = {
           id: "plan_professional_v1",
+          planId: "plan_professional",
+          version: 1,
           monthlyPrice: 199900,
           annualPrice: 159900,
-          limits: planData.limits,
+          currency: "INR",
           features: planData.features,
+          limits: planData.limits,
+          effectiveFrom: new Date().toISOString(),
+          effectiveUntil: null,
+          status: "ACTIVE",
+          createdAt: new Date().toISOString(),
         };
       } else {
         planData = {
@@ -109,10 +160,17 @@ export async function POST(request: Request) {
         };
         planVersion = {
           id: "plan_enterprise_v1",
+          planId: "plan_enterprise",
+          version: 1,
           monthlyPrice: 0,
           annualPrice: 0,
-          limits: planData.limits,
+          currency: "INR",
           features: planData.features,
+          limits: planData.limits,
+          effectiveFrom: new Date().toISOString(),
+          effectiveUntil: null,
+          status: "ACTIVE",
+          createdAt: new Date().toISOString(),
         };
       }
     }
@@ -145,6 +203,14 @@ export async function POST(request: Request) {
     }
 
     const finalAmount = Math.max(0, baseAmount - discountAmount + taxAmount);
+
+    if (finalAmount <= 0) {
+      return NextResponse.json(
+        { error: `Plan "${planData?.name || planId}" is an Enterprise or custom quote plan. Please click "Contact Sales" to request a custom quote.` },
+        { status: 400 }
+      );
+    }
+
     const orderId = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const nowIso = new Date().toISOString();
     const expiresAtIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -213,8 +279,15 @@ export async function POST(request: Request) {
     };
 
     try {
-      const orderRef = doc(db, BILLING_COLLECTIONS.ORDERS || "orders", orderId);
-      await setDoc(orderRef, internalOrder);
+      if (adminDb) {
+        await adminDb.collection(BILLING_COLLECTIONS.ORDERS || "orders").doc(orderId).set(internalOrder);
+      } else {
+        const db = getFirebaseDb();
+        if (db) {
+          const orderRef = doc(db, BILLING_COLLECTIONS.ORDERS || "orders", orderId);
+          await setDoc(orderRef, internalOrder);
+        }
+      }
     } catch (err) {
       console.warn("[Orders] Notice: Internal order doc creation error:", err);
     }

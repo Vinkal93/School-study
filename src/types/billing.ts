@@ -11,12 +11,15 @@ export type PlanVersionStatus = "ACTIVE" | "ARCHIVED";
 
 export type SubscriptionStatus =
   | "TRIAL"
+  | "PENDING"
   | "ACTIVE"
   | "EXPIRING"
   | "GRACE_PERIOD"
   | "RESTRICTED"
+  | "HALTED"
   | "EXPIRED"
   | "SUSPENDED"
+  | "COMPLETED"
   | "CANCELLED";
 
 export type AccessMode =
@@ -74,9 +77,15 @@ export interface SchoolSubscription {
   billingCycle: BillingCycle;
   startsAt: string;
   expiresAt: string;
+  nextBillingDate?: string;
+  amountPaise?: number;
+  paymentMethod?: string;
+  razorpaySubscriptionId?: string;
+  razorpayPlanId?: string;
   graceEndsAt: string;
   currentPeriodStart?: string;
   currentPeriodEnd?: string;
+  autoRenew?: boolean;
   cancelAtPeriodEnd?: boolean;
   cancelledAt?: string | null;
   cancelledBy?: string | null;
@@ -341,6 +350,11 @@ export type BillingAuditAction =
   | "INVOICE_VIEW"
   | "REPORT_EXPORT"
   | "SUBSCRIPTION_ADJUSTMENT_CREATED"
+  | "AUTO_RENEWAL_TOGGLED"
+  | "BILLING_PROFILE_UPDATED"
+  | "CUSTOM_OFFER_CREATED"
+  | "CUSTOM_OFFER_DEACTIVATED"
+  | "CUSTOM_OFFER_REDEEMED"
   | "SUBSCRIPTION_PERIOD_EXTENDED"
   | "SUBSCRIPTION_PERIOD_REDUCED"
   | "CUSTOM_PERIOD_ADJUSTED"
@@ -354,7 +368,11 @@ export type BillingAuditAction =
   | "SUBSCRIPTION_RESUMED"
   | "PENALTY_CREATED"
   | "PENALTY_WAIVED"
-  | "MANUAL_CREDIT_CREATED";
+  | "MANUAL_CREDIT_CREATED"
+  | "SUBSCRIPTION_ACTIVATED"
+  | "RECURRING_PAYMENT_SUCCESSFUL"
+  | "RECURRING_PAYMENT_FAILED"
+  | "SUBSCRIPTION_CANCELLED";
 
 export interface BillingAuditLogEntry {
   id: string;

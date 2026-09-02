@@ -90,7 +90,18 @@ export function SchoolRegistrationFlow() {
       await signInWithEmailAndPassword(auth, adminEmail.trim().toLowerCase(), adminPassword);
 
       toast.success("School registered successfully! Welcome to School Study.");
-      router.push("/admin");
+      
+      let redirectUrl = "/admin";
+      try {
+        const stored = sessionStorage.getItem("pending_checkout");
+        const urlParams = new URLSearchParams(window.location.search);
+        const redirectParam = urlParams.get("redirect");
+        if (stored || redirectParam) {
+          redirectUrl = redirectParam || "/pricing?autoCheckout=true";
+        }
+      } catch (e) {}
+
+      router.push(redirectUrl);
     } catch (err: any) {
       console.error("Registration failed:", err);
       toast.error(err?.message || "Failed to register school. Please try again.");

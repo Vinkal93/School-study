@@ -117,7 +117,13 @@ export async function initializeDefaultBillingCatalog(): Promise<void> {
         status: "ACTIVE",
         displayOrder: 1,
         isPopular: false,
-        features: ["student_management", "teacher_management", "basic_attendance", "school_dashboard"],
+        features: [
+          "student_management",
+          "teacher_management",
+          "class_management",
+          "basic_attendance",
+          "school_dashboard"
+        ],
         limits: {
           maxStudents: 500,
           maxTeachers: 20,

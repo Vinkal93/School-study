@@ -35,9 +35,13 @@ import { checkPlanLimit } from "@/lib/billing";
 import type { AcademicYear, SchoolClass, Section, PlanLimitCheckResult } from "@/types";
 import { toast } from "sonner";
 
+import { useEntitlement } from "@/context/EntitlementContext";
+import { EntitlementGate } from "@/components/common/EntitlementGate";
+
 export default function AdminClassesPage() {
   const { profile } = useAuth();
   const schoolId = profile?.schoolId || "";
+  const { canAccess } = useEntitlement();
 
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
@@ -66,6 +70,10 @@ export default function AdminClassesPage() {
 
   const loadData = async () => {
     if (!schoolId) return;
+    if (profile?.role !== "super_admin" && !canAccess("class_management")) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const [years, cls, limitRes] = await Promise.all([
@@ -222,55 +230,73 @@ export default function AdminClassesPage() {
   const currentYear = academicYears.find((y) => y.isCurrent) || academicYears[0];
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-semibold text-blue-600 dark:text-blue-400">
-            <Calendar className="h-3.5 w-3.5" />
-            <span>SESSION: {currentYear?.name || "Not Configured"}</span>
+    <EntitlementGate
+      feature="class_management"
+      limitKey="classes"
+      currentCount={classes.length}
+      title="Classes & Sections Management"
+      description="Configure grades, divisions, and manage class structures for your school."
+      requiredPlan="Starter Plan"
+    >
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 text-xs font-semibold">
+              <Calendar className="h-3.5 w-3.5" />
+              <span>SESSION: {currentYear?.name || "Not Configured"}</span>
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+              Classes & Sections Management
+            </h1>
+            <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
+              Configure grades, divisions, and manage class structures for your school.
+            </p>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
-            Classes & Sections Management
-          </h1>
-          <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
-            Configure grades, divisions, and manage class structures for your school.
-          </p>
-        </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setIsYearModalOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
-          >
-            <Calendar className="h-4 w-4" />
-            {academicYears.length === 0 ? "Set Academic Year" : "Academic Sessions"}
-          </button>
-          <button
-            onClick={() => {
-              if (limitStatus && !limitStatus.allowed) {
-                toast.error(
-                  `Class limit reached (${limitStatus.current}/${limitStatus.limit}). Upgrade plan to add more classes.`
-                );
-                return;
-              }
-              setEditingClass(null);
-              setClassNameInput("");
-              setClassOrderInput(classes.length + 1);
-              setInitialSectionsInput("A, B");
-              setIsClassModalOpen(true);
-            }}
-            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white shadow-sm transition-all ${
-              limitStatus && !limitStatus.allowed
-                ? "bg-slate-500 hover:bg-slate-600 opacity-90 cursor-pointer"
-                : "bg-blue-600 hover:bg-blue-700"
-            }`}
-          >
-            <Plus className="h-4 w-4" />
-            <span>Add New Class</span>
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                if (profile?.role !== "super_admin" && !canAccess("class_management")) {
+                  toast.error("Class Management is not included in your current plan. Please upgrade to unlock.");
+                  return;
+                }
+                setIsYearModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+            >
+              <Calendar className="h-4 w-4" />
+              {academicYears.length === 0 ? "Set Academic Year" : "Academic Sessions"}
+            </button>
+            <button
+              onClick={() => {
+                if (profile?.role !== "super_admin" && !canAccess("class_management")) {
+                  toast.error("Class Management is not included in your current plan. Please upgrade to unlock.");
+                  return;
+                }
+                if (limitStatus && !limitStatus.allowed) {
+                  toast.error(
+                    `Class limit reached (${limitStatus.current}/${limitStatus.limit}). Upgrade plan to add more classes.`
+                  );
+                  return;
+                }
+                setEditingClass(null);
+                setClassNameInput("");
+                setClassOrderInput(classes.length + 1);
+                setInitialSectionsInput("A, B");
+                setIsClassModalOpen(true);
+              }}
+              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white shadow-sm transition-all ${
+                limitStatus && !limitStatus.allowed
+                  ? "bg-slate-500 hover:bg-slate-600 opacity-90 cursor-pointer"
+                  : "bg-blue-600 hover:bg-blue-700"
+              }`}
+            >
+              <Plus className="h-4 w-4" />
+              <span>Add New Class</span>
+            </button>
+          </div>
         </div>
-      </div>
 
       {/* Plan Capacity Limit Warning Banner */}
       {limitStatus && !limitStatus.allowed && (
@@ -475,7 +501,8 @@ export default function AdminClassesPage() {
       ========================================== */}
       {isClassModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-950 border border-gray-200 dark:border-gray-800 space-y-5">
+          <EntitlementGate feature="class_management" title="Class Management Locked" requiredPlan="Starter Plan">
+            <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-950 border border-gray-200 dark:border-gray-800 space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white">
                 {editingClass ? "Edit Class" : "Add New Class"}
@@ -551,15 +578,17 @@ export default function AdminClassesPage() {
               </div>
             </form>
           </div>
-        </div>
-      )}
+        </EntitlementGate>
+      </div>
+    )}
 
       {/* ==========================================
           MODAL: ACADEMIC YEARS
       ========================================== */}
       {isYearModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-950 border border-gray-200 dark:border-gray-800 space-y-5">
+          <EntitlementGate feature="class_management" title="Class Management Locked" requiredPlan="Starter Plan">
+            <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-950 border border-gray-200 dark:border-gray-800 space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white">
                 Academic Sessions
@@ -672,8 +701,10 @@ export default function AdminClassesPage() {
               </div>
             </form>
           </div>
-        </div>
-      )}
-    </div>
+        </EntitlementGate>
+      </div>
+    )}
+      </div>
+    </EntitlementGate>
   );
 }

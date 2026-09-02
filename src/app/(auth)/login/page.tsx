@@ -1,6 +1,8 @@
 "use client";
 
+import React, { Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   GraduationCap,
   School,
@@ -8,18 +10,20 @@ import {
   Shield,
   ArrowRight,
   Sparkles,
-  BookOpen,
-  ClipboardCheck,
+  UserPlus,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/common/theme-toggle";
 
-export default function PortalSelectionPage() {
+function PortalSelectionContent() {
+  const searchParams = useSearchParams();
+  const queryString = searchParams.toString() ? `?${searchParams.toString()}` : "";
+
   const portals = [
     {
       id: "admin",
       title: "School Admin",
       subtitle: "Manage school operations, teachers & student admissions",
-      href: "/admin/login",
+      href: `/admin/login${queryString}`,
       icon: <School className="h-7 w-7 text-blue-600 dark:text-blue-400" />,
       iconBg: "bg-blue-50 dark:bg-blue-950/50",
       borderHover: "hover:border-blue-300 dark:hover:border-blue-700",
@@ -32,7 +36,7 @@ export default function PortalSelectionPage() {
       id: "teacher",
       title: "Teacher",
       subtitle: "Access your assigned classes, rosters & mark roll call",
-      href: "/teacher/login",
+      href: `/teacher/login${queryString}`,
       icon: <Users className="h-7 w-7 text-purple-600 dark:text-purple-400" />,
       iconBg: "bg-purple-50 dark:bg-purple-950/50",
       borderHover: "hover:border-purple-300 dark:hover:border-purple-700",
@@ -45,7 +49,7 @@ export default function PortalSelectionPage() {
       id: "student",
       title: "Student & Parent",
       subtitle: "View your real-time attendance rate, timetables & notices",
-      href: "/student/login",
+      href: `/student/login${queryString}`,
       icon: <GraduationCap className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />,
       iconBg: "bg-emerald-50 dark:bg-emerald-950/50",
       borderHover: "hover:border-emerald-300 dark:hover:border-emerald-700",
@@ -141,6 +145,20 @@ export default function PortalSelectionPage() {
             </Link>
           ))}
         </div>
+
+        {/* Register Option */}
+        <div className="pt-4 text-center">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Don&apos;t have a school registered yet?{" "}
+            <Link
+              href={`/register${queryString}`}
+              className="inline-flex items-center gap-1 font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400 underline underline-offset-4"
+            >
+              <UserPlus className="h-3.5 w-3.5" />
+              <span>Register New School</span>
+            </Link>
+          </p>
+        </div>
       </main>
 
       {/* Page Footer */}
@@ -148,5 +166,13 @@ export default function PortalSelectionPage() {
         <p>© 2026 School Study. All rights reserved.</p>
       </footer>
     </div>
+  );
+}
+
+export default function PortalSelectionPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <PortalSelectionContent />
+    </Suspense>
   );
 }

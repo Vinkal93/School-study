@@ -11,5 +11,6 @@ export * from "./reminders";
 export * from "./audit";
 export * from "./subscriptionLifecycle";
 export * from "./subscriptionAdjustmentEngine";
+export * from "./subscriptionEngine";
 export * from "./finance";
 export * from "./customOffers";
