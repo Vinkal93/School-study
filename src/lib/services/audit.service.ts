@@ -242,11 +242,31 @@ export async function getActivityLogs(
       );
     }
 
-    const snap = await getDocs(q);
-    return snap.docs.map((docSnap) => ({
-      id: docSnap.id,
-      ...(docSnap.data() as Omit<ActivityLogEntry, "id">),
-    }));
+    try {
+      const snap = await getDocs(q);
+      return snap.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...(docSnap.data() as Omit<ActivityLogEntry, "id">),
+      }));
+    } catch (indexErr) {
+      // Fallback: Query without composite orderBy and sort in memory
+      let simpleQuery = query(collection(db, AUDIT_COLLECTIONS.ACTIVITY_LOGS), limit(limitCount));
+      if (filter?.userId) {
+        simpleQuery = query(collection(db, AUDIT_COLLECTIONS.ACTIVITY_LOGS), where("userId", "==", filter.userId), limit(limitCount));
+      } else if (filter?.schoolId) {
+        simpleQuery = query(collection(db, AUDIT_COLLECTIONS.ACTIVITY_LOGS), where("schoolId", "==", filter.schoolId), limit(limitCount));
+      }
+      const snap = await getDocs(simpleQuery);
+      const items = snap.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...(docSnap.data() as Omit<ActivityLogEntry, "id">),
+      }));
+      return items.sort((a: any, b: any) => {
+        const tA = a.timestamp?.seconds || (typeof a.timestamp === "string" ? new Date(a.timestamp).getTime() : 0);
+        const tB = b.timestamp?.seconds || (typeof b.timestamp === "string" ? new Date(b.timestamp).getTime() : 0);
+        return tB - tA;
+      });
+    }
   } catch (error) {
     console.warn("Could not fetch activity logs:", error);
     return [];
