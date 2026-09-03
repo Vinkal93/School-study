@@ -1,198 +1,128 @@
 "use client";
 
-import React, { useState } from "react";
-import Link from "next/link";
-import {
-  Wallet,
-  FileText,
-  ArrowLeft,
-  CheckCircle2,
-  CreditCard,
-  Loader2,
-} from "lucide-react";
-import { StudentDashboardLayout } from "@/components/student/StudentDashboardLayout";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { triggerRazorpayCheckout } from "@/lib/payments/clientCheckout";
-import { toast } from "sonner";
+import { FeeReceiptModal } from "@/components/fees/FeeReceiptModal";
+import { CreditCard, CheckCircle2, Clock, Printer, Loader2, DollarSign } from "lucide-react";
+import type { StudentFeeAssignment, FeePayment } from "@/types";
+import { getStudentFeeAssignment, getFeeTransactions } from "@/lib/services/fee.service";
 
-export default function StudentFeesPage() {
+export default function StudentFeePortalPage() {
   const { profile } = useAuth();
-  const [processing, setProcessing] = useState(false);
+  const schoolId = profile?.schoolId || "school_demo";
+  const studentId = profile?.uid || "std_demo_1";
 
-  const feeSummary = {
-    totalFees: 34000,
-    paidFees: 32500,
-    outstanding: 1500,
-    dueMonth: "August 2024",
-  };
+  const [assignment, setAssignment] = useState<StudentFeeAssignment | null>(null);
+  const [payments, setPayments] = useState<FeePayment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedPayment, setSelectedPayment] = useState<FeePayment | null>(null);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
 
-  const feeDetails = [
-    { month: "August 2024", amount: 1500, status: "Due", badge: "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300" },
-    { month: "July 2024", amount: 2000, status: "Paid", badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" },
-    { month: "June 2024", amount: 2000, status: "Paid", badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" },
-    { month: "May 2024", amount: 2000, status: "Paid", badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" },
-    { month: "April 2024", amount: 2000, status: "Paid", badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" },
-  ];
-
-  const handlePayNow = async () => {
-    if (!profile?.schoolId || !profile?.uid) {
-      toast.info("Please log in to make fee payments.");
-      return;
+  useEffect(() => {
+    async function loadStudentData() {
+      setLoading(true);
+      try {
+        const [a, pList] = await Promise.all([
+          getStudentFeeAssignment(schoolId, studentId),
+          getFeeTransactions(schoolId, { studentId }),
+        ]);
+        setAssignment(a);
+        setPayments(pList);
+      } catch (err) {
+        console.error("Failed to load student fee data:", err);
+      } finally {
+        setLoading(false);
+      }
     }
+    loadStudentData();
+  }, [schoolId, studentId]);
 
-    setProcessing(true);
-    try {
-      await triggerRazorpayCheckout({
-        planId: "student_fee_august",
-        billingCycle: "monthly",
-        schoolId: profile.schoolId,
-        userId: profile.uid,
-        prefillData: {
-          name: profile.name || "Rahul Kumar",
-          email: profile.email || "",
-        },
-        onSuccess: (orderId) => {
-          toast.success("Fee payment completed successfully!");
-        },
-        onError: (err) => {
-          toast.error(err || "Payment failed.");
-        },
-      });
-    } catch (err: any) {
-      toast.error(err.message || "Failed to trigger checkout.");
-    } finally {
-      setProcessing(false);
-    }
-  };
+  const totalAssignedRupees = assignment ? (assignment.totalAssignedPaise / 100).toFixed(2) : "0.00";
+  const totalPaidRupees = assignment ? (assignment.totalPaidPaise / 100).toFixed(2) : "0.00";
+  const totalPendingRupees = assignment ? (assignment.totalPendingPaise / 100).toFixed(2) : "0.00";
 
   return (
-    <StudentDashboardLayout
-      student={{ id: "student_demo", firstName: "Rahul", fullName: "Rahul Kumar" }}
-      notifications={{ unreadCount: 3 }}
-    >
-      <div className="w-full space-y-6 pb-12">
-        {/* Top Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/student"
-              className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition-all"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-            <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center border border-rose-100 dark:border-rose-900/40">
-              <Wallet className="h-5 w-5 stroke-[2.2]" />
-            </div>
-            <div>
-              <h1 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-                Fees
-              </h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Manage your fee payments
-              </p>
-            </div>
-          </div>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Fee Status & Receipts</h1>
+        <p className="text-xs text-slate-500 mt-1">Read-only overview of your fee schedule, paid payments, and official receipts.</p>
+      </div>
 
-          <button className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition-all">
-            <FileText className="h-4 w-4" />
-          </button>
+      {/* 3 Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+        <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
+          <span className="text-xs text-slate-500 font-semibold">Total Session Fee</span>
+          <p className="text-2xl font-black text-slate-900 dark:text-white">₹{totalAssignedRupees}</p>
         </div>
 
-        {/* Section 1: Outstanding Amount Card (Pink Background matching Reference UI) */}
-        <div className="bg-rose-50/70 dark:bg-rose-950/40 border border-rose-100 dark:border-rose-900/50 rounded-3xl p-5 shadow-xs flex items-center justify-between gap-4">
-          <div className="space-y-1">
-            <span className="text-[11px] font-bold text-rose-700/80 dark:text-rose-300 uppercase tracking-wider">
-              Outstanding Amount
-            </span>
-            <p className="text-2xl sm:text-3xl font-black text-rose-600 dark:text-rose-400">
-              ₹1,500
-            </p>
-            <p className="text-[11px] text-slate-500 font-medium">
-              Due for {feeSummary.dueMonth}
-            </p>
-          </div>
-
-          <button
-            onClick={handlePayNow}
-            disabled={processing}
-            className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-extrabold rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5 shrink-0"
-          >
-            {processing ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              "Pay Now"
-            )}
-          </button>
+        <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
+          <span className="text-xs text-emerald-600 font-semibold">Total Paid</span>
+          <p className="text-2xl font-black text-emerald-600">₹{totalPaidRupees}</p>
         </div>
 
-        {/* Section 2: Fee Summary */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-5 shadow-xs space-y-3">
-          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-            Fee Summary
-          </h2>
-
-          <div className="space-y-2 text-xs">
-            <div className="flex justify-between items-center py-1 border-b border-slate-100 dark:border-slate-800">
-              <span className="text-slate-600 dark:text-slate-400 font-semibold flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                Total Fees
-              </span>
-              <span className="font-extrabold text-slate-900 dark:text-white">
-                ₹{feeSummary.totalFees.toLocaleString("en-IN")}
-              </span>
-            </div>
-
-            <div className="flex justify-between items-center py-1 border-b border-slate-100 dark:border-slate-800">
-              <span className="text-slate-600 dark:text-slate-400 font-semibold flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                Paid Fees
-              </span>
-              <span className="font-extrabold text-slate-900 dark:text-white">
-                ₹{feeSummary.paidFees.toLocaleString("en-IN")}
-              </span>
-            </div>
-
-            <div className="flex justify-between items-center py-1">
-              <span className="text-slate-600 dark:text-slate-400 font-semibold flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                Outstanding
-              </span>
-              <span className="font-extrabold text-rose-600 dark:text-rose-400">
-                ₹{feeSummary.outstanding.toLocaleString("en-IN")}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Section 3: Fee Details List */}
-        <div className="space-y-3">
-          <h2 className="text-sm font-bold text-slate-900 dark:text-white">
-            Fee Details
-          </h2>
-
-          <div className="space-y-2.5">
-            {feeDetails.map((item, idx) => (
-              <div
-                key={idx}
-                className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-3.5 shadow-xs flex items-center justify-between gap-3"
-              >
-                <div>
-                  <h3 className="text-xs font-extrabold text-slate-900 dark:text-white">
-                    {item.month}
-                  </h3>
-                  <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    ₹{item.amount.toLocaleString("en-IN")}
-                  </p>
-                </div>
-
-                <span className={`px-3 py-1 rounded-full text-[10px] font-extrabold uppercase ${item.badge}`}>
-                  {item.status}
-                </span>
-              </div>
-            ))}
-          </div>
+        <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
+          <span className="text-xs text-amber-600 font-semibold">Pending Dues</span>
+          <p className="text-2xl font-black text-amber-600">₹{totalPendingRupees}</p>
         </div>
       </div>
-    </StudentDashboardLayout>
+
+      {/* Payment Receipts History */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm p-6 space-y-4">
+        <h3 className="text-base font-extrabold text-slate-900 dark:text-white">Payment Receipts & History</h3>
+
+        {loading ? (
+          <div className="p-6 flex items-center justify-center">
+            <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+          </div>
+        ) : payments.length === 0 ? (
+          <div className="p-6 text-center text-xs text-slate-500">No payment receipts recorded yet.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold uppercase border-b border-slate-100 dark:border-slate-800">
+                <tr>
+                  <th className="py-3 px-4">Receipt No</th>
+                  <th className="py-3 px-4">Fee Type</th>
+                  <th className="py-3 px-4">Payment Method</th>
+                  <th className="py-3 px-4 text-right">Amount Paid</th>
+                  <th className="py-3 px-4">Date</th>
+                  <th className="py-3 px-4 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                {payments.map((p) => (
+                  <tr key={p.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
+                    <td className="py-3.5 px-4 font-mono font-bold text-blue-600">{p.receiptNumber}</td>
+                    <td className="py-3.5 px-4 capitalize font-semibold">{p.feeType}</td>
+                    <td className="py-3.5 px-4 text-slate-600 dark:text-slate-400">{p.paymentMethod}</td>
+                    <td className="py-3.5 px-4 text-right font-extrabold text-emerald-600">₹{(p.netAmountPaise / 100).toFixed(2)}</td>
+                    <td className="py-3.5 px-4 text-slate-500">{new Date(p.paymentDate).toLocaleDateString("en-IN")}</td>
+                    <td className="py-3.5 px-4 text-right">
+                      <button
+                        onClick={() => {
+                          setSelectedPayment(p);
+                          setShowReceiptModal(true);
+                        }}
+                        className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-blue-600 text-white text-[11px] font-bold hover:bg-blue-700 transition-all shadow-sm"
+                      >
+                        <Printer className="h-3 w-3" />
+                        <span>Receipt</span>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Receipt Modal */}
+      <FeeReceiptModal
+        payment={selectedPayment}
+        isOpen={showReceiptModal}
+        onClose={() => setShowReceiptModal(false)}
+      />
+    </div>
   );
 }

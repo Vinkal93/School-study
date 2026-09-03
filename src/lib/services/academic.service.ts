@@ -29,6 +29,9 @@ import type { AcademicYear, SchoolClass, Section } from "@/types";
  * Fetches all academic years for a school.
  */
 export async function getAcademicYears(schoolId: string): Promise<AcademicYear[]> {
+  if (!schoolId || schoolId === "school_default" || schoolId === "system") {
+    return [];
+  }
   try {
     const db = getFirebaseDb();
     const q = query(
@@ -109,6 +112,9 @@ export async function setCurrentAcademicYear(
 export async function getClassesWithSections(
   schoolId: string
 ): Promise<SchoolClass[]> {
+  if (!schoolId || schoolId === "school_default" || schoolId === "system") {
+    return [];
+  }
   try {
     const db = getFirebaseDb();
     const classesQuery = query(

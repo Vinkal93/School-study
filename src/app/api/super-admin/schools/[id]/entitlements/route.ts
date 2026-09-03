@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebase/admin";
+import { getSafeAdminDb } from "@/lib/firebase/admin";
 import { getEffectiveEntitlement, getActiveAccessOverrides, getActivePlan } from "@/lib/billing";
 import { GRANULAR_PERMISSIONS } from "@/lib/billing/permissions";
 
@@ -31,6 +31,7 @@ export async function GET(
     }));
 
     let overrides: any[] = [];
+    const adminDb = getSafeAdminDb();
     try {
       if (adminDb) {
         const snap = await adminDb
@@ -48,7 +49,7 @@ export async function GET(
     const nowIso = new Date().toISOString();
     const activeOverrides = overrides.filter((o) => o.status === "ACTIVE" && (!o.endAt || o.endAt > nowIso));
     const plan = await getActivePlan(entitlement.plan.id).catch(() => null);
-    const isFullControl = activeOverrides.some((o) => o.type === "TEMPORARY_ACCESS");
+    const isFullControl = activeOverrides.some((o) => o.type === "TEMPORARY_ACCESS") || entitlement?.accessMode === "FULL_ACCESS";
 
     // Build comprehensive feature test matrix
     const matrix = GRANULAR_PERMISSIONS.map((perm) => {

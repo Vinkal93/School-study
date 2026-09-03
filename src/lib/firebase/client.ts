@@ -33,7 +33,6 @@ export function getFirebaseDb(): Firestore {
     try {
       dbInstance = initializeFirestore(app, {
         experimentalAutoDetectLongPolling: true,
-        experimentalForceLongPolling: true,
         ignoreUndefinedProperties: true,
       });
     } catch {

@@ -107,6 +107,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     if (role === "super_admin") return true;
     if (!entitlement) return true; // Default fallback while loading
     if (entitlement.accessMode === "NO_ACCESS") return false;
+    if (entitlement.accessMode === "FULL_ACCESS") return true;
     return entitlement.features[featureKey] !== false;
   };
 

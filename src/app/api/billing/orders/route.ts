@@ -241,30 +241,23 @@ export async function POST(request: Request) {
       activeCustomOffer = await getSchoolActiveCustomOffer(schoolId, planId);
     } catch (e) {}
 
-    // 4. Server-Side Authoritative Price Calculation (in Integer PAISE)
-    let baseAmountPaise = normalizedCycle === "annual" ? planVersion.annualPrice * 12 : planVersion.monthlyPrice;
-    let discountPaise = 0;
-    let taxPaise = 0;
+    // 4. Server-Side Authoritative Price, GST, and Coupon Calculation
+    const { calculateServerBillingPrice } = await import("@/lib/billing/gstCouponsEngine");
+    const calc = await calculateServerBillingPrice({
+      planId: planData.id,
+      billingCycle: normalizedCycle as any,
+      couponCode: couponCode ? String(couponCode) : null,
+      customOfferPricePaise: activeCustomOffer?.customPricePaise || null,
+    });
 
-    if (activeCustomOffer && typeof activeCustomOffer.customPricePaise === "number") {
-      if (normalizedCycle === "monthly") {
-        baseAmountPaise = activeCustomOffer.customPricePaise;
-      }
-    }
+    const baseAmountPaise = calc.baseAmountPaise;
+    const discountPaise = calc.discountAmountPaise;
+    const taxPaise = calc.gstAmountPaise;
+    const finalAmountPaise = calc.finalAmountPaise;
 
-    if (couponCode && !activeCustomOffer) {
-      const cleanCoupon = String(couponCode).trim().toUpperCase();
-      if (cleanCoupon === "SAVE20" || cleanCoupon === "WELCOME20") {
-        discountPaise = Math.round(baseAmountPaise * 0.2);
-      } else if (cleanCoupon === "FLAT500") {
-        discountPaise = 50000;
-      }
-    }
-
-    // Calculate final amount in integer paise using Math.round
-    const finalAmountPaise = Math.round(Math.max(0, baseAmountPaise - discountPaise + taxPaise));
-
-    console.log(`[BillingOrdersAPI] Pricing Calculated - Base: ${baseAmountPaise} paise, Discount: ${discountPaise} paise, Final: ${finalAmountPaise} paise (₹${finalAmountPaise / 100})`);
+    console.log(
+      `[BillingOrdersAPI] Pricing Calculated - Base: ${baseAmountPaise} paise, Discount: ${discountPaise} paise, GST (${calc.gstRate}%): ${taxPaise} paise, Final: ${finalAmountPaise} paise (₹${finalAmountPaise / 100})`
+    );
 
     if (finalAmountPaise <= 0) {
       console.warn(`[BillingOrdersAPI] Invalid computed amount ${finalAmountPaise} paise.`);

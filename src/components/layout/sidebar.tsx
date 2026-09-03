@@ -28,6 +28,7 @@ import {
   FileText,
   Lock,
   Sparkles,
+  ShieldAlert,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
@@ -117,6 +118,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       icon: <LayoutDashboard className="h-5 w-5 text-purple-500" />,
     },
     {
+      label: "Emergency Control",
+      href: "/super-admin/emergency",
+      icon: <ShieldAlert className="h-5 w-5 text-red-500" />,
+    },
+    {
       label: "Settings",
       href: "/super-admin/settings",
       icon: <Settings className="h-5 w-5" />,
@@ -163,6 +169,24 @@ const roleNavItems: Record<string, NavItem[]> = {
       href: "/admin/notices",
       featureKey: "notices_announcements",
       icon: <Bell className="h-5 w-5" />,
+    },
+    {
+      label: "Fee Management",
+      href: "/admin/fees",
+      featureKey: "fee_management",
+      icon: <CreditCard className="h-5 w-5 text-emerald-500" />,
+      subItems: [
+        { label: "Fee Dashboard", href: "/admin/fees" },
+        { label: "Fee Structure", href: "/admin/fees/structures" },
+        { label: "Student Fees", href: "/admin/fees/student-fees" },
+        { label: "Collect Fee", href: "/admin/fees/collect" },
+        { label: "Transactions", href: "/admin/fees/transactions" },
+        { label: "Dues / Defaulters", href: "/admin/fees/defaulters" },
+        { label: "Discounts / Concessions", href: "/admin/fees/discounts" },
+        { label: "Receipts", href: "/admin/fees/receipts" },
+        { label: "Fee Reports", href: "/admin/fees/reports" },
+        { label: "Fee Settings", href: "/admin/fees/settings" },
+      ],
     },
     {
       label: "Subscription & Billing",
@@ -212,6 +236,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       label: "My Attendance",
       href: "/student/attendance",
       icon: <ClipboardCheck className="h-5 w-5" />,
+    },
+    {
+      label: "Fees & Receipts",
+      href: "/student/fees",
+      icon: <CreditCard className="h-5 w-5 text-emerald-500" />,
     },
     {
       label: "Notices",

@@ -163,6 +163,32 @@ service cloud.firestore {
       allow write: if isSuperAdmin();
     }
 
+    // Fee Management Collections
+    match /feeStructures/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /studentFeeAssignments/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /feePayments/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /feeDiscounts/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /feeSettings/{schoolId} {
+      allow read: if isAuthenticated();
+      allow write: if isSchoolAdmin(schoolId) || isSuperAdmin();
+    }
+
     // ==========================================
     // 4. PRICING PLANS & FEATURE DEFINITIONS
     // ==========================================

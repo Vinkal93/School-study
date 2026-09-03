@@ -22,3 +22,11 @@ export const adminApp = !getApps().length
 
 export const adminAuth = getAuth(adminApp);
 export const adminDb = getFirestore(adminApp);
+
+export function getSafeAdminDb() {
+  // If no service account JSON and no GOOGLE_APPLICATION_CREDENTIALS env var, adminDb will throw "Could not load default credentials"
+  if (!parsedServiceAccount && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    return null;
+  }
+  return adminDb;
+}

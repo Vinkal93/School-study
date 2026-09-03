@@ -144,10 +144,13 @@ export async function initializeDefaultBillingCatalog(): Promise<void> {
         features: [
           "student_management",
           "teacher_management",
+          "class_management",
+          "basic_attendance",
           "attendance_automation",
           "school_dashboard",
           "notices_announcements",
           "advanced_reports",
+          "fee_management",
         ],
         limits: {
           maxStudents: 2000,
@@ -169,10 +172,13 @@ export async function initializeDefaultBillingCatalog(): Promise<void> {
         features: [
           "student_management",
           "teacher_management",
+          "class_management",
+          "basic_attendance",
           "attendance_automation",
           "school_dashboard",
           "notices_announcements",
           "advanced_reports",
+          "fee_management",
         ],
         limits: {
           maxStudents: -1,
@@ -222,6 +228,20 @@ export async function initializeDefaultBillingCatalog(): Promise<void> {
         };
 
         await setDoc(versionRef, planVersion);
+      } else {
+        // Synchronize default features if existing uncustomized default doc is missing class_management
+        const existingData = planSnap.data() as Plan;
+        if (p.slug === "professional" && existingData.features && !existingData.features.includes("class_management")) {
+          const updatedFeatures = Array.from(new Set([...existingData.features, "class_management", "basic_attendance", "fee_management"]));
+          await updateDoc(planRef, { features: updatedFeatures, updatedAt: new Date().toISOString() });
+          
+          const versionId = `${p.id}_v1`;
+          const versionRef = doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, versionId);
+          const verSnap = await getDoc(versionRef);
+          if (verSnap.exists()) {
+            await updateDoc(versionRef, { features: updatedFeatures });
+          }
+        }
       }
     }
   } catch (error) {
@@ -586,4 +606,63 @@ export async function getAllFeatureDefinitions(): Promise<FeatureDefinition[]> {
     { id: "notices_announcements", key: "notices_announcements", name: "Notices & Announcements", category: "academic", description: "Broadcast notices to students & teachers", defaultValue: true, valueType: "boolean", createdAt: nowIso, updatedAt: nowIso },
     { id: "advanced_reports", key: "advanced_reports", name: "Advanced Reports", category: "analytics", description: "Detailed academic and attendance reporting", defaultValue: true, valueType: "boolean", createdAt: nowIso, updatedAt: nowIso },
   ];
+}
+
+/**
+ * Safely deletes a pricing plan if no active schools are subscribed to it.
+ * Preserves historical invoices and orders.
+ */
+export async function deletePlan(planId: string, actorId: string = "super_admin"): Promise<{ success: boolean; message: string }> {
+  let adminDb: any = null;
+  if (typeof window === "undefined") {
+    try {
+      const adminModule = await import("@/lib/firebase/admin");
+      adminDb = typeof adminModule.getSafeAdminDb === "function" ? adminModule.getSafeAdminDb() : null;
+    } catch (e) {}
+  }
+
+  let activeSubscriptionsCount = 0;
+
+  if (adminDb) {
+    try {
+      const subSnap = await adminDb
+        .collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS)
+        .where("planId", "==", planId)
+        .where("status", "in", ["ACTIVE", "TRIAL", "GRACE_PERIOD"])
+        .get();
+      activeSubscriptionsCount = subSnap.docs.length;
+    } catch (e) {}
+  } else {
+    const db = getFirebaseDb();
+    if (db) {
+      try {
+        const q = query(
+          collection(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS),
+          where("planId", "==", planId),
+          where("status", "in", ["ACTIVE", "TRIAL", "GRACE_PERIOD"])
+        );
+        const subSnap = await getDocs(q);
+        activeSubscriptionsCount = subSnap.docs.length;
+      } catch (e) {}
+    }
+  }
+
+  if (activeSubscriptionsCount > 0) {
+    throw new Error(
+      `Cannot delete plan "${planId}" because ${activeSubscriptionsCount} active school(s) are currently subscribed to it. Please migrate existing subscribers first.`
+    );
+  }
+
+  if (adminDb) {
+    await adminDb.collection(BILLING_COLLECTIONS.PLANS).doc(planId).delete();
+  } else {
+    const db = getFirebaseDb();
+    if (db) {
+      await deleteDoc(doc(db, BILLING_COLLECTIONS.PLANS, planId));
+    }
+  }
+
+  await createBillingAuditLog(actorId, "super_admin", "PLAN_DELETED", "plan", planId, {}).catch(() => {});
+
+  return { success: true, message: `Plan "${planId}" deleted successfully.` };
 }

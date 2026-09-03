@@ -16,7 +16,7 @@ export interface EntitlementRequirementOptions {
  */
 export async function requireEntitlement(
   schoolId: string,
-  options: EntitlementRequirementOptions
+  options: EntitlementRequirementOptions & { userId?: string; userRole?: string; httpMethod?: string } = {}
 ) {
   if (!schoolId) {
     const error: any = new Error("Unauthorized: School ID is required.");
@@ -25,8 +25,26 @@ export async function requireEntitlement(
     throw error;
   }
 
-  // 1. Verify Granular Permission or Feature Access if requested
+  // 0. HIGHEST PRIORITY EVALUATION: Global & School Emergency Controls
+  const { resolveEmergencyAccess } = await import("@/lib/emergency/emergencyResolver");
   const targetKey = options.permission || options.feature;
+  const emergencyRes = await resolveEmergencyAccess({
+    schoolId,
+    userId: options.userId,
+    userRole: options.userRole,
+    featureKey: targetKey,
+    httpMethod: options.httpMethod || "GET",
+  });
+
+  if (!emergencyRes.allowed) {
+    const error: any = new Error(emergencyRes.message);
+    error.status = emergencyRes.status || 503;
+    error.code = emergencyRes.code || "EMERGENCY_RESTRICTED";
+    error.feature = targetKey;
+    throw error;
+  }
+
+  // 1. Verify Granular Permission or Feature Access if requested
   if (targetKey) {
     await requireFeatureAccess(schoolId, targetKey);
   }

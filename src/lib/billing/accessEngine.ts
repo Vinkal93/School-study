@@ -89,7 +89,7 @@ export function calculateSubscriptionState(
 /**
  * Reusable server-side function returning full calculated access summary for a school.
  */
-export async function getSchoolAccess(schoolId: string): Promise<SchoolAccessSummary> {
+export async function getSchoolAccess(schoolId: string): Promise<SchoolAccessSummary & { controlMode?: string }> {
   const [sub, policy] = await Promise.all([
     getSchoolSubscription(schoolId),
     getGlobalAccessPolicy(),
@@ -103,33 +103,46 @@ export async function getSchoolAccess(schoolId: string): Promise<SchoolAccessSum
   const reminderRequired =
     now < expiresAtMs && policy.reminderDays.some((d) => daysRemaining <= d);
 
-  // Default features for fallback/test environments
-  let allowedFeatures: string[] = [
-    "student_management",
-    "teacher_management",
-    "class_management",
-    "basic_attendance",
-    "attendance_automation",
-    "school_dashboard",
-    "notices_announcements",
-    "advanced_reports",
-  ];
+  // Default features fallback according to planId
+  let allowedFeatures: string[] = sub.planId === "plan_starter"
+    ? ["student_management", "teacher_management", "class_management", "basic_attendance", "school_dashboard"]
+    : ["student_management", "teacher_management", "class_management", "basic_attendance", "attendance_automation", "school_dashboard", "notices_announcements", "advanced_reports", "fee_management"];
 
   let planLimits = {
-    maxStudents: 2000,
-    maxTeachers: 100,
-    maxClasses: 60,
-    maxStaffAccounts: 10,
+    maxStudents: sub.planId === "plan_starter" ? 500 : 2000,
+    maxTeachers: sub.planId === "plan_starter" ? 20 : 100,
+    maxClasses: sub.planId === "plan_starter" ? 15 : 60,
+    maxStaffAccounts: sub.planId === "plan_starter" ? 2 : 10,
   };
 
   try {
     const db = getFirebaseDb();
     if (db) {
-      const planSnap = await getDoc(doc(db, BILLING_COLLECTIONS.PLANS, sub.planId));
-      if (planSnap.exists()) {
-        const planData = planSnap.data() as Plan;
-        if (planData.features) allowedFeatures = planData.features;
-        if (planData.limits) planLimits = planData.limits;
+      let loaded = false;
+
+      // 1. Attempt to fetch features from specific PlanVersion document if present
+      if (sub.planVersionId) {
+        const verSnap = await getDoc(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, sub.planVersionId));
+        if (verSnap.exists()) {
+          const verData = verSnap.data();
+          if (Array.isArray(verData.features) && verData.features.length > 0) {
+            allowedFeatures = verData.features;
+            loaded = true;
+          }
+          if (verData.limits) planLimits = verData.limits;
+        }
+      }
+
+      // 2. Fallback to main Plan document in Firestore
+      if (!loaded) {
+        const planSnap = await getDoc(doc(db, BILLING_COLLECTIONS.PLANS, sub.planId));
+        if (planSnap.exists()) {
+          const planData = planSnap.data() as Plan;
+          if (Array.isArray(planData.features) && planData.features.length > 0) {
+            allowedFeatures = planData.features;
+          }
+          if (planData.limits) planLimits = planData.limits;
+        }
       }
     }
   } catch (err) {
@@ -154,6 +167,7 @@ export async function getSchoolAccess(schoolId: string): Promise<SchoolAccessSum
     planVersionId: sub.planVersionId,
     status: sub.status,
     accessMode,
+    controlMode: (sub as any).controlMode,
     startsAt: sub.startsAt,
     expiresAt: sub.expiresAt,
     graceEndsAt: sub.graceEndsAt,

@@ -78,87 +78,86 @@ export function EntitlementGate({
         return;
       }
 
-      // 2. Limit Check Evaluation
-      if (limitKey) {
-        if (entitlementCtx?.entitlement?.limits?.[limitKey]) {
-          const limitStatus = entitlementCtx.entitlement.limits[limitKey];
-          const isOver = limitStatus.isOverLimit || (currentCount !== undefined && !limitStatus.isUnlimited && currentCount >= limitStatus.limit);
-          if (isMounted) {
-            setLimitExceeded(isOver);
-            setAccessResult({
-              allowed: !isOver,
-              reason: isOver ? "LIMIT_EXCEEDED" : "ALLOWED",
-              code: isOver ? "LIMIT_EXCEEDED" : "ALLOWED",
-              message: isOver ? `Capacity limit reached for ${limitKey}. Upgrade plan for higher limits.` : "Within capacity limits.",
-              accessMode: entitlementCtx.accessMode as any,
-            });
-            setLoading(false);
+      // 2. Feature Check Evaluation FIRST
+      let isFeatureAllowed = true;
+      let featureDenialMessage = "";
+
+      if (feature) {
+        if (entitlementCtx?.entitlement) {
+          isFeatureAllowed = entitlementCtx.canAccess(feature);
+          if (!isFeatureAllowed) {
+            featureDenialMessage = `Feature "${feature}" is not included in your current plan (${entitlementCtx.entitlement.plan.name}).`;
           }
-          return;
         } else {
           try {
-            const limitRes = await checkPlanLimit(schoolId, limitKey);
-            if (isMounted) {
-              const isOver = !limitRes.allowed;
-              setLimitExceeded(isOver);
-              setAccessResult({
-                allowed: !isOver,
-                reason: isOver ? "LIMIT_EXCEEDED" : "ALLOWED",
-                code: isOver ? "LIMIT_EXCEEDED" : "ALLOWED",
-                message: limitRes.message,
-                accessMode: "FULL_ACCESS",
-              });
-              setLoading(false);
-            }
-            return;
-          } catch (e) {}
+            const res = await canAccessFeature(schoolId, feature);
+            isFeatureAllowed = res.allowed;
+            featureDenialMessage = res.message;
+          } catch (err) {
+            isFeatureAllowed = false;
+            featureDenialMessage = "Unable to verify plan access.";
+          }
         }
       }
 
-      // 3. Feature Key Evaluation via Real-Time Entitlement Context
-      if (feature && entitlementCtx?.entitlement) {
-        const isAllowed = entitlementCtx.canAccess(feature);
+      if (!isFeatureAllowed) {
         if (isMounted) {
+          setLimitExceeded(false);
           setAccessResult({
-            allowed: isAllowed,
-            reason: isAllowed ? "ALLOWED" : "FEATURE_NOT_INCLUDED",
-            code: isAllowed ? "ALLOWED" : "FEATURE_NOT_INCLUDED",
-            message: isAllowed
-              ? "Access granted."
-              : `Feature "${feature}" is not included in your current plan (${entitlementCtx.entitlement.plan.name}).`,
-            accessMode: entitlementCtx.accessMode as any,
+            allowed: false,
+            reason: "FEATURE_NOT_INCLUDED",
+            code: "FEATURE_NOT_INCLUDED",
+            message: featureDenialMessage || "Feature not included in plan.",
+            accessMode: (entitlementCtx?.accessMode as any) || "NO_ACCESS",
           });
           setLoading(false);
         }
         return;
       }
 
-      // 4. Fallback async feature check
-      if (feature) {
-        try {
-          const res = await canAccessFeature(schoolId, feature);
+      // 3. Limit Check Evaluation SECOND
+      if (limitKey) {
+        let isOver = false;
+        let limitMsg = "";
+
+        if (entitlementCtx?.entitlement?.limits?.[limitKey]) {
+          const limitStatus = entitlementCtx.entitlement.limits[limitKey];
+          isOver = limitStatus.isOverLimit || (currentCount !== undefined && !limitStatus.isUnlimited && currentCount >= limitStatus.limit);
+          limitMsg = isOver ? `Capacity limit reached for ${limitKey}. Upgrade plan for higher limits.` : "Within capacity limits.";
+        } else {
+          try {
+            const limitRes = await checkPlanLimit(schoolId, limitKey);
+            isOver = !limitRes.allowed;
+            limitMsg = limitRes.message;
+          } catch (e) {}
+        }
+
+        if (isOver) {
           if (isMounted) {
-            setAccessResult(res);
-            setLoading(false);
-          }
-        } catch (err) {
-          if (isMounted) {
+            setLimitExceeded(true);
             setAccessResult({
               allowed: false,
-              reason: "ERROR",
-              code: "AUTHORIZATION_ERROR",
-              message: "Unable to verify plan access.",
-              accessMode: "NO_ACCESS",
+              reason: "LIMIT_EXCEEDED",
+              code: "LIMIT_EXCEEDED",
+              message: limitMsg,
+              accessMode: (entitlementCtx?.accessMode as any) || "FULL_ACCESS",
             });
             setLoading(false);
           }
+          return;
         }
-        return;
       }
 
-      // Default fallback
+      // All checks passed!
       if (isMounted) {
-        setAccessResult({ allowed: true, reason: "ALLOWED", code: "ALLOWED", message: "Allowed", accessMode: "FULL_ACCESS" });
+        setLimitExceeded(false);
+        setAccessResult({
+          allowed: true,
+          reason: "ALLOWED",
+          code: "ALLOWED",
+          message: "Access granted.",
+          accessMode: (entitlementCtx?.accessMode as any) || "FULL_ACCESS",
+        });
         setLoading(false);
       }
     }
@@ -200,6 +199,19 @@ export function EntitlementGate({
       : "Feature Locked");
 
   const currentPlanName = entitlementCtx?.entitlement?.plan?.name || "Starter Plan";
+  const currentPlanSlug = entitlementCtx?.entitlement?.plan?.slug || "starter";
+
+  // Dynamically calculate appropriate Required Plan based on current plan tier
+  let displayRequiredPlan = requiredPlan;
+  if (!requiredPlan || requiredPlan === "Professional Plan" || requiredPlan === "Starter Plan") {
+    if (currentPlanSlug === "professional") {
+      displayRequiredPlan = "Enterprise Plan";
+    } else if (currentPlanSlug === "enterprise") {
+      displayRequiredPlan = "Custom Access Required";
+    } else {
+      displayRequiredPlan = "Professional Plan";
+    }
+  }
 
   // Action / Button level gating
   if (type === "action" || type === "button") {
@@ -212,7 +224,7 @@ export function EntitlementGate({
           <Link
             href="/admin/billing"
             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-600 text-white text-[11px] font-bold shadow-md hover:bg-amber-700 transition-all"
-            title={`${formattedFeatureName} requires ${requiredPlan}`}
+            title={`${formattedFeatureName} requires ${displayRequiredPlan}`}
           >
             <Lock className="h-3 w-3" />
             <span>Locked (Upgrade)</span>
@@ -263,7 +275,7 @@ export function EntitlementGate({
                   Current Plan: <strong>{currentPlanName}</strong>
                 </span>
                 <span className="px-2.5 py-1 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300">
-                  Required: <strong>{requiredPlan}</strong>
+                  Required: <strong>{displayRequiredPlan}</strong>
                 </span>
               </div>
             </div>

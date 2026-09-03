@@ -13,6 +13,7 @@ import {
   BookOpen,
   MessageSquare,
   FileText,
+  ShieldAlert,
 } from "lucide-react";
 
 interface NavItem {
@@ -24,6 +25,7 @@ interface NavItem {
 const mobileRoleNavItems: Record<string, NavItem[]> = {
   super_admin: [
     { label: "Dashboard", href: "/super-admin", icon: <LayoutDashboard className="h-5 w-5" /> },
+    { label: "Emergency", href: "/super-admin/emergency", icon: <ShieldAlert className="h-5 w-5 text-red-500" /> },
     { label: "Schools", href: "/super-admin/schools", icon: <Building2 className="h-5 w-5" /> },
     { label: "Reports", href: "/super-admin/reports", icon: <FileText className="h-5 w-5" /> },
     { label: "Inquiries", href: "/super-admin/inquiries", icon: <MessageSquare className="h-5 w-5" /> },

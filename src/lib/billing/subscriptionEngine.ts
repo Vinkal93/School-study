@@ -160,8 +160,8 @@ export async function getCurrentSubscription(schoolId: string): Promise<SchoolSu
   const graceEndsAt = new Date(expiresAt.getTime() + 7 * 86400000);
 
   const defaultSub: SchoolSubscription = {
-    id: schoolId,
-    schoolId,
+    id: schoolId || "school_default",
+    schoolId: schoolId || "school_default",
     planId: "plan_professional",
     planVersionId: "plan_professional_v1",
     status: "ACTIVE",
@@ -179,6 +179,10 @@ export async function getCurrentSubscription(schoolId: string): Promise<SchoolSu
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };
+
+  if (!schoolId || schoolId === "school_default" || schoolId === "system") {
+    return defaultSub;
+  }
 
   try {
     const db = getFirebaseDb();

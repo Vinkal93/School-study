@@ -33,6 +33,10 @@ interface RechargeModalProps {
 interface PriceBreakdown {
   baseAmount: number; // paise
   discountAmount: number; // paise
+  taxableAmount?: number; // paise
+  gstEnabled?: boolean;
+  gstRate?: number;
+  gstAmount?: number; // paise
   finalAmount: number; // paise
   currency: string;
   couponValid: boolean;
@@ -89,21 +93,25 @@ export function RechargeModal({
         }),
       });
 
-      if (res.ok && res.data) {
-        const data = res.data;
+      if (res.ok && res.data && res.data.calculation) {
+        const calc = res.data.calculation;
         setBreakdown({
-          baseAmount: data.baseAmount,
-          discountAmount: data.discountAmount,
-          finalAmount: data.finalAmount,
-          currency: data.currency || "INR",
-          couponValid: data.couponValid,
-          couponMessage: data.couponMessage,
+          baseAmount: calc.baseAmountPaise,
+          discountAmount: calc.discountAmountPaise,
+          taxableAmount: calc.taxableAmountPaise,
+          gstEnabled: calc.gstEnabled,
+          gstRate: calc.gstRate,
+          gstAmount: calc.gstAmountPaise,
+          finalAmount: calc.finalAmountPaise,
+          currency: calc.currency || "INR",
+          couponValid: Boolean(calc.couponCode),
+          couponMessage: calc.couponCode ? `Coupon "${calc.couponCode}" applied successfully!` : undefined,
         });
 
-        if (coupon && data.couponValid) {
-          toast.success(data.couponMessage || "Coupon applied successfully!");
-        } else if (coupon && !data.couponValid) {
-          toast.error(data.couponMessage || "Invalid coupon code.");
+        if (coupon && calc.couponCode) {
+          toast.success(`Coupon "${calc.couponCode}" applied!`);
+        } else if (coupon && !calc.couponCode) {
+          toast.error("Invalid, expired, or non-applicable coupon code.");
         }
       } else {
         toast.error(res.error || "Failed to calculate pricing.");
@@ -342,10 +350,10 @@ export function RechargeModal({
             )}
           </div>
 
-          {/* Order Breakdown Summary (Section 8) */}
+          {/* Order Breakdown Summary with GST */}
           <div className="rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 p-4 space-y-2 text-xs">
             <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
-              <span>Base Subscription Price ({billingCycle === "annual" ? "12 Months" : "1 Month"})</span>
+              <span>Base Plan Price ({billingCycle === "annual" ? "12 Months" : "1 Month"})</span>
               <span className="font-mono">{formatPaise(breakdown.baseAmount)}</span>
             </div>
 
@@ -353,6 +361,25 @@ export function RechargeModal({
               <div className="flex items-center justify-between text-emerald-600 font-semibold">
                 <span>Coupon Discount ({appliedCoupon || "Special Promo"})</span>
                 <span className="font-mono">-{formatPaise(breakdown.discountAmount)}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
+              <span>Net Taxable Amount</span>
+              <span className="font-mono">
+                {formatPaise(breakdown.taxableAmount !== undefined ? breakdown.taxableAmount : Math.max(0, breakdown.baseAmount - breakdown.discountAmount))}
+              </span>
+            </div>
+
+            {breakdown.gstEnabled && (breakdown.gstRate || 0) > 0 ? (
+              <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
+                <span>GST ({breakdown.gstRate}%)</span>
+                <span className="font-mono">+{formatPaise(breakdown.gstAmount || 0)}</span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between text-slate-400 italic">
+                <span>GST (Tax Exempt / OFF)</span>
+                <span className="font-mono">₹0</span>
               </div>
             )}
 

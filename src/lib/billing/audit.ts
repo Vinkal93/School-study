@@ -7,7 +7,7 @@ export interface CreateBillingAuditLogInput {
   actorId: string;
   actorRole: string;
   action: BillingAuditAction;
-  targetType: "plan" | "planVersion" | "schoolSubscription" | "accessPolicy" | "financeReport" | "invoice" | "adjustment" | "override" | "penalty";
+  targetType: "plan" | "planVersion" | "schoolSubscription" | "accessPolicy" | "financeReport" | "invoice" | "adjustment" | "override" | "penalty" | "coupon" | "billing_settings";
   targetId: string;
   metadata?: Record<string, any>;
 }
@@ -21,7 +21,7 @@ export async function createBillingAuditLog(
   actorIdOrInput: string | CreateBillingAuditLogInput,
   actorRole?: string,
   action?: BillingAuditAction,
-  targetType?: "plan" | "planVersion" | "schoolSubscription" | "accessPolicy" | "financeReport" | "invoice" | "adjustment" | "override" | "penalty",
+  targetType?: "plan" | "planVersion" | "schoolSubscription" | "accessPolicy" | "financeReport" | "invoice" | "adjustment" | "override" | "penalty" | "coupon" | "billing_settings",
   targetId?: string,
   metadata: Record<string, any> = {}
 ): Promise<void> {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebase/admin";
+import { getSafeAdminDb } from "@/lib/firebase/admin";
 import { getFirebaseDb } from "@/lib/firebase/client";
+import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
 import {
   getCurrentSubscription,
   getActivePlan,
@@ -17,9 +18,126 @@ import {
 } from "@/lib/billing";
 import type { BillingAuditAction } from "@/types";
 
+async function saveSubscriptionDoc(schoolId: string, data: any) {
+  const adminDb = getSafeAdminDb();
+  if (adminDb) {
+    try {
+      await adminDb.collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS).doc(schoolId).set(data, { merge: true });
+      return;
+    } catch (e) {
+      console.warn("adminDb subscription write notice, falling back to client SDK:", e);
+    }
+  }
+
+  const clientDb = getFirebaseDb();
+  if (clientDb) {
+    const subRef = doc(clientDb, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId);
+    await setDoc(subRef, data, { merge: true });
+  }
+}
+
+async function saveAccessOverrideDoc(overrideData: any) {
+  const adminDb = getSafeAdminDb();
+  if (adminDb) {
+    try {
+      await adminDb.collection(BILLING_COLLECTIONS.ACCESS_OVERRIDES).doc(overrideData.id).set(overrideData);
+      return;
+    } catch (e) {
+      console.warn("adminDb accessOverride write notice, falling back to client SDK:", e);
+    }
+  }
+
+  const clientDb = getFirebaseDb();
+  if (clientDb) {
+    const overrideRef = doc(clientDb, BILLING_COLLECTIONS.ACCESS_OVERRIDES, overrideData.id);
+    await setDoc(overrideRef, overrideData);
+  }
+}
+
+async function revokeAccessOverrides(schoolId: string) {
+  const nowIso = new Date().toISOString();
+  const adminDb = getSafeAdminDb();
+  if (adminDb) {
+    try {
+      const snap = await adminDb
+        .collection(BILLING_COLLECTIONS.ACCESS_OVERRIDES)
+        .where("schoolId", "==", schoolId)
+        .get();
+      for (const d of snap.docs) {
+        if (d.data().status === "ACTIVE") {
+          await d.ref.update({ status: "REVOKED", updatedAt: nowIso });
+        }
+      }
+      return;
+    } catch (e) {
+      console.warn("adminDb revoke notice, falling back to client SDK:", e);
+    }
+  }
+
+  const clientDb = getFirebaseDb();
+  if (clientDb) {
+    try {
+      const q = query(
+        collection(clientDb, BILLING_COLLECTIONS.ACCESS_OVERRIDES),
+        where("schoolId", "==", schoolId)
+      );
+      const snap = await getDocs(q);
+      for (const d of snap.docs) {
+        if (d.data().status === "ACTIVE") {
+          await updateDoc(doc(clientDb, BILLING_COLLECTIONS.ACCESS_OVERRIDES, d.id), {
+            status: "REVOKED",
+            updatedAt: nowIso,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("clientDb revoke notice:", e);
+    }
+  }
+}
+
+async function syncUserSchoolId(schoolId: string) {
+  try {
+    const adminDb = getSafeAdminDb();
+    if (adminDb) {
+      const schoolDoc = await adminDb.collection("schools").doc(schoolId).get();
+      if (schoolDoc.exists) {
+        const adminEmail = schoolDoc.data()?.adminEmail || schoolDoc.data()?.email;
+        if (adminEmail) {
+          const usersSnap = await adminDb.collection("users").where("email", "==", adminEmail).get();
+          for (const u of usersSnap.docs) {
+            if (u.data().schoolId !== schoolId) {
+              await u.ref.update({ schoolId, updatedAt: new Date().toISOString() });
+            }
+          }
+        }
+      }
+    } else {
+      const clientDb = getFirebaseDb();
+      if (clientDb) {
+        const schoolSnap = await getDoc(doc(clientDb, "schools", schoolId));
+        if (schoolSnap.exists()) {
+          const adminEmail = schoolSnap.data()?.adminEmail || schoolSnap.data()?.email;
+          if (adminEmail) {
+            const q = query(collection(clientDb, "users"), where("email", "==", adminEmail));
+            const usersSnap = await getDocs(q);
+            for (const u of usersSnap.docs) {
+              if (u.data().schoolId !== schoolId) {
+                await updateDoc(doc(clientDb, "users", u.id), { schoolId, updatedAt: new Date().toISOString() });
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("syncUserSchoolId notice:", err);
+  }
+}
+
 /**
  * GET /api/super-admin/schools/[id]/subscription
- * Fetches target school subscription, active overrides, and audit history using adminDb.
+ * Fetches target school subscription, active overrides, and audit history safely.
  */
 export async function GET(
   request: Request,
@@ -35,8 +153,9 @@ export async function GET(
     let accessOverrides: any[] = [];
     let limitOverrides: any[] = [];
     let auditLogs: any[] = [];
+    const adminDb = getSafeAdminDb();
 
-    // 1. Fetch Subscription via adminDb or fallback
+    // 1. Fetch Subscription
     try {
       if (adminDb) {
         const docSnap = await adminDb.collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS).doc(schoolId).get();
@@ -55,7 +174,7 @@ export async function GET(
     const plan = await getActivePlan(planId).catch(() => null);
     const planVersion = await getActivePlanVersion(planId).catch(() => null);
 
-    // 2. Fetch Access Overrides via adminDb or fallback
+    // 2. Fetch Access Overrides
     try {
       if (adminDb) {
         const snap = await adminDb
@@ -67,11 +186,10 @@ export async function GET(
         accessOverrides = await getActiveAccessOverrides(schoolId);
       }
     } catch (e) {
-      console.warn("adminDb accessOverrides read notice:", e);
       accessOverrides = await getActiveAccessOverrides(schoolId).catch(() => []);
     }
 
-    // 3. Fetch Limit Overrides via adminDb or fallback
+    // 3. Fetch Limit Overrides
     try {
       if (adminDb) {
         const snap = await adminDb
@@ -83,11 +201,10 @@ export async function GET(
         limitOverrides = await getActiveLimitOverrides(schoolId);
       }
     } catch (e) {
-      console.warn("adminDb limitOverrides read notice:", e);
       limitOverrides = await getActiveLimitOverrides(schoolId).catch(() => []);
     }
 
-    // 4. Fetch Audit Logs via adminDb
+    // 4. Fetch Audit Logs
     try {
       if (adminDb) {
         const snap = await adminDb
@@ -97,9 +214,18 @@ export async function GET(
           .get();
         auditLogs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
         auditLogs.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
+      } else {
+        const clientDb = getFirebaseDb();
+        if (clientDb) {
+          const q = query(collection(clientDb, "audit_logs"), where("targetId", "==", schoolId));
+          const snap = await getDocs(q);
+          auditLogs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          auditLogs.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
+          auditLogs = auditLogs.slice(0, 20);
+        }
       }
     } catch (e) {
-      console.warn("adminDb auditLogs read notice:", e);
+      console.warn("auditLogs lookup notice:", e);
     }
 
     // Determine current Control Mode
@@ -108,9 +234,9 @@ export async function GET(
     const hasFullControl = activeAccessOverrides.some((o) => o.type === "TEMPORARY_ACCESS");
     const hasCustomOverrides = activeAccessOverrides.some((o) => o.type === "FEATURE_GRANT" || o.type === "FEATURE_RESTRICT");
     
-    let controlMode: "FULL_CONTROL" | "LIMITED_CONTROL" | "CUSTOM_ACCESS" = "LIMITED_CONTROL";
+    let controlMode: "FULL_CONTROL" | "LIMITED_CONTROL" | "CUSTOM_ACCESS" = subscription?.controlMode || "LIMITED_CONTROL";
     if (hasFullControl) controlMode = "FULL_CONTROL";
-    else if (hasCustomOverrides) controlMode = "CUSTOM_ACCESS";
+    else if (hasCustomOverrides && controlMode !== "FULL_CONTROL") controlMode = "CUSTOM_ACCESS";
 
     return NextResponse.json({
       success: true,
@@ -133,7 +259,7 @@ export async function GET(
 
 /**
  * POST /api/super-admin/schools/[id]/subscription
- * Authoritative Super Admin endpoint using adminDb to assign plan, adjust period, change status, and set feature overrides.
+ * Authoritative Super Admin endpoint to assign plan, adjust period, change status, and set feature overrides.
  */
 export async function POST(
   request: Request,
@@ -161,7 +287,6 @@ export async function POST(
 
     const now = new Date();
     let currentSub = await getCurrentSubscription(schoolId);
-    let auditAction: BillingAuditAction = "SUBSCRIPTION_UPDATED";
 
     // 1. Action: ASSIGN_PLAN / CHANGE_PLAN / SET_CONTROL_MODE
     if (action === "ASSIGN_PLAN" || action === "CHANGE_PLAN") {
@@ -176,18 +301,13 @@ export async function POST(
       currentSub.source = "manual_admin";
       currentSub.updatedAt = now.toISOString();
 
-      if (adminDb) {
-        await adminDb.collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS).doc(schoolId).set(
-          {
-            planId,
-            planVersionId: `${planId}_v1`,
-            billingCycle,
-            source: "manual_admin",
-            updatedAt: now.toISOString(),
-          },
-          { merge: true }
-        );
-      }
+      await saveSubscriptionDoc(schoolId, {
+        planId,
+        planVersionId: `${planId}_v1`,
+        billingCycle,
+        source: "manual_admin",
+        updatedAt: now.toISOString(),
+      });
 
       await createBillingAuditLog({
         actorId,
@@ -240,19 +360,14 @@ export async function POST(
       currentSub.source = "system_trial";
       currentSub.updatedAt = now.toISOString();
 
-      if (adminDb) {
-        await adminDb.collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS).doc(schoolId).set(
-          {
-            status: "TRIAL",
-            expiresAt: currentSub.expiresAt,
-            currentPeriodEnd: currentSub.currentPeriodEnd,
-            graceEndsAt: currentSub.graceEndsAt,
-            source: "system_trial",
-            updatedAt: currentSub.updatedAt,
-          },
-          { merge: true }
-        );
-      }
+      await saveSubscriptionDoc(schoolId, {
+        status: "TRIAL",
+        expiresAt: currentSub.expiresAt,
+        currentPeriodEnd: currentSub.currentPeriodEnd,
+        graceEndsAt: currentSub.graceEndsAt,
+        source: "system_trial",
+        updatedAt: currentSub.updatedAt,
+      });
 
       await createBillingAuditLog({
         actorId,
@@ -266,25 +381,33 @@ export async function POST(
 
     // 5. Handle Control Mode & Granular Feature Overrides
     if (controlMode) {
-      if (adminDb) {
-        const existingSnap = await adminDb
-          .collection(BILLING_COLLECTIONS.ACCESS_OVERRIDES)
-          .where("schoolId", "==", schoolId)
-          .where("status", "==", "ACTIVE")
-          .get();
-        
-        for (const d of existingSnap.docs) {
-          await d.ref.update({ status: "REVOKED", updatedAt: now.toISOString() }).catch(() => {});
-        }
-      }
+      const targetMode = controlMode === "RESET_TO_PLAN" ? "LIMITED_CONTROL" : controlMode;
+
+      // Save controlMode directly on schoolSubscriptions document
+      await saveSubscriptionDoc(schoolId, {
+        controlMode: targetMode,
+        updatedAt: now.toISOString(),
+      });
+
+      // Revoke any existing access overrides cleanly
+      await revokeAccessOverrides(schoolId);
 
       if (controlMode === "FULL_CONTROL") {
-        await createAccessOverride(schoolId, {
+        const overrideId = `ovr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+        const overrideData = {
+          id: overrideId,
+          schoolId,
           type: "TEMPORARY_ACCESS",
-          durationDays: 365,
+          enabled: true,
+          startAt: now.toISOString(),
+          endAt: new Date(now.getTime() + 365 * 86400000).toISOString(),
           reason: "Super Admin FULL CONTROL Mode Enabled",
           createdBy: actorId,
-        }).catch(() => {});
+          status: "ACTIVE",
+          createdAt: now.toISOString(),
+        };
+
+        await saveAccessOverrideDoc(overrideData);
 
         await createBillingAuditLog({
           actorId,
@@ -299,13 +422,22 @@ export async function POST(
           const { featureKey, allowed } = overrideItem;
           if (!featureKey) continue;
 
-          await createAccessOverride(schoolId, {
+          const overrideId = `ovr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+          const overrideData = {
+            id: overrideId,
+            schoolId,
             type: allowed ? "FEATURE_GRANT" : "FEATURE_RESTRICT",
             featureKey,
-            durationDays: 365,
+            enabled: !!allowed,
+            startAt: now.toISOString(),
+            endAt: new Date(now.getTime() + 365 * 86400000).toISOString(),
             reason: `Super Admin CUSTOM ACCESS override (${allowed ? "ALLOW" : "DENY"})`,
             createdBy: actorId,
-          }).catch(() => {});
+            status: "ACTIVE",
+            createdAt: now.toISOString(),
+          };
+
+          await saveAccessOverrideDoc(overrideData);
 
           await createBillingAuditLog({
             actorId,
@@ -317,6 +449,7 @@ export async function POST(
           }).catch(() => {});
         }
       } else if (controlMode === "RESET_TO_PLAN") {
+        await saveSubscriptionDoc(schoolId, { controlMode: "LIMITED_CONTROL", updatedAt: now.toISOString() });
         await createBillingAuditLog({
           actorId,
           actorRole: "super_admin",
@@ -348,6 +481,9 @@ export async function POST(
     const updatedAccessOverrides = await getActiveAccessOverrides(schoolId).catch(() => []);
     const updatedLimitOverrides = await getActiveLimitOverrides(schoolId).catch(() => []);
 
+    // Synchronize school administrator user document schoolId to match target schoolId
+    await syncUserSchoolId(schoolId);
+
     return NextResponse.json({
       success: true,
       message: `Subscription and entitlements updated successfully for school ${schoolId}.`,
@@ -356,7 +492,13 @@ export async function POST(
       limitOverrides: updatedLimitOverrides,
     });
   } catch (error: any) {
-    console.error("POST /api/super-admin/schools/[id]/subscription error:", error);
+    console.error("[POST /api/super-admin/schools/[id]/subscription Error]", {
+      operation: "UPDATE_SCHOOL_SUBSCRIPTION",
+      errorName: error?.name,
+      errorCode: error?.code,
+      errorMessage: error?.message,
+      stack: error?.stack,
+    });
     return NextResponse.json(
       { success: false, error: error?.message || "Failed to update school subscription control." },
       { status: 500 }

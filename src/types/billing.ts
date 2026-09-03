@@ -372,14 +372,19 @@ export type BillingAuditAction =
   | "SUBSCRIPTION_ACTIVATED"
   | "RECURRING_PAYMENT_SUCCESSFUL"
   | "RECURRING_PAYMENT_FAILED"
-  | "SUBSCRIPTION_CANCELLED";
+  | "SUBSCRIPTION_CANCELLED"
+  | "GST_SETTINGS_UPDATED"
+  | "COUPON_CREATED"
+  | "COUPON_UPDATED"
+  | "COUPON_DELETED"
+  | "PLAN_DELETED";
 
 export interface BillingAuditLogEntry {
   id: string;
   actorId: string;
   actorRole: string;
   action: BillingAuditAction;
-  targetType: "plan" | "planVersion" | "schoolSubscription" | "accessPolicy" | "financeReport" | "invoice" | "adjustment" | "override" | "penalty";
+  targetType: "plan" | "planVersion" | "schoolSubscription" | "accessPolicy" | "financeReport" | "invoice" | "adjustment" | "override" | "penalty" | "coupon" | "billing_settings";
   targetId: string;
   metadata: Record<string, any>;
   timestamp: string;
@@ -471,4 +476,139 @@ export interface FinancialAdjustmentRecord {
   reference?: string;
   createdAt: string;
 }
+
+// ==========================================
+// FEE MANAGEMENT DATA MODELS (Integer PAISE)
+// ==========================================
+
+export type FeeType =
+  | "tuition"
+  | "admission"
+  | "annual"
+  | "exam"
+  | "computer"
+  | "transport"
+  | "library"
+  | "other";
+
+export type FeeFrequency =
+  | "monthly"
+  | "quarterly"
+  | "half_yearly"
+  | "annual"
+  | "one_time";
+
+export interface FeeStructure {
+  id: string;
+  schoolId: string;
+  academicYearId: string;
+  academicYearName?: string;
+  className: string; // "Class 10", "all", etc.
+  sectionName?: string; // "Section A", "all", etc.
+  feeType: FeeType;
+  title: string;
+  amountPaise: number; // Integer PAISE (e.g. 50000 = ₹500.00)
+  frequency: FeeFrequency;
+  dueDayOfMonth?: number; // 1-31
+  status: "ACTIVE" | "INACTIVE";
+  transactionCount?: number; // Protection count against safety deletion
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MonthLedgerItem {
+  month: string; // "April 2026"
+  dueDate: string; // ISO date
+  amountPaise: number; // Integer PAISE
+  paidAmountPaise: number; // Integer PAISE
+  discountPaise: number; // Integer PAISE
+  lateFeePaise: number; // Integer PAISE
+  pendingAmountPaise: number; // Integer PAISE
+  status: "PAID" | "PENDING" | "PARTIAL" | "OVERDUE";
+  paymentIds?: string[];
+  receiptNumbers?: string[];
+}
+
+export interface StudentFeeAssignment {
+  id: string; // `${schoolId}_${studentId}_${academicYearId}`
+  schoolId: string;
+  studentId: string;
+  studentName: string;
+  admissionNumber: string;
+  className: string;
+  sectionName: string;
+  academicYearId: string;
+  academicYearName?: string;
+  feeStructureIds: string[];
+  totalAssignedPaise: number; // Integer PAISE
+  totalPaidPaise: number; // Integer PAISE
+  totalDiscountPaise: number; // Integer PAISE
+  totalLateFeePaise: number; // Integer PAISE
+  totalPendingPaise: number; // Integer PAISE
+  monthLedger: MonthLedgerItem[];
+  status: "PAID" | "PENDING" | "PARTIAL" | "OVERDUE";
+  lastPaymentDate?: string | null;
+  updatedAt: string;
+}
+
+export interface FeePayment {
+  id: string;
+  schoolId: string;
+  receiptNumber: string; // e.g. "REC-20260903-0042"
+  studentId: string;
+  studentName: string;
+  admissionNumber: string;
+  className: string;
+  sectionName: string;
+  academicYearId: string;
+  feeStructureId?: string;
+  feeType: FeeType;
+  periodMonths: string[]; // e.g. ["April 2026", "May 2026"]
+  amountPaidPaise: number; // Integer PAISE
+  discountPaise: number; // Integer PAISE
+  lateFeePaise: number; // Integer PAISE
+  netAmountPaise: number; // Integer PAISE (amountPaidPaise + lateFeePaise - discountPaise)
+  paymentMethod: "Cash" | "UPI" | "Bank Transfer" | "Card" | "Cheque" | "Online Payment" | "Other";
+  transactionRef?: string;
+  remarks?: string;
+  paymentDate: string; // ISO String
+  collectedBy: string;
+  collectedByName?: string;
+  status: "SUCCESS" | "REFUNDED" | "CANCELLED";
+  createdAt: string;
+}
+
+export interface FeeDiscount {
+  id: string;
+  schoolId: string;
+  studentId: string;
+  studentName: string;
+  admissionNumber: string;
+  className: string;
+  feeType: FeeType;
+  discountType: "FIXED" | "PERCENTAGE" | "SCHOLARSHIP" | "CONCESSION" | "CUSTOM";
+  amountPaise: number; // Integer PAISE or percentage value
+  reason: string;
+  appliedBy: string;
+  createdAt: string;
+}
+
+export interface FeeSettings {
+  id: string; // schoolId
+  schoolId: string;
+  currency: string; // "INR"
+  receiptPrefix: string; // "REC"
+  feeDueDayOfMonth: number; // 5
+  lateFeeRule: {
+    enabled: boolean;
+    graceDays: number; // 5
+    type: "FIXED" | "PERCENTAGE";
+    value: number; // ₹50 or 5%
+    maxLimitPaise: number; // Integer PAISE (e.g. 50000 = ₹500 max)
+  };
+  paymentMethods: string[];
+  academicYearDefaultId?: string;
+  updatedAt: string;
+}
+
 

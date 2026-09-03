@@ -109,6 +109,7 @@ export function SuperAdminSchoolEntitlementControlModal({
   const handleApplyAction = async (actionName: string, additionalPayload: any = {}) => {
     setSubmitting(true);
     try {
+      const targetMode = additionalPayload.controlMode || controlMode;
       const payload = {
         action: actionName,
         planId: selectedPlanId,
@@ -116,7 +117,7 @@ export function SuperAdminSchoolEntitlementControlModal({
         reason: reasonInput,
         expiryDays: expiryDaysInput,
         customExpiryDate: customDateInput ? new Date(customDateInput).toISOString() : undefined,
-        controlMode,
+        controlMode: targetMode,
         featureOverrides: Object.entries(featureOverridesMap).map(([featureKey, allowed]) => ({ featureKey, allowed })),
         ...additionalPayload,
       };

@@ -29,6 +29,8 @@ const FEATURE_KEY_ALIASES: Record<string, string[]> = {
   student_portal: ["student_portal"],
   teacher_portal: ["teacher_portal"],
   billing: ["billing"],
+  fee_management: ["fee_management", "fees", "fee_dashboard", "fee_structure", "fee_collection", "fee_transactions", "fee_reports", "fee_exports", "fee_discounts", "fee_receipts"],
+  fees: ["fees", "fee_management"],
 };
 
 import { getActiveAccessOverrides } from "./subscriptionAdjustmentEngine";
@@ -37,7 +39,7 @@ import { getActiveAccessOverrides } from "./subscriptionAdjustmentEngine";
  * Section 3: Resolves effective feature flags for a school as a Boolean dictionary.
  * Flow: Security/Suspension -> Manual Restrictions -> Subscription Status -> Plan Features -> Manual Grants
  */
-import { GRANULAR_PERMISSIONS, getDefaultGranularPermissionsForPlan } from "./permissions";
+import { GRANULAR_PERMISSIONS, getParentFeatureKey } from "./permissions";
 
 export async function getPlanFeatures(schoolId: string): Promise<Record<string, boolean>> {
   const [summary, overrides] = await Promise.all([
@@ -47,10 +49,7 @@ export async function getPlanFeatures(schoolId: string): Promise<Record<string, 
   const permissions: Record<string, boolean> = {};
 
   const hasTempAccess = overrides.some((o) => o.type === "TEMPORARY_ACCESS");
-
-  // Get plan default granular permissions
-  const planSlug = summary.planId.replace("plan_", "") || "starter";
-  const defaultGranular = getDefaultGranularPermissionsForPlan(planSlug);
+  const isFullControl = summary.controlMode === "FULL_CONTROL" || (hasTempAccess && summary.status !== "SUSPENDED");
 
   // List of all keys (granular IDs + legacy feature keys)
   const allKnownKeys = Array.from(
@@ -70,13 +69,21 @@ export async function getPlanFeatures(schoolId: string): Promise<Record<string, 
       "billing",
       "reports",
       "notices",
+      "fee_management",
+      "fee_dashboard",
+      "fee_structure",
+      "fee_collection",
+      "fee_transactions",
+      "fee_reports",
+      "fee_exports",
+      "fee_discounts",
+      "fee_receipts",
+      "fees",
     ])
   );
 
   for (const permKey of allKnownKeys) {
-    // Find permission definition if it exists
-    const def = GRANULAR_PERMISSIONS.find((p) => p.id === permKey);
-    const parentFeatureKey = def ? def.featureKey : permKey;
+    const parentFeatureKey = getParentFeatureKey(permKey);
 
     // 1. Check if explicitly restricted by Super Admin override (for this key or its parent feature)
     const isRestricted = overrides.some(
@@ -100,32 +107,40 @@ export async function getPlanFeatures(schoolId: string): Promise<Record<string, 
       continue;
     }
 
-    // 3. Temporary Access grants standard allowed features
-    if (hasTempAccess && summary.status !== "SUSPENDED") {
+    // 3. Super Admin FULL_CONTROL Mode or Active Temporary Access
+    if (isFullControl && summary.status !== "SUSPENDED" && summary.status !== "CANCELLED") {
       permissions[permKey] = true;
       continue;
     }
 
-    // 4. Check parent feature status on plan
-    const parentAllowed = isFeatureAllowedInList(parentFeatureKey, summary.allowedFeatures);
+    // 4. Single Source of Truth: Check if permKey or its parent feature is present in the plan's saved features in Firestore
+    const isAllowedInPlan = isFeatureAllowedInList(permKey, summary.allowedFeatures) || isFeatureAllowedInList(parentFeatureKey, summary.allowedFeatures);
 
-    // 5. Check granular permission default or plan setting
-    const granularAllowed = defaultGranular[permKey] !== undefined ? defaultGranular[permKey] : parentAllowed;
-
-    // Effective resolution: Access Mode must not be NO_ACCESS, parent must be allowed, and granular key must be allowed
-    permissions[permKey] = summary.accessMode !== "NO_ACCESS" && parentAllowed && granularAllowed;
+    // Effective resolution: Access Mode must not be NO_ACCESS, and feature must be in plan
+    permissions[permKey] = summary.accessMode !== "NO_ACCESS" && isAllowedInPlan;
   }
 
   return permissions;
 }
 
 /**
- * Checks if a feature or its aliases exist in the allowed features list.
+ * Checks if a feature or its parent/aliases exist in the allowed features list.
  */
 function isFeatureAllowedInList(featureKey: string, allowedList: string[]): boolean {
+  if (!allowedList || allowedList.length === 0) return false;
   if (allowedList.includes(featureKey)) return true;
+
+  const parentKey = getParentFeatureKey(featureKey);
+  if (allowedList.includes(parentKey)) return true;
+
   const aliases = FEATURE_KEY_ALIASES[featureKey] || [];
-  return aliases.some((a) => allowedList.includes(a));
+  for (const a of aliases) {
+    if (allowedList.includes(a)) return true;
+    const aliasParent = getParentFeatureKey(a);
+    if (allowedList.includes(aliasParent)) return true;
+  }
+
+  return false;
 }
 
 /**
@@ -137,6 +152,56 @@ function checkDependencies(featureKey: string, allowedList: string[]): boolean {
   return deps.every((dep) => isFeatureAllowedInList(dep, allowedList));
 }
 
+import { getAllPlans } from "./plans";
+
+/**
+ * Section 28: Dynamic Required Plan Resolution Engine.
+ * Dynamically determines the lowest pricing plan that contains the target feature.
+ * If currentPlanSlug is provided, only searches plans higher than currentPlan.
+ */
+export async function getRequiredPlanForFeature(
+  featureKey: string,
+  currentPlanSlug?: string
+): Promise<{ planName: string; planSlug: string; isCustomAccess: boolean }> {
+  try {
+    const plans = await getAllPlans();
+    if (!plans || plans.length === 0) {
+      return { planName: "Higher Plan Required", planSlug: "professional", isCustomAccess: false };
+    }
+
+    // Sort plans by display order ascending (lowest to highest)
+    const sortedPlans = [...plans].sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+
+    let currentOrder = 0;
+    if (currentPlanSlug) {
+      const currentPlan = sortedPlans.find((p) => p.slug === currentPlanSlug.replace("plan_", ""));
+      if (currentPlan) {
+        currentOrder = currentPlan.displayOrder || 0;
+      }
+    }
+
+    // 1. Search for HIGHER plans that contain the feature
+    for (const plan of sortedPlans) {
+      if ((plan.displayOrder || 0) > currentOrder && Array.isArray(plan.features) && isFeatureAllowedInList(featureKey, plan.features)) {
+        return { planName: plan.name, planSlug: plan.slug, isCustomAccess: false };
+      }
+    }
+
+    // 2. Search all plans if current order is 0
+    if (currentOrder === 0) {
+      for (const plan of sortedPlans) {
+        if (Array.isArray(plan.features) && isFeatureAllowedInList(featureKey, plan.features)) {
+          return { planName: plan.name, planSlug: plan.slug, isCustomAccess: false };
+        }
+      }
+    }
+
+    return { planName: "Custom Access Required", planSlug: "custom", isCustomAccess: true };
+  } catch (err) {
+    return { planName: "Higher Plan Required", planSlug: "professional", isCustomAccess: false };
+  }
+}
+
 /**
  * Section 4: Individual Feature Check.
  * Authoritatively verifies whether a school can access a specific feature.
@@ -145,7 +210,32 @@ export async function canAccessFeature(
   schoolId: string,
   featureKey: string
 ): Promise<FeatureCheckResult> {
+  if (!schoolId || schoolId === "school_default" || schoolId === "system") {
+    return {
+      allowed: true,
+      code: "ALLOWED",
+      reason: "ALLOWED",
+      feature: featureKey,
+      message: "Default access granted.",
+      accessMode: "FULL_ACCESS",
+    };
+  }
+
   try {
+    // 0. HIGHEST PRIORITY EVALUATION: Global & School Emergency Kill Switches
+    const { resolveEmergencyAccess } = await import("@/lib/emergency/emergencyResolver");
+    const emergencyRes = await resolveEmergencyAccess({ schoolId, featureKey });
+    if (!emergencyRes.allowed) {
+      return {
+        allowed: false,
+        code: emergencyRes.code || "EMERGENCY_RESTRICTED",
+        reason: emergencyRes.reason || "EMERGENCY_RESTRICTED",
+        feature: featureKey,
+        message: emergencyRes.message,
+        accessMode: "NO_ACCESS",
+      };
+    }
+
     const summary = await getSchoolAccess(schoolId);
 
     // 1. Check if subscription is SUSPENDED or CANCELLED
@@ -172,22 +262,24 @@ export async function canAccessFeature(
       };
     }
 
-    // 3. Check if feature is included in the base plan
-    const isIncludedInPlan = isFeatureAllowedInList(featureKey, summary.allowedFeatures);
+    // 3. Check if feature is included in the base plan or FULL_CONTROL mode
+    const isFullControl = summary.controlMode === "FULL_CONTROL";
+    const isIncludedInPlan = isFullControl || isFeatureAllowedInList(featureKey, summary.allowedFeatures);
     if (!isIncludedInPlan) {
+      const requiredPlan = await getRequiredPlanForFeature(featureKey, summary.planId);
       return {
         allowed: false,
         code: "FEATURE_NOT_INCLUDED",
         reason: "FEATURE_NOT_INCLUDED",
         feature: featureKey,
-        message: `Feature "${featureKey}" is not included in your current plan. Please upgrade to access it.`,
+        message: `Feature "${featureKey}" is not included in your current plan (${summary.planId}). Upgrade to ${requiredPlan.planName} to unlock it.`,
         accessMode: summary.accessMode,
       };
     }
 
     // 4. Verify feature dependencies
     const dependenciesMet = checkDependencies(featureKey, summary.allowedFeatures);
-    if (!dependenciesMet) {
+    if (!dependenciesMet && !isFullControl) {
       return {
         allowed: false,
         code: "FEATURE_DEPENDENCY_MISSING",

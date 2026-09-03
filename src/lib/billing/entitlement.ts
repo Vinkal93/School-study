@@ -32,11 +32,16 @@ export async function getEffectiveEntitlement(schoolId: string): Promise<Effecti
     maxStaffAccounts: 2,
   };
 
-  // Apply active Limit Overrides (highest precedence for resource capacities)
-  const effectiveMaxStudents = limitOverrides.find((o) => o.limitKey === "students")?.overrideValue ?? baseLimits.maxStudents ?? 500;
-  const effectiveMaxTeachers = limitOverrides.find((o) => o.limitKey === "teachers")?.overrideValue ?? baseLimits.maxTeachers ?? 20;
-  const effectiveMaxClasses = limitOverrides.find((o) => o.limitKey === "classes")?.overrideValue ?? baseLimits.maxClasses ?? 15;
-  const effectiveMaxStaff = limitOverrides.find((o) => o.limitKey === "staff")?.overrideValue ?? baseLimits.maxStaffAccounts ?? 2;
+  // Check temporary access override or FULL_CONTROL mode
+  const hasTempAccess = accessOverrides.some((o) => o.type === "TEMPORARY_ACCESS");
+  const isFullControl = summary?.controlMode === "FULL_CONTROL" || hasTempAccess;
+  const effectiveAccessMode = (isFullControl && summary.status !== "SUSPENDED") ? "FULL_ACCESS" : summary.accessMode;
+
+  // Apply active Limit Overrides or FULL_CONTROL unlimited (-1)
+  const effectiveMaxStudents = isFullControl ? -1 : (limitOverrides.find((o) => o.limitKey === "students")?.overrideValue ?? baseLimits.maxStudents ?? 500);
+  const effectiveMaxTeachers = isFullControl ? -1 : (limitOverrides.find((o) => o.limitKey === "teachers")?.overrideValue ?? baseLimits.maxTeachers ?? 20);
+  const effectiveMaxClasses = isFullControl ? -1 : (limitOverrides.find((o) => o.limitKey === "classes")?.overrideValue ?? baseLimits.maxClasses ?? 15);
+  const effectiveMaxStaff = isFullControl ? -1 : (limitOverrides.find((o) => o.limitKey === "staff")?.overrideValue ?? baseLimits.maxStaffAccounts ?? 2);
 
   function buildLimitStatus(key: ResourceLimitKey, limitValue: number): ResourceLimitStatus {
     const current = usage[key] ?? 0;
@@ -61,9 +66,6 @@ export async function getEffectiveEntitlement(schoolId: string): Promise<Effecti
   const planName = planDoc?.name || (summary.planId === "plan_professional" ? "Professional Plan" : summary.planId === "plan_enterprise" ? "Enterprise Plan" : "Starter Plan");
   const planSlug = planDoc?.slug || (summary.planId.replace("plan_", "") || "starter");
 
-  // Check temporary access override
-  const hasTempAccess = accessOverrides.some((o) => o.type === "TEMPORARY_ACCESS");
-  const effectiveAccessMode = (hasTempAccess && summary.status !== "SUSPENDED") ? "FULL_ACCESS" : summary.accessMode;
   const isExpired = effectiveAccessMode === "RESTRICTED_ACCESS" || effectiveAccessMode === "NO_ACCESS";
   const isInGrace = effectiveAccessMode === "GRACE_ACCESS";
 

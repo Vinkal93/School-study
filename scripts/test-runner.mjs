@@ -18,6 +18,12 @@ const testSuites = [
   { name: "Reports & Financial Ledger", file: "scripts/test-reports-finance.mjs" },
   { name: "Super Admin Control Plane & Audit", file: "scripts/test-super-admin-audit.mjs" },
   { name: "Activity, Session & Login Monitoring", file: "scripts/test-activity-monitoring.mjs" },
+  { name: "Fee Management MVP & Financial Integrity", file: "scripts/test-fee-management.mjs" },
+  { name: "Super Admin Control Persistence & Resolution", file: "scripts/test-super-admin-control-persistence.mjs" },
+  { name: "Super Admin FULL_CONTROL 500 & Permission Fix", file: "scripts/test-full-control-save-500-fix.mjs" },
+  { name: "Plan to Feature Entitlement Architecture", file: "scripts/test-plan-feature-entitlement.mjs" },
+  { name: "Dynamic Pricing, GST & Coupon Engine", file: "scripts/test-dynamic-pricing-gst-coupons-standalone.mjs" },
+  { name: "Super Admin Emergency Control Center", file: "scripts/test-emergency-control-center.mjs" },
 ];
 
 console.log("==================================================");
@@ -30,7 +36,10 @@ let failedSuites = 0;
 for (const suite of testSuites) {
   try {
     console.log(`▶ Running [${suite.name}]...`);
-    execSync(`node "${suite.file}"`, { stdio: "inherit" });
+    const runnerCmd = suite.file.includes("dynamic-pricing") || suite.file.includes("emergency") || suite.file.endsWith(".ts")
+      ? `npx tsx "${suite.file}"`
+      : `node "${suite.file}"`;
+    execSync(runnerCmd, { stdio: "inherit" });
     passedSuites++;
     console.log(`✔ [${suite.name}] PASSED\n`);
   } catch (err) {

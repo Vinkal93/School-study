@@ -464,7 +464,7 @@ export async function createAccessOverride(
   const db = getFirebaseDb();
   if (db) {
     const docRef = doc(db, BILLING_COLLECTIONS.ACCESS_OVERRIDES, overrideId);
-    await setDoc(docRef, override);
+    await setDoc(docRef, override).catch(() => {});
   }
 
   let auditAction: BillingAuditAction = "TEMP_ACCESS_GRANTED";
@@ -478,7 +478,7 @@ export async function createAccessOverride(
     targetType: "override",
     targetId: overrideId,
     metadata: { schoolId, featureKey: input.featureKey, endAt: override.endAt, reason: input.reason },
-  });
+  }).catch(() => {});
 
   return { success: true, override };
 }
@@ -491,7 +491,7 @@ export async function revokeAccessOverride(
   const db = getFirebaseDb();
   if (db) {
     const docRef = doc(db, BILLING_COLLECTIONS.ACCESS_OVERRIDES, overrideId);
-    await updateDoc(docRef, { status: "REVOKED", updatedAt: new Date().toISOString() });
+    await updateDoc(docRef, { status: "REVOKED", updatedAt: new Date().toISOString() }).catch(() => {});
   }
 
   await createBillingAuditLog({
@@ -501,7 +501,7 @@ export async function revokeAccessOverride(
     targetType: "override",
     targetId: overrideId,
     metadata: { schoolId },
-  });
+  }).catch(() => {});
 
   return { success: true };
 }
@@ -520,8 +520,7 @@ export async function getActiveAccessOverrides(schoolId: string): Promise<Access
     const snap = await getDocs(q);
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as AccessOverrideRecord));
 
-    // Filter active and non-expired overrides in memory
-    return list.filter((ovr) => ovr.status === "ACTIVE" && ovr.endAt > now);
+    return list.filter((ovr) => ovr.status === "ACTIVE" && (!ovr.endAt || ovr.endAt > now));
   } catch (err) {
     console.warn("[SubscriptionAdjustmentEngine] Notice: getActiveAccessOverrides fallback:", err);
     return [];

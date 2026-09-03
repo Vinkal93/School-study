@@ -45,6 +45,10 @@ export async function reconcileSchoolUsage(
   schoolId: string,
   actorId: string = "system"
 ): Promise<SchoolUsage> {
+  if (!schoolId || schoolId === "school_default" || schoolId === "system") {
+    return getDefaultSchoolUsage(schoolId || "school_default");
+  }
+
   const db = getFirebaseDb();
   if (!db) {
     return getDefaultSchoolUsage(schoolId);
@@ -98,6 +102,10 @@ export async function reconcileSchoolUsage(
  * If the record does not exist or has never been initialized, automatically triggers reconciliation.
  */
 export async function getSchoolUsage(schoolId: string): Promise<SchoolUsage> {
+  if (!schoolId || schoolId === "school_default" || schoolId === "system") {
+    return getDefaultSchoolUsage(schoolId || "school_default");
+  }
+
   const db = getFirebaseDb();
   if (!db) {
     return getDefaultSchoolUsage(schoolId);
