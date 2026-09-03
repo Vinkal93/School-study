@@ -69,7 +69,8 @@ export async function GET(
       else if (restrictOverride) schoolOverrideStr = "DENY";
 
       // Effective Access resolved by authoritative entitlement engine
-      const effectiveAllowed = Boolean(entitlement.features[featureKey]) || isFullControl || (basePlanAllowed && schoolOverrideStr !== "DENY");
+      const featuresMap = (entitlement?.features || {}) as Record<string, boolean>;
+      const effectiveAllowed = Boolean(featuresMap[featureKey]) || isFullControl || (basePlanAllowed && schoolOverrideStr !== "DENY");
 
       let status = "ACTIVE";
       if (!effectiveAllowed) status = "RESTRICTED";
