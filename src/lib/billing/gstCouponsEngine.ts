@@ -381,6 +381,17 @@ export async function deleteCoupon(couponId: string, actorId: string = "super_ad
 }
 
 /**
+ * Toggles a Coupon's active status.
+ */
+export async function toggleCouponStatus(
+  couponId: string,
+  isActive: boolean,
+  actorId: string = "super_admin"
+): Promise<Coupon> {
+  return updateCoupon(couponId, { isActive }, actorId);
+}
+
+/**
  * Atomically increments coupon usedCount when payment succeeds.
  */
 export async function incrementCouponUsage(couponCode: string): Promise<void> {
