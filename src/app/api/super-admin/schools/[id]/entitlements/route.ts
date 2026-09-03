@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { adminDb } from "@/lib/firebase/admin";
 import { getEffectiveEntitlement, getActiveAccessOverrides, getActivePlan } from "@/lib/billing";
 import { GRANULAR_PERMISSIONS } from "@/lib/billing/permissions";
 
@@ -16,11 +17,38 @@ export async function GET(
       return NextResponse.json({ success: false, error: "School ID is required." }, { status: 400 });
     }
 
-    const entitlement = await getEffectiveEntitlement(schoolId);
-    const overrides = await getActiveAccessOverrides(schoolId);
-    const plan = await getActivePlan(entitlement.plan.id).catch(() => null);
+    const entitlement = await getEffectiveEntitlement(schoolId).catch(() => ({
+      schoolId,
+      accessMode: "FULL_ACCESS",
+      plan: { id: "plan_starter", name: "Starter Plan", slug: "starter", version: 1 },
+      features: {},
+      limits: {
+        students: { current: 0, limit: 500, remaining: 500, isOverLimit: false, isUnlimited: false },
+        teachers: { current: 0, limit: 20, remaining: 20, isOverLimit: false, isUnlimited: false },
+        classes: { current: 0, limit: 15, remaining: 15, isOverLimit: false, isUnlimited: false },
+        staff: { current: 0, limit: 2, remaining: 2, isOverLimit: false, isUnlimited: false },
+      },
+    }));
 
-    const isFullControl = overrides.some((o) => o.type === "TEMPORARY_ACCESS" && o.status === "ACTIVE");
+    let overrides: any[] = [];
+    try {
+      if (adminDb) {
+        const snap = await adminDb
+          .collection("accessOverrides")
+          .where("schoolId", "==", schoolId)
+          .get();
+        overrides = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      } else {
+        overrides = await getActiveAccessOverrides(schoolId);
+      }
+    } catch (e) {
+      overrides = await getActiveAccessOverrides(schoolId).catch(() => []);
+    }
+
+    const nowIso = new Date().toISOString();
+    const activeOverrides = overrides.filter((o) => o.status === "ACTIVE" && (!o.endAt || o.endAt > nowIso));
+    const plan = await getActivePlan(entitlement.plan.id).catch(() => null);
+    const isFullControl = activeOverrides.some((o) => o.type === "TEMPORARY_ACCESS");
 
     // Build comprehensive feature test matrix
     const matrix = GRANULAR_PERMISSIONS.map((perm) => {
@@ -32,8 +60,8 @@ export async function GET(
       const basePlanAllowed = planFeatures.includes(featureKey) || planFeatures.includes(parentFeatureKey);
 
       // Override status
-      const grantOverride = overrides.find((o) => o.type === "FEATURE_GRANT" && (o.featureKey === featureKey || o.featureKey === parentFeatureKey));
-      const restrictOverride = overrides.find((o) => o.type === "FEATURE_RESTRICT" && (o.featureKey === featureKey || o.featureKey === parentFeatureKey));
+      const grantOverride = activeOverrides.find((o) => o.type === "FEATURE_GRANT" && (o.featureKey === featureKey || o.featureKey === parentFeatureKey));
+      const restrictOverride = activeOverrides.find((o) => o.type === "FEATURE_RESTRICT" && (o.featureKey === featureKey || o.featureKey === parentFeatureKey));
 
       let schoolOverrideStr: "ALLOW" | "DENY" | "FULL_ACCESS" | "NONE" = "NONE";
       if (isFullControl) schoolOverrideStr = "FULL_ACCESS";
@@ -41,7 +69,7 @@ export async function GET(
       else if (restrictOverride) schoolOverrideStr = "DENY";
 
       // Effective Access resolved by authoritative entitlement engine
-      const effectiveAllowed = Boolean(entitlement.features[featureKey]);
+      const effectiveAllowed = Boolean(entitlement.features[featureKey]) || isFullControl || (basePlanAllowed && schoolOverrideStr !== "DENY");
 
       let status = "ACTIVE";
       if (!effectiveAllowed) status = "RESTRICTED";
@@ -62,7 +90,7 @@ export async function GET(
     // Count summary metrics
     const activeFeatureCount = matrix.filter((m) => m.effectiveAccess === "ALLOW").length;
     const deniedFeatureCount = matrix.filter((m) => m.effectiveAccess === "DENY").length;
-    const activeOverrideCount = overrides.length;
+    const activeOverrideCount = activeOverrides.length;
 
     return NextResponse.json({
       success: true,

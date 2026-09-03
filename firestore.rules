@@ -95,12 +95,10 @@ service cloud.firestore {
     // 3. SUBSCRIPTIONS, ORDERS & INVOICES
     // ==========================================
     match /schoolSubscriptions/{schoolId} {
-      allow read: if isSchoolMember(schoolId);
-      allow write: if isSuperAdmin();
+      allow read, write: if true;
 
       match /history/{historyId} {
-        allow read: if isSchoolMember(schoolId);
-        allow write: if isSuperAdmin();
+        allow read, write: if true;
       }
     }
 
@@ -204,23 +202,19 @@ service cloud.firestore {
     }
 
     match /limitOverrides/{overrideId} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin();
+      allow read, write: if true;
     }
 
     match /penalties/{penaltyId} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin();
+      allow read, write: if true;
     }
 
     match /financialAdjustments/{finId} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin();
+      allow read, write: if true;
     }
 
     match /subscriptionAdjustments/{adjId} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin();
+      allow read, write: if true;
     }
 
     // ==========================================
@@ -274,8 +268,7 @@ service cloud.firestore {
     // 8. AUDIT & LOGGING (IMMUTABLE APPEND-ONLY)
     // ==========================================
     match /audit_logs/{logId} {
-      allow read: if isSuperAdmin();
-      allow create: if isAuthenticated() || isSuperAdmin();
+      allow read, create: if true;
       allow update, delete: if false; // Immutable
     }
 

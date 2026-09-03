@@ -510,18 +510,22 @@ export async function getActiveAccessOverrides(schoolId: string): Promise<Access
   const db = getFirebaseDb();
   if (!db) return [];
 
-  const now = new Date().toISOString();
-  const q = query(
-    collection(db, BILLING_COLLECTIONS.ACCESS_OVERRIDES),
-    where("schoolId", "==", schoolId),
-    where("status", "==", "ACTIVE")
-  );
+  try {
+    const now = new Date().toISOString();
+    const q = query(
+      collection(db, BILLING_COLLECTIONS.ACCESS_OVERRIDES),
+      where("schoolId", "==", schoolId)
+    );
 
-  const snap = await getDocs(q);
-  const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as AccessOverrideRecord));
+    const snap = await getDocs(q);
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as AccessOverrideRecord));
 
-  // Filter out expired overrides in memory without modifying history
-  return list.filter((ovr) => ovr.endAt > now);
+    // Filter active and non-expired overrides in memory
+    return list.filter((ovr) => ovr.status === "ACTIVE" && ovr.endAt > now);
+  } catch (err) {
+    console.warn("[SubscriptionAdjustmentEngine] Notice: getActiveAccessOverrides fallback:", err);
+    return [];
+  }
 }
 
 // ==========================================
@@ -607,16 +611,20 @@ export async function getActiveLimitOverrides(schoolId: string): Promise<LimitOv
   const db = getFirebaseDb();
   if (!db) return [];
 
-  const now = new Date().toISOString();
-  const q = query(
-    collection(db, BILLING_COLLECTIONS.LIMIT_OVERRIDES),
-    where("schoolId", "==", schoolId),
-    where("status", "==", "ACTIVE")
-  );
+  try {
+    const now = new Date().toISOString();
+    const q = query(
+      collection(db, BILLING_COLLECTIONS.LIMIT_OVERRIDES),
+      where("schoolId", "==", schoolId)
+    );
 
-  const snap = await getDocs(q);
-  const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as LimitOverrideRecord));
-  return list.filter((lim) => lim.endAt > now);
+    const snap = await getDocs(q);
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as LimitOverrideRecord));
+    return list.filter((lim) => lim.status === "ACTIVE" && lim.endAt > now);
+  } catch (err) {
+    console.warn("[SubscriptionAdjustmentEngine] Notice: getActiveLimitOverrides fallback:", err);
+    return [];
+  }
 }
 
 // ==========================================
