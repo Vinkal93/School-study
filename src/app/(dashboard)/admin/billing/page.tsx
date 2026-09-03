@@ -13,6 +13,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useAppQuery } from "@/lib/cache";
 import { PageSkeleton } from "@/components/common/skeletons";
 import { toast } from "sonner";
+import { safeFetchJson } from "@/lib/utils/safeFetch";
 
 // Import Command Center Components
 import { SubscriptionAlertBanner } from "@/components/billing/SubscriptionAlertBanner";
@@ -50,9 +51,8 @@ export default function SchoolAdminSubscriptionCommandCenter() {
   const { data: offersBundle, refetch: refetchOffers } = useAppQuery(
     schoolId ? `activeSchoolOffer:${schoolId}` : null,
     async () => {
-      const res = await fetch(`/api/billing/offers?schoolId=${schoolId}`);
-      const json = await res.json();
-      return json;
+      const res = await safeFetchJson(`/api/billing/offers?schoolId=${schoolId}`);
+      return res.data;
     },
     { enabled: !!schoolId && !authLoading, staleTime: 10_000 }
   );
@@ -67,10 +67,9 @@ export default function SchoolAdminSubscriptionCommandCenter() {
   } = useAppQuery(
     schoolId ? `subscriptionBundle:${schoolId}` : null,
     async () => {
-      const res = await fetch(`/api/billing/dashboard-bundle?schoolId=${schoolId}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to load subscription command center.");
-      return json;
+      const res = await safeFetchJson(`/api/billing/dashboard-bundle?schoolId=${schoolId}`);
+      if (!res.ok || !res.data) throw new Error(res.error || "Failed to load subscription command center.");
+      return res.data;
     },
     { enabled: !!schoolId && !authLoading, staleTime: 15_000 }
   );
@@ -103,13 +102,12 @@ export default function SchoolAdminSubscriptionCommandCenter() {
   };
 
   const handleCancelSubscription = async () => {
-    const res = await fetch("/api/billing/subscription/cancel", {
+    const res = await safeFetchJson("/api/billing/subscription/cancel", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ schoolId, actorId: profile?.uid || "school_admin" }),
     });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error || "Failed to set cancellation preference.");
+    if (!res.ok) throw new Error(res.error || "Failed to set cancellation preference.");
 
     toast.success("Subscription set to cancel at period end.");
     refetch(true);
@@ -117,13 +115,12 @@ export default function SchoolAdminSubscriptionCommandCenter() {
 
   const handleResumeSubscription = async () => {
     try {
-      const res = await fetch("/api/billing/subscription/resume", {
+      const res = await safeFetchJson("/api/billing/subscription/resume", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ schoolId, actorId: profile?.uid || "school_admin" }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to resume subscription.");
+      if (!res.ok) throw new Error(res.error || "Failed to resume subscription.");
 
       toast.success("Subscription resumed successfully.");
       refetch(true);

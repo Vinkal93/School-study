@@ -14,6 +14,7 @@ import {
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
+import { safeFetchJson } from "@/lib/utils/safeFetch";
 import { triggerRazorpayCheckout } from "@/lib/payments/clientCheckout";
 import type { SchoolUsage } from "@/types";
 
@@ -77,18 +78,19 @@ export function RechargeModal({
   const calculatePrice = async (planId: string, cycle: "monthly" | "annual", coupon?: string) => {
     setIsCalculating(true);
     try {
-      const res = await fetch("/api/billing/calculate", {
+      const res = await safeFetchJson("/api/billing/calculate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           planId,
           billingCycle: cycle,
           couponCode: coupon || undefined,
+          schoolId,
         }),
       });
 
-      const data = await res.json();
-      if (res.ok) {
+      if (res.ok && res.data) {
+        const data = res.data;
         setBreakdown({
           baseAmount: data.baseAmount,
           discountAmount: data.discountAmount,
@@ -104,7 +106,7 @@ export function RechargeModal({
           toast.error(data.couponMessage || "Invalid coupon code.");
         }
       } else {
-        toast.error(data.error || "Failed to calculate pricing.");
+        toast.error(res.error || "Failed to calculate pricing.");
       }
     } catch (err: any) {
       console.error("Price calculate error:", err);

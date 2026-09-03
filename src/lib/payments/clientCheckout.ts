@@ -1,5 +1,7 @@
 "use client";
 
+import { safeFetchJson } from "@/lib/utils/safeFetch";
+
 export interface CheckoutOptionsInput {
   planId: string;
   billingCycle: "monthly" | "annual";
@@ -30,7 +32,7 @@ function loadRazorpayScript(): Promise<boolean> {
 
 /**
  * Client-Side Razorpay Checkout Trigger.
- * Invokes POST /api/billing/orders server-side, then opens Razorpay Checkout modal.
+ * Calls POST /api/billing/orders server-side safely, then opens Razorpay Checkout modal.
  */
 export async function triggerRazorpayCheckout(input: CheckoutOptionsInput): Promise<void> {
   const { planId, billingCycle, couponCode, schoolId, userId, prefillData, onSuccess, onError } = input;
@@ -44,8 +46,8 @@ export async function triggerRazorpayCheckout(input: CheckoutOptionsInput): Prom
       return;
     }
 
-    // 2. Call server-side order creation API
-    const res = await fetch("/api/billing/orders", {
+    // 2. Call server-side order creation API with safeFetchJson
+    const orderRes = await safeFetchJson("/api/billing/orders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -57,12 +59,14 @@ export async function triggerRazorpayCheckout(input: CheckoutOptionsInput): Prom
       }),
     });
 
-    const orderData = await res.json();
-    if (!res.ok || !orderData.razorpayOrderId) {
-      const msg = orderData.error || "Failed to create checkout order.";
+    if (!orderRes.ok || !orderRes.data || !orderRes.data.razorpayOrderId) {
+      const msg = orderRes.error || orderRes.data?.error || `Failed to create checkout order (HTTP ${orderRes.status}).`;
+      console.error("[RazorpayCheckout] Order creation failed:", orderRes);
       if (onError) onError(msg);
       return;
     }
+
+    const orderData = orderRes.data;
 
     // 3. Resolve active public Razorpay Key ID
     let activeKey = orderData.key || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
@@ -90,15 +94,15 @@ export async function triggerRazorpayCheckout(input: CheckoutOptionsInput): Prom
 
     const options: any = {
       key: activeKey,
-      amount: orderData.amount,
+      amount: Math.round(orderData.amount), // Ensure integer paise
       currency: orderData.currency || "INR",
       name: "School Study",
       description: `${orderData.planName || "School Subscription"} (${billingCycle.toUpperCase()})`,
       order_id: orderData.razorpayOrderId,
       handler: async function (response: any) {
-        // Call server-side signature verification API
         try {
-          const verifyRes = await fetch("/api/billing/verify", {
+          // Call server-side signature verification API safely
+          const verifyRes = await safeFetchJson("/api/billing/verify", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -109,23 +113,23 @@ export async function triggerRazorpayCheckout(input: CheckoutOptionsInput): Prom
             }),
           });
 
-          const verifyData = await verifyRes.json();
-          if (verifyRes.ok && verifyData.success) {
+          if (verifyRes.ok && verifyRes.data?.success) {
             if (onSuccess) onSuccess(orderData.orderId);
             window.location.href = `/billing/success?orderId=${orderData.orderId}`;
           } else {
-            const err = verifyData.error || "Payment signature verification failed.";
+            const err = verifyRes.error || verifyRes.data?.error || "Payment signature verification failed.";
             if (onError) onError(err);
             window.location.href = `/billing/failed?reason=${encodeURIComponent(err)}`;
           }
         } catch (err: any) {
-          if (onError) onError(err.message);
+          if (onError) onError(err.message || "Payment verification error");
           window.location.href = `/billing/failed?reason=${encodeURIComponent("Payment verification network error")}`;
         }
       },
       modal: {
         ondismiss: function () {
-          console.log("Razorpay Checkout closed by user.");
+          console.log("[RazorpayCheckout] Checkout modal closed by user.");
+          if (onError) onError("Payment modal was closed before completing payment.");
         },
       },
       prefill: {
@@ -141,7 +145,7 @@ export async function triggerRazorpayCheckout(input: CheckoutOptionsInput): Prom
     const paymentObject = new (window as any).Razorpay(options);
     paymentObject.open();
   } catch (error: any) {
-    console.error("Razorpay Checkout Error:", error);
+    console.error("[RazorpayCheckout] Unexpected Error:", error);
     if (onError) onError(error.message || "Failed to initiate payment checkout.");
   }
 }

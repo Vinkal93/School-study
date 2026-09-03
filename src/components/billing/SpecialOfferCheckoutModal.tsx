@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { X, Sparkles, CheckCircle2, ShieldCheck, CreditCard, Lock, Loader2, ArrowRight, Info } from "lucide-react";
 import type { CustomOfferRecord } from "@/types/reports";
 import { toast } from "sonner";
+import { safeFetchJson } from "@/lib/utils/safeFetch";
 
 export interface SpecialOfferCheckoutModalProps {
   isOpen: boolean;
@@ -40,7 +41,7 @@ export function SpecialOfferCheckoutModal({
     setSubmitting(true);
     try {
       // 1. Create Server Payment Order
-      const resData = await fetch("/api/billing/offers/checkout", {
+      const res = await safeFetchJson("/api/billing/offers/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -51,14 +52,14 @@ export function SpecialOfferCheckoutModal({
         }),
       });
 
-      const orderJson = await resData.json();
-      if (!resData.ok) throw new Error(orderJson.error || "Failed to initialize offer order.");
+      if (!res.ok || !res.data) throw new Error(res.error || "Failed to initialize offer order.");
+      const orderJson = res.data;
 
       // Check for Razorpay SDK on window
       const Razorpay = (window as any).Razorpay;
       if (!Razorpay) {
         // Fallback for local testing / test mode signature verification
-        const verifyRes = await fetch("/api/billing/offers/verify", {
+        const verifyRes = await safeFetchJson("/api/billing/offers/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -72,10 +73,9 @@ export function SpecialOfferCheckoutModal({
           }),
         });
 
-        const verifyJson = await verifyRes.json();
-        if (!verifyRes.ok) throw new Error(verifyJson.error || "Verification failed.");
+        if (!verifyRes.ok) throw new Error(verifyRes.error || "Verification failed.");
 
-        toast.success(verifyJson.message || "Special offer activated successfully!");
+        toast.success(verifyRes.data?.message || "Special offer activated successfully!");
         onSuccess();
         onClose();
         return;
@@ -91,7 +91,7 @@ export function SpecialOfferCheckoutModal({
         order_id: orderJson.orderId,
         handler: async function (response: any) {
           try {
-            const verifyRes = await fetch("/api/billing/offers/verify", {
+            const verifyRes = await safeFetchJson("/api/billing/offers/verify", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -105,10 +105,9 @@ export function SpecialOfferCheckoutModal({
               }),
             });
 
-            const verifyJson = await verifyRes.json();
-            if (!verifyRes.ok) throw new Error(verifyJson.error || "Verification failed.");
+            if (!verifyRes.ok) throw new Error(verifyRes.error || "Verification failed.");
 
-            toast.success(verifyJson.message || "Special offer activated successfully!");
+            toast.success(verifyRes.data?.message || "Special offer activated successfully!");
             onSuccess();
             onClose();
           } catch (vErr: any) {
