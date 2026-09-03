@@ -14,6 +14,7 @@ const testSuites = [
   { name: "Firestore & Cloud Storage Security", file: "scripts/test-firebase-security.mjs" },
   { name: "Billing & Razorpay Full-Stack", file: "scripts/test-billing-razorpay.mjs" },
   { name: "Subscription & Entitlement Engine", file: "scripts/test-subscription-entitlement.mjs" },
+  { name: "Super Admin Plan & Entitlement Test Control", file: "scripts/test-super-admin-plan-control.mjs" },
   { name: "Reports & Financial Ledger", file: "scripts/test-reports-finance.mjs" },
   { name: "Super Admin Control Plane & Audit", file: "scripts/test-super-admin-audit.mjs" },
   { name: "Activity, Session & Login Monitoring", file: "scripts/test-activity-monitoring.mjs" },

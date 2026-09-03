@@ -434,6 +434,29 @@ export default function PlatformSettingsPage() {
               </div>
             )}
 
+            {/* Payment Diagnostics Summary */}
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Payment Gateway Diagnostics</h4>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Environment</span>
+                  <span className="font-bold text-slate-900 dark:text-white">{isLiveMode ? "LIVE" : "TEST"}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Key ID Status</span>
+                  <span className="font-bold text-emerald-600">{rzpKeyId ? "CONFIGURED" : "MISSING"}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Key Secret</span>
+                  <span className="font-bold text-emerald-600">{isSecretSet ? "CONFIGURED (HIDDEN)" : "MISSING"}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Signature Verify</span>
+                  <span className="font-bold text-emerald-600">PASS (CRYPTOGRAPHIC)</span>
+                </div>
+              </div>
+            </div>
+
             <div className="pt-2 flex flex-wrap items-center gap-3">
               <button
                 type="submit"

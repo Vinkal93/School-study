@@ -1,12 +1,91 @@
 import { NextResponse } from "next/server";
-import { loadRazorpayCredentials, mapRazorpayError } from "@/lib/payments/razorpay";
+import { loadRazorpayCredentials, mapRazorpayError, verifyRazorpaySignature } from "@/lib/payments/razorpay";
 import Razorpay from "razorpay";
+import { getFirebaseDb } from "@/lib/firebase/client";
+import { collection, query, orderBy, limit, getDocs } from "firebase/firestore";
 
+/**
+ * GET /api/super-admin/payment-settings/test
+ * Returns safe diagnostic status without exposing secrets.
+ */
+export async function GET() {
+  try {
+    const creds = await loadRazorpayCredentials();
+    const isConfigured = Boolean(creds.keyId && creds.keySecret);
+    const mode = creds.isLiveMode ? "LIVE" : creds.keyId ? "TEST" : "UNCONFIGURED";
+    const keyIdPreview = creds.keyId ? `${creds.keyId.substring(0, 10)}...` : "NOT_CONFIGURED";
+
+    // Test cryptographic signature verification offline logic
+    let signatureTestResult = "FAIL";
+    try {
+      const mockOrderId = "order_test_12345";
+      const mockPaymentId = "pay_test_67890";
+      const secret = "test_secret_key";
+      const crypto = await import("crypto");
+      const validSig = crypto
+        .createHmac("sha256", secret)
+        .update(`${mockOrderId}|${mockPaymentId}`)
+        .digest("hex");
+
+      const isValid = verifyRazorpaySignature(mockOrderId, mockPaymentId, validSig);
+
+      if (isValid) signatureTestResult = "PASS";
+    } catch (sigErr) {
+      signatureTestResult = "FAIL";
+    }
+
+    // Fetch last webhook & payment timestamps safely
+    let lastWebhookTime: string | null = null;
+    let lastPaymentTime: string | null = null;
+
+    try {
+      const db = getFirebaseDb();
+      if (db) {
+        const pSnap = await getDocs(query(collection(db, "payments"), orderBy("createdAt", "desc"), limit(1))).catch(() => null);
+        if (pSnap && !pSnap.empty) {
+          lastPaymentTime = pSnap.docs[0].data()?.createdAt || null;
+        }
+
+        const wSnap = await getDocs(query(collection(db, "webhookEvents"), orderBy("receivedAt", "desc"), limit(1))).catch(() => null);
+        if (wSnap && !wSnap.empty) {
+          lastWebhookTime = wSnap.docs[0].data()?.receivedAt || null;
+        }
+      }
+    } catch (e) {
+      // Non-blocking
+    }
+
+    return NextResponse.json({
+      success: true,
+      diagnostics: {
+        environment: mode,
+        keyIdStatus: creds.keyId ? "CONFIGURED" : "NOT_CONFIGURED",
+        keyIdPreview,
+        keySecretStatus: creds.keySecret ? "CONFIGURED" : "NOT_CONFIGURED",
+        webhookSecretStatus: creds.webhookSecret ? "CONFIGURED" : "NOT_CONFIGURED",
+        orderApiTestStatus: isConfigured ? "READY" : "NOT_CONFIGURED",
+        signatureVerificationStatus: signatureTestResult,
+        webhookEndpointConfigured: Boolean(creds.webhookSecret),
+        lastWebhookTime,
+        lastPaymentTime,
+      },
+    });
+  } catch (error: any) {
+    return NextResponse.json(
+      { success: false, error: error?.message || "Failed to load payment diagnostics." },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * POST /api/super-admin/payment-settings/test
+ * Safe server-side connectivity check with Razorpay API (orders.all test fetch).
+ */
 export async function POST(request: Request) {
   try {
     let { keyId, keySecret } = await request.json().catch(() => ({}));
 
-    // If not passed explicitly in test request, load from active server credentials
     if (!keyId || !keySecret) {
       const creds = await loadRazorpayCredentials();
       keyId = keyId || creds.keyId;
@@ -35,7 +114,7 @@ export async function POST(request: Request) {
       });
     }
 
-    console.log(`[Razorpay] Connection test started. Mode: ${isLive ? "LIVE" : "TEST"}`);
+    console.log(`[RazorpayDiagnostics] Running server connectivity test. Mode: ${isLive ? "LIVE" : "TEST"}`);
 
     const rzp = new Razorpay({
       key_id: cleanKeyId,
@@ -43,9 +122,8 @@ export async function POST(request: Request) {
     });
 
     try {
-      // Test server-to-server connectivity with Razorpay API (non-mutating fetch)
       const result = await rzp.orders.all({ count: 1 });
-      console.log(`[Razorpay] Connection test successful. Mode: ${isLive ? "LIVE" : "TEST"}`);
+      console.log(`[RazorpayDiagnostics] Connectivity test PASSED. Mode: ${isLive ? "LIVE" : "TEST"}`);
 
       return NextResponse.json({
         success: true,
@@ -56,28 +134,18 @@ export async function POST(request: Request) {
       });
     } catch (apiErr: any) {
       const mapped = mapRazorpayError(apiErr);
-      console.error(`[Razorpay] Connection test failed [${mapped.code}]:`, mapped.message);
-
-      let status = "RAZORPAY_API_ERROR";
-      if (mapped.code === "RAZORPAY_AUTH_ERROR") {
-        status = "AUTHENTICATION_FAILED";
-      } else if (mapped.code === "RAZORPAY_NETWORK_ERROR") {
-        status = "NETWORK_ERROR";
-      } else if (mapped.code === "CONFIGURATION_ERROR") {
-        status = "CONFIG_MISSING";
-      }
+      console.error(`[RazorpayDiagnostics] Test failed [${mapped.code}]:`, mapped.message);
 
       return NextResponse.json({
         success: false,
         mode: isLive ? "LIVE" : "TEST",
         error: mapped.userMessage,
         code: mapped.code,
-        status,
+        status: mapped.code === "RAZORPAY_AUTH_ERROR" ? "AUTHENTICATION_FAILED" : "API_ERROR",
       });
     }
   } catch (error: any) {
     const mapped = mapRazorpayError(error);
-    console.error("[Razorpay] Server Exception during test:", mapped.message);
     return NextResponse.json({
       success: false,
       error: mapped.userMessage,

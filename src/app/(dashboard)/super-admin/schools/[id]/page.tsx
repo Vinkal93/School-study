@@ -41,6 +41,7 @@ import { getClassesWithSections } from "@/lib/services/academic.service";
 import { getActivityLogs } from "@/lib/services/audit.service";
 import { fetchSchoolUsersExplorer } from "@/lib/services/super-admin.service";
 import { UserProfileInspector } from "@/components/super-admin/UserProfileInspector";
+import { SuperAdminSchoolEntitlementControlModal } from "@/components/super-admin/SuperAdminSchoolEntitlementControlModal";
 import { VerifyBadge, type VerifyBadgeType } from "@/components/common/VerifyBadge";
 import { Spinner } from "@/components/common/Spinner";
 import { useAuth } from "@/hooks/use-auth";
@@ -90,6 +91,9 @@ export default function SchoolDetailPage() {
   // Inspector Drawer State
   const [selectedUser, setSelectedUser] = useState<AppUser | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+
+  // Plan Control Modal State
+  const [isPlanControlOpen, setIsPlanControlOpen] = useState(false);
 
   // Edit School Modal State
   const [isEditSchoolOpen, setIsEditSchoolOpen] = useState(false);
@@ -329,6 +333,13 @@ export default function SchoolDetailPage() {
           >
             <RefreshCw className="h-3.5 w-3.5" />
             Refresh
+          </button>
+          <button
+            onClick={() => setIsPlanControlOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-purple-200 bg-purple-50 px-3.5 py-2 text-xs font-bold text-purple-800 hover:bg-purple-100 dark:border-purple-800/40 dark:bg-purple-900/20 dark:text-purple-300"
+          >
+            <Shield className="h-3.5 w-3.5 text-purple-600" />
+            Manage Plan / Subscription
           </button>
           <Link
             href={`/super-admin/offers?schoolId=${school.id}&create=true`}
@@ -1007,6 +1018,15 @@ export default function SchoolDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Super Admin School Entitlement Control Modal */}
+      <SuperAdminSchoolEntitlementControlModal
+        isOpen={isPlanControlOpen}
+        onClose={() => setIsPlanControlOpen(false)}
+        schoolId={school.id}
+        schoolName={school.name}
+        onUpdated={loadSchoolData}
+      />
     </div>
   );
 }
