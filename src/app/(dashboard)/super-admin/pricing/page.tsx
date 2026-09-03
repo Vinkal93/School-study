@@ -1165,9 +1165,8 @@ export default function SuperAdminPricingPage() {
               <div>
                 <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Enabled Features</label>
                 <GranularPermissionTree
-                  allFeatures={features}
-                  selectedFeatureKeys={createForm.features}
-                  onChange={(keys) => setCreateForm({ ...createForm, features: keys })}
+                  selectedPermissions={createForm.features}
+                  onChangeSelected={(keys: string[]) => setCreateForm({ ...createForm, features: keys })}
                 />
               </div>
 
@@ -1241,9 +1240,8 @@ export default function SuperAdminPricingPage() {
               <div>
                 <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Plan Features</label>
                 <GranularPermissionTree
-                  allFeatures={features}
-                  selectedFeatureKeys={editForm.features}
-                  onChange={(keys) => setEditForm({ ...editForm, features: keys })}
+                  selectedPermissions={editForm.features}
+                  onChangeSelected={(keys: string[]) => setEditForm({ ...editForm, features: keys })}
                 />
               </div>
 
