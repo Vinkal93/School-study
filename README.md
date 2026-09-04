@@ -62,16 +62,24 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
    git push -u origin main
    ```
 
-2. Go to [Vercel Dashboard](https://vercel.com/new) and click **"Import Project"**.
+2. Go to Vercel Dashboard and click **"Import Project"**.
 3. Select your `School-study` GitHub repository.
-4. In **Project Settings ➔ Environment Variables**, add the following:
-   - `NEXT_PUBLIC_FIREBASE_API_KEY`
-   - `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`
-   - `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
-   - `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`
-   - `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`
-   - `NEXT_PUBLIC_FIREBASE_APP_ID`
-5. Click **"Deploy"**. Vercel will automatically build and deploy the app!
+4. In **Project Settings ➔ Environment Variables**, add the required Firebase and application variables for the target environment.
+5. Deploy the project. Vercel will automatically build and deploy connected Git commits.
+
+---
+
+## 🧪 Git + Vercel Preview Workflow
+
+This repository uses feature branches for safe development. Changes should be developed and tested on a non-production branch before merging into `main`.
+
+```text
+feature/* → Vercel Preview → Test → Pull Request → main → Production
+```
+
+**Preview deployment test:** `feature/vercel-preview-test`
+
+This test change is intentionally documentation-only and does not modify application runtime code or production data.
 
 ---
 
