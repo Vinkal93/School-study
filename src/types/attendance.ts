@@ -8,6 +8,7 @@ export interface AttendanceRecord {
   studentId: string;
   studentName: string;
   admissionNumber: string;
+  rollNumber?: number;
   classId: string;
   className: string;
   sectionId: string;

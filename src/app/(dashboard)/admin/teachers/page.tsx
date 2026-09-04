@@ -27,12 +27,14 @@ import {
   Filter,
   Trash2,
   Camera,
+  RotateCcw,
 } from "lucide-react";
 import {
   getTeachers,
   createTeacherWithAuth,
   toggleTeacherStatus,
   deleteTeacher,
+  restoreTeacher,
   assignTeacherToClass,
   updateTeacher,
 } from "@/lib/services/teacher.service";
@@ -82,7 +84,7 @@ export default function AdminTeachersPage() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearch = useDebounce(searchQuery, 250);
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive" | "deleted">("all");
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   // Add Teacher Modal State
@@ -304,18 +306,47 @@ export default function AdminTeachersPage() {
   const handleDeleteTeacher = async (teacher: TeacherProfile) => {
     if (
       confirm(
-        `Are you sure you want to permanently delete teacher "${teacher.name}" (${teacher.teacherCode}) from Firebase Firestore?`
+        `Are you sure you want to delete teacher "${teacher.name}" (${teacher.teacherCode})? Attendance and academic records will be preserved in archive.`
       )
     ) {
       try {
         await deleteTeacher(schoolId, teacher.id, teacher.userId);
-        setTeachersCache((prev) => (prev || []).filter((t) => t.id !== teacher.id));
+        setTeachersCache((prev) =>
+          (prev || []).map((t) =>
+            t.id === teacher.id
+              ? { ...t, status: "deleted", deletedAt: new Date().toISOString() }
+              : t
+          )
+        );
         appQueryClient.invalidateCache(`planLimit:${schoolId}:*`);
         appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
-        toast.success(`Teacher "${teacher.name}" permanently deleted from Firebase!`);
+        toast.success(`Teacher "${teacher.name}" deleted (archived).`);
       } catch (err: any) {
         toast.error(err.message || "Failed to delete teacher.");
       }
+    }
+  };
+
+  const handleRestoreTeacher = async (teacher: TeacherProfile) => {
+    if (limitStatus && !limitStatus.allowed) {
+      toast.error(
+        `Teacher limit reached (${limitStatus.current}/${limitStatus.limit}). Upgrade plan to restore more teachers.`
+      );
+      return;
+    }
+    try {
+      await restoreTeacher(schoolId, teacher.id, teacher.userId);
+      setTeachersCache((prev) =>
+        (prev || []).map((t) =>
+          t.id === teacher.id ? { ...t, status: "active", deletedAt: undefined } : t
+        )
+      );
+      appQueryClient.invalidateCache(`planLimit:${schoolId}:*`);
+      appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
+      toast.success(`Teacher "${teacher.name}" restored successfully!`);
+      refetchTeachers(true);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to restore teacher.");
     }
   };
 
@@ -330,7 +361,12 @@ export default function AdminTeachersPage() {
         (t.assignedClassName && t.assignedClassName.toLowerCase().includes(q)) ||
         (t.phone && t.phone.toLowerCase().includes(q));
 
-      const matchesStatus = statusFilter === "all" ? true : t.status === statusFilter;
+      const matchesStatus =
+        statusFilter === "all"
+          ? t.status !== "deleted"
+          : statusFilter === "deleted"
+          ? t.status === "deleted"
+          : t.status === statusFilter;
 
       return matchesSearch && matchesStatus;
     });
@@ -477,7 +513,7 @@ export default function AdminTeachersPage() {
             <span className="text-xs font-medium text-gray-500 dark:text-gray-400 hidden sm:inline-block">
               Status:
             </span>
-            {(["all", "active", "inactive"] as const).map((st) => (
+            {(["all", "active", "inactive", "deleted"] as const).map((st) => (
               <button
                 key={st}
                 onClick={() => setStatusFilter(st)}
@@ -487,7 +523,11 @@ export default function AdminTeachersPage() {
                     : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
                 }`}
               >
-                {st} ({st === "all" ? teachers.length : teachers.filter((t) => t.status === st).length})
+                {st === "all" ? "All" : st === "deleted" ? "Archived" : st} (
+                {st === "all"
+                  ? teachers.filter((t) => t.status !== "deleted").length
+                  : teachers.filter((t) => t.status === st).length}
+                )
               </button>
             ))}
           </div>
@@ -583,32 +623,52 @@ export default function AdminTeachersPage() {
                     </span>
                   </div>
 
-                  <div className="pt-2 flex items-center justify-between border-t border-gray-100 dark:border-gray-800">
-                    <button
-                      onClick={() => {
-                        setAssigningTeacher(t);
-                        setAssignClassId(t.assignedClassId || "");
-                        setAssignSectionId(t.assignedSectionId || "");
-                        setIsAssignModalOpen(true);
-                      }}
-                      className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1"
-                    >
-                      <Edit2 className="h-3.5 w-3.5" />
-                      Assign Class
-                    </button>
+                  {t.status === "deleted" ? (
+                    <div className="pt-2 flex items-center justify-end border-t border-gray-100 dark:border-gray-800">
+                      <button
+                        onClick={() => handleRestoreTeacher(t)}
+                        className="text-xs font-semibold px-3 py-1 rounded-md border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 flex items-center gap-1"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        Restore Teacher
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="pt-2 flex items-center justify-between border-t border-gray-100 dark:border-gray-800">
+                      <button
+                        onClick={() => {
+                          setAssigningTeacher(t);
+                          setAssignClassId(t.assignedClassId || "");
+                          setAssignSectionId(t.assignedSectionId || "");
+                          setIsAssignModalOpen(true);
+                        }}
+                        className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                      >
+                        <Edit2 className="h-3.5 w-3.5" />
+                        Assign Class
+                      </button>
 
-                    <button
-                      onClick={() => handleToggleStatus(t)}
-                      disabled={togglingId === t.id}
-                      className={`text-xs font-semibold px-3 py-1 rounded-md border ${
-                        t.status === "active"
-                          ? "border-red-200 text-red-600 bg-red-50/50"
-                          : "border-green-200 text-green-600 bg-green-50/50"
-                      }`}
-                    >
-                      {t.status === "active" ? "Deactivate" : "Activate"}
-                    </button>
-                  </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleToggleStatus(t)}
+                          disabled={togglingId === t.id}
+                          className={`text-xs font-semibold px-3 py-1 rounded-md border ${
+                            t.status === "active"
+                              ? "border-red-200 text-red-600 bg-red-50/50"
+                              : "border-green-200 text-green-600 bg-green-50/50"
+                          }`}
+                        >
+                          {t.status === "active" ? "Deactivate" : "Activate"}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTeacher(t)}
+                          className="text-xs font-semibold px-2.5 py-1 rounded-md border border-rose-200 text-rose-600 bg-rose-50 hover:bg-rose-100"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -702,11 +762,15 @@ export default function AdminTeachersPage() {
                           className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
                             t.status === "active"
                               ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400"
+                              : t.status === "deleted"
+                              ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
                               : "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"
                           }`}
                         >
                           {t.status === "active" ? (
                             <CheckCircle2 className="h-3 w-3" />
+                          ) : t.status === "deleted" ? (
+                            <RotateCcw className="h-3 w-3 text-gray-500" />
                           ) : (
                             <XCircle className="h-3 w-3" />
                           )}
@@ -715,49 +779,62 @@ export default function AdminTeachersPage() {
                       </td>
                       <td className="py-4 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => {
-                              setPhotoEditingTeacher(t);
-                              setEditPhotoPreview(t.photoUrl || null);
-                              setEditPhotoFile(null);
-                            }}
-                            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/20"
-                            title="Upload/Update Teacher Photo"
-                          >
-                            <Camera className="h-3 w-3" />
-                            Photo
-                          </button>
-                          <button
-                            onClick={() => {
-                              setAssigningTeacher(t);
-                              setAssignClassId(t.assignedClassId || "");
-                              setAssignSectionId(t.assignedSectionId || "");
-                              setIsAssignModalOpen(true);
-                            }}
-                            className="rounded p-1.5 text-gray-500 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-800"
-                            title="Assign Class & Section"
-                          >
-                            <Edit2 className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => handleToggleStatus(t)}
-                            disabled={togglingId === t.id}
-                            className={`rounded p-1.5 ${
-                              t.status === "active"
-                                ? "text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20"
-                                : "text-green-600 hover:bg-green-50 dark:hover:bg-green-950/20"
-                            }`}
-                            title={t.status === "active" ? "Deactivate" : "Activate"}
-                          >
-                            <Power className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteTeacher(t)}
-                            className="rounded p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20"
-                            title="Delete teacher permanently from Firebase"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          {t.status === "deleted" ? (
+                            <button
+                              onClick={() => handleRestoreTeacher(t)}
+                              className="inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300"
+                              title="Restore teacher"
+                            >
+                              <RotateCcw className="h-3.5 w-3.5" />
+                              Restore
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setPhotoEditingTeacher(t);
+                                  setEditPhotoPreview(t.photoUrl || null);
+                                  setEditPhotoFile(null);
+                                }}
+                                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                                title="Upload/Update Teacher Photo"
+                              >
+                                <Camera className="h-3 w-3" />
+                                Photo
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setAssigningTeacher(t);
+                                  setAssignClassId(t.assignedClassId || "");
+                                  setAssignSectionId(t.assignedSectionId || "");
+                                  setIsAssignModalOpen(true);
+                                }}
+                                className="rounded p-1.5 text-gray-500 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-800"
+                                title="Assign Class & Section"
+                              >
+                                <Edit2 className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => handleToggleStatus(t)}
+                                disabled={togglingId === t.id}
+                                className={`rounded p-1.5 ${
+                                  t.status === "active"
+                                    ? "text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20"
+                                    : "text-green-600 hover:bg-green-50 dark:hover:bg-green-950/20"
+                                }`}
+                                title={t.status === "active" ? "Deactivate" : "Activate"}
+                              >
+                                <Power className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteTeacher(t)}
+                                className="rounded p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20"
+                                title="Delete / Archive teacher"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>

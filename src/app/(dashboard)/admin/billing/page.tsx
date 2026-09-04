@@ -10,7 +10,9 @@ import {
   HelpCircle,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
-import { useAppQuery } from "@/lib/cache";
+import { useAppQuery, appQueryClient } from "@/lib/cache";
+import { doc, onSnapshot } from "firebase/firestore";
+import { getFirebaseDb } from "@/lib/firebase/client";
 import { PageSkeleton } from "@/components/common/skeletons";
 import { toast } from "sonner";
 import { safeFetchJson } from "@/lib/utils/safeFetch";
@@ -94,6 +96,60 @@ export default function SchoolAdminSubscriptionCommandCenter() {
   const siteSettings = bundle?.siteSettings || null;
 
   const loading = isBundleLoading && !bundle;
+
+  // Real-time Firestore Sync with Super Admin updates
+  useEffect(() => {
+    if (!schoolId) return;
+    const db = getFirebaseDb();
+    if (!db) return;
+
+    const subRef = doc(db, "schoolSubscriptions", schoolId);
+    const unsubsSub = onSnapshot(
+      subRef,
+      () => {
+        appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
+        refetch(true);
+      },
+      (err) => console.warn("Live sub listener notice:", err)
+    );
+
+    const overridesRef = doc(db, "accessOverrides", schoolId);
+    const unsubsOverrides = onSnapshot(
+      overridesRef,
+      () => {
+        appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
+        refetch(true);
+      },
+      (err) => console.warn("Live overrides listener notice:", err)
+    );
+
+    const offerRef = doc(db, "customOffers", schoolId);
+    const unsubsOffer = onSnapshot(
+      offerRef,
+      () => {
+        appQueryClient.invalidateCache(`activeSchoolOffer:${schoolId}`);
+        refetchOffers(true);
+      },
+      (err) => console.warn("Live offer listener notice:", err)
+    );
+
+    const usageRef = doc(db, "schoolUsage", schoolId);
+    const unsubsUsage = onSnapshot(
+      usageRef,
+      () => {
+        appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
+        refetch(true);
+      },
+      (err) => console.warn("Live usage listener notice:", err)
+    );
+
+    return () => {
+      unsubsSub();
+      unsubsOverrides();
+      unsubsOffer();
+      unsubsUsage();
+    };
+  }, [schoolId, refetch, refetchOffers]);
 
   const openRecharge = (planId: string, cycle: "monthly" | "annual" = "monthly") => {
     setSelectedRechargePlan(planId);

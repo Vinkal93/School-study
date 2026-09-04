@@ -354,6 +354,7 @@ export async function provisionStudentFeeAssignment(
     admissionNumber: string;
     className: string;
     sectionName: string;
+    admissionDate?: string;
   },
   academicYearId: string = "ay_current"
 ): Promise<StudentFeeAssignment> {
@@ -365,25 +366,51 @@ export async function provisionStudentFeeAssignment(
   const monthLedger: MonthLedgerItem[] = [];
   const currentYear = new Date().getFullYear();
 
+  // Determine starting month from admissionDate (default to today if missing)
+  const admDate = student.admissionDate ? new Date(student.admissionDate) : new Date();
+  const admMonth = admDate.getMonth(); // 0 = Jan, 3 = Apr, etc.
+  // In our Indian school academic cycle: April (idx 0), May (1) ... March (11)
+  const calMonthToCycleIdx = (calMonth: number) => {
+    return calMonth >= 3 ? calMonth - 3 : calMonth + 9;
+  };
+  const startCycleIdx = Math.min(11, Math.max(0, calMonthToCycleIdx(admMonth)));
+
   MONTH_NAMES.forEach((m, idx) => {
     const year = idx >= 9 ? currentYear + 1 : currentYear;
     const dueDate = `${year}-${String(idx >= 9 ? idx - 8 : idx + 4).padStart(2, "0")}-10T00:00:00.000Z`;
 
+    // If month is before admission month, no dues applicable
+    if (idx < startCycleIdx) {
+      monthLedger.push({
+        month: `${m} ${year}`,
+        dueDate,
+        amountPaise: 0,
+        paidAmountPaise: 0,
+        discountPaise: 0,
+        lateFeePaise: 0,
+        pendingAmountPaise: 0,
+        status: "PAID",
+        paymentIds: [],
+        receiptNumbers: [],
+      });
+      return;
+    }
+
     let monthAmountPaise = 0;
     applicableStructures.forEach((s) => {
       if (s.frequency === "monthly") monthAmountPaise += s.amountPaise;
-      else if (s.frequency === "one_time" && idx === 0) monthAmountPaise += s.amountPaise;
-      else if (s.frequency === "annual" && idx === 0) monthAmountPaise += s.amountPaise;
+      else if (s.frequency === "one_time" && idx === startCycleIdx) monthAmountPaise += s.amountPaise;
+      else if (s.frequency === "annual" && idx === startCycleIdx) monthAmountPaise += s.amountPaise;
     });
 
     monthLedger.push({
       month: `${m} ${year}`,
       dueDate,
-      amountPaise: monthAmountPaise || 50000, // Default ₹500/mo if no structures created
+      amountPaise: monthAmountPaise,
       paidAmountPaise: 0,
       discountPaise: 0,
       lateFeePaise: 0,
-      pendingAmountPaise: monthAmountPaise || 50000,
+      pendingAmountPaise: monthAmountPaise,
       status: "PENDING",
       paymentIds: [],
       receiptNumbers: [],
@@ -409,7 +436,7 @@ export async function provisionStudentFeeAssignment(
     totalLateFeePaise: 0,
     totalPendingPaise: totalAssignedPaise,
     monthLedger,
-    status: "PENDING",
+    status: totalAssignedPaise === 0 ? "PAID" : "PENDING",
     lastPaymentDate: null,
     updatedAt: new Date().toISOString(),
   };
@@ -420,6 +447,71 @@ export async function provisionStudentFeeAssignment(
   }
 
   return assignment;
+}
+
+/**
+ * Recalculates future unpaid dues for a student (e.g. after class transfer or class fee modification).
+ * CRITICAL RULE: NEVER alters or deletes past paid transactions, receipts, or PAID ledger months!
+ */
+export async function recalculateStudentFutureDues(
+  schoolId: string,
+  studentId: string,
+  newClassName: string,
+  effectiveDateIso: string = new Date().toISOString(),
+  academicYearId: string = "ay_current"
+): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+
+  const docId = `${schoolId}_${studentId}_${academicYearId}`;
+  const assignRef = doc(db, "studentFeeAssignments", docId);
+  const snap = await getDoc(assignRef);
+  if (!snap.exists()) return;
+
+  const currentAssignment = snap.data() as StudentFeeAssignment;
+  const structures = await getFeeStructures(schoolId, academicYearId);
+  const newClassStructures = structures.filter(
+    (s) => s.status === "ACTIVE" && (s.className === "all" || s.className === newClassName)
+  );
+
+  let newMonthlyFeePaise = 0;
+  newClassStructures.forEach((s) => {
+    if (s.frequency === "monthly") newMonthlyFeePaise += s.amountPaise;
+  });
+
+  const updatedLedger = currentAssignment.monthLedger.map((item) => {
+    // If month is already fully PAID, do not alter it!
+    if (item.status === "PAID") return item;
+
+    // Recalculate pending month with new class monthly fee
+    const revisedAmount = newMonthlyFeePaise;
+    const pendingAmount = Math.max(0, revisedAmount - item.paidAmountPaise - item.discountPaise);
+
+    return {
+      ...item,
+      amountPaise: revisedAmount,
+      pendingAmountPaise: pendingAmount,
+      status: (pendingAmount <= 0 ? "PAID" : item.paidAmountPaise > 0 ? "PARTIAL" : "PENDING") as any,
+    };
+  });
+
+  const totalAssignedPaise = updatedLedger.reduce((sum, item) => sum + item.amountPaise, 0);
+  const totalPaidPaise = updatedLedger.reduce((sum, item) => sum + item.paidAmountPaise, 0);
+  const totalDiscountPaise = updatedLedger.reduce((sum, item) => sum + item.discountPaise, 0);
+  const totalLateFeePaise = updatedLedger.reduce((sum, item) => sum + item.lateFeePaise, 0);
+  const totalPendingPaise = updatedLedger.reduce((sum, item) => sum + item.pendingAmountPaise, 0);
+
+  await updateDoc(assignRef, {
+    className: newClassName,
+    monthLedger: updatedLedger,
+    totalAssignedPaise,
+    totalPaidPaise,
+    totalDiscountPaise,
+    totalLateFeePaise,
+    totalPendingPaise,
+    status: totalPendingPaise <= 0 ? "PAID" : totalPaidPaise > 0 ? "PARTIAL" : "PENDING",
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 // ==========================================

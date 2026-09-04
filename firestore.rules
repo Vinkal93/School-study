@@ -26,8 +26,11 @@ service cloud.firestore {
       return isAuthenticated() && (
         isSuperAdmin() ||
         request.auth.token.get('schoolId', '') == schoolId ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('schoolId', '') == schoolId)
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('schoolId', '') == schoolId ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'super_admin' ||
+          (schoolId == 'school_default' && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') in ['admin', 'school_admin'])
+        ))
       );
     }
 
@@ -36,9 +39,9 @@ service cloud.firestore {
       return isAuthenticated() && (
         isSuperAdmin() ||
         (isSchoolMember(schoolId) && (
-          request.auth.token.get('role', '') == 'admin' ||
+          request.auth.token.get('role', '') in ['admin', 'school_admin'] ||
           (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'admin')
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') in ['admin', 'school_admin'])
         ))
       );
     }
@@ -61,14 +64,21 @@ service cloud.firestore {
         (resource != null && isSchoolAdmin(resource.data.get('schoolId', '')))
       );
 
-      // Create: User can create own profile upon registration; Super Admin can create any
+      // Create: User can create own profile upon registration; Super Admin can create any; School Admin can provision student/teacher
       allow create: if isAuthenticated() && (
         request.auth.uid == userId ||
-        isSuperAdmin()
+        isSuperAdmin() ||
+        (isSchoolAdmin(request.resource.data.get('schoolId', '')) &&
+         request.resource.data.get('role', '') in ['student', 'teacher'])
       );
 
-      // Update: User can update own profile (without role escalation); Super Admin can update any
-      allow update: if isSuperAdmin() || isSelfProfileValid(userId);
+      // Update: User can update own profile (without role escalation); Super Admin can update any; School Admin can manage student/teacher
+      allow update: if isSuperAdmin() || isSelfProfileValid(userId) || (
+        isAuthenticated() &&
+        resource != null &&
+        isSchoolAdmin(resource.data.get('schoolId', '')) &&
+        resource.data.get('role', '') in ['student', 'teacher']
+      );
 
       // Delete: Super Admin only
       allow delete: if isSuperAdmin();
@@ -84,11 +94,54 @@ service cloud.firestore {
       // Write/Create/Delete: School Admin for own school or Super Admin
       allow write: if isSchoolAdmin(schoolId);
 
-      // Nested Tenant Subcollections (students, teachers, classes, attendance, notices, fees, etc.)
-      match /{collection}/{docId} {
+      // Nested Tenant Subcollections at ANY depth (classes, sections, students, teachers, academicYears, etc.)
+      match /{allSubcollections=**} {
         allow read: if isSchoolMember(schoolId);
         allow write: if isSchoolAdmin(schoolId);
       }
+    }
+
+    // ==========================================
+    // 2d. SCHOOL USAGE COLLECTION
+    // ==========================================
+    match /schoolUsage/{schoolId} {
+      allow read, write: if isAuthenticated() && (
+        isSuperAdmin() ||
+        isSchoolMember(schoolId)
+      );
+    }
+
+    // ==========================================
+    // 2b. TOP-LEVEL ATTENDANCE COLLECTION
+    // ==========================================
+    match /attendance/{recordId} {
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+      );
+      allow create, update: if isAuthenticated() && (
+        isSuperAdmin() ||
+        isSchoolAdmin(request.resource.data.get('schoolId', ''))
+      );
+      allow delete: if isSuperAdmin();
+    }
+
+    // ==========================================
+    // 2c. TOP-LEVEL NOTICES COLLECTION
+    // ==========================================
+    match /notices/{noticeId} {
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+      );
+      allow create, update: if isAuthenticated() && (
+        isSuperAdmin() ||
+        isSchoolAdmin(request.resource.data.get('schoolId', ''))
+      );
+      allow delete: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', '')))
+      );
     }
 
     // ==========================================

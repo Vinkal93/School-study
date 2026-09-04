@@ -33,10 +33,14 @@ export async function saveBatchAttendance(
       studentId: string;
       studentName: string;
       admissionNumber: string;
+      rollNumber?: number;
       status: AttendanceStatus;
     }>;
   }
 ): Promise<void> {
+  if (!schoolId || schoolId === "system") {
+    throw new Error("Cannot save attendance: No valid school assigned. Please complete school setup first.");
+  }
   const db = getFirebaseDb();
   const batch = writeBatch(db);
 
@@ -45,7 +49,7 @@ export async function saveBatchAttendance(
     const docId = `${schoolId}_${rec.studentId}_${payload.date}`;
     const docRef = doc(db, "attendance", docId);
 
-    const recordData = {
+    const recordData: any = {
       id: docId,
       schoolId,
       studentId: rec.studentId,
@@ -61,6 +65,10 @@ export async function saveBatchAttendance(
       status: rec.status,
       updatedAt: serverTimestamp(),
     };
+
+    if (rec.rollNumber !== undefined) {
+      recordData.rollNumber = rec.rollNumber;
+    }
 
     // set with merge to preserve createdAt or update status
     batch.set(
@@ -86,6 +94,9 @@ export async function getClassAttendanceForDate(
   sectionId: string,
   date: string
 ): Promise<Record<string, AttendanceStatus>> {
+  if (!schoolId || schoolId === "system") {
+    return {};
+  }
   const db = getFirebaseDb();
   const q = query(
     collection(db, "attendance"),
@@ -114,6 +125,9 @@ export async function getStudentAttendanceHistory(
   schoolId: string,
   studentId: string
 ): Promise<StudentAttendanceStats> {
+  if (!schoolId || schoolId === "system") {
+    return { totalDays: 0, presentDays: 0, absentDays: 0, lateDays: 0, percentage: 100, records: [] };
+  }
   const db = getFirebaseDb();
   const q = query(
     collection(db, "attendance"),
@@ -165,6 +179,9 @@ export async function getSchoolAttendanceForDate(
   classId?: string,
   sectionId?: string
 ): Promise<AttendanceRecord[]> {
+  if (!schoolId || schoolId === "system") {
+    return [];
+  }
   const db = getFirebaseDb();
   let q = query(
     collection(db, "attendance"),

@@ -22,6 +22,9 @@ export async function createNotice(
   adminUid: string,
   adminName: string
 ): Promise<string> {
+  if (!schoolId || schoolId === "system") {
+    throw new Error("Cannot create notice: No valid school assigned. Please complete school setup first.");
+  }
   const db = getFirebaseDb();
   const noticeDocRef = doc(collection(db, "notices"));
   const noticeId = noticeDocRef.id;
@@ -56,6 +59,9 @@ export async function getNoticesForAdmin(
   schoolId: string,
   options?: { audience?: string; status?: string }
 ): Promise<Notice[]> {
+  if (!schoolId || schoolId === "system") {
+    return [];
+  }
   const db = getFirebaseDb();
   const q = query(
     collection(db, "notices"),
@@ -90,6 +96,9 @@ export async function getNoticesForTeacher(
   schoolId: string,
   assignedClassId?: string
 ): Promise<Notice[]> {
+  if (!schoolId || schoolId === "system") {
+    return [];
+  }
   const db = getFirebaseDb();
   const q = query(
     collection(db, "notices"),
@@ -121,6 +130,9 @@ export async function getNoticesForStudent(
   schoolId: string,
   studentClassId: string
 ): Promise<Notice[]> {
+  if (!schoolId || schoolId === "system") {
+    return [];
+  }
   const db = getFirebaseDb();
   const q = query(
     collection(db, "notices"),

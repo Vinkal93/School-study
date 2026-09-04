@@ -170,12 +170,52 @@ export async function getSubscriptionReminder(
     };
   }
 
+  // Super Admin Configured Thresholds Guard
+  const reminderCutoffs = (policy.reminderDays && policy.reminderDays.length > 0)
+    ? policy.reminderDays
+    : [7, 3, 1];
+  const maxReminderDays = Math.max(...reminderCutoffs);
+
+  // If daysRemaining is higher than the max cutoff set by Super Admin, do not show any reminder
+  if (daysRemaining > maxReminderDays) {
+    return {
+      shouldRemind: false,
+      daysRemaining,
+      severity: "info",
+      title: "",
+      message: "",
+      showPopup: false,
+      showBanner: false,
+      showRechargeButton: canRecharge,
+      canRecharge,
+      accessMode,
+    };
+  }
+
   // Find active matching reminder threshold sorted by closest threshold
   const activeReminders = policy.reminders
-    .filter((r) => r.enabled && daysRemaining <= r.daysBeforeExpiry)
+    .filter((r) => r.enabled && r.daysBeforeExpiry <= maxReminderDays && daysRemaining <= r.daysBeforeExpiry)
     .sort((a, b) => a.daysBeforeExpiry - b.daysBeforeExpiry);
 
-  const matchedReminder = activeReminders[0];
+  let matchedReminder = activeReminders[0];
+
+  // If no predefined template matched but daysRemaining is within configured cutoff, build dynamic reminder
+  if (!matchedReminder && reminderCutoffs.some((d) => daysRemaining <= d)) {
+    matchedReminder = {
+      id: `rem_${daysRemaining}d`,
+      daysBeforeExpiry: daysRemaining,
+      enabled: true,
+      priority: daysRemaining <= 3 ? "urgent" : daysRemaining <= 7 ? "high" : "medium",
+      title: daysRemaining <= 3 ? "Urgent: Subscription Expiring" : "Subscription Renewal Notice",
+      message: `Your School Study plan expires in ${daysRemaining} day${daysRemaining === 1 ? "" : "s"}. Recharge now to keep your school running smoothly.`,
+      showPopup: daysRemaining <= 3,
+      showBanner: true,
+      showRechargeButton: true,
+      frequency: "SHOW_DAILY",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  }
 
   if (!matchedReminder || !isRoleTargeted) {
     return {

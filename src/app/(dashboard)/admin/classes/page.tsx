@@ -53,6 +53,9 @@ export default function AdminClassesPage() {
   const [editingClass, setEditingClass] = useState<SchoolClass | null>(null);
   const [classNameInput, setClassNameInput] = useState("");
   const [classOrderInput, setClassOrderInput] = useState(1);
+  const [selectedAcademicYearId, setSelectedAcademicYearId] = useState("");
+  const [monthlyFeeInput, setMonthlyFeeInput] = useState("");
+  const [admissionFeeInput, setAdmissionFeeInput] = useState("");
   const [initialSectionsInput, setInitialSectionsInput] = useState("A, B");
   const [isSubmittingClass, setIsSubmittingClass] = useState(false);
 
@@ -106,11 +109,17 @@ export default function AdminClassesPage() {
 
     setIsSubmittingClass(true);
     try {
+      const monthlyFeeNum = monthlyFeeInput ? parseFloat(monthlyFeeInput) : 0;
+      const admissionFeeNum = admissionFeeInput ? parseFloat(admissionFeeInput) : 0;
+
       if (editingClass) {
         // Edit
         await updateClass(schoolId, editingClass.id, {
           name: classNameInput.trim(),
           order: classOrderInput,
+          academicYearId: selectedAcademicYearId || undefined,
+          monthlyFee: monthlyFeeNum,
+          admissionFee: admissionFeeNum,
         });
         toast.success(`Updated "${classNameInput}"`);
       } else {
@@ -123,7 +132,10 @@ export default function AdminClassesPage() {
         await createClass(schoolId, {
           name: classNameInput.trim(),
           order: classOrderInput,
+          academicYearId: selectedAcademicYearId || undefined,
           initialSections: sections.length > 0 ? sections : ["A"],
+          monthlyFee: monthlyFeeNum,
+          admissionFee: admissionFeeNum,
         });
         toast.success(`Class "${classNameInput}" created successfully!`);
       }
@@ -131,6 +143,8 @@ export default function AdminClassesPage() {
       setIsClassModalOpen(false);
       setEditingClass(null);
       setClassNameInput("");
+      setMonthlyFeeInput("");
+      setAdmissionFeeInput("");
       setInitialSectionsInput("A, B");
       loadData();
     } catch (err: any) {
@@ -283,6 +297,9 @@ export default function AdminClassesPage() {
                 setEditingClass(null);
                 setClassNameInput("");
                 setClassOrderInput(classes.length + 1);
+                setSelectedAcademicYearId(currentYear?.id || "");
+                setMonthlyFeeInput("");
+                setAdmissionFeeInput("");
                 setInitialSectionsInput("A, B");
                 setIsClassModalOpen(true);
               }}
@@ -336,6 +353,9 @@ export default function AdminClassesPage() {
               setEditingClass(null);
               setClassNameInput("");
               setClassOrderInput(1);
+              setSelectedAcademicYearId(currentYear?.id || "");
+              setMonthlyFeeInput("");
+              setAdmissionFeeInput("");
               setInitialSectionsInput("A, B");
               setIsClassModalOpen(true);
             }}
@@ -379,6 +399,9 @@ export default function AdminClassesPage() {
                         setEditingClass(cls);
                         setClassNameInput(cls.name);
                         setClassOrderInput(cls.order);
+                        setSelectedAcademicYearId(cls.academicYearId || currentYear?.id || "");
+                        setMonthlyFeeInput(cls.monthlyFee !== undefined ? cls.monthlyFee.toString() : "");
+                        setAdmissionFeeInput(cls.admissionFee !== undefined ? cls.admissionFee.toString() : "");
                         setIsClassModalOpen(true);
                       }}
                       className="p-1.5 text-gray-400 hover:text-blue-600 rounded"
@@ -396,8 +419,24 @@ export default function AdminClassesPage() {
                   </div>
                 </div>
 
+                {/* Class Fees Info */}
+                <div className="py-2.5 px-3 my-2 rounded-lg bg-gray-50 dark:bg-gray-900/60 border border-gray-100 dark:border-gray-800 text-xs flex items-center justify-between">
+                  <div>
+                    <span className="text-gray-400 block text-[10px] uppercase tracking-wider font-semibold">Monthly Fee</span>
+                    <span className="font-bold text-gray-900 dark:text-white">
+                      ₹{cls.monthlyFee !== undefined ? cls.monthlyFee.toLocaleString("en-IN") : "0"}<span className="text-[10px] font-normal text-gray-400">/mo</span>
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-gray-400 block text-[10px] uppercase tracking-wider font-semibold">Admission Fee</span>
+                    <span className="font-bold text-gray-900 dark:text-white">
+                      ₹{cls.admissionFee !== undefined ? cls.admissionFee.toLocaleString("en-IN") : "0"}
+                    </span>
+                  </div>
+                </div>
+
                 {/* Sections List */}
-                <div className="py-4 space-y-3">
+                <div className="py-2 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
                       SECTIONS ({cls.sections?.length || 0})
@@ -543,6 +582,60 @@ export default function AdminClassesPage() {
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
                 />
               </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Monthly Fee (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="10"
+                    value={monthlyFeeInput}
+                    onChange={(e) => setMonthlyFeeInput(e.target.value)}
+                    placeholder="e.g. 1500"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  />
+                  <p className="text-[10px] text-gray-400 mt-0.5">Recurring tuition fee</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Admission Fee (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="50"
+                    value={admissionFeeInput}
+                    onChange={(e) => setAdmissionFeeInput(e.target.value)}
+                    placeholder="e.g. 3000"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  />
+                  <p className="text-[10px] text-gray-400 mt-0.5">One-time registration fee</p>
+                </div>
+              </div>
+
+              {academicYears.length > 0 && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Academic Year Session
+                  </label>
+                  <select
+                    value={selectedAcademicYearId}
+                    onChange={(e) => setSelectedAcademicYearId(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  >
+                    <option value="">Default Active Session</option>
+                    {academicYears.map((ay) => (
+                      <option key={ay.id} value={ay.id}>
+                        {ay.name} ({ay.startDate} to {ay.endDate}){ay.isCurrent ? " - Current" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {!editingClass && (
                 <div>

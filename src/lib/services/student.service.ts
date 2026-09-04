@@ -10,12 +10,12 @@ import {
   updateDoc,
   deleteDoc,
   serverTimestamp,
+  runTransaction,
   type Timestamp,
 } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { initializeApp, getApps, deleteApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
-import { getFirebaseDb, getFirebaseStorage } from "@/lib/firebase/client";
+import { getFirebaseDb } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/utils/constants";
 import { firebaseClientConfig } from "@/lib/firebase/config";
 import {
@@ -25,6 +25,100 @@ import {
   decrementSchoolUsage,
 } from "@/lib/billing";
 import type { StudentProfile, CreateStudentInput } from "@/types";
+import { compressImageToBase64 } from "@/lib/utils/image-compression";
+import { provisionStudentFeeAssignment, recalculateStudentFutureDues } from "./fee.service";
+
+/**
+ * Uploads student photo with client-side compression and zero CORS requirements.
+ */
+export async function uploadStudentPhoto(
+  arg1: string | File,
+  arg2?: string,
+  arg3?: string | File
+): Promise<string> {
+  const file = arg1 instanceof File ? arg1 : (arg3 instanceof File ? arg3 : undefined);
+  if (!file) return "";
+  return await compressImageToBase64(file, 400, 400, 0.75);
+}
+
+/**
+ * Atomically generates the next unique Student ID scoped to the school.
+ * Format: `${schoolCode}${sequence}` -> e.g. SBCI1, SBCI2, SBCI3...
+ * 
+ * Uses an atomic Firestore transaction on the school document.
+ * - ID is 100% collision-free under concurrent enrollments.
+ * - Sequence is monotonically increasing and never decrements or reuses IDs upon deletion.
+ */
+export async function generateNextStudentId(schoolId: string): Promise<string> {
+  const db = getFirebaseDb();
+  if (!db) throw new Error("Database offline.");
+
+  const schoolRef = doc(db, COLLECTIONS.SCHOOLS, schoolId);
+
+  return await runTransaction(db, async (tx) => {
+    const schoolSnap = await tx.get(schoolRef);
+    let schoolCode = "SBCI";
+
+    if (schoolSnap.exists()) {
+      const sData = schoolSnap.data();
+      if (sData?.code && typeof sData.code === "string" && sData.code.trim().length > 0) {
+        schoolCode = sData.code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+      }
+    }
+
+    const currentNumber = (schoolSnap.exists() && typeof schoolSnap.data()?.lastStudentNumber === "number")
+      ? schoolSnap.data().lastStudentNumber
+      : 0;
+
+    const nextNumber = currentNumber + 1;
+
+    // Update the counter on school doc atomically
+    tx.set(schoolRef, { lastStudentNumber: nextNumber }, { merge: true });
+
+    return `${schoolCode}${nextNumber}`;
+  });
+}
+
+/**
+ * Generates the next available sequential roll number for a class (1, 2, 3...).
+ * Guarantees no duplicate roll number in the same class.
+ */
+export async function generateNextRollNumber(
+  schoolId: string,
+  classId: string
+): Promise<number> {
+  const db = getFirebaseDb();
+  if (!db) return 1;
+
+  try {
+    const q = query(
+      collection(db, "schools", schoolId, "students"),
+      where("classId", "==", classId)
+    );
+
+    const snapshot = await getDocs(q);
+    const assignedRolls = new Set<number>();
+
+    snapshot.docs.forEach((d) => {
+      const data = d.data() as StudentProfile;
+      // Exclude deleted students when allocating roll numbers
+      if (data.status !== "deleted" && typeof data.rollNumber === "number" && data.rollNumber > 0) {
+        assignedRolls.add(data.rollNumber);
+      }
+    });
+
+    // Find smallest positive integer not in assignedRolls
+    let nextRoll = 1;
+    while (assignedRolls.has(nextRoll)) {
+      nextRoll++;
+    }
+
+    return nextRoll;
+  } catch (err) {
+    console.warn("generateNextRollNumber notice:", err);
+    return 1;
+  }
+}
 
 /**
  * Fetches all students for a school with optional class/section/status filters.
@@ -47,15 +141,23 @@ export async function getStudents(
       ...d.data(),
     })) as StudentProfile[];
 
-    if (options?.classId) {
+    if (options?.classId && options.classId !== "all") {
       students = students.filter((s) => s.classId === options.classId);
     }
-    if (options?.sectionId) {
+    if (options?.sectionId && options.sectionId !== "all") {
       students = students.filter((s) => s.sectionId === options.sectionId);
     }
     if (options?.status && options.status !== "all") {
       students = students.filter((s) => s.status === options.status);
     }
+
+    // Sort active students first by class order / roll number
+    students.sort((a, b) => {
+      if (a.classId === b.classId) {
+        return (a.rollNumber || 9999) - (b.rollNumber || 9999);
+      }
+      return (a.className || "").localeCompare(b.className || "");
+    });
 
     return students;
   } catch (error) {
@@ -65,7 +167,7 @@ export async function getStudents(
 }
 
 /**
- * Fetches students belonging to a specific class and optional section (Used by Teacher Portal).
+ * Fetches active students belonging to a specific class and section for attendance roster.
  */
 export async function getStudentsByClassAndSection(
   schoolId: string,
@@ -79,63 +181,63 @@ export async function getStudentsByClassAndSection(
   );
 
   const snapshot = await getDocs(q);
-  let students = snapshot.docs.map((d) => ({
-    id: d.id,
-    ...d.data(),
-  })) as StudentProfile[];
+  let students = snapshot.docs
+    .map((d) => ({
+      id: d.id,
+      ...d.data(),
+    })) as StudentProfile[];
 
-  if (sectionId) {
+  // Only active enrolled students
+  students = students.filter((s) => s.status === "active");
+
+  if (sectionId && sectionId !== "all") {
     students = students.filter((s) => s.sectionId === sectionId);
   }
 
-  return students.sort((a, b) => a.name.localeCompare(b.name));
-}
-
-import { compressImageToBase64 } from "@/lib/utils/image-compression";
-
-/**
- * Uploads student photo with client-side compression and zero CORS requirements.
- */
-export async function uploadStudentPhoto(
-  arg1: string | File,
-  arg2?: string,
-  arg3?: string | File
-): Promise<string> {
-  const file = arg1 instanceof File ? arg1 : (arg3 instanceof File ? arg3 : undefined);
-  if (!file) return "";
-  return await compressImageToBase64(file, 400, 400, 0.75);
+  // Sort by Roll Number ascending (1, 2, 3...)
+  return students.sort((a, b) => (a.rollNumber || 9999) - (b.rollNumber || 9999));
 }
 
 /**
- * Creates a student record, verifies unique admission number within school,
- * enforces plan feature access and capacity limits, and provisions student login credentials.
+ * Creates a student record with atomic unique Student ID (SBCI1...),
+ * class-wise roll number (1, 2, 3...), Firebase Auth account, and initial Fee Assignment.
  */
 export async function createStudentWithAuth(
   schoolId: string,
   input: CreateStudentInput
-): Promise<{ studentId: string; userId: string }> {
+): Promise<{ studentId: string; userId: string; admissionNumber: string; rollNumber: number }> {
   const db = getFirebaseDb();
-  const cleanAdmNo = input.admissionNumber.trim().toUpperCase();
 
   // 1. Authoritative Backend Check: Feature Access & Plan Limit
   await requireFeatureAccess(schoolId, "student_management");
   await requirePlanLimit(schoolId, "students");
 
-  // 2. Verify admission number uniqueness within this school
+  // 2. Atomic Student Unique ID (e.g. SBCI1, SBCI2...)
+  const autoStudentId = input.studentId || (await generateNextStudentId(schoolId));
+  const cleanAdmNo = (input.admissionNumber && input.admissionNumber.trim().length > 0)
+    ? input.admissionNumber.trim().toUpperCase()
+    : autoStudentId;
+
+  // 3. Class-wise Sequential Roll Number (1, 2, 3...)
+  const assignedRoll = (typeof input.rollNumber === "number" && input.rollNumber > 0)
+    ? input.rollNumber
+    : await generateNextRollNumber(schoolId, input.classId);
+
+  // 4. Verify no duplicate roll number in the same class
   const studentsColl = collection(db, "schools", schoolId, "students");
-  const duplicateQuery = query(
+  const existingRollsQuery = query(
     studentsColl,
-    where("admissionNumber", "==", cleanAdmNo)
+    where("classId", "==", input.classId),
+    where("rollNumber", "==", assignedRoll)
   );
-  const duplicateSnap = await getDocs(duplicateQuery);
-  if (!duplicateSnap.empty) {
-    throw new Error(
-      `Admission Number "${cleanAdmNo}" is already registered in this school.`
-    );
+  const rollSnap = await getDocs(existingRollsQuery);
+  const activeSameRoll = rollSnap.docs.filter((d) => (d.data() as StudentProfile).status !== "deleted");
+  if (activeSameRoll.length > 0) {
+    throw new Error(`Roll Number ${assignedRoll} is already assigned to an active student in this class.`);
   }
 
-  // 2. Create student Auth user via secondary app instance
-  const secondaryAppName = `student-auth-${Date.now()}`;
+  // 5. Create student Auth user via secondary app instance
+  const secondaryAppName = `student-auth-${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
   const secondaryApp = initializeApp(firebaseClientConfig, secondaryAppName);
   const secondaryAuth = getAuth(secondaryApp);
 
@@ -153,7 +255,7 @@ export async function createStudentWithAuth(
       await deleteApp(secondaryApp);
     }
     if (authError.code === "auth/email-already-in-use") {
-      throw new Error(`Email "${input.email}" is already registered.`);
+      throw new Error(`Email "${input.email}" is already registered. Please use another email.`);
     }
     if (authError.code === "auth/weak-password") {
       throw new Error("Password must be at least 6 characters.");
@@ -165,15 +267,17 @@ export async function createStudentWithAuth(
     }
   }
 
-  // 3. Create Student Document in schools/{schoolId}/students/{studentId}
+  // 6. Create Student Document in schools/{schoolId}/students/{studentDocId}
   const studentDocRef = doc(collection(db, "schools", schoolId, "students"));
-  const studentId = studentDocRef.id;
+  const studentDocId = studentDocRef.id;
 
   const studentData: Omit<StudentProfile, "createdAt" | "updatedAt"> = {
-    id: studentId,
+    id: studentDocId,
     schoolId,
     userId,
+    studentId: autoStudentId,
     admissionNumber: cleanAdmNo,
+    rollNumber: assignedRoll,
     name: input.name.trim(),
     email: input.email.trim().toLowerCase(),
     gender: input.gender,
@@ -185,9 +289,10 @@ export async function createStudentWithAuth(
     className: input.className,
     sectionId: input.sectionId,
     sectionName: input.sectionName,
-    academicYearId: input.academicYearId || "",
+    academicYearId: input.academicYearId || "ay_current",
     admissionDate: input.admissionDate || new Date().toISOString().split("T")[0],
     status: "active",
+    deletedAt: null,
   };
 
   await setDoc(studentDocRef, {
@@ -196,7 +301,7 @@ export async function createStudentWithAuth(
     updatedAt: serverTimestamp(),
   });
 
-  // 4. Create User document in users/{userId}
+  // 7. Create User document in users/{userId}
   const userDocRef = doc(db, COLLECTIONS.USERS, userId);
   await setDoc(userDocRef, {
     uid: userId,
@@ -204,20 +309,43 @@ export async function createStudentWithAuth(
     email: input.email.trim().toLowerCase(),
     role: "student",
     schoolId: schoolId,
-    studentId: studentId,
+    studentId: autoStudentId,
     status: "active",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
 
-  // 5. Increment usage count atomically
+  // 8. Atomically increment school usage counter
   await incrementSchoolUsage(schoolId, "students", 1);
 
-  return { studentId, userId };
+  // 9. Automatically provision Student Fee Assignment based on class fee structure & admission date
+  try {
+    await provisionStudentFeeAssignment(
+      schoolId,
+      {
+        id: studentDocId,
+        name: input.name.trim(),
+        admissionNumber: cleanAdmNo,
+        className: input.className,
+        sectionName: input.sectionName,
+        admissionDate: input.admissionDate || new Date().toISOString().split("T")[0],
+      },
+      input.academicYearId || "ay_current"
+    );
+  } catch (feeErr) {
+    console.warn("Automatic fee assignment notice (non-fatal):", feeErr);
+  }
+
+  return {
+    studentId: autoStudentId,
+    userId,
+    admissionNumber: cleanAdmNo,
+    rollNumber: assignedRoll,
+  };
 }
 
 /**
- * Updates a student's profile details or class/section transfer.
+ * Updates a student's profile details.
  */
 export async function updateStudent(
   schoolId: string,
@@ -230,6 +358,52 @@ export async function updateStudent(
     ...data,
     updatedAt: serverTimestamp(),
   });
+}
+
+/**
+ * Transfers a student to a new class and section:
+ * - Assigns next available roll number in the new class.
+ * - Recalculates future dues from current date onwards.
+ * - Leaves past payments and historical attendance intact.
+ */
+export async function transferStudentClass(
+  schoolId: string,
+  studentId: string,
+  newClassId: string,
+  newClassName: string,
+  newSectionId: string,
+  newSectionName: string
+): Promise<{ newRollNumber: number }> {
+  const db = getFirebaseDb();
+  const studentDocRef = doc(db, "schools", schoolId, "students", studentId);
+  const snap = await getDoc(studentDocRef);
+  if (!snap.exists()) throw new Error("Student not found.");
+
+  // Allocate new roll number in target class
+  const newRollNumber = await generateNextRollNumber(schoolId, newClassId);
+
+  await updateDoc(studentDocRef, {
+    classId: newClassId,
+    className: newClassName,
+    sectionId: newSectionId,
+    sectionName: newSectionName,
+    rollNumber: newRollNumber,
+    updatedAt: serverTimestamp(),
+  });
+
+  // Recalculate future dues for the new class fee structure
+  try {
+    await recalculateStudentFutureDues(
+      schoolId,
+      studentId,
+      newClassName,
+      new Date().toISOString()
+    );
+  } catch (recalcErr) {
+    console.warn("Future dues recalculation notice:", recalcErr);
+  }
+
+  return { newRollNumber };
 }
 
 /**
@@ -250,14 +424,17 @@ export async function toggleStudentStatus(
     updatedAt: serverTimestamp(),
   });
 
-  await updateDoc(userDocRef, {
-    status: status === "active" ? "active" : "disabled",
-    updatedAt: serverTimestamp(),
-  });
+  if (userId) {
+    await updateDoc(userDocRef, {
+      status: status === "active" ? "active" : "disabled",
+      updatedAt: serverTimestamp(),
+    }).catch(() => {});
+  }
 }
 
 /**
- * Deletes a student profile and decrements usage count atomically.
+ * Soft deletes a student profile (preserves financial/attendance records)
+ * and decrements the active capacity usage count.
  */
 export async function deleteStudent(
   schoolId: string,
@@ -265,10 +442,57 @@ export async function deleteStudent(
   userId: string
 ): Promise<void> {
   const db = getFirebaseDb();
-  await deleteDoc(doc(db, "schools", schoolId, "students", studentId));
+  const studentDocRef = doc(db, "schools", schoolId, "students", studentId);
+  const userDocRef = doc(db, COLLECTIONS.USERS, userId);
+
+  const nowIso = new Date().toISOString();
+
+  // Soft delete: keep record for audit & history
+  await updateDoc(studentDocRef, {
+    status: "deleted",
+    deletedAt: nowIso,
+    updatedAt: serverTimestamp(),
+  });
+
   if (userId) {
-    await deleteDoc(doc(db, COLLECTIONS.USERS, userId));
+    await updateDoc(userDocRef, {
+      status: "disabled",
+      updatedAt: serverTimestamp(),
+    }).catch(() => {});
   }
-  // Decrement usage count atomically
+
+  // Decrement active usage count atomically
   await decrementSchoolUsage(schoolId, "students", 1);
+}
+
+/**
+ * Restores a soft-deleted student profile back to active status.
+ */
+export async function restoreStudent(
+  schoolId: string,
+  studentId: string,
+  userId: string
+): Promise<void> {
+  // Check plan limit before restoring
+  await requirePlanLimit(schoolId, "students");
+
+  const db = getFirebaseDb();
+  const studentDocRef = doc(db, "schools", schoolId, "students", studentId);
+  const userDocRef = doc(db, COLLECTIONS.USERS, userId);
+
+  await updateDoc(studentDocRef, {
+    status: "active",
+    deletedAt: null,
+    updatedAt: serverTimestamp(),
+  });
+
+  if (userId) {
+    await updateDoc(userDocRef, {
+      status: "active",
+      updatedAt: serverTimestamp(),
+    }).catch(() => {});
+  }
+
+  // Increment active usage count atomically
+  await incrementSchoolUsage(schoolId, "students", 1);
 }

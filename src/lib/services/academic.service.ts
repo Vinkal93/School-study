@@ -4,6 +4,7 @@ import {
   getDocs,
   getDoc,
   query,
+  where,
   orderBy,
   setDoc,
   updateDoc,
@@ -29,7 +30,7 @@ import type { AcademicYear, SchoolClass, Section } from "@/types";
  * Fetches all academic years for a school.
  */
 export async function getAcademicYears(schoolId: string): Promise<AcademicYear[]> {
-  if (!schoolId || schoolId === "school_default" || schoolId === "system") {
+  if (!schoolId || schoolId === "system") {
     return [];
   }
   try {
@@ -112,7 +113,7 @@ export async function setCurrentAcademicYear(
 export async function getClassesWithSections(
   schoolId: string
 ): Promise<SchoolClass[]> {
-  if (!schoolId || schoolId === "school_default" || schoolId === "system") {
+  if (!schoolId || schoolId === "system") {
     return [];
   }
   try {
@@ -152,6 +153,8 @@ export async function getClassesWithSections(
   }
 }
 
+import { createFeeStructure } from "./fee.service";
+
 /**
  * Creates a new class with an auto-generated random document ID.
  * Path: schools/{schoolId}/classes/{classId}
@@ -163,6 +166,9 @@ export async function createClass(
     order?: number;
     academicYearId?: string;
     initialSections?: string[];
+    monthlyFee?: number;
+    admissionFee?: number;
+    otherFee?: number;
   }
 ): Promise<string> {
   const db = getFirebaseDb();
@@ -182,6 +188,9 @@ export async function createClass(
     name: data.name.trim(),
     order: data.order ?? 1,
     academicYearId: data.academicYearId || "",
+    monthlyFee: data.monthlyFee ?? 0,
+    admissionFee: data.admissionFee ?? 0,
+    otherFee: data.otherFee ?? 0,
     status: "active",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -215,16 +224,64 @@ export async function createClass(
   // 2. Increment usage count atomically
   await incrementSchoolUsage(schoolId, "classes", 1);
 
+  // 3. Auto-link Fee Structures if fee amounts specified
+  if (data.monthlyFee && data.monthlyFee > 0) {
+    try {
+      await createFeeStructure(
+        schoolId,
+        {
+          academicYearId: data.academicYearId || "ay_current",
+          academicYearName: "Current Session",
+          className: data.name.trim(),
+          feeType: "tuition",
+          title: `${data.name.trim()} Monthly Tuition Fee`,
+          amountRupees: data.monthlyFee,
+          frequency: "monthly",
+        },
+        "admin"
+      );
+    } catch (fErr) {
+      console.warn("Auto fee structure creation notice:", fErr);
+    }
+  }
+
+  if (data.admissionFee && data.admissionFee > 0) {
+    try {
+      await createFeeStructure(
+        schoolId,
+        {
+          academicYearId: data.academicYearId || "ay_current",
+          academicYearName: "Current Session",
+          className: data.name.trim(),
+          feeType: "admission",
+          title: `${data.name.trim()} Admission Fee`,
+          amountRupees: data.admissionFee,
+          frequency: "one_time",
+        },
+        "admin"
+      );
+    } catch (fErr) {
+      console.warn("Auto fee structure creation notice:", fErr);
+    }
+  }
+
   return classId;
 }
 
 /**
- * Updates a class's name, order, or academic year.
+ * Updates a class's name, order, academic year, or fees.
  */
 export async function updateClass(
   schoolId: string,
   classId: string,
-  data: { name?: string; order?: number; academicYearId?: string }
+  data: {
+    name?: string;
+    order?: number;
+    academicYearId?: string;
+    monthlyFee?: number;
+    admissionFee?: number;
+    otherFee?: number;
+  }
 ): Promise<void> {
   const db = getFirebaseDb();
   const classDocRef = doc(db, "schools", schoolId, "classes", classId);
@@ -252,27 +309,39 @@ export async function toggleClassStatus(
 
 /**
  * Deletes a class and all its subcollection sections and decrements usage count atomically.
+ * Prevents accidental deletion if active students are still enrolled.
  */
 export async function deleteClass(
   schoolId: string,
   classId: string
 ): Promise<void> {
   const db = getFirebaseDb();
-  const sectionsQuery = collection(
-    db,
-    "schools",
-    schoolId,
-    "classes",
-    classId,
-    "sections"
+
+  // Safety check: ensure no active students are enrolled in this class
+  const studentsSnap = await getDocs(
+    query(
+      collection(db, "schools", schoolId, "students"),
+      where("classId", "==", classId),
+      where("status", "==", "active")
+    )
   );
-  const sectionsSnapshot = await getDocs(sectionsQuery);
+  if (!studentsSnap.empty) {
+    throw new Error(
+      `Cannot delete class: ${studentsSnap.size} active student(s) are enrolled. Please transfer or archive them first.`
+    );
+  }
+
+  const sectionsSnapshot = await getDocs(
+    collection(db, "schools", schoolId, "classes", classId, "sections")
+  );
 
   const batch = writeBatch(db);
-  sectionsSnapshot.forEach((sDoc) => {
-    batch.delete(sDoc.ref);
+  sectionsSnapshot.docs.forEach((secDoc) => {
+    batch.delete(secDoc.ref);
   });
-  batch.delete(doc(db, "schools", schoolId, "classes", classId));
+
+  const classDocRef = doc(db, "schools", schoolId, "classes", classId);
+  batch.delete(classDocRef);
 
   await batch.commit();
 

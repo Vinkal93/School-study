@@ -27,12 +27,16 @@ import {
   Filter,
   Trash2,
   Camera,
+  RotateCcw,
+  ArrowRightLeft,
 } from "lucide-react";
 import {
   getStudents,
   createStudentWithAuth,
   toggleStudentStatus,
   deleteStudent,
+  restoreStudent,
+  transferStudentClass,
   updateStudent,
 } from "@/lib/services/student.service";
 import { uploadStudentPhoto } from "@/lib/services/storage.service";
@@ -84,8 +88,14 @@ export default function AdminStudentsPage() {
   const debouncedSearch = useDebounce(searchQuery, 250);
   const [selectedClassFilter, setSelectedClassFilter] = useState("all");
   const [selectedSectionFilter, setSelectedSectionFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive" | "deleted">("all");
   const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  // Transfer Class Modal State
+  const [transferringStudent, setTransferringStudent] = useState<StudentProfile | null>(null);
+  const [targetClassId, setTargetClassId] = useState("");
+  const [targetSectionId, setTargetSectionId] = useState("");
+  const [isTransferring, setIsTransferring] = useState(false);
 
   // Enroll Student Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -168,8 +178,8 @@ export default function AdminStudentsPage() {
 
   const handleEnrollStudent = async (e: FormEvent) => {
     e.preventDefault();
-    if (!admissionNumber.trim() || !name.trim() || !email.trim() || !password || !selectedClassId || !selectedSectionId) {
-      toast.error("Please fill in required fields (Admission No, Name, Class, Section, Email, Password).");
+    if (!name.trim() || !email.trim() || !password || !selectedClassId || !selectedSectionId) {
+      toast.error("Please fill in required fields (Name, Class, Section, Email, Password).");
       return;
     }
 
@@ -183,7 +193,7 @@ export default function AdminStudentsPage() {
       let photoUrl = "";
       if (photoFile) {
         try {
-          photoUrl = await uploadStudentPhoto(photoFile, schoolId, admissionNumber);
+          photoUrl = await uploadStudentPhoto(photoFile, schoolId, admissionNumber || "TEMP");
         } catch (uploadErr) {
           console.warn("Photo upload failed, continuing:", uploadErr);
         }
@@ -192,7 +202,7 @@ export default function AdminStudentsPage() {
       const selectedClass = classes.find((c) => c.id === selectedClassId);
       const selectedSection = selectedClass?.sections?.find((s) => s.id === selectedSectionId);
 
-      await createStudentWithAuth(schoolId, {
+      const created = await createStudentWithAuth(schoolId, {
         admissionNumber: admissionNumber.trim().toUpperCase(),
         name: name.trim(),
         email: email.trim().toLowerCase(),
@@ -209,7 +219,9 @@ export default function AdminStudentsPage() {
         admissionDate,
       });
 
-      toast.success(`Student "${name}" enrolled successfully with login credentials!`);
+      toast.success(
+        `Student "${name}" enrolled! ID: ${created.studentId}, Roll No: ${created.rollNumber}`
+      );
       setIsAddModalOpen(false);
       resetForm();
       appQueryClient.invalidateCache(`students:${schoolId}`);
@@ -257,18 +269,90 @@ export default function AdminStudentsPage() {
   const handleDeleteStudent = async (stu: StudentProfile) => {
     if (
       confirm(
-        `Are you sure you want to permanently delete student "${stu.name}" (Admission No. ${stu.admissionNumber}) from Firebase Firestore?`
+        `Are you sure you want to delete student "${stu.name}" (${stu.studentId || stu.admissionNumber})? Financial and attendance history will be preserved in archive.`
       )
     ) {
       try {
         await deleteStudent(schoolId, stu.id, stu.userId);
-        setStudentsCache((prev) => (prev || []).filter((s) => s.id !== stu.id));
+        setStudentsCache((prev) =>
+          (prev || []).map((s) =>
+            s.id === stu.id ? { ...s, status: "deleted", deletedAt: new Date().toISOString() } : s
+          )
+        );
         appQueryClient.invalidateCache(`planLimit:${schoolId}:*`);
         appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
-        toast.success(`Student "${stu.name}" permanently deleted from Firebase!`);
+        toast.success(`Student "${stu.name}" deleted (archived).`);
       } catch (err: any) {
         toast.error(err.message || "Failed to delete student.");
       }
+    }
+  };
+
+  const handleRestoreStudent = async (stu: StudentProfile) => {
+    if (limitStatus && !limitStatus.allowed) {
+      toast.error(
+        `Student limit reached (${limitStatus.current}/${limitStatus.limit}). Upgrade plan to restore more students.`
+      );
+      return;
+    }
+    try {
+      await restoreStudent(schoolId, stu.id, stu.userId);
+      setStudentsCache((prev) =>
+        (prev || []).map((s) =>
+          s.id === stu.id ? { ...s, status: "active", deletedAt: undefined } : s
+        )
+      );
+      appQueryClient.invalidateCache(`planLimit:${schoolId}:*`);
+      appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
+      toast.success(`Student "${stu.name}" restored successfully!`);
+      refetchStudents(true);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to restore student.");
+    }
+  };
+
+  const handleExecuteTransfer = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!transferringStudent || !targetClassId || !targetSectionId) {
+      toast.error("Please select target class and section.");
+      return;
+    }
+    const targetClass = classes.find((c) => c.id === targetClassId);
+    const targetSection = targetClass?.sections?.find((s) => s.id === targetSectionId);
+
+    setIsTransferring(true);
+    try {
+      const { newRollNumber } = await transferStudentClass(
+        schoolId,
+        transferringStudent.id,
+        targetClassId,
+        targetClass?.name || "",
+        targetSectionId,
+        targetSection?.name || ""
+      );
+      setStudentsCache((prev) =>
+        (prev || []).map((s) =>
+          s.id === transferringStudent.id
+            ? {
+                ...s,
+                classId: targetClassId,
+                className: targetClass?.name || "",
+                sectionId: targetSectionId,
+                sectionName: targetSection?.name || "",
+                rollNumber: newRollNumber,
+              }
+            : s
+        )
+      );
+      toast.success(
+        `Student transferred to ${targetClass?.name} (${targetSection?.name}) with Roll No. ${newRollNumber}!`
+      );
+      setTransferringStudent(null);
+      refetchStudents(true);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to transfer student.");
+    } finally {
+      setIsTransferring(false);
     }
   };
 
@@ -277,14 +361,21 @@ export default function AdminStudentsPage() {
       const q = debouncedSearch.toLowerCase().trim();
       const matchesSearch =
         !q ||
-        s.name.toLowerCase().includes(q) ||
-        s.admissionNumber.toLowerCase().includes(q) ||
-        s.email.toLowerCase().includes(q) ||
+        s.name?.toLowerCase().includes(q) ||
+        (s.studentId && s.studentId.toLowerCase().includes(q)) ||
+        s.admissionNumber?.toLowerCase().includes(q) ||
+        s.email?.toLowerCase().includes(q) ||
+        (s.rollNumber !== undefined && s.rollNumber.toString() === q) ||
         (s.phone && s.phone.toLowerCase().includes(q));
 
       const matchesClass = selectedClassFilter === "all" ? true : s.classId === selectedClassFilter;
       const matchesSection = selectedSectionFilter === "all" ? true : s.sectionId === selectedSectionFilter;
-      const matchesStatus = statusFilter === "all" ? true : s.status === statusFilter;
+      const matchesStatus =
+        statusFilter === "all"
+          ? s.status !== "deleted"
+          : statusFilter === "deleted"
+          ? s.status === "deleted"
+          : s.status === statusFilter;
 
       return matchesSearch && matchesClass && matchesSection && matchesStatus;
     });
@@ -472,7 +563,7 @@ export default function AdminStudentsPage() {
 
           {/* Status Filter */}
           <div className="flex items-center gap-1">
-            {(["all", "active", "inactive"] as const).map((st) => (
+            {(["all", "active", "inactive", "deleted"] as const).map((st) => (
               <button
                 key={st}
                 onClick={() => setStatusFilter(st)}
@@ -482,7 +573,7 @@ export default function AdminStudentsPage() {
                     : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
                 }`}
               >
-                {st}
+                {st === "all" ? "All" : st === "deleted" ? "Archived" : st}
               </button>
             ))}
           </div>
@@ -547,8 +638,15 @@ export default function AdminStudentsPage() {
                         </div>
                       </div>
                       <div>
-                        <p className="font-bold text-gray-900 dark:text-white text-sm">{s.name}</p>
-                        <p className="text-[11px] text-gray-500 dark:text-gray-400 font-mono">{s.admissionNumber}</p>
+                        <div className="flex items-center gap-1.5">
+                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-100 text-[10px] font-bold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                            {s.rollNumber ?? "-"}
+                          </span>
+                          <p className="font-bold text-gray-900 dark:text-white text-sm">{s.name}</p>
+                        </div>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 font-mono">
+                          {s.studentId || s.admissionNumber}
+                        </p>
                       </div>
                     </div>
 
@@ -556,6 +654,8 @@ export default function AdminStudentsPage() {
                       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
                         s.status === "active"
                           ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400"
+                          : s.status === "deleted"
+                          ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
                           : "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"
                       }`}
                     >
@@ -576,18 +676,47 @@ export default function AdminStudentsPage() {
                     )}
                   </div>
 
-                  <div className="pt-1 flex items-center justify-end">
-                    <button
-                      onClick={() => handleToggleStatus(s)}
-                      disabled={togglingId === s.id}
-                      className={`text-xs font-semibold px-3 py-1 rounded-md border ${
-                        s.status === "active"
-                          ? "border-red-200 text-red-600 bg-red-50/50"
-                          : "border-green-200 text-green-600 bg-green-50/50"
-                      }`}
-                    >
-                      {s.status === "active" ? "Deactivate" : "Activate"}
-                    </button>
+                  <div className="pt-1 flex items-center justify-end gap-2">
+                    {s.status === "deleted" ? (
+                      <button
+                        onClick={() => handleRestoreStudent(s)}
+                        className="text-xs font-semibold px-3 py-1 rounded-md border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 flex items-center gap-1"
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        Restore Student
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => {
+                            setTransferringStudent(s);
+                            setTargetClassId("");
+                            setTargetSectionId("");
+                          }}
+                          className="text-xs font-semibold px-2.5 py-1 rounded-md border border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100 flex items-center gap-1"
+                        >
+                          <ArrowRightLeft className="h-3 w-3" />
+                          Transfer
+                        </button>
+                        <button
+                          onClick={() => handleToggleStatus(s)}
+                          disabled={togglingId === s.id}
+                          className={`text-xs font-semibold px-3 py-1 rounded-md border ${
+                            s.status === "active"
+                              ? "border-red-200 text-red-600 bg-red-50/50"
+                              : "border-green-200 text-green-600 bg-green-50/50"
+                          }`}
+                        >
+                          {s.status === "active" ? "Deactivate" : "Activate"}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteStudent(s)}
+                          className="text-xs font-semibold px-2.5 py-1 rounded-md border border-rose-200 text-rose-600 bg-rose-50 hover:bg-rose-100"
+                        >
+                          Delete
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
@@ -598,8 +727,9 @@ export default function AdminStudentsPage() {
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-800 text-gray-500 dark:text-gray-400">
                   <tr>
+                    <th className="py-3.5 px-4 font-medium w-16">Roll</th>
                     <th className="py-3.5 px-4 font-medium">Student</th>
-                    <th className="py-3.5 px-4 font-medium">Admission No</th>
+                    <th className="py-3.5 px-4 font-medium">Student ID</th>
                     <th className="py-3.5 px-4 font-medium">Class & Section</th>
                     <th className="py-3.5 px-4 font-medium">Gender / DOB</th>
                     <th className="py-3.5 px-4 font-medium">Contact</th>
@@ -610,6 +740,11 @@ export default function AdminStudentsPage() {
                 <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
                   {filteredStudents.map((s) => (
                     <tr key={s.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/50">
+                      <td className="py-4 px-4">
+                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                          {s.rollNumber ?? "-"}
+                        </span>
+                      </td>
                       <td className="py-4 px-4">
                         <div className="flex items-center gap-3">
                           <div
@@ -644,7 +779,7 @@ export default function AdminStudentsPage() {
                       </td>
                       <td className="py-4 px-4 font-mono text-xs font-semibold text-gray-700 dark:text-gray-300">
                         <span className="rounded bg-gray-100 px-2.5 py-1 dark:bg-gray-800">
-                          {s.admissionNumber}
+                          {s.studentId || s.admissionNumber}
                         </span>
                       </td>
                       <td className="py-4 px-4">
@@ -672,11 +807,15 @@ export default function AdminStudentsPage() {
                           className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
                             s.status === "active"
                               ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400"
+                              : s.status === "deleted"
+                              ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
                               : "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"
                           }`}
                         >
                           {s.status === "active" ? (
                             <CheckCircle2 className="h-3 w-3" />
+                          ) : s.status === "deleted" ? (
+                            <RotateCcw className="h-3 w-3 text-gray-500" />
                           ) : (
                             <XCircle className="h-3 w-3" />
                           )}
@@ -685,38 +824,63 @@ export default function AdminStudentsPage() {
                       </td>
                       <td className="py-4 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => {
-                              setPhotoEditingStudent(s);
-                              setEditPhotoPreview(s.photoUrl || null);
-                              setEditPhotoFile(null);
-                            }}
-                            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/20"
-                            title="Upload/Update Student Photo"
-                          >
-                            <Camera className="h-3 w-3" />
-                            Photo
-                          </button>
-                          <button
-                            onClick={() => handleToggleStatus(s)}
-                            disabled={togglingId === s.id}
-                            className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium ${
-                              s.status === "active"
-                                ? "text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20"
-                                : "text-green-600 hover:bg-green-50 dark:hover:bg-green-950/20"
-                            }`}
-                          >
-                            <Power className="h-3 w-3" />
-                            {s.status === "active" ? "Disable" : "Activate"}
-                          </button>
-                          <button
-                            onClick={() => handleDeleteStudent(s)}
-                            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20"
-                            title="Delete student permanently from Firebase"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                            Delete
-                          </button>
+                          {s.status === "deleted" ? (
+                            <button
+                              onClick={() => handleRestoreStudent(s)}
+                              className="inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300"
+                              title="Restore deleted student"
+                            >
+                              <RotateCcw className="h-3 w-3" />
+                              Restore
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setTransferringStudent(s);
+                                  setTargetClassId("");
+                                  setTargetSectionId("");
+                                }}
+                                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/20"
+                                title="Transfer to another class"
+                              >
+                                <ArrowRightLeft className="h-3 w-3" />
+                                Transfer
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setPhotoEditingStudent(s);
+                                  setEditPhotoPreview(s.photoUrl || null);
+                                  setEditPhotoFile(null);
+                                }}
+                                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                                title="Upload/Update Student Photo"
+                              >
+                                <Camera className="h-3 w-3" />
+                                Photo
+                              </button>
+                              <button
+                                onClick={() => handleToggleStatus(s)}
+                                disabled={togglingId === s.id}
+                                className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium ${
+                                  s.status === "active"
+                                    ? "text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20"
+                                    : "text-green-600 hover:bg-green-50 dark:hover:bg-green-950/20"
+                                }`}
+                              >
+                                <Power className="h-3 w-3" />
+                                {s.status === "active" ? "Disable" : "Activate"}
+                              </button>
+                              <button
+                                onClick={() => handleDeleteStudent(s)}
+                                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20"
+                                title="Delete student / archive"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                Delete
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -753,18 +917,20 @@ export default function AdminStudentsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="student-adm-no" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
-                    Admission Number <span className="text-red-500">*</span> (Unique)
+                    Student ID / Admission No <span className="text-gray-400 font-normal">(Auto if blank)</span>
                   </label>
                   <input
                     id="student-adm-no"
                     name="admissionNumber"
                     type="text"
-                    required
                     value={admissionNumber}
                     onChange={(e) => setAdmissionNumber(e.target.value.toUpperCase())}
-                    placeholder="e.g. ADM-2026-001"
+                    placeholder="Auto (e.g. SBCI1) if blank"
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
                   />
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    Auto-generated with School Short Code & atomic counter (SBCI1, SBCI2...)
+                  </p>
                 </div>
 
                 <div>
@@ -827,6 +993,13 @@ export default function AdminStudentsPage() {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div className="col-span-1 sm:col-span-2 p-2.5 rounded-lg bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900 text-xs text-blue-800 dark:text-blue-300 flex items-center gap-2">
+                  <BookOpen className="h-4 w-4 shrink-0 text-blue-600" />
+                  <span>
+                    Roll number (1, 2, 3...) will be automatically assigned sequentially for the chosen class.
+                  </span>
                 </div>
 
                 <div>
@@ -1073,6 +1246,121 @@ export default function AdminStudentsPage() {
                     </>
                   ) : (
                     "Save Student Photo"
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Transfer Student Modal */}
+      {transferringStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-800 dark:bg-gray-950 animate-in fade-in zoom-in-95 duration-150 space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-lg bg-purple-50 text-purple-600 dark:bg-purple-950/40">
+                  <ArrowRightLeft className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900 dark:text-white">
+                    Transfer Student Class
+                  </h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {transferringStudent.name} ({transferringStudent.studentId || transferringStudent.admissionNumber})
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setTransferringStudent(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 text-xs space-y-1">
+              <span className="font-semibold text-gray-500 uppercase tracking-wider text-[10px]">Current Placement</span>
+              <p className="font-bold text-gray-900 dark:text-white">
+                {transferringStudent.className} ({transferringStudent.sectionName || "Default"}) • Current Roll No: {transferringStudent.rollNumber ?? "-"}
+              </p>
+            </div>
+
+            <form onSubmit={handleExecuteTransfer} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                  Target Class <span className="text-red-500">*</span>
+                </label>
+                <select
+                  required
+                  value={targetClassId}
+                  onChange={(e) => {
+                    setTargetClassId(e.target.value);
+                    setTargetSectionId("");
+                  }}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                >
+                  <option value="">Select Target Class</option>
+                  {classes.map((cls) => (
+                    <option key={cls.id} value={cls.id}>
+                      {cls.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                  Target Section <span className="text-red-500">*</span>
+                </label>
+                <select
+                  required
+                  disabled={!targetClassId}
+                  value={targetSectionId}
+                  onChange={(e) => setTargetSectionId(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                >
+                  <option value="">Select Target Section</option>
+                  {classes
+                    .find((c) => c.id === targetClassId)
+                    ?.sections?.map((sec) => (
+                      <option key={sec.id} value={sec.id}>
+                        {sec.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div className="p-3 rounded-lg bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 text-xs text-amber-900 dark:text-amber-300 space-y-1">
+                <p className="font-semibold flex items-center gap-1">
+                  💡 Automatic Roll Number & Fee Recalculation
+                </p>
+                <p className="text-[11px] text-amber-800/90 dark:text-amber-400">
+                  The student will be assigned the next sequential roll number in the target class. Future unpaid fee ledger items will be updated to the new class fee structure while preserving all completed past payments.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+                <button
+                  type="button"
+                  onClick={() => setTransferringStudent(null)}
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isTransferring || !targetClassId || !targetSectionId}
+                  className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-purple-700 disabled:opacity-50 transition-colors"
+                >
+                  {isTransferring ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Transferring...
+                    </>
+                  ) : (
+                    "Confirm Transfer"
                   )}
                 </button>
               </div>

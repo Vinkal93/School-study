@@ -72,13 +72,13 @@ export default function SchoolAdminPage() {
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold text-blue-600 dark:text-blue-400">
             <Building2 className="h-3.5 w-3.5" />
-            <span>{school?.name || "School Portal"} ({school?.code || "—"})</span>
+            <span>{school?.name || "School Portal"}{school?.code ? ` (${school.code})` : schoolId && schoolId !== "school_default" ? "" : " — Setup Required"}</span>
           </div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
             School Administration
           </h1>
           <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
-            Welcome back, {profile?.name}! Manage your faculty, students, classes, and notices.
+            Welcome back, {profile?.name || "School Administrator"}! Manage your faculty, students, classes, and notices.
           </p>
         </div>
 

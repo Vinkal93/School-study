@@ -207,7 +207,8 @@ export async function assignTeacherToClass(
 }
 
 /**
- * Deletes a teacher profile and user record from Firebase and decrements usage count atomically.
+ * Soft deletes a teacher profile (preserves historical attendance and academic references)
+ * and decrements usage count atomically.
  */
 export async function deleteTeacher(
   schoolId: string,
@@ -215,10 +216,56 @@ export async function deleteTeacher(
   userId: string
 ): Promise<void> {
   const db = getFirebaseDb();
-  await deleteDoc(doc(db, "schools", schoolId, "teachers", teacherId));
+  const teacherDocRef = doc(db, "schools", schoolId, "teachers", teacherId);
+  const userDocRef = doc(db, COLLECTIONS.USERS, userId);
+
+  const nowIso = new Date().toISOString();
+
+  await updateDoc(teacherDocRef, {
+    status: "deleted",
+    deletedAt: nowIso,
+    updatedAt: serverTimestamp(),
+  });
+
   if (userId) {
-    await deleteDoc(doc(db, COLLECTIONS.USERS, userId));
+    await updateDoc(userDocRef, {
+      status: "disabled",
+      updatedAt: serverTimestamp(),
+    }).catch(() => {});
   }
+
   // Decrement usage count atomically
   await decrementSchoolUsage(schoolId, "teachers", 1);
+}
+
+/**
+ * Restores a soft-deleted teacher profile back to active status.
+ */
+export async function restoreTeacher(
+  schoolId: string,
+  teacherId: string,
+  userId: string
+): Promise<void> {
+  // Check plan limit before restoring
+  await requirePlanLimit(schoolId, "teachers");
+
+  const db = getFirebaseDb();
+  const teacherDocRef = doc(db, "schools", schoolId, "teachers", teacherId);
+  const userDocRef = doc(db, COLLECTIONS.USERS, userId);
+
+  await updateDoc(teacherDocRef, {
+    status: "active",
+    deletedAt: null,
+    updatedAt: serverTimestamp(),
+  });
+
+  if (userId) {
+    await updateDoc(userDocRef, {
+      status: "active",
+      updatedAt: serverTimestamp(),
+    }).catch(() => {});
+  }
+
+  // Increment active usage count atomically
+  await incrementSchoolUsage(schoolId, "teachers", 1);
 }

@@ -17,6 +17,10 @@ export interface SchoolClass {
   name: string; // e.g. "Class 10"
   order: number; // e.g. 10
   status: "active" | "inactive";
+  monthlyFee?: number; // In INR (e.g. 1500)
+  admissionFee?: number; // In INR (e.g. 3000)
+  otherFee?: number;
+  lastRollNumber?: number;
   createdAt: Timestamp;
   updatedAt: Timestamp;
   sections?: Section[];
@@ -27,6 +31,7 @@ export interface Section {
   schoolId: string;
   classId: string;
   name: string; // e.g. "Section A"
+  lastRollNumber?: number;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -46,7 +51,8 @@ export interface TeacherProfile {
   assignedSectionId?: string;
   assignedSectionName?: string;
   subjects?: string[];
-  status: "active" | "inactive";
+  status: "active" | "inactive" | "archived" | "deleted";
+  deletedAt?: string | Timestamp | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -72,7 +78,9 @@ export interface StudentProfile {
   id: string; // Random auto-generated document ID
   schoolId: string;
   userId: string; // UID in Firebase Auth & users/{uid}
-  admissionNumber: string; // e.g. "ADM-2026-001" (Unique in school)
+  studentId: string; // School-scoped unique ID e.g. "SBCI1", "SBCI2"
+  admissionNumber: string; // e.g. "SBCI1" or manual reference
+  rollNumber: number; // Class-wise auto-assigned: 1, 2, 3...
   name: string;
   photoUrl?: string;
   dob?: string; // YYYY-MM-DD
@@ -86,13 +94,16 @@ export interface StudentProfile {
   sectionName: string;
   academicYearId?: string;
   admissionDate?: string;
-  status: "active" | "inactive";
+  status: "active" | "inactive" | "transferred" | "archived" | "deleted";
+  deletedAt?: string | Timestamp | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
 
 export interface CreateStudentInput {
-  admissionNumber: string;
+  studentId?: string; // Auto-generated if not provided: `${schoolCode}${seq}`
+  admissionNumber?: string;
+  rollNumber?: number; // Auto-assigned if not provided: 1, 2, 3...
   name: string;
   email: string;
   password: string;

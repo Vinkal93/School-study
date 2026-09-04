@@ -8,7 +8,7 @@ export const DEFAULT_REMINDER_THRESHOLDS: ReminderThresholdConfig[] = [
   {
     id: "rem_30d",
     daysBeforeExpiry: 30,
-    enabled: true,
+    enabled: false,
     priority: "low",
     title: "Subscription Renewal Notice",
     message: "Your School Study plan expires in 30 days.",
@@ -22,7 +22,7 @@ export const DEFAULT_REMINDER_THRESHOLDS: ReminderThresholdConfig[] = [
   {
     id: "rem_15d",
     daysBeforeExpiry: 15,
-    enabled: true,
+    enabled: false,
     priority: "medium",
     title: "Plan Renewal Reminder",
     message: "Your plan expires in 15 days. Recharge early to avoid service interruption.",
@@ -80,7 +80,7 @@ export const DEFAULT_REMINDER_THRESHOLDS: ReminderThresholdConfig[] = [
 export const DEFAULT_GLOBAL_ACCESS_POLICY: GlobalAccessPolicy = {
   id: "global",
   enabled: true,
-  reminderDays: [30, 15, 7, 3, 1],
+  reminderDays: [7, 3, 1],
   reminders: DEFAULT_REMINDER_THRESHOLDS,
   gracePeriodDays: 7,
   graceAccessMode: "FULL_ACCESS",
