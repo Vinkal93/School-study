@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/context/theme-context";
 import { GoogleAnalytics } from "@/components/common/GoogleAnalytics";
 import { ImpersonationBanner } from "@/components/common/ImpersonationBanner";
 import { SiteSettingsProvider } from "@/context/SiteSettingsContext";
+import { PortalUIProvider } from "@/context/portal-ui-context";
 import { constructMetadata } from "@/lib/seo";
 import "./globals.css";
 
@@ -55,9 +56,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <ThemeProvider>
           <AuthProvider>
             <SiteSettingsProvider>
-              <ImpersonationBanner />
-              <ToastProvider />
-              {children}
+              <PortalUIProvider>
+                <ImpersonationBanner />
+                <ToastProvider />
+                {children}
+              </PortalUIProvider>
             </SiteSettingsProvider>
           </AuthProvider>
         </ThemeProvider>

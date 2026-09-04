@@ -65,3 +65,4 @@ export type {
 export * from "./billing";
 export * from "./reports";
 export * from "./timetable";
+export * from "./notification";

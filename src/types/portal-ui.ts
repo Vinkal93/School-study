@@ -7,7 +7,7 @@
 
 export type PortalUIVersion = "classic" | "new";
 
-export type PortalKey = "schoolAdmin" | "teacher" | "student" | "superAdmin";
+export type PortalKey = "schoolAdmin" | "teacher" | "student" | "superAdmin" | "landingPage";
 
 export interface PortalUIHistoryItem {
   id: string;
@@ -24,6 +24,7 @@ export interface PortalUISettings {
   teacher: PortalUIVersion;
   student: PortalUIVersion;
   superAdmin: PortalUIVersion;
+  landingPage: PortalUIVersion;
   updatedAt?: any;
   updatedByUid?: string;
   updatedByName?: string;
@@ -35,6 +36,7 @@ export const DEFAULT_PORTAL_UI_SETTINGS: PortalUISettings = {
   teacher: "classic",
   student: "classic",
   superAdmin: "classic",
+  landingPage: "classic",
   history: [],
 };
 
@@ -47,6 +49,13 @@ export interface PortalMetaInfo {
 }
 
 export const PORTAL_LIST: PortalMetaInfo[] = [
+  {
+    key: "landingPage",
+    label: "Landing Page / Website",
+    description: "Public marketing homepage, hero showcase, modern interactive tour, features & visitor conversion.",
+    routePrefix: "/",
+    role: "public",
+  },
   {
     key: "schoolAdmin",
     label: "School Admin Portal",

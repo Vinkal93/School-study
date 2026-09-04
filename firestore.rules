@@ -118,6 +118,14 @@ service cloud.firestore {
         allow write: if isSchoolAdmin(schoolId);
       }
 
+      // Notifications subcollection: School members can read; Admins & Teachers can create; School members can update read status
+      match /notifications/{notificationId} {
+        allow read: if isSchoolMember(schoolId);
+        allow create: if isSchoolMember(schoolId) && (isSchoolAdmin(schoolId) || isTeacher(schoolId));
+        allow update: if isSchoolMember(schoolId);
+        allow delete: if isSchoolAdmin(schoolId);
+      }
+
       // Nested Tenant Subcollections at ANY depth (classes, sections, students, teachers, academicYears, etc.)
       match /{allSubcollections=**} {
         allow read: if isSchoolMember(schoolId);
@@ -342,6 +350,10 @@ service cloud.firestore {
 
     match /limitOverrides/{overrideId} {
       allow read, write: if true;
+    }
+
+    match /notifications/{notificationId} {
+      allow read, write: if isAuthenticated();
     }
 
     match /penalties/{penaltyId} {

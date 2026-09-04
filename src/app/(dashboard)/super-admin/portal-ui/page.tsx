@@ -23,6 +23,7 @@ import {
   User,
   ArrowRight,
   ExternalLink,
+  Globe,
 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -50,6 +51,7 @@ export default function PortalUIVersionPage() {
   const [resetModalOpen, setResetModalOpen] = useState(false);
 
   const portalIconMap: Record<PortalKey, React.ReactNode> = {
+    landingPage: <Globe className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />,
     schoolAdmin: <Building2 className="h-6 w-6 text-blue-600 dark:text-blue-400" />,
     teacher: <BookOpen className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />,
     student: <GraduationCap className="h-6 w-6 text-purple-600 dark:text-purple-400" />,

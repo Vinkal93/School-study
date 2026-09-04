@@ -23,6 +23,7 @@ import type {
   RuleApplication,
   TeacherAuditLog,
 } from "@/types";
+import { createNotification } from "@/lib/services/notification.service";
 
 /**
  * Fetches complete HR Profile for a specific teacher.
@@ -185,6 +186,33 @@ export async function issueFineReward(
     actorRole: actor.role,
   });
 
+  // Emit Realtime Notification to the specific teacher
+  try {
+    const isReward = input.type === "reward";
+    await createNotification(
+      schoolId,
+      {
+        title: isReward ? "🏆 Commendation Awarded" : "⚠️ Administrative Disciplinary Notice",
+        message: `${input.reason} (${isReward ? `Bonus: ₹${input.amount}` : `Deduction/Fine: ₹${input.amount}`})`,
+        type: "fine_reward",
+        targetAudience: "user",
+        targetUserId: input.teacherId,
+        link: "/teacher/profile",
+        actionLabel: "View Ledger",
+        idempotencyKey: `finereward_${docRef.id}`,
+        priority: isReward ? "normal" : "high",
+        metadata: {
+          fineRewardId: docRef.id,
+          amount: input.amount,
+          type: input.type,
+        },
+      },
+      actor
+    );
+  } catch (notifErr) {
+    console.warn("[TeacherHRService] Non-blocking fine/reward notification error:", notifErr);
+  }
+
   return docRef.id;
 }
 
@@ -305,6 +333,31 @@ export async function createSchoolRule(
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+
+  // Emit Realtime Notification to applicable rule targets
+  try {
+    await createNotification(
+      schoolId,
+      {
+        title: `⚖️ New School Policy: ${rule.title}`,
+        message: `${rule.description.substring(0, 140)} (Category: ${rule.category.toUpperCase()})`,
+        type: "rule",
+        targetAudience: rule.appliesTo,
+        link: "/admin/rules",
+        actionLabel: "Inspect Rule",
+        idempotencyKey: `rule_${docRef.id}`,
+        priority: rule.actionType === "fine" ? "high" : "normal",
+        metadata: {
+          ruleId: docRef.id,
+          category: rule.category,
+          appliesTo: rule.appliesTo,
+        },
+      },
+      actor
+    );
+  } catch (notifErr) {
+    console.warn("[TeacherHRService] Non-blocking rule notification error:", notifErr);
+  }
 
   return docRef.id;
 }

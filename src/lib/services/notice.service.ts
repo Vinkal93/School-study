@@ -11,6 +11,7 @@ import {
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import type { Notice, CreateNoticeInput, NoticeStatus } from "@/types";
+import { createNotification } from "@/lib/services/notification.service";
 
 /**
  * Creates and publishes a school notice.
@@ -48,6 +49,32 @@ export async function createNotice(
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+
+  // Emit Realtime Notification to targeted audience
+  try {
+    let targetAudience: "all" | "teachers" | "students" | "class" = "all";
+    if (input.audience === "TEACHERS") targetAudience = "teachers";
+    else if (input.audience === "STUDENTS") targetAudience = "students";
+    else if (input.audience === "CLASS") targetAudience = "class";
+
+    await createNotification(
+      schoolId,
+      {
+        title: input.title.trim(),
+        message: input.message.trim().substring(0, 160),
+        type: "notice",
+        targetAudience,
+        targetClassId: input.audience === "CLASS" ? input.classId : undefined,
+        link: "/student/notices",
+        actionLabel: "View Notice",
+        idempotencyKey: `notice_${noticeId}`,
+        priority: "normal",
+      },
+      { uid: adminUid, name: adminName, role: "school_admin" }
+    );
+  } catch (notifErr) {
+    console.warn("[NoticeService] Non-blocking notice notification error:", notifErr);
+  }
 
   return noticeId;
 }

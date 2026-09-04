@@ -53,6 +53,7 @@ export function PortalUIProvider({ children }: { children: ReactNode }) {
 
   // 2. Derive active portal key from pathname / user role
   const activePortal: PortalKey = useMemo(() => {
+    if (pathname === "/") return "landingPage";
     if (pathname.startsWith("/student")) return "student";
     if (pathname.startsWith("/teacher")) return "teacher";
     if (pathname.startsWith("/super-admin")) return "superAdmin";

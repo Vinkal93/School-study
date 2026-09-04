@@ -13,6 +13,7 @@ import {
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import type { HomeworkItem, CreateHomeworkInput } from "@/types/timetable";
+import { createNotification } from "@/lib/services/notification.service";
 
 /**
  * Creates a new homework assignment under schools/{schoolId}/homework.
@@ -51,6 +52,33 @@ export async function createHomework(
   };
 
   await setDoc(docRef, homeworkData);
+
+  // Emit Realtime Notification to all enrolled students of this class
+  try {
+    await createNotification(
+      schoolId,
+      {
+        title: `📝 New Homework: ${input.subject} (${input.className})`,
+        message: `${teacherName.trim()} assigned "${input.title.trim()}". Due: ${input.dueDate || "Next class"}`,
+        type: "homework",
+        targetAudience: "class",
+        targetClassId: input.classId,
+        link: "/student/homework",
+        actionLabel: "Open Homework",
+        idempotencyKey: `homework_${docRef.id}`,
+        priority: "high",
+        metadata: {
+          homeworkId: docRef.id,
+          subject: input.subject,
+          className: input.className,
+        },
+      },
+      { uid: teacherId, name: teacherName, role: "teacher" }
+    );
+  } catch (notifErr) {
+    console.warn("[HomeworkService] Non-blocking homework notification error:", notifErr);
+  }
+
   return docRef.id;
 }
 

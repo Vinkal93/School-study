@@ -7,6 +7,7 @@ import { ArrowLeft } from "lucide-react";
 import { MenuButton } from "./MenuButton";
 import { Greeting } from "./Greeting";
 import { NotificationButton } from "./NotificationButton";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { StudentAvatar } from "./StudentAvatar";
 import { DashboardHeaderProps } from "./types";
 import { useMobileNav } from "@/context/mobile-nav-context";
@@ -131,10 +132,7 @@ export function DashboardHeader({
       {/* RIGHT SECTION: Optional Page Action + Notification Bell + Student Avatar */}
       <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
         {contextConfig?.rightAction}
-        <NotificationButton
-          unreadCount={notificationData.unreadCount}
-          onClick={handleNotification}
-        />
+        <NotificationBell variant="student" />
         <StudentAvatar
           fullName={studentData.fullName}
           photoUrl={studentData.photoUrl}

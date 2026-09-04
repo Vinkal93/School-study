@@ -11,6 +11,7 @@ import { toast } from "sonner";
 
 import { getSchoolById } from "@/lib/services/school.service";
 import { VerifyBadge } from "@/components/common/VerifyBadge";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import type { School } from "@/types";
 
 export function Topbar() {
@@ -116,6 +117,9 @@ export function Topbar() {
 
           {/* Theme Mode Switcher */}
           <ThemeToggle />
+
+          {/* Realtime Notification Bell with Live Indicator & Dropdown */}
+          <NotificationBell />
 
           {/* User Info */}
           <div className="flex items-center gap-2 pl-2 border-l border-gray-200 dark:border-gray-800">
