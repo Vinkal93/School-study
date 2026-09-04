@@ -6,6 +6,7 @@ import {
   query,
   where,
   orderBy,
+  onSnapshot,
   setDoc,
   updateDoc,
   deleteDoc,
@@ -98,6 +99,8 @@ export async function createSchoolWithAdmin(
     email: input.email?.trim() || "",
     logoUrl: input.logoUrl || "",
     status: "active" as SchoolStatus,
+    setupCompleted: false,
+    setupStep: 1,
     adminUid,
     adminName: input.adminName.trim(),
     adminEmail: input.adminEmail.trim().toLowerCase(),
@@ -137,6 +140,31 @@ export async function getAllSchools(): Promise<School[]> {
     id: docSnap.id,
     ...docSnap.data(),
   })) as School[];
+}
+
+/**
+ * Real-time listener for all schools in the platform.
+ * Automatically notifies when schools are registered or their setup progresses.
+ */
+export function subscribeToAllSchools(callback: (schools: School[]) => void): () => void {
+  const db = getFirebaseDb();
+  const q = query(
+    collection(db, COLLECTIONS.SCHOOLS),
+    orderBy("name", "asc")
+  );
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const schools = snapshot.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      })) as School[];
+      callback(schools);
+    },
+    (err) => {
+      console.error("subscribeToAllSchools snapshot error:", err);
+    }
+  );
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   query,
   where,
   orderBy,
+  onSnapshot,
   setDoc,
   serverTimestamp,
   type Timestamp,
@@ -168,6 +169,65 @@ export async function getStudentAttendanceHistory(
     percentage,
     records,
   };
+}
+
+/**
+ * Real-time listener for a student's attendance records and statistics.
+ */
+export function subscribeToStudentAttendance(
+  schoolId: string,
+  studentId: string,
+  callback: (stats: StudentAttendanceStats) => void
+): () => void {
+  if (!schoolId || !studentId) {
+    callback({ totalDays: 0, presentDays: 0, absentDays: 0, lateDays: 0, percentage: 100, records: [] });
+    return () => {};
+  }
+  const db = getFirebaseDb();
+  const q = query(
+    collection(db, "attendance"),
+    where("schoolId", "==", schoolId),
+    where("studentId", "==", studentId)
+  );
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const records = snapshot.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      })) as AttendanceRecord[];
+
+      records.sort((a, b) => b.date.localeCompare(a.date));
+
+      let presentDays = 0;
+      let absentDays = 0;
+      let lateDays = 0;
+
+      records.forEach((r) => {
+        const s = (r.status || "").toUpperCase();
+        if (s === "PRESENT") presentDays++;
+        else if (s === "ABSENT") absentDays++;
+        else if (s === "LATE") lateDays++;
+      });
+
+      const totalDays = records.length;
+      const effectivePresent = presentDays + lateDays;
+      const percentage = totalDays > 0 ? Math.round((effectivePresent / totalDays) * 100) : 100;
+
+      callback({
+        totalDays,
+        presentDays,
+        absentDays,
+        lateDays,
+        percentage,
+        records,
+      });
+    },
+    (err) => {
+      console.error("subscribeToStudentAttendance error:", err);
+    }
+  );
 }
 
 /**

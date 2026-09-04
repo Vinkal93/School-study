@@ -50,11 +50,124 @@ export interface TeacherProfile {
   assignedClassName?: string;
   assignedSectionId?: string;
   assignedSectionName?: string;
+  assignedClasses?: Array<{
+    classId: string;
+    className: string;
+    sectionId?: string;
+    sectionName?: string;
+    subject?: string;
+  }>;
   subjects?: string[];
+  // HR Personal Details
+  dob?: string;
+  gender?: Gender;
+  address?: string;
+  emergencyContact?: {
+    name: string;
+    relation: string;
+    phone: string;
+  };
+  // HR Professional Details
+  designation?: string; // e.g. "Senior Mathematics Teacher"
+  employmentType?: "full_time" | "part_time" | "contract" | "visiting";
+  qualification?: string; // e.g. "M.Sc. Mathematics, B.Ed."
+  experienceYears?: number;
+  experienceSummary?: string;
+  // HR Salary Configuration
+  salaryConfig?: {
+    baseSalary: number;
+    frequency: "monthly" | "biweekly";
+    effectiveDate?: string;
+    allowances?: Array<{ title: string; amount: number }>;
+    deductions?: Array<{ title: string; amount: number }>;
+    netSalary: number;
+    bankAccount?: {
+      bankName?: string;
+      accountNumber?: string;
+      ifscCode?: string;
+    };
+  };
+  // HR Documents
+  documents?: Array<{
+    id: string;
+    title: string;
+    category: "id_proof" | "qualification" | "joining" | "other";
+    fileUrl: string;
+    uploadedAt: string;
+  }>;
+  // Performance Tracking
+  performanceSummary?: {
+    rating: number;
+    feedbackNotes?: Array<{
+      date: string;
+      note: string;
+      adminName: string;
+      rating?: number;
+    }>;
+  };
   status: "active" | "inactive" | "archived" | "deleted";
   deletedAt?: string | Timestamp | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+}
+
+export interface TeacherTask {
+  id: string;
+  schoolId: string;
+  teacherId: string;
+  title: string;
+  classTag?: string;
+  dueDate: string; // YYYY-MM-DD
+  completed: boolean;
+  createdAt?: any;
+}
+
+export interface StudyMaterial {
+  id: string;
+  schoolId: string;
+  teacherId: string;
+  teacherName: string;
+  classId: string;
+  className: string;
+  sectionId?: string;
+  sectionName?: string;
+  subject: string;
+  title: string;
+  description?: string;
+  type: "document" | "pdf" | "image" | "link" | "video";
+  fileUrl?: string;
+  fileName?: string;
+  externalUrl?: string;
+  chapter?: string;
+  createdAt: any;
+}
+
+export interface TeacherTest {
+  id: string;
+  schoolId: string;
+  teacherId: string;
+  classId: string;
+  className: string;
+  sectionId?: string;
+  sectionName?: string;
+  subject: string;
+  title: string;
+  maxMarks: number;
+  testDate: string; // YYYY-MM-DD
+  syllabus?: string;
+  createdAt: any;
+}
+
+export interface TestScore {
+  id: string;
+  testId: string;
+  studentId: string;
+  studentName: string;
+  rollNumber?: number | string;
+  marksObtained: number;
+  maxMarks: number;
+  feedback?: string;
+  updatedAt: any;
 }
 
 export interface CreateTeacherInput {
@@ -94,6 +207,11 @@ export interface StudentProfile {
   sectionName: string;
   academicYearId?: string;
   admissionDate?: string;
+  guardianName?: string;
+  guardianPhone?: string;
+  guardianEmail?: string;
+  guardianRelation?: string;
+  bloodGroup?: string;
   status: "active" | "inactive" | "transferred" | "archived" | "deleted";
   deletedAt?: string | Timestamp | null;
   createdAt: Timestamp;
@@ -112,6 +230,11 @@ export interface CreateStudentInput {
   phone?: string;
   photoUrl?: string;
   address?: string;
+  guardianName?: string;
+  guardianPhone?: string;
+  guardianEmail?: string;
+  guardianRelation?: string;
+  bloodGroup?: string;
   classId: string;
   className: string;
   sectionId: string;

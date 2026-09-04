@@ -1,17 +1,33 @@
 "use client";
 
 import { useAuth } from "@/hooks/use-auth";
-import { Sidebar } from "@/components/layout/sidebar";
-import { Topbar } from "@/components/layout/topbar";
-import { MobileNav } from "@/components/layout/mobile-nav";
 import { MobileNavProvider } from "@/context/mobile-nav-context";
 import { EntitlementProvider } from "@/context/EntitlementContext";
+import { PortalUIProvider, usePortalUI } from "@/context/portal-ui-context";
+import { ClassicDashboardShell } from "@/components/portal-ui/shells/ClassicDashboardShell";
+import { NewDashboardShell } from "@/components/portal-ui/shells/NewDashboardShell";
+import { PortalUIErrorBoundary } from "@/components/portal-ui/PortalUIErrorBoundary";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { getRedirectByRole, isRoleAllowedForPath } from "@/lib/utils/redirect-by-role";
-import { SubscriptionReminderBanner, SubscriptionReminderModal } from "@/components/billing";
-
 import { Spinner } from "@/components/common/Spinner";
+
+function DashboardShellSwitch({ children }: { children: React.ReactNode }) {
+  const { isNewUI, activePortal } = usePortalUI();
+
+  if (isNewUI) {
+    return (
+      <PortalUIErrorBoundary
+        fallback={<ClassicDashboardShell>{children}</ClassicDashboardShell>}
+        portalName={activePortal}
+      >
+        <NewDashboardShell>{children}</NewDashboardShell>
+      </PortalUIErrorBoundary>
+    );
+  }
+
+  return <ClassicDashboardShell>{children}</ClassicDashboardShell>;
+}
 
 export default function DashboardLayout({
   children,
@@ -63,32 +79,25 @@ export default function DashboardLayout({
 
   if (isStudentRoute) {
     return (
-      <MobileNavProvider>
-        <EntitlementProvider>
-          <div className="min-h-screen min-h-[100dvh] bg-[#F8FAFC] dark:bg-slate-950">
-            {children}
-          </div>
-        </EntitlementProvider>
-      </MobileNavProvider>
+      <PortalUIProvider>
+        <MobileNavProvider>
+          <EntitlementProvider>
+            <div className="min-h-screen min-h-[100dvh] bg-[#F8FAFC] dark:bg-slate-950">
+              {children}
+            </div>
+          </EntitlementProvider>
+        </MobileNavProvider>
+      </PortalUIProvider>
     );
   }
 
   return (
-    <MobileNavProvider>
-      <EntitlementProvider>
-        <div className="flex h-screen h-[100dvh] overflow-hidden bg-gray-50 dark:bg-gray-900">
-          <Sidebar />
-          <div className="flex flex-1 flex-col overflow-hidden min-w-0">
-            <Topbar />
-            <SubscriptionReminderBanner />
-            <SubscriptionReminderModal />
-            <main className="flex-1 overflow-y-auto p-3.5 sm:p-6 pb-24 md:pb-6 focus:outline-none">
-              {children}
-            </main>
-            <MobileNav />
-          </div>
-        </div>
-      </EntitlementProvider>
-    </MobileNavProvider>
+    <PortalUIProvider>
+      <MobileNavProvider>
+        <EntitlementProvider>
+          <DashboardShellSwitch>{children}</DashboardShellSwitch>
+        </EntitlementProvider>
+      </MobileNavProvider>
+    </PortalUIProvider>
   );
 }

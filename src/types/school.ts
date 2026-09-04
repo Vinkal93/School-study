@@ -16,6 +16,8 @@ export interface School {
   status: SchoolStatus;
   verificationBadge?: SchoolVerifyBadge | null;
   adminId?: string; // UID of primary school admin
+  adminUid?: string;
+  adminName?: string;
   adminEmail?: string;
   setupCompleted?: boolean;
   setupStep?: number;

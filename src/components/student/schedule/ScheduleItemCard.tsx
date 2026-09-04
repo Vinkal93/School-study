@@ -22,7 +22,7 @@ export function ScheduleItemCard({ item }: ScheduleItemCardProps) {
     if (isCancelled) statusText = "cancelled";
     if (isNext) statusText = "next class up";
 
-    return `${item.subjectName}, ${item.startTime} to ${item.endTime}${
+    return `${item.subjectName || "Subject"}, ${item.startTime || "--:--"} to ${item.endTime || "--:--"}${
       item.teacherName ? `, with ${item.teacherName}` : ""
     }${item.roomName ? `, in ${item.roomName}` : ""}, ${statusText}.`;
   }, [item, isCurrent, isCompleted, isCancelled, isNext]);
@@ -52,10 +52,10 @@ export function ScheduleItemCard({ item }: ScheduleItemCardProps) {
       {/* LEFT: Time Column */}
       <div className="w-24 sm:w-28 shrink-0 flex flex-col justify-center border-r border-slate-100 dark:border-slate-800/80 pr-3 my-auto">
         <span className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white tracking-tight">
-          {item.startTime}
+          {item.startTime || "--:--"}
         </span>
         <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 mt-0.5">
-          {item.endTime}
+          {item.endTime || "--:--"}
         </span>
       </div>
 

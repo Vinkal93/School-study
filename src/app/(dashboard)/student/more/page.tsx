@@ -3,7 +3,6 @@
 import React, { useMemo } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
-import { StudentDashboardLayout } from "@/components/student/StudentDashboardLayout";
 import {
   BookOpen,
   ClipboardList,
@@ -17,7 +16,6 @@ import {
   Settings,
   HelpCircle,
   ChevronRight,
-  ArrowLeft,
   FileText,
   Folder,
   Award,
@@ -57,36 +55,8 @@ export default function StudentMorePage() {
   ];
 
   return (
-    <StudentDashboardLayout
-      student={{ id: "student_demo", firstName, fullName }}
-      notifications={{ unreadCount: 3 }}
-    >
-      <div className="w-full space-y-6 pb-12">
-        {/* Top Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/student"
-              className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition-all"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-            <div>
-              <h1 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-                More
-              </h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                All features at one place
-              </p>
-            </div>
-          </div>
-
-          <button className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition-all">
-            <Settings className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Student Mini Profile Card (Matching Reference Screen 5) */}
+    <div className="w-full space-y-6 pb-12 animate-fadeIn">
+      {/* Student Mini Profile Card (Matching Reference Screen 5) */}
         <Link
           href="/student/profile"
           className="w-full bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 shadow-xs flex items-center justify-between gap-3 active:scale-[0.98] transition-transform"
@@ -196,6 +166,5 @@ export default function StudentMorePage() {
           </div>
         </div>
       </div>
-    </StudentDashboardLayout>
   );
 }

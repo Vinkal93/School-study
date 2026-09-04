@@ -2,10 +2,9 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Sparkles, Bell, CheckCircle2, LucideIcon } from "lucide-react";
-import { StudentDashboardLayout } from "@/components/student/StudentDashboardLayout";
-import { useAuth } from "@/hooks/use-auth";
+import { Sparkles, Bell, CheckCircle2, LucideIcon } from "lucide-react";
 import { toast } from "sonner";
+import { useStudentHeader } from "@/context/student-header-context";
 
 interface StudentComingSoonProps {
   title: string;
@@ -24,10 +23,14 @@ export function StudentComingSoon({
   iconColor,
   features,
 }: StudentComingSoonProps) {
-  const { profile } = useAuth();
-  const fullName = profile?.name || "Rahul Kumar";
-  const firstName = fullName.trim().split(" ")[0] || "Rahul";
   const [notified, setNotified] = useState(false);
+
+  useStudentHeader({
+    title,
+    subtitle: category,
+    backHref: "/student/more",
+    showBack: true,
+  });
 
   const handleNotify = () => {
     setNotified(true);
@@ -35,30 +38,7 @@ export function StudentComingSoon({
   };
 
   return (
-    <StudentDashboardLayout
-      student={{ id: profile?.uid || "student", firstName, fullName }}
-      notifications={{ unreadCount: 3 }}
-    >
-      <div className="w-full space-y-6 pb-12">
-        {/* Top Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/student/more"
-              className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition-all"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-            <div>
-              <h1 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-                {title}
-              </h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {category}
-              </p>
-            </div>
-          </div>
-        </div>
+    <div className="w-full space-y-6 pb-12 animate-fadeIn">
 
         {/* Feature Hero Card */}
         <div className="w-full bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xs text-center space-y-5">
@@ -122,6 +102,5 @@ export function StudentComingSoon({
           </div>
         </div>
       </div>
-    </StudentDashboardLayout>
   );
 }

@@ -59,41 +59,43 @@ export function TodaysSchedule({
 
     let nextFound = false;
 
-    return schedule.map((item) => {
-      if (item.status === "cancelled") {
-        return { ...item, status: "cancelled" as ClassScheduleStatus, isNext: false };
-      }
-
-      const startMin = parseTimeToMinutes(item.startTime);
-      const endMin = parseTimeToMinutes(item.endTime);
-
-      let computedStatus: ClassScheduleStatus = "upcoming";
-      let isNext = false;
-
-      if (currentMinutes >= startMin && currentMinutes < endMin) {
-        computedStatus = "current";
-      } else if (currentMinutes >= endMin) {
-        computedStatus = "completed";
-      } else if (currentMinutes < startMin) {
-        computedStatus = "upcoming";
-        if (!nextFound) {
-          isNext = true;
-          nextFound = true;
+    return schedule
+      .filter((item): item is ScheduleItemData => Boolean(item && typeof item === "object"))
+      .map((item) => {
+        if (item.status === "cancelled") {
+          return { ...item, status: "cancelled" as ClassScheduleStatus, isNext: false };
         }
-      }
 
-      return {
-        ...item,
-        status: computedStatus,
-        isNext,
-      };
-    });
+        const startMin = parseTimeToMinutes(item.startTime || "");
+        const endMin = parseTimeToMinutes(item.endTime || "");
+
+        let computedStatus: ClassScheduleStatus = "upcoming";
+        let isNext = false;
+
+        if (currentMinutes >= startMin && currentMinutes < endMin) {
+          computedStatus = "current";
+        } else if (currentMinutes >= endMin) {
+          computedStatus = "completed";
+        } else if (currentMinutes < startMin) {
+          computedStatus = "upcoming";
+          if (!nextFound) {
+            isNext = true;
+            nextFound = true;
+          }
+        }
+
+        return {
+          ...item,
+          status: computedStatus,
+          isNext,
+        };
+      });
   }, [schedule, currentMinutes]);
 
   const allCompleted = useMemo(() => {
     if (!processedSchedule || processedSchedule.length === 0) return false;
     return processedSchedule.every(
-      (item) => item.status === "completed" || item.status === "cancelled"
+      (item) => item?.status === "completed" || item?.status === "cancelled"
     );
   }, [processedSchedule]);
 

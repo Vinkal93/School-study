@@ -9,6 +9,10 @@ export type {
   CreateTeacherInput,
   CreateStudentInput,
   Gender,
+  TeacherTask,
+  StudyMaterial,
+  TeacherTest,
+  TestScore,
 } from "./academic";
 export type {
   AttendanceStatus,
@@ -45,6 +49,19 @@ export type {
   PlatformAnalyticsOverview,
   SchoolDetailedAnalytics,
 } from "./analytics";
+export type {
+  TeacherFineReward,
+  FineRewardType,
+  FineRewardStatus,
+  SchoolRule,
+  RuleTarget,
+  RuleCategory,
+  RuleActionType,
+  RuleApplication,
+  TeacherAuditLog,
+} from "./rules";
+
 
 export * from "./billing";
 export * from "./reports";
+export * from "./timetable";

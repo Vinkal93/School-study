@@ -14,6 +14,9 @@ import {
   MessageSquare,
   FileText,
   ShieldAlert,
+  ClipboardList,
+  Palette,
+  Upload,
 } from "lucide-react";
 
 interface NavItem {
@@ -25,6 +28,7 @@ interface NavItem {
 const mobileRoleNavItems: Record<string, NavItem[]> = {
   super_admin: [
     { label: "Dashboard", href: "/super-admin", icon: <LayoutDashboard className="h-5 w-5" /> },
+    { label: "Portal UI", href: "/super-admin/portal-ui", icon: <Palette className="h-5 w-5 text-indigo-500" /> },
     { label: "Emergency", href: "/super-admin/emergency", icon: <ShieldAlert className="h-5 w-5 text-red-500" /> },
     { label: "Schools", href: "/super-admin/schools", icon: <Building2 className="h-5 w-5" /> },
     { label: "Reports", href: "/super-admin/reports", icon: <FileText className="h-5 w-5" /> },
@@ -40,16 +44,17 @@ const mobileRoleNavItems: Record<string, NavItem[]> = {
   ],
   teacher: [
     { label: "Home", href: "/teacher", icon: <LayoutDashboard className="h-5 w-5" /> },
-    { label: "Students", href: "/teacher/students", icon: <GraduationCap className="h-5 w-5" /> },
-    { label: "Attendance", href: "/teacher/attendance", icon: <ClipboardCheck className="h-5 w-5" /> },
     { label: "Classes", href: "/teacher/classes", icon: <BookOpen className="h-5 w-5" /> },
-    { label: "Notices", href: "/teacher/notices", icon: <Bell className="h-5 w-5" /> },
+    { label: "Attendance", href: "/teacher/attendance", icon: <ClipboardCheck className="h-5 w-5" /> },
+    { label: "Homework", href: "/teacher/homework", icon: <ClipboardList className="h-5 w-5" /> },
+    { label: "Study", href: "/teacher/study", icon: <Upload className="h-5 w-5" /> },
   ],
   student: [
     { label: "Home", href: "/student", icon: <LayoutDashboard className="h-5 w-5" /> },
     { label: "Profile", href: "/student/profile", icon: <Users className="h-5 w-5" /> },
     { label: "Attendance", href: "/student/attendance", icon: <ClipboardCheck className="h-5 w-5" /> },
-    { label: "Notices", href: "/student/notices", icon: <Bell className="h-5 w-5" /> },
+    { label: "Homework", href: "/student/homework", icon: <ClipboardList className="h-5 w-5" /> },
+    { label: "Fees", href: "/student/fees", icon: <FileText className="h-5 w-5" /> },
   ],
 };
 

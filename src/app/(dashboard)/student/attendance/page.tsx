@@ -1,194 +1,243 @@
 "use client";
 
-import React, { useState } from "react";
-import Link from "next/link";
+import React, { useState, useEffect } from "react";
 import {
   Users,
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
-  ArrowLeft,
   CheckCircle2,
   XCircle,
   Clock,
+  Loader2,
 } from "lucide-react";
-import { StudentDashboardLayout } from "@/components/student/StudentDashboardLayout";
+import { useAuth } from "@/hooks/use-auth";
+import { getFirebaseDb } from "@/lib/firebase/client";
+import { collection, query, where, getDocs } from "firebase/firestore";
+import { subscribeToStudentAttendance } from "@/lib/services/attendance.service";
+import type { StudentProfile, AttendanceRecord, StudentAttendanceStats } from "@/types";
 
 export default function StudentAttendancePage() {
-  const [selectedMonth, setSelectedMonth] = useState("August 2024");
+  const { profile } = useAuth();
+  const schoolId = profile?.schoolId || "";
 
-  const monthlyDays = [
-    { day: "Mon", date: "1", status: "present" },
-    { day: "Tue", date: "2", status: "present" },
-    { day: "Wed", date: "3", status: "present" },
-    { day: "Thu", date: "4", status: "present" },
-    { day: "Fri", date: "5", status: "present" },
-    { day: "Sat", date: "6", status: "absent" },
-    { day: "Sun", date: "7", status: "holiday" },
-  ];
+  const [student, setStudent] = useState<StudentProfile | null>(null);
+  const [stats, setStats] = useState<StudentAttendanceStats>({
+    totalDays: 0,
+    presentDays: 0,
+    absentDays: 0,
+    lateDays: 0,
+    percentage: 100,
+    records: [],
+  });
+  const [loading, setLoading] = useState(true);
 
-  const attendanceLogs = [
-    { date: "26 Aug 2024", dayName: "Monday", status: "Present" },
-    { date: "23 Aug 2024", dayName: "Friday", status: "Present" },
-    { date: "22 Aug 2024", dayName: "Thursday", status: "Present" },
-    { date: "21 Aug 2024", dayName: "Wednesday", status: "Absent" },
-    { date: "20 Aug 2024", dayName: "Tuesday", status: "Present" },
-  ];
+  // 1. Resolve student record from auth UID
+  useEffect(() => {
+    async function loadStudent() {
+      if (!schoolId || !profile?.uid) {
+        setLoading(false);
+        return;
+      }
+      try {
+        const db = getFirebaseDb();
+        let studentDoc: any = null;
+
+        const q = query(
+          collection(db, "schools", schoolId, "students"),
+          where("userId", "==", profile.uid)
+        );
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          studentDoc = { id: snap.docs[0].id, ...snap.docs[0].data() };
+        } else if (profile.email) {
+          const qEmail = query(
+            collection(db, "schools", schoolId, "students"),
+            where("email", "==", profile.email.toLowerCase())
+          );
+          const snapEmail = await getDocs(qEmail);
+          if (!snapEmail.empty) {
+            studentDoc = { id: snapEmail.docs[0].id, ...snapEmail.docs[0].data() };
+          }
+        }
+
+        if (studentDoc) {
+          setStudent(studentDoc as StudentProfile);
+        }
+      } catch (err) {
+        console.error("Failed to load student for attendance:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadStudent();
+  }, [schoolId, profile?.uid, profile?.email]);
+
+  // 2. Real-time subscription to student's attendance records
+  useEffect(() => {
+    if (!schoolId || !student?.id) return;
+
+    const unsubscribe = subscribeToStudentAttendance(schoolId, student.id, (liveStats) => {
+      setStats(liveStats);
+    });
+
+    return () => unsubscribe();
+  }, [schoolId, student?.id]);
+
+  const studentName = student?.name || profile?.name || "Student";
+  const firstName = studentName.trim().split(" ")[0] || "Student";
+
+  const percentColor =
+    stats.percentage >= 75
+      ? "text-emerald-600 dark:text-emerald-400"
+      : stats.percentage >= 60
+      ? "text-amber-600 dark:text-amber-400"
+      : "text-rose-600 dark:text-rose-400";
+
+  const progressBg =
+    stats.percentage >= 75 ? "bg-emerald-500" : stats.percentage >= 60 ? "bg-amber-500" : "bg-rose-500";
 
   return (
-    <StudentDashboardLayout
-      student={{ id: "student_demo", firstName: "Rahul", fullName: "Rahul Kumar" }}
-      notifications={{ unreadCount: 3 }}
-    >
-      <div className="w-full space-y-6 pb-12">
-        {/* Top Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/student"
-              className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition-all"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/40">
-              <Users className="h-5 w-5 stroke-[2.2]" />
-            </div>
-            <div>
-              <h1 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-                Attendance
-              </h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Track your attendance
-              </p>
-            </div>
-          </div>
+    <div className="w-full space-y-6 pb-12 animate-fadeIn">
+      {/* Section 1: Overall Attendance Card */}
 
-          <button className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition-all">
-            <CalendarIcon className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Section 1: Overall Attendance Card (Matching Reference UI) */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-5 shadow-xs space-y-4">
+        {/* Section 1: Overall Attendance Card */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-6 shadow-xs space-y-4">
           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-            Overall Attendance
+            Overall Attendance Rate
           </span>
 
-          <div className="flex items-baseline gap-2">
-            <span className="text-4xl font-black text-slate-900 dark:text-white">
-              92%
+          <div className="flex items-baseline gap-3">
+            <span className={`text-4xl font-black ${percentColor}`}>
+              {stats.percentage}%
+            </span>
+            <span className="text-xs font-semibold text-slate-500">
+              {stats.percentage >= 75
+                ? "Excellent Attendance Status"
+                : stats.percentage >= 60
+                ? "Warning: Approaching Minimum Threshold"
+                : "Defaulter: Attendance Below 60%"}
             </span>
           </div>
 
-          <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-100 dark:border-slate-800 text-xs">
+          <div className="grid grid-cols-4 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
             <div>
               <span className="text-slate-400 font-semibold block text-[10px]">Present</span>
-              <span className="font-extrabold text-slate-900 dark:text-white">23 Days</span>
+              <span className="font-extrabold text-slate-900 dark:text-white text-sm">
+                {stats.presentDays} Days
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 font-semibold block text-[10px]">Late</span>
+              <span className="font-extrabold text-amber-600 text-sm">
+                {stats.lateDays} Days
+              </span>
             </div>
             <div>
               <span className="text-slate-400 font-semibold block text-[10px]">Absent</span>
-              <span className="font-extrabold text-slate-900 dark:text-white">2 Days</span>
+              <span className="font-extrabold text-rose-600 text-sm">
+                {stats.absentDays} Days
+              </span>
             </div>
             <div>
-              <span className="text-slate-400 font-semibold block text-[10px]">Total</span>
-              <span className="font-extrabold text-slate-900 dark:text-white">25 Days</span>
+              <span className="text-slate-400 font-semibold block text-[10px]">Total Recorded</span>
+              <span className="font-extrabold text-slate-900 dark:text-white text-sm">
+                {stats.totalDays} Days
+              </span>
             </div>
           </div>
 
-          {/* Green Progress Bar Across Bottom */}
-          <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-            <div className="h-full bg-emerald-500 rounded-full" style={{ width: "92%" }} />
+          {/* Progress Bar */}
+          <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+            <div
+              className={`h-full ${progressBg} rounded-full transition-all duration-500`}
+              style={{ width: `${Math.min(100, Math.max(0, stats.percentage))}%` }}
+            />
           </div>
         </div>
 
-        {/* Section 2: Monthly Overview */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-5 shadow-xs space-y-4">
+        {/* Section 2: Attendance Records List */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-6 shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-              Monthly Overview
+              Recorded Daily Roll Calls ({stats.records.length})
             </h2>
-            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl">
-              <span>{selectedMonth}</span>
-              <div className="flex flex-col text-[8px] text-slate-400">
-                <span>▲</span>
-                <span>▼</span>
-              </div>
+          </div>
+
+          {loading ? (
+            <div className="py-12 flex items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
             </div>
-          </div>
+          ) : stats.records.length === 0 ? (
+            <div className="text-center py-12 px-4 space-y-2">
+              <CalendarIcon className="h-10 w-10 text-slate-300 dark:text-slate-700 mx-auto" />
+              <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                No attendance sessions recorded yet
+              </p>
+              <p className="text-[11px] text-slate-400">
+                Your attendance will appear here automatically when your teacher or school admin conducts roll-call.
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+              {stats.records.map((rec) => {
+                const s = (rec.status || "").toUpperCase();
+                const isPresent = s === "PRESENT";
+                const isLate = s === "LATE";
+                const isAbsent = s === "ABSENT";
 
-          {/* Calendar Day Badges Grid */}
-          <div className="grid grid-cols-7 gap-2 text-center text-xs pt-1">
-            {monthlyDays.map((item) => {
-              const bgClass =
-                item.status === "present"
-                  ? "bg-emerald-500 text-white font-bold"
-                  : item.status === "absent"
-                  ? "bg-rose-500 text-white font-bold"
-                  : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold";
+                const dateObj = new Date(rec.date);
+                const dayName = isNaN(dateObj.getTime())
+                  ? ""
+                  : dateObj.toLocaleDateString("en-IN", { weekday: "long" });
 
-              return (
-                <div key={item.date} className="space-y-1.5">
-                  <span className="text-[10px] font-semibold text-slate-400 block">
-                    {item.day}
-                  </span>
-                  <div className={`w-8 h-8 mx-auto rounded-full ${bgClass} flex items-center justify-center text-xs shadow-xs`}>
-                    {item.date}
+                return (
+                  <div key={rec.id} className="py-3.5 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
+                          isPresent
+                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
+                            : isLate
+                            ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400"
+                            : "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-400"
+                        }`}
+                      >
+                        {isPresent ? (
+                          <CheckCircle2 className="h-4 w-4" />
+                        ) : isLate ? (
+                          <Clock className="h-4 w-4" />
+                        ) : (
+                          <XCircle className="h-4 w-4" />
+                        )}
+                      </div>
+                      <div>
+                        <p className="font-extrabold text-slate-900 dark:text-white">
+                          {rec.date}
+                        </p>
+                        <p className="text-[11px] text-slate-400">{dayName || "School Day"}</p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <span
+                        className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                          isPresent
+                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
+                            : isLate
+                            ? "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-400"
+                            : "bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-400"
+                        }`}
+                      >
+                        {rec.status}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Legend */}
-          <div className="flex items-center justify-center gap-6 pt-3 text-[11px] font-bold text-slate-500 border-t border-slate-100 dark:border-slate-800">
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              Present
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-rose-500" />
-              Absent
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" />
-              Holiday
-            </span>
-          </div>
-        </div>
-
-        {/* Section 3: Attendance Log List */}
-        <div className="space-y-3">
-          <h2 className="text-sm font-bold text-slate-900 dark:text-white">
-            Attendance List
-          </h2>
-
-          <div className="space-y-2.5">
-            {attendanceLogs.map((log, idx) => (
-              <div
-                key={idx}
-                className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-3.5 shadow-xs flex items-center justify-between gap-3"
-              >
-                <div>
-                  <h3 className="text-xs font-extrabold text-slate-900 dark:text-white">
-                    {log.date}
-                  </h3>
-                  <p className="text-[11px] text-slate-400 font-medium">{log.dayName}</p>
-                </div>
-
-                <span
-                  className={`px-3 py-1 rounded-full text-[10px] font-extrabold uppercase ${
-                    log.status === "Present"
-                      ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400"
-                      : "bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400"
-                  }`}
-                >
-                  {log.status}
-                </span>
-              </div>
-            ))}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
-    </StudentDashboardLayout>
   );
 }

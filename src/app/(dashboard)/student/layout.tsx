@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
 import { constructMetadata } from "@/lib/seo";
+import { StudentShellSwitch } from "./StudentShellSwitch";
 
 export const metadata: Metadata = constructMetadata({
   title: "Student Portal",
   noIndex: true,
 });
 
-export default function StudentDashboardLayout({
+export default function StudentLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return children;
+  return <StudentShellSwitch>{children}</StudentShellSwitch>;
 }

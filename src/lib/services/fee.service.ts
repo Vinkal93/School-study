@@ -11,6 +11,7 @@ import {
   where,
   orderBy,
   limit,
+  onSnapshot,
 } from "firebase/firestore";
 import type {
   FeeStructure,
@@ -344,6 +345,67 @@ export async function getStudentFeeAssignment(
   } catch (e) {}
 
   return null;
+}
+
+/**
+ * Real-time listener for student fee assignment ledger.
+ */
+export function subscribeToStudentFeeAssignment(
+  schoolId: string,
+  studentId: string,
+  callback: (assignment: StudentFeeAssignment | null) => void,
+  academicYearId: string = "ay_current"
+): () => void {
+  const db = getFirebaseDb();
+  if (!db || !schoolId || !studentId) {
+    callback(null);
+    return () => {};
+  }
+  const docId = `${schoolId}_${studentId}_${academicYearId}`;
+  return onSnapshot(
+    doc(db, "studentFeeAssignments", docId),
+    (snap) => {
+      if (snap.exists()) {
+        callback({ id: snap.id, ...snap.data() } as StudentFeeAssignment);
+      } else {
+        callback(null);
+      }
+    },
+    (err) => {
+      console.warn("subscribeToStudentFeeAssignment error:", err);
+    }
+  );
+}
+
+/**
+ * Real-time listener for student fee payment receipts.
+ */
+export function subscribeToStudentFeePayments(
+  schoolId: string,
+  studentId: string,
+  callback: (payments: FeePayment[]) => void
+): () => void {
+  const db = getFirebaseDb();
+  if (!db || !schoolId || !studentId) {
+    callback([]);
+    return () => {};
+  }
+  const q = query(
+    collection(db, "feePayments"),
+    where("schoolId", "==", schoolId),
+    where("studentId", "==", studentId)
+  );
+  return onSnapshot(
+    q,
+    (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as FeePayment[];
+      list.sort((a, b) => b.paymentDate.localeCompare(a.paymentDate));
+      callback(list);
+    },
+    (err) => {
+      console.warn("subscribeToStudentFeePayments error:", err);
+    }
+  );
 }
 
 export async function provisionStudentFeeAssignment(

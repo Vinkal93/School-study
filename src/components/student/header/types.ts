@@ -14,8 +14,8 @@ export interface StudentNotificationData {
 }
 
 export interface DashboardHeaderProps {
-  student: StudentHeaderData;
-  notifications: StudentNotificationData;
+  student?: StudentHeaderData;
+  notifications?: StudentNotificationData;
   onMenuClick?: () => void;
   onNotificationClick?: () => void;
   onProfileClick?: () => void;

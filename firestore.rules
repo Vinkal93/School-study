@@ -46,6 +46,18 @@ service cloud.firestore {
       );
     }
 
+    // Helper: Is user Teacher for target school?
+    function isTeacher(schoolId) {
+      return isAuthenticated() && (
+        isSchoolAdmin(schoolId) ||
+        (isSchoolMember(schoolId) && (
+          request.auth.token.get('role', '') == 'teacher' ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'teacher')
+        ))
+      );
+    }
+
     // Helper: Is user updating their own profile without escalating role/school?
     function isSelfProfileValid(userId) {
       return isAuthenticated() && request.auth.uid == userId && (
@@ -93,6 +105,18 @@ service cloud.firestore {
 
       // Write/Create/Delete: School Admin for own school or Super Admin
       allow write: if isSchoolAdmin(schoolId);
+
+      // Homework subcollection: Teachers & Admins can write; all school members can read
+      match /homework/{homeworkId} {
+        allow read: if isSchoolMember(schoolId);
+        allow write: if isTeacher(schoolId);
+      }
+
+      // Bells/Timetable subcollection: Admins can write; all school members can read
+      match /bells/{bellId} {
+        allow read: if isSchoolMember(schoolId);
+        allow write: if isSchoolAdmin(schoolId);
+      }
 
       // Nested Tenant Subcollections at ANY depth (classes, sections, students, teachers, academicYears, etc.)
       match /{allSubcollections=**} {
@@ -240,6 +264,42 @@ service cloud.firestore {
     match /feeSettings/{schoolId} {
       allow read: if isAuthenticated();
       allow write: if isSchoolAdmin(schoolId) || isSuperAdmin();
+    }
+
+    // Academic & School Collections (Top-level Fallbacks)
+    match /academicYears/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /classes/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /sections/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /teachers/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /students/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /bells/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /homework/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isTeacher(resource.data.get('schoolId', ''))) || (request.resource != null && isTeacher(request.resource.data.get('schoolId', '')));
     }
 
     // ==========================================

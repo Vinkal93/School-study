@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { StudentDashboardLayout } from "@/components/student/StudentDashboardLayout";
 import { StudentProfileCard } from "@/components/student/card/StudentProfileCard";
 import { TodayOverview } from "@/components/student/overview/TodayOverview";
 import { AttentionCenter } from "@/components/student/attention/AttentionCenter";
@@ -79,11 +78,7 @@ export default function StudentDashboardPage() {
   };
 
   return (
-    <StudentDashboardLayout
-      student={headerData}
-      notifications={notificationData}
-      tenantEnabledModules={dashboardData?.tenantEnabledModules}
-    >
+    <div className="space-y-5 animate-fadeIn">
       {/* 1. Phase 2 — Student Profile Card */}
       <StudentProfileCard
         student={studentCardData}
@@ -124,6 +119,6 @@ export default function StudentDashboardPage() {
         error={error}
         onRetry={loadData}
       />
-    </StudentDashboardLayout>
+    </div>
   );
 }

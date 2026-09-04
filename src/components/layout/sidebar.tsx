@@ -29,7 +29,13 @@ import {
   Lock,
   Sparkles,
   ShieldAlert,
+  Clock,
+  ClipboardList,
+  Palette,
   X,
+  Award,
+  Upload,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
@@ -118,6 +124,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       icon: <LayoutDashboard className="h-5 w-5 text-purple-500" />,
     },
     {
+      label: "Portal UI/UX",
+      href: "/super-admin/portal-ui",
+      icon: <Palette className="h-5 w-5 text-indigo-500" />,
+    },
+    {
       label: "Emergency Control",
       href: "/super-admin/emergency",
       icon: <ShieldAlert className="h-5 w-5 text-red-500" />,
@@ -141,6 +152,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       icon: <Users className="h-5 w-5" />,
     },
     {
+      label: "Rules & Policies",
+      href: "/admin/rules",
+      icon: <ShieldCheck className="h-5 w-5 text-indigo-500" />,
+    },
+    {
       label: "Students",
       href: "/admin/students",
       featureKey: "student_management",
@@ -151,6 +167,12 @@ const roleNavItems: Record<string, NavItem[]> = {
       href: "/admin/classes",
       featureKey: "class_management",
       icon: <BookOpen className="h-5 w-5" />,
+    },
+    {
+      label: "Timetable / Bells",
+      href: "/admin/timetable",
+      featureKey: "class_management",
+      icon: <Clock className="h-5 w-5 text-indigo-500" />,
     },
     {
       label: "Attendance",
@@ -203,22 +225,52 @@ const roleNavItems: Record<string, NavItem[]> = {
     {
       label: "My Classes",
       href: "/teacher/classes",
-      icon: <BookOpen className="h-5 w-5" />,
+      icon: <BookOpen className="h-5 w-5 text-blue-500" />,
     },
     {
       label: "My Students",
       href: "/teacher/students",
-      icon: <GraduationCap className="h-5 w-5" />,
+      icon: <GraduationCap className="h-5 w-5 text-emerald-500" />,
     },
     {
       label: "Attendance",
       href: "/teacher/attendance",
-      icon: <ClipboardCheck className="h-5 w-5" />,
+      icon: <ClipboardCheck className="h-5 w-5 text-cyan-500" />,
+    },
+    {
+      label: "Homework",
+      href: "/teacher/homework",
+      icon: <ClipboardList className="h-5 w-5 text-amber-500" />,
+    },
+    {
+      label: "Study Material",
+      href: "/teacher/study",
+      icon: <Upload className="h-5 w-5 text-purple-500" />,
+    },
+    {
+      label: "Timetable",
+      href: "/teacher/timetable",
+      icon: <Clock className="h-5 w-5 text-teal-500" />,
+    },
+    {
+      label: "Tests & Exams",
+      href: "/teacher/tests",
+      icon: <Award className="h-5 w-5 text-rose-500" />,
+    },
+    {
+      label: "Performance",
+      href: "/teacher/performance",
+      icon: <BarChart3 className="h-5 w-5 text-indigo-500" />,
     },
     {
       label: "Notices",
       href: "/teacher/notices",
-      icon: <Bell className="h-5 w-5" />,
+      icon: <Bell className="h-5 w-5 text-pink-500" />,
+    },
+    {
+      label: "Faculty Profile",
+      href: "/teacher/profile",
+      icon: <Users className="h-5 w-5 text-slate-500" />,
     },
   ],
   student: [
@@ -236,6 +288,16 @@ const roleNavItems: Record<string, NavItem[]> = {
       label: "My Attendance",
       href: "/student/attendance",
       icon: <ClipboardCheck className="h-5 w-5" />,
+    },
+    {
+      label: "Daily Homework",
+      href: "/student/homework",
+      icon: <ClipboardList className="h-5 w-5 text-amber-500" />,
+    },
+    {
+      label: "Study & Timetable",
+      href: "/student/study",
+      icon: <BookOpen className="h-5 w-5 text-blue-500" />,
     },
     {
       label: "Fees & Receipts",

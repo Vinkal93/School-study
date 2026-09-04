@@ -16,7 +16,7 @@ import {
   Power,
   SlidersHorizontal,
 } from "lucide-react";
-import { getAllSchools, updateSchoolStatus } from "@/lib/services/school.service";
+import { getAllSchools, subscribeToAllSchools, updateSchoolStatus } from "@/lib/services/school.service";
 import { VerifyBadge } from "@/components/common/VerifyBadge";
 import { Spinner } from "@/components/common/Spinner";
 import type { School, SchoolStatus } from "@/types";
@@ -42,7 +42,12 @@ export default function SchoolsManagementPage() {
   };
 
   useEffect(() => {
-    loadSchools();
+    setLoading(true);
+    const unsubscribe = subscribeToAllSchools((data) => {
+      setSchools(data);
+      setLoading(false);
+    });
+    return () => unsubscribe();
   }, []);
 
   const handleToggleStatus = async (school: School) => {
@@ -165,6 +170,7 @@ export default function SchoolsManagementPage() {
                 <tr>
                   <th className="py-3.5 px-4 font-medium">School</th>
                   <th className="py-3.5 px-4 font-medium">Code</th>
+                  <th className="py-3.5 px-4 font-medium">Setup Status</th>
                   <th className="py-3.5 px-4 font-medium">Location</th>
                   <th className="py-3.5 px-4 font-medium">Admin / Contact</th>
                   <th className="py-3.5 px-4 font-medium">Status</th>
@@ -194,12 +200,9 @@ export default function SchoolsManagementPage() {
                               <VerifyBadge type={s.verificationBadge as any} size="xs" />
                             )}
                           </div>
-                          {s.phone && (
-                            <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
-                              <Phone className="h-3 w-3" />
-                              {s.phone}
-                            </p>
-                          )}
+                          <p className="text-[10px] font-mono text-gray-400 dark:text-gray-500 mt-0.5">
+                            ID: {s.id}
+                          </p>
                         </div>
                       </div>
                     </td>
@@ -207,6 +210,18 @@ export default function SchoolsManagementPage() {
                       <span className="rounded bg-gray-100 px-2.5 py-1 dark:bg-gray-800">
                         {s.code}
                       </span>
+                    </td>
+                    <td className="py-4 px-4">
+                      {s.setupCompleted ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400">
+                          <CheckCircle2 className="h-3 w-3" />
+                          Complete
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+                          Step {s.setupStep || 1} of 5
+                        </span>
+                      )}
                     </td>
                     <td className="py-4 px-4 text-gray-600 dark:text-gray-300">
                       {s.city ? (
@@ -222,14 +237,21 @@ export default function SchoolsManagementPage() {
                       )}
                     </td>
                     <td className="py-4 px-4 text-xs text-gray-600 dark:text-gray-300">
-                      {s.adminEmail ? (
-                        <div className="flex items-center gap-1">
-                          <Mail className="h-3.5 w-3.5 text-gray-400" />
-                          <span>{s.adminEmail}</span>
-                        </div>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
+                      <div>
+                        {s.adminEmail ? (
+                          <div className="flex items-center gap-1 font-medium text-gray-800 dark:text-gray-200">
+                            <Mail className="h-3.5 w-3.5 text-gray-400" />
+                            <span>{s.adminEmail}</span>
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                        {(s.adminUid || s.adminId) && (
+                          <p className="text-[10px] font-mono text-gray-400 dark:text-gray-500 mt-0.5 truncate max-w-[150px]" title={s.adminUid || s.adminId}>
+                            UID: {s.adminUid || s.adminId}
+                          </p>
+                        )}
+                      </div>
                     </td>
                     <td className="py-4 px-4">
                       <span

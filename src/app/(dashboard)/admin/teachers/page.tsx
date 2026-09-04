@@ -649,6 +649,12 @@ export default function AdminTeachersPage() {
                       </button>
 
                       <div className="flex items-center gap-2">
+                        <Link
+                          href={`/admin/teachers/${t.id}`}
+                          className="text-xs font-bold text-blue-600 hover:text-blue-700 bg-blue-50 dark:bg-blue-950/60 px-2.5 py-1 rounded-md"
+                        >
+                          HR Hub →
+                        </Link>
                         <button
                           onClick={() => handleToggleStatus(t)}
                           disabled={togglingId === t.id}
@@ -790,6 +796,13 @@ export default function AdminTeachersPage() {
                             </button>
                           ) : (
                             <>
+                              <Link
+                                href={`/admin/teachers/${t.id}`}
+                                className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-300 mr-1"
+                                title="Complete HR, Salary & Performance Hub"
+                              >
+                                HR Hub →
+                              </Link>
                               <button
                                 onClick={() => {
                                   setPhotoEditingTeacher(t);
