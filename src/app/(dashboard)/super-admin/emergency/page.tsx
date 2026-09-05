@@ -28,6 +28,11 @@ import {
   FileText,
   Loader2,
   X,
+  UserCheck,
+  Layers,
+  Phone,
+  Mail,
+  HelpCircle,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -40,6 +45,7 @@ import {
   GlobalEmergencyControls,
   SystemStatus,
   EmergencySeverity,
+  EmergencySystemMetrics,
 } from "@/lib/emergency/emergencyEngine";
 import { toast } from "sonner";
 import { doc, onSnapshot } from "firebase/firestore";
@@ -48,6 +54,8 @@ import { getFirebaseDb } from "@/lib/firebase/client";
 export default function SuperAdminEmergencyControlCenter() {
   const { profile } = useAuth();
   const [controls, setControls] = useState<GlobalEmergencyControls | null>(null);
+  const [metrics, setMetrics] = useState<EmergencySystemMetrics | null>(null);
+  const [schoolsList, setSchoolsList] = useState<Array<{ id: string; name: string; code?: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -78,15 +86,50 @@ export default function SuperAdminEmergencyControlCenter() {
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
   const [announcementForm, setAnnouncementForm] = useState({
     title: "System Maintenance Notice",
-    message: "Some services are currently undergoing maintenance. Your data remains safe.",
+    message: "Critical services are currently undergoing maintenance. Your data remains safe.",
+    reason: "Scheduled server database optimization, security patches, and performance enhancements.",
+    expectedResolution: "Within 45 to 60 minutes (~ 5:00 PM IST)",
+    affectedModules: ["Student Portal", "Fee Collection", "Attendance Automation"],
+    supportPhone: "+91 9118245636",
+    supportEmail: "SBCI224234@gmail.com",
+    supportHours: "Mon - Sat (9:00 AM - 7:00 PM IST)",
     severity: "WARNING" as EmergencySeverity,
     target: "ALL" as "ALL" | "SCHOOLS" | "ROLES",
   });
+
+  const fetchMetrics = React.useCallback(async () => {
+    try {
+      const res = await fetch("/api/super-admin/emergency/metrics");
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.metrics) {
+          setMetrics(json.metrics);
+        }
+      }
+    } catch (e) {
+      console.warn("Metrics fetch error:", e);
+    }
+  }, []);
 
   // Real-time Firestore Sync & Initial Fallback Load
   useEffect(() => {
     let mounted = true;
     let unsub: (() => void) | undefined;
+
+    fetchMetrics();
+
+    // Fetch registered schools list for selector
+    fetch("/api/super-admin/schools")
+      .then((r) => r.json())
+      .then((d) => {
+        if (mounted && d.success && Array.isArray(d.schools)) {
+          setSchoolsList(d.schools);
+          if (d.schools.length > 0 && !targetSchoolId) {
+            setTargetSchoolId(d.schools[0].id);
+          }
+        }
+      })
+      .catch(() => {});
 
     // Direct immediate load to unblock UI instantly
     getGlobalEmergencyControls()
@@ -111,6 +154,7 @@ export default function SuperAdminEmergencyControlCenter() {
                 setControls(snap.data() as GlobalEmergencyControls);
               }
               setLoading(false);
+              fetchMetrics();
             }
           },
           (err) => {
@@ -127,7 +171,7 @@ export default function SuperAdminEmergencyControlCenter() {
       mounted = false;
       if (unsub) unsub();
     };
-  }, []);
+  }, [fetchMetrics]);
 
   const handleUpdateControls = async (input: Partial<GlobalEmergencyControls>, reason: string = "Emergency Toggle") => {
     setSaving(true);
@@ -135,6 +179,7 @@ export default function SuperAdminEmergencyControlCenter() {
       const updated = await updateGlobalEmergencyControls(input, profile?.email || "super_admin", reason);
       setControls(updated);
       toast.success("Emergency controls updated in real-time across all portals!");
+      fetchMetrics();
     } catch (err: any) {
       toast.error(err.message || "Failed to update emergency controls.");
     } finally {
@@ -176,50 +221,69 @@ export default function SuperAdminEmergencyControlCenter() {
   // User Emergency Actions
   const handleUserAction = async (actionType: string) => {
     const uid = targetUserId.trim() || userSearchQuery.trim();
-    if (!uid) {
+    if (!uid && actionType !== "FORCE_LOGOUT_ALL") {
       toast.error("Please enter a User ID or Email.");
       return;
     }
 
-    openHighRiskConfirmation(
-      actionType,
-      `Confirm ${actionType.replace(/_/g, " ")}`,
-      `This high-risk action will immediately affect user "${uid}".`,
-      async (reason) => {
-        setUserActionLoading(true);
-        try {
-          const res = await fetch("/api/super-admin/emergency/user-security", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              actionType,
-              userId: uid,
-              reason,
-              actorId: profile?.email || "super_admin",
-            }),
-          });
-          const json = await res.json();
-          if (!res.ok || !json.success) throw new Error(json.error || "Failed user action.");
-          toast.success(json.message || "User security action completed!");
-        } finally {
-          setUserActionLoading(false);
-        }
+    const actionTitle =
+      actionType === "FORCE_LOGOUT_USER"
+        ? `Force Logout User: ${uid}`
+        : actionType === "SUSPEND_USER"
+        ? `Suspend Account: ${uid}`
+        : actionType === "RESUME_USER"
+        ? `Reactivate Account: ${uid}`
+        : "CRITICAL: Invalidate All Active Sessions System-Wide";
+
+    const actionDescription =
+      actionType === "FORCE_LOGOUT_ALL"
+        ? "This high-risk action will bump global security version and force-logout all active users across all portals."
+        : `This high-risk action will immediately affect user "${uid}".`;
+
+    openHighRiskConfirmation(actionType, actionTitle, actionDescription, async (reason) => {
+      setUserActionLoading(true);
+      try {
+        const res = await fetch("/api/super-admin/emergency/user-security", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            actionType,
+            userId: uid,
+            reason,
+            actorId: profile?.email || "super_admin",
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok || !json.success) throw new Error(json.error || "Failed user action.");
+        toast.success(json.message || "User security action completed!");
+        fetchMetrics();
+      } finally {
+        setUserActionLoading(false);
       }
-    );
+    });
   };
 
   // School Emergency Actions
   const handleSchoolAction = async (actionType: string) => {
     const schoolId = targetSchoolId.trim() || schoolSearchQuery.trim();
     if (!schoolId) {
-      toast.error("Please enter a School ID.");
+      toast.error("Please select or enter a School ID.");
       return;
     }
 
+    const actionTitle =
+      actionType === "PAUSE"
+        ? `Pause School Operations (${schoolId})`
+        : actionType === "ACTIVE"
+        ? `Restore Normal Operations (${schoolId})`
+        : actionType === "READ_ONLY"
+        ? `Set School to Read-Only (${schoolId})`
+        : `Force Logout All Users of School (${schoolId})`;
+
     openHighRiskConfirmation(
       actionType,
-      `Confirm School ${actionType}`,
-      `This action will alter emergency controls for school "${schoolId}".`,
+      actionTitle,
+      `This action will alter operational status and access for school "${schoolId}".`,
       async (reason) => {
         setSchoolActionLoading(true);
         try {
@@ -239,17 +303,16 @@ export default function SuperAdminEmergencyControlCenter() {
             toast.success(json.message);
           } else {
             const newStatus = actionType === "PAUSE" ? "PAUSED" : actionType === "READ_ONLY" ? "READ_ONLY" : "ACTIVE";
-            const disablePayments = actionType === "DISABLE_PAYMENTS";
             await updateSchoolEmergencyControl(
               schoolId,
               {
-                status: actionType === "DISABLE_PAYMENTS" ? undefined : newStatus,
-                disablePayments: disablePayments ? true : undefined,
+                status: newStatus,
               },
               profile?.email || "super_admin",
               reason
             );
-            toast.success(`School "${schoolId}" emergency control updated!`);
+            toast.success(`School "${schoolId}" operations updated to ${newStatus}!`);
+            fetchMetrics();
           }
         } finally {
           setSchoolActionLoading(false);
@@ -277,6 +340,24 @@ export default function SuperAdminEmergencyControlCenter() {
     );
   };
 
+  const openAnnouncementModal = () => {
+    if (controls?.emergencyAnnouncement) {
+      setAnnouncementForm({
+        title: controls.emergencyAnnouncement.title || "System Maintenance Notice",
+        message: controls.emergencyAnnouncement.message || "Some services are currently undergoing maintenance.",
+        reason: controls.emergencyAnnouncement.reason || "Scheduled server database optimization and security maintenance.",
+        expectedResolution: controls.emergencyAnnouncement.expectedResolution || "Within 45 to 60 minutes",
+        affectedModules: controls.emergencyAnnouncement.affectedModules || ["Student Portal", "Fee Collection", "Attendance Automation"],
+        supportPhone: controls.emergencyAnnouncement.supportPhone || "+91 9118245636",
+        supportEmail: controls.emergencyAnnouncement.supportEmail || "SBCI224234@gmail.com",
+        supportHours: controls.emergencyAnnouncement.supportHours || "Mon - Sat (9:00 AM - 7:00 PM IST)",
+        severity: controls.emergencyAnnouncement.severity || "WARNING",
+        target: controls.emergencyAnnouncement.target || "ALL",
+      });
+    }
+    setShowAnnouncementModal(true);
+  };
+
   const handlePublishAnnouncement = async (e: React.FormEvent) => {
     e.preventDefault();
     await handleUpdateControls(
@@ -285,15 +366,33 @@ export default function SuperAdminEmergencyControlCenter() {
           active: true,
           title: announcementForm.title,
           message: announcementForm.message,
+          reason: announcementForm.reason,
+          expectedResolution: announcementForm.expectedResolution,
+          affectedModules: announcementForm.affectedModules,
+          supportPhone: announcementForm.supportPhone,
+          supportEmail: announcementForm.supportEmail,
+          supportHours: announcementForm.supportHours,
           severity: announcementForm.severity,
           target: announcementForm.target,
           updatedAt: new Date().toISOString(),
           updatedBy: profile?.email || "super_admin",
         },
       },
-      "Published Emergency Banner"
+      "Published Realtime Emergency Announcement"
     );
     setShowAnnouncementModal(false);
+  };
+
+  const toggleAffectedModule = (moduleName: string) => {
+    setAnnouncementForm((prev) => {
+      const exists = prev.affectedModules.includes(moduleName);
+      return {
+        ...prev,
+        affectedModules: exists
+          ? prev.affectedModules.filter((m) => m !== moduleName)
+          : [...prev.affectedModules, moduleName],
+      };
+    });
   };
 
   if (loading || !controls) {
@@ -354,8 +453,15 @@ export default function SuperAdminEmergencyControlCenter() {
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => fetchMetrics()}
+            className="p-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-slate-300 hover:text-white cursor-pointer"
+            title="Refresh Live Metrics"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </button>
           <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 px-3 py-2 rounded-2xl">
-            <span className="text-xs font-semibold text-slate-400">System Status:</span>
+            <span className="text-xs font-semibold text-slate-400">Master Status:</span>
             <select
               value={controls.systemStatus}
               onChange={(e) => handleSystemStatusChange(e.target.value as SystemStatus)}
@@ -392,7 +498,9 @@ export default function SuperAdminEmergencyControlCenter() {
             <Building2 className="h-4 w-4 text-amber-500" />
             <span>Affected Schools</span>
           </div>
-          <div className="text-lg font-bold text-slate-900 dark:text-white">3 / 42</div>
+          <div className="text-lg font-bold text-slate-900 dark:text-white">
+            {metrics ? `${metrics.affectedSchoolsCount} / ${metrics.totalSchoolsCount}` : "0 / 0"}
+          </div>
         </div>
 
         {/* Metric 3 */}
@@ -412,7 +520,9 @@ export default function SuperAdminEmergencyControlCenter() {
             <Users className="h-4 w-4 text-indigo-500" />
             <span>Suspended Users</span>
           </div>
-          <div className="text-lg font-bold text-slate-900 dark:text-white">12</div>
+          <div className="text-lg font-bold text-slate-900 dark:text-white">
+            {metrics ? metrics.suspendedUsersCount : 0}
+          </div>
         </div>
 
         {/* Metric 5 */}
@@ -421,7 +531,9 @@ export default function SuperAdminEmergencyControlCenter() {
             <Activity className="h-4 w-4 text-emerald-500" />
             <span>System Uptime</span>
           </div>
-          <div className="text-lg font-bold text-emerald-600">99.85%</div>
+          <div className="text-lg font-bold text-emerald-600">
+            {metrics ? `${metrics.uptimePercentage}%` : "99.85%"}
+          </div>
         </div>
       </div>
 
@@ -512,23 +624,67 @@ export default function SuperAdminEmergencyControlCenter() {
                 Emergency Announcement Banner
               </h3>
               <button
-                onClick={() => setShowAnnouncementModal(true)}
+                onClick={openAnnouncementModal}
                 className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition-all cursor-pointer"
               >
-                Publish New
+                {controls.emergencyAnnouncement?.active ? "Edit / Update" : "Publish New"}
               </button>
             </div>
 
             {controls.emergencyAnnouncement?.active ? (
-              <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-xs space-y-1">
-                <div className="font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-                  <AlertTriangle className="h-4 w-4 text-amber-600" />
-                  <span>{controls.emergencyAnnouncement.title}</span>
+              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                    <span>{controls.emergencyAnnouncement.title}</span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full bg-amber-200/60 dark:bg-amber-800/50 text-[10px] font-extrabold uppercase">
+                    {controls.emergencyAnnouncement.severity}
+                  </span>
                 </div>
-                <p className="text-[11px] text-amber-700 dark:text-amber-400">{controls.emergencyAnnouncement.message}</p>
-                <div className="pt-2 flex justify-end">
+
+                {/* What happened / Reason */}
+                {controls.emergencyAnnouncement.reason && (
+                  <div className="text-[11px] text-amber-800 dark:text-amber-300">
+                    <strong>Reason:</strong> {controls.emergencyAnnouncement.reason}
+                  </div>
+                )}
+
+                {/* Kabtak Theek Hoga / ETA */}
+                {controls.emergencyAnnouncement.expectedResolution && (
+                  <div className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-900 dark:text-amber-200 bg-amber-200/40 dark:bg-amber-900/60 px-2 py-0.5 rounded-md">
+                    <Clock className="h-3 w-3 text-amber-700 dark:text-amber-300" />
+                    <span>ETA: {controls.emergencyAnnouncement.expectedResolution}</span>
+                  </div>
+                )}
+
+                {/* Affected Modules */}
+                {controls.emergencyAnnouncement.affectedModules && controls.emergencyAnnouncement.affectedModules.length > 0 && (
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {controls.emergencyAnnouncement.affectedModules.map((m, i) => (
+                      <span key={i} className="text-[10px] bg-white/60 dark:bg-slate-800 px-1.5 py-0.5 rounded-md font-medium text-slate-700 dark:text-slate-300">
+                        {m}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Helpline */}
+                <div className="flex items-center gap-2 text-[10px] text-slate-500 pt-1 border-t border-amber-200 dark:border-amber-900/80">
+                  <Phone className="h-3 w-3" />
+                  <span>{controls.emergencyAnnouncement.supportPhone || "+91 9118245636"}</span>
+                  <span>•</span>
+                  <Mail className="h-3 w-3" />
+                  <span>{controls.emergencyAnnouncement.supportEmail || "SBCI224234@gmail.com"}</span>
+                </div>
+
+                <div className="pt-1 flex justify-end gap-2">
                   <button
-                    onClick={() => handleUpdateControls({ emergencyAnnouncement: { ...controls.emergencyAnnouncement, active: false } })}
+                    onClick={() =>
+                      handleUpdateControls({
+                        emergencyAnnouncement: { ...controls.emergencyAnnouncement, active: false },
+                      })
+                    }
                     className="text-[11px] font-bold text-red-600 hover:underline cursor-pointer"
                   >
                     Dismiss Banner
@@ -663,12 +819,12 @@ export default function SuperAdminEmergencyControlCenter() {
 
             <div className="space-y-3 text-xs">
               <div>
-                <label className="text-[11px] font-bold text-slate-400">Target User (ID or Email):</label>
+                <label className="text-[11px] font-bold text-slate-400">Target User (UID or Email):</label>
                 <div className="relative mt-1">
                   <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
                   <input
                     type="text"
-                    placeholder="Enter email or UID..."
+                    placeholder="e.g. user@school.com or UID"
                     value={targetUserId}
                     onChange={(e) => setTargetUserId(e.target.value)}
                     className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs"
@@ -692,7 +848,27 @@ export default function SuperAdminEmergencyControlCenter() {
                   className="p-2.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 font-bold rounded-xl border border-amber-200 dark:border-amber-900 flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <Ban className="h-3.5 w-3.5" />
-                  <span>Suspend Account</span>
+                  <span>Suspend</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => handleUserAction("RESUME_USER")}
+                  disabled={userActionLoading}
+                  className="p-2.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-bold rounded-xl border border-emerald-200 dark:border-emerald-900 flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <UserCheck className="h-3.5 w-3.5" />
+                  <span>Reactivate</span>
+                </button>
+
+                <button
+                  onClick={() => handleUserAction("FORCE_LOGOUT_ALL")}
+                  disabled={userActionLoading}
+                  className="p-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl border border-slate-700 flex items-center justify-center gap-1.5 cursor-pointer text-center text-[10px]"
+                >
+                  <LogOut className="h-3.5 w-3.5 text-red-400" />
+                  <span>Logout All Users</span>
                 </button>
               </div>
             </div>
@@ -707,13 +883,28 @@ export default function SuperAdminEmergencyControlCenter() {
 
             <div className="space-y-3 text-xs">
               <div>
-                <label className="text-[11px] font-bold text-slate-400">Target School ID:</label>
-                <input
-                  type="text"
-                  value={targetSchoolId}
-                  onChange={(e) => setTargetSchoolId(e.target.value)}
-                  className="w-full px-3 py-2 mt-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono"
-                />
+                <label className="text-[11px] font-bold text-slate-400">Target School:</label>
+                {schoolsList.length > 0 ? (
+                  <select
+                    value={targetSchoolId}
+                    onChange={(e) => setTargetSchoolId(e.target.value)}
+                    className="w-full px-3 py-2 mt-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold"
+                  >
+                    {schoolsList.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} {s.code ? `(${s.code})` : ""} - {s.id}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={targetSchoolId}
+                    onChange={(e) => setTargetSchoolId(e.target.value)}
+                    className="w-full px-3 py-2 mt-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono"
+                    placeholder="Enter School ID..."
+                  />
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-2 pt-1">
@@ -727,23 +918,34 @@ export default function SuperAdminEmergencyControlCenter() {
                 </button>
 
                 <button
+                  onClick={() => handleSchoolAction("ACTIVE")}
+                  disabled={schoolActionLoading}
+                  className="p-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  <span>Restore Normal</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
                   onClick={() => handleSchoolAction("READ_ONLY")}
                   disabled={schoolActionLoading}
                   className="p-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
                 >
                   <Lock className="h-3.5 w-3.5" />
-                  <span>Read Only Mode</span>
+                  <span>Read Only</span>
+                </button>
+
+                <button
+                  onClick={() => handleSchoolAction("FORCE_LOGOUT_ALL")}
+                  disabled={schoolActionLoading}
+                  className="p-2.5 bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 rounded-xl font-bold flex items-center justify-center gap-1.5 cursor-pointer text-center text-[10px]"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  <span>Logout School</span>
                 </button>
               </div>
-
-              <button
-                onClick={() => handleSchoolAction("FORCE_LOGOUT_ALL")}
-                disabled={schoolActionLoading}
-                className="w-full p-2.5 bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 rounded-xl font-bold flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <LogOut className="h-3.5 w-3.5" />
-                <span>Force Logout All Users of School</span>
-              </button>
             </div>
           </div>
         </div>
@@ -795,8 +997,8 @@ export default function SuperAdminEmergencyControlCenter() {
 
       {/* Emergency Announcement Publisher Modal */}
       {showAnnouncementModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="relative w-full max-w-lg rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs overflow-y-auto">
+          <div className="relative w-full max-w-xl rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4 my-8">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Megaphone className="h-5 w-5 text-blue-600" />
@@ -807,7 +1009,7 @@ export default function SuperAdminEmergencyControlCenter() {
               </button>
             </div>
 
-            <form onSubmit={handlePublishAnnouncement} className="space-y-3 text-xs">
+            <form onSubmit={handlePublishAnnouncement} className="space-y-3.5 text-xs">
               <div>
                 <label className="font-bold text-slate-700 dark:text-slate-300">Banner Title:</label>
                 <input
@@ -819,20 +1021,100 @@ export default function SuperAdminEmergencyControlCenter() {
                 />
               </div>
 
+              {/* What happened / Kya hua hai */}
               <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300">Message Body:</label>
+                <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <HelpCircle className="h-3.5 w-3.5 text-blue-500" />
+                  <span>What Happened / Root Cause (Kya hua hai):</span>
+                </label>
                 <textarea
-                  value={announcementForm.message}
-                  onChange={(e) => setAnnouncementForm({ ...announcementForm, message: e.target.value })}
+                  value={announcementForm.reason}
+                  onChange={(e) => setAnnouncementForm({ ...announcementForm, reason: e.target.value })}
+                  placeholder="e.g. Scheduled database optimization and critical security maintenance."
                   className="w-full px-3 py-2 mt-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                  rows={3}
+                  rows={2}
                   required
                 />
               </div>
 
+              {/* When will it be fixed / Kabtak theek hoga */}
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <Clock className="h-3.5 w-3.5 text-amber-500" />
+                  <span>Estimated Resolution / ETA (Kabtak theek hoga):</span>
+                </label>
+                <input
+                  type="text"
+                  value={announcementForm.expectedResolution}
+                  onChange={(e) => setAnnouncementForm({ ...announcementForm, expectedResolution: e.target.value })}
+                  placeholder="e.g. Expected resolution by 4:30 PM IST (within 45 mins)"
+                  className="w-full px-3 py-2 mt-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium"
+                  required
+                />
+              </div>
+
+              {/* Affected Modules Checklist */}
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 mb-1.5">
+                  <Layers className="h-3.5 w-3.5 text-purple-500" />
+                  <span>Impacted Services & Portals:</span>
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {[
+                    "Student Portal",
+                    "Teacher Portal",
+                    "Fee Collection",
+                    "Online Payments",
+                    "Attendance Automation",
+                    "Exams & Results",
+                    "Admissions",
+                    "Reports & Exports",
+                  ].map((moduleName) => {
+                    const isChecked = announcementForm.affectedModules.includes(moduleName);
+                    return (
+                      <button
+                        type="button"
+                        key={moduleName}
+                        onClick={() => toggleAffectedModule(moduleName)}
+                        className={`p-2 rounded-xl text-[11px] font-semibold text-left border transition-all cursor-pointer ${
+                          isChecked
+                            ? "bg-blue-50 dark:bg-blue-950/60 border-blue-400 text-blue-700 dark:text-blue-300"
+                            : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400"
+                        }`}
+                      >
+                        {isChecked ? "✓ " : "+ "}
+                        {moduleName}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Support Contacts */}
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300">Support Helpline:</label>
+                  <input
+                    type="text"
+                    value={announcementForm.supportPhone}
+                    onChange={(e) => setAnnouncementForm({ ...announcementForm, supportPhone: e.target.value })}
+                    className="w-full px-3 py-2 mt-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300">Support Email:</label>
+                  <input
+                    type="email"
+                    value={announcementForm.supportEmail}
+                    onChange={(e) => setAnnouncementForm({ ...announcementForm, supportEmail: e.target.value })}
+                    className="w-full px-3 py-2 mt-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
+                  />
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-bold text-slate-700 dark:text-slate-300">Severity:</label>
+                  <label className="font-bold text-slate-700 dark:text-slate-300">Severity Level:</label>
                   <select
                     value={announcementForm.severity}
                     onChange={(e) => setAnnouncementForm({ ...announcementForm, severity: e.target.value as any })}
@@ -862,16 +1144,16 @@ export default function SuperAdminEmergencyControlCenter() {
                 <button
                   type="button"
                   onClick={() => setShowAnnouncementModal(false)}
-                  className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl"
+                  className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-md"
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-md cursor-pointer flex items-center gap-1.5"
                 >
-                  Publish Realtime Banner
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Publish Realtime Banner"}
                 </button>
               </div>
             </form>

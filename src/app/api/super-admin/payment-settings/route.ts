@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebase/admin";
-import { RazorpayCredentials } from "@/lib/payments/razorpay";
+import { getSafeAdminDb } from "@/lib/firebase/admin";
+import { getFirebaseDb } from "@/lib/firebase/client";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+import { loadRazorpayCredentials, type RazorpayCredentials } from "@/lib/payments/razorpay";
 import { createBillingAuditLog } from "@/lib/billing";
 
 function maskSecret(secret: string): string {
@@ -11,27 +13,20 @@ function maskSecret(secret: string): string {
 
 export async function GET(request: Request) {
   try {
-    let keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID || "";
-    let keySecret = process.env.RAZORPAY_KEY_SECRET || "";
-    let webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || "";
-    let isLiveMode = keyId.startsWith("rzp_live_");
+    const creds = await loadRazorpayCredentials().catch(() => ({
+      keyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID || "",
+      keySecret: process.env.RAZORPAY_KEY_SECRET || "",
+      webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || "",
+      isLiveMode: false,
+    }));
 
-    try {
-      if (adminDb) {
-        const snap = await adminDb.collection("paymentSettings").doc("razorpay").get();
-        if (snap.exists) {
-          const data = snap.data() as Partial<RazorpayCredentials>;
-          if (data.keyId) keyId = data.keyId;
-          if (data.keySecret) keySecret = data.keySecret;
-          if (data.webhookSecret !== undefined) webhookSecret = data.webhookSecret;
-          if (typeof data.isLiveMode === "boolean") isLiveMode = data.isLiveMode;
-        }
-      }
-    } catch (e) {
-      console.warn("GET Payment Settings adminDb lookup notice:", e);
-    }
+    const keyId = creds.keyId || "";
+    const keySecret = creds.keySecret || "";
+    const webhookSecret = creds.webhookSecret || "";
+    const isLiveMode = creds.isLiveMode ?? keyId.startsWith("rzp_live_");
 
     return NextResponse.json({
+      success: true,
       keyId,
       isSecretSet: Boolean(keySecret && keySecret.length > 0),
       maskedSecretKey: maskSecret(keySecret),
@@ -40,12 +35,13 @@ export async function GET(request: Request) {
       isLiveMode,
     });
   } catch (error: any) {
-    console.warn("GET Payment Settings Exception:", error);
+    console.error("GET Payment Settings Exception:", error);
     const envKeyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID || "";
     const envSecret = process.env.RAZORPAY_KEY_SECRET || "";
     const envWebhook = process.env.RAZORPAY_WEBHOOK_SECRET || "";
 
     return NextResponse.json({
+      success: true,
       keyId: envKeyId,
       isSecretSet: envSecret.length > 0,
       maskedSecretKey: maskSecret(envSecret),
@@ -68,11 +64,25 @@ export async function POST(request: Request) {
     const cleanKeyId = keyId.trim();
 
     let existingData: RazorpayCredentials | null = null;
-    if (adminDb) {
+    const safeAdmin = getSafeAdminDb();
+    if (safeAdmin) {
       try {
-        const snap = await adminDb.collection("paymentSettings").doc("razorpay").get();
+        const snap = await safeAdmin.collection("paymentSettings").doc("razorpay").get();
         if (snap.exists) {
           existingData = snap.data() as RazorpayCredentials;
+        }
+      } catch (e) {
+        // Non-blocking
+      }
+    }
+    if (!existingData) {
+      try {
+        const cDb = getFirebaseDb();
+        if (cDb) {
+          const snap = await getDoc(doc(cDb, "paymentSettings", "razorpay"));
+          if (snap.exists()) {
+            existingData = snap.data() as RazorpayCredentials;
+          }
         }
       } catch (e) {
         // Non-blocking
@@ -144,14 +154,23 @@ export async function POST(request: Request) {
       // Non-blocking in serverless environments
     }
 
-    // 3. Persist to Firestore via Admin SDK
-    if (adminDb) {
+    // 3. Persist to Firestore via Admin SDK or Client SDK
+    if (safeAdmin) {
       try {
-        await adminDb.collection("paymentSettings").doc("razorpay").set(updatedConfig, { merge: true });
-        console.log("[Razorpay Settings] Persisted credentials via adminDb to paymentSettings/razorpay");
+        await safeAdmin.collection("paymentSettings").doc("razorpay").set(updatedConfig, { merge: true });
+        console.log("[Razorpay Settings] Persisted credentials via safeAdmin to paymentSettings/razorpay");
       } catch (firestoreErr) {
-        console.warn("[Razorpay Settings] adminDb write notice:", firestoreErr);
+        console.warn("[Razorpay Settings] safeAdmin write notice:", firestoreErr);
       }
+    }
+    try {
+      const cDb = getFirebaseDb();
+      if (cDb) {
+        await setDoc(doc(cDb, "paymentSettings", "razorpay"), updatedConfig, { merge: true });
+        console.log("[Razorpay Settings] Persisted credentials via cDb to paymentSettings/razorpay");
+      }
+    } catch (clientWriteErr) {
+      console.warn("[Razorpay Settings] cDb write notice:", clientWriteErr);
     }
 
     try {

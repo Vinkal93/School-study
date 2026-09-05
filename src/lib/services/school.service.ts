@@ -123,6 +123,27 @@ export async function createSchoolWithAdmin(
     updatedAt: serverTimestamp(),
   });
 
+  // 5. Authoritative default subscription document
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const graceEndsAt = new Date(expiresAt.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+  const subDocRef = doc(db, "schoolSubscriptions", schoolId);
+  await setDoc(subDocRef, {
+    id: schoolId,
+    schoolId,
+    planId: "plan_free",
+    planVersionId: "plan_free_v1",
+    status: "ACTIVE",
+    billingCycle: "monthly",
+    startsAt: now.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    graceEndsAt: graceEndsAt.toISOString(),
+    source: "registration_trial",
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  }).catch(() => {});
+
   return { schoolId, adminUid };
 }
 
@@ -152,19 +173,71 @@ export function subscribeToAllSchools(callback: (schools: School[]) => void): ()
     collection(db, COLLECTIONS.SCHOOLS),
     orderBy("name", "asc")
   );
-  return onSnapshot(
+
+  let currentSchools: School[] = [];
+  let subMap = new Map<string, any>();
+
+  const emitMerged = () => {
+    const enriched = currentSchools.map((s) => {
+      const sub = subMap.get(s.id);
+      return {
+        ...s,
+        planId: sub?.planId || s.planId || "plan_free",
+        planName:
+          sub?.planName ||
+          s.planName ||
+          (sub?.planId === "plan_enterprise"
+            ? "Enterprise"
+            : sub?.planId === "plan_growth"
+            ? "Growth"
+            : sub?.planId === "plan_starter"
+            ? "Starter"
+            : "Trial"),
+        subscriptionStatus:
+          sub?.status ||
+          s.subscriptionStatus ||
+          (s.status === "active" ? "ACTIVE" : "INACTIVE"),
+        subscriptionExpiresAt: sub?.expiresAt || s.subscriptionExpiresAt,
+      };
+    });
+    callback(enriched);
+  };
+
+  const unsubSchools = onSnapshot(
     q,
     (snapshot) => {
-      const schools = snapshot.docs.map((docSnap) => ({
+      currentSchools = snapshot.docs.map((docSnap) => ({
         id: docSnap.id,
         ...docSnap.data(),
       })) as School[];
-      callback(schools);
+      emitMerged();
     },
     (err) => {
       console.error("subscribeToAllSchools snapshot error:", err);
     }
   );
+
+  let unsubSubs: (() => void) | null = null;
+  try {
+    unsubSubs = onSnapshot(
+      collection(db, "schoolSubscriptions"),
+      (snap) => {
+        subMap = new Map();
+        snap.docs.forEach((doc) => subMap.set(doc.id, doc.data()));
+        emitMerged();
+      },
+      (err) => {
+        console.warn("schoolSubscriptions onSnapshot notice:", err);
+      }
+    );
+  } catch (e) {
+    console.warn("Subscriptions snapshot error:", e);
+  }
+
+  return () => {
+    unsubSchools();
+    if (unsubSubs) unsubSubs();
+  };
 }
 
 /**
@@ -179,7 +252,7 @@ export async function getSchoolById(schoolId: string): Promise<School | null> {
 }
 
 /**
- * Updates a school's status (active / inactive / suspended).
+ * Updates a school's status (active / inactive / trial / suspended / expired / archived).
  */
 export async function updateSchoolStatus(
   schoolId: string,
@@ -191,6 +264,41 @@ export async function updateSchoolStatus(
     status,
     updatedAt: serverTimestamp(),
   });
+}
+
+/**
+ * Updates a school document with partial data.
+ */
+export async function updateSchool(
+  schoolId: string,
+  data: Partial<School>
+): Promise<void> {
+  const db = getFirebaseDb();
+  const docRef = doc(db, COLLECTIONS.SCHOOLS, schoolId);
+  await updateDoc(docRef, {
+    ...data,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/**
+ * Updates a school's operational status with optional audit note/reason.
+ */
+export async function updateSchoolOperationalStatus(
+  schoolId: string,
+  status: SchoolStatus,
+  reason?: string
+): Promise<void> {
+  const db = getFirebaseDb();
+  const docRef = doc(db, COLLECTIONS.SCHOOLS, schoolId);
+  const payload: any = {
+    status,
+    updatedAt: serverTimestamp(),
+  };
+  if (reason) {
+    payload.statusReason = reason;
+  }
+  await updateDoc(docRef, payload);
 }
 
 /**
@@ -270,6 +378,27 @@ export async function getAllUsers(): Promise<AppUser[]> {
     uid: docSnap.id,
     ...docSnap.data(),
   })) as AppUser[];
+}
+
+/**
+ * Realtime subscription to all platform users.
+ */
+export function subscribeToAllUsers(callback: (users: AppUser[]) => void): () => void {
+  const db = getFirebaseDb();
+  const q = query(collection(db, COLLECTIONS.USERS), orderBy("createdAt", "desc"));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const users = snapshot.docs.map((docSnap) => ({
+        uid: docSnap.id,
+        ...docSnap.data(),
+      })) as AppUser[];
+      callback(users);
+    },
+    (error) => {
+      console.error("Error listening to users collection:", error);
+    }
+  );
 }
 
 /**

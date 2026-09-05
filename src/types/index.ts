@@ -31,6 +31,7 @@ export type {
   AuditPerformer,
   AuditLogEntry,
   LoginLogEntry,
+  ActiveSessionEntry,
 } from "./audit";
 export type {
   RestrictionStatus,
@@ -41,14 +42,7 @@ export type {
   ActivityEntityType,
   ActivityLogEntry,
 } from "./activity";
-export type {
-  SchoolHealthStatus,
-  GrowthTimeframe,
-  SchoolHealthSummary,
-  PlatformGrowthMetrics,
-  PlatformAnalyticsOverview,
-  SchoolDetailedAnalytics,
-} from "./analytics";
+export * from "./analytics";
 export type {
   TeacherFineReward,
   FineRewardType,

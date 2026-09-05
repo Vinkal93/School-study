@@ -7,6 +7,7 @@ import {
   getUserSecurityControl,
   updateUserSecurityControl,
   DEFAULT_GLOBAL_EMERGENCY,
+  getEmergencySystemMetrics,
 } from "@/lib/emergency/emergencyEngine";
 import { resolveEmergencyAccess } from "@/lib/emergency/emergencyResolver";
 import { canAccessFeature } from "@/lib/billing/featureAccess";
@@ -222,6 +223,65 @@ async function runEmergencyControlTests() {
     testPass("Payment Gateway Emergency switch blocks order creation with HTTP 503 when offline");
   } catch (err) {
     testFail("Payment Gateway Emergency Control", err);
+  }
+
+  // ------------------------------------------------------------------
+  // TEST 7: Emergency Announcement with "Kya hua hai" & "Kabtak theek hoga"
+  // ------------------------------------------------------------------
+  try {
+    console.log("\n🔹 Test 7: Emergency Announcement with Root Cause, ETA & Support Details");
+
+    const announcementPayload = {
+      active: true,
+      title: "Scheduled Server Database Optimization",
+      message: "Our engineering team is performing planned database index optimization.",
+      reason: "Critical database performance enhancements and security upgrades.",
+      expectedResolution: "Within 45 to 60 minutes (~ 5:00 PM IST)",
+      affectedModules: ["Student Portal", "Fee Collection", "Attendance Automation"],
+      supportPhone: "+91 9118245636",
+      supportEmail: "SBCI224234@gmail.com",
+      supportHours: "Mon - Sat (9:00 AM - 7:00 PM IST)",
+      severity: "WARNING",
+      target: "ALL",
+    };
+
+    const updated = await updateGlobalEmergencyControls({
+      emergencyAnnouncement: announcementPayload,
+    }, "test_suite", "Testing full announcement payload");
+
+    assert.strictEqual(updated.emergencyAnnouncement.active, true);
+    assert.strictEqual(updated.emergencyAnnouncement.reason, announcementPayload.reason);
+    assert.strictEqual(updated.emergencyAnnouncement.expectedResolution, announcementPayload.expectedResolution);
+    assert.deepStrictEqual(updated.emergencyAnnouncement.affectedModules, announcementPayload.affectedModules);
+    assert.strictEqual(updated.emergencyAnnouncement.supportPhone, "+91 9118245636");
+    assert.strictEqual(updated.emergencyAnnouncement.supportEmail, "SBCI224234@gmail.com");
+
+    testPass("Emergency announcement persists 'kya hua hai' (reason), 'kabtak theek hoga' (ETA), affected services, and support helpline");
+  } catch (err) {
+    testFail("Emergency Announcement with Root Cause, ETA & Support Details", err);
+  }
+
+  // ------------------------------------------------------------------
+  // TEST 8: Real-Time System Metrics Calculation
+  // ------------------------------------------------------------------
+  try {
+    console.log("\n🔹 Test 8: Real-Time System Metrics Calculation");
+
+    const metrics = await getEmergencySystemMetrics();
+
+    assert.ok(metrics !== null, "Metrics must not be null");
+    assert.strictEqual(typeof metrics.affectedSchoolsCount, "number");
+    assert.strictEqual(typeof metrics.totalSchoolsCount, "number");
+    assert.strictEqual(typeof metrics.disabledModulesCount, "number");
+    assert.strictEqual(typeof metrics.totalModulesCount, "number");
+    assert.strictEqual(typeof metrics.suspendedUsersCount, "number");
+    assert.strictEqual(typeof metrics.uptimePercentage, "number");
+    assert.ok(metrics.totalModulesCount === 7, "Total modules count must be 7");
+    assert.ok(metrics.uptimePercentage > 99, "Uptime percentage must be > 99%");
+
+    testPass("getEmergencySystemMetrics() calculates real live counts for affected schools, disabled modules, suspended users, and uptime");
+  } catch (err) {
+    testFail("Real-Time System Metrics Calculation", err);
   }
 
   console.log("\n======================================================================");

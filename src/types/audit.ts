@@ -22,7 +22,15 @@ export type AuditAction =
   | "SCHOOL_CREATE"
   | "SCHOOL_UPDATE"
   | "SCHOOL_STATUS_CHANGE"
-  | "ADMIN_ACTION";
+  | "ADMIN_ACTION"
+  | "LOGIN_FAILED"
+  | "FORCE_LOGOUT"
+  | "SESSION_REVOKED"
+  | "PASSWORD_RESET_TRIGGERED"
+  | "USER_SUSPENDED"
+  | "USER_ACTIVATED"
+  | "USER_BLOCKED"
+  | "PERMISSION_DENIED";
 
 export type AuditTargetType =
   | "user"
@@ -84,4 +92,23 @@ export interface LoginLogEntry {
   platform?: string;
   deviceType?: "desktop" | "mobile" | "tablet" | "unknown";
   timestamp: Timestamp | any;
+}
+
+export interface ActiveSessionEntry {
+  id?: string;
+  sessionId: string;
+  userId: string;
+  userName?: string;
+  userEmail?: string;
+  role: UserRole;
+  schoolId?: string | null;
+  schoolName?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  browser?: string;
+  platform?: string;
+  deviceType?: "desktop" | "mobile" | "tablet" | "unknown";
+  status: "active" | "revoked" | "expired";
+  startedAt: Timestamp | any;
+  lastActiveAt: Timestamp | any;
 }

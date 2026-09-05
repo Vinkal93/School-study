@@ -129,6 +129,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       icon: <Palette className="h-5 w-5 text-indigo-500" />,
     },
     {
+      label: "Feature Control",
+      href: "/super-admin/features",
+      icon: <Sliders className="h-5 w-5 text-indigo-500" />,
+    },
+    {
       label: "Emergency Control",
       href: "/super-admin/emergency",
       icon: <ShieldAlert className="h-5 w-5 text-red-500" />,

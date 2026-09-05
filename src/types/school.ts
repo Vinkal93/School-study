@@ -1,6 +1,6 @@
 import { Timestamp } from "firebase/firestore";
 
-export type SchoolStatus = "active" | "inactive";
+export type SchoolStatus = "active" | "inactive" | "trial" | "suspended" | "expired" | "archived";
 export type SchoolVerifyBadge = "none" | "basic" | "gold" | "premium";
 
 export interface School {
@@ -33,6 +33,15 @@ export interface School {
   onboardingCompleted?: boolean;
   onboardingStartedAt?: any;
   onboardingCompletedAt?: any;
+  planId?: string;
+  planName?: string;
+  studentCount?: number;
+  teacherCount?: number;
+  lastActivityAt?: any;
+  isReadOnly?: boolean;
+  isEmergencyPaused?: boolean;
+  subscriptionExpiresAt?: string;
+  subscriptionStatus?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

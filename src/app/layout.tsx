@@ -5,6 +5,8 @@ import { ToastProvider } from "@/providers/toast-provider";
 import { ThemeProvider } from "@/context/theme-context";
 import { GoogleAnalytics } from "@/components/common/GoogleAnalytics";
 import { ImpersonationBanner } from "@/components/common/ImpersonationBanner";
+import { EmergencyBanner } from "@/components/common/EmergencyBanner";
+import { GlobalEmergencyGate } from "@/components/common/GlobalEmergencyGate";
 import { SiteSettingsProvider } from "@/context/SiteSettingsContext";
 import { PortalUIProvider } from "@/context/portal-ui-context";
 import { constructMetadata } from "@/lib/seo";
@@ -58,8 +60,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             <SiteSettingsProvider>
               <PortalUIProvider>
                 <ImpersonationBanner />
+                <EmergencyBanner />
+                <GlobalEmergencyGate>{children}</GlobalEmergencyGate>
                 <ToastProvider />
-                {children}
               </PortalUIProvider>
             </SiteSettingsProvider>
           </AuthProvider>

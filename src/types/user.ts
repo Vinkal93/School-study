@@ -2,7 +2,7 @@ import { Timestamp } from "firebase/firestore";
 
 export type UserRole = "super_admin" | "school_admin" | "teacher" | "student";
 
-export type UserStatus = "active" | "inactive" | "restricted" | "suspended" | "disabled";
+export type UserStatus = "active" | "inactive" | "restricted" | "suspended" | "disabled" | "blocked";
 
 export interface AppUser {
   uid: string;

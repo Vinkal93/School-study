@@ -348,6 +348,16 @@ service cloud.firestore {
       allow write: if true;
     }
 
+    match /schoolFeatureOverrides/{overrideId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    match /featureControlAuditLogs/{logId} {
+      allow read: if isSuperAdmin();
+      allow write: if isSuperAdmin();
+    }
+
     match /limitOverrides/{overrideId} {
       allow read, write: if true;
     }

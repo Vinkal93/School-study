@@ -54,22 +54,41 @@ export async function POST(request: Request) {
     const adminAuth = await getAdminAuthServerOnly();
     const adminDb = await getAdminDbServerOnly();
 
+    // Resolve email to UID if target is an email address
+    let resolvedUid = userId || "";
+    if (resolvedUid && resolvedUid.includes("@")) {
+      try {
+        if (adminAuth) {
+          const uRecord = await adminAuth.getUserByEmail(resolvedUid.trim().toLowerCase()).catch(() => null);
+          if (uRecord) resolvedUid = uRecord.uid;
+        }
+        if (resolvedUid.includes("@") && adminDb) {
+          const uSnap = await adminDb.collection("users").where("email", "==", resolvedUid.trim().toLowerCase()).limit(1).get().catch(() => null);
+          if (uSnap && !uSnap.empty) {
+            resolvedUid = uSnap.docs[0].id;
+          }
+        }
+      } catch (lookupErr) {
+        console.warn("User email lookup notice:", lookupErr);
+      }
+    }
+
     // 1. FORCE LOGOUT ONE USER
     if (actionType === "FORCE_LOGOUT_USER") {
-      if (!userId) throw new Error("userId is required for FORCE_LOGOUT_USER.");
+      if (!resolvedUid) throw new Error("userId or valid email is required for FORCE_LOGOUT_USER.");
 
-      const currentSecurity = await getUserSecurityControl(userId);
+      const currentSecurity = await getUserSecurityControl(resolvedUid);
       const newVersion = (currentSecurity.securityVersion || 1) + 1;
 
       // Invalidate Firebase Refresh Tokens
       if (adminAuth) {
-        await adminAuth.revokeRefreshTokens(userId).catch((err) => {
-          console.warn(`[EmergencySecurity] Token revocation notice for ${userId}:`, err);
+        await adminAuth.revokeRefreshTokens(resolvedUid).catch((err) => {
+          console.warn(`[EmergencySecurity] Token revocation notice for ${resolvedUid}:`, err);
         });
       }
 
       const updated = await updateUserSecurityControl(
-        userId,
+        resolvedUid,
         {
           securityVersion: newVersion,
           requireReLogin: true,
@@ -80,7 +99,7 @@ export async function POST(request: Request) {
 
       return NextResponse.json({
         success: true,
-        message: `Successfully force-logged out user "${userId}" and revoked active sessions.`,
+        message: `Successfully force-logged out user "${userId}" (${resolvedUid}) and revoked active sessions.`,
         securityControl: updated,
       });
     }
@@ -134,15 +153,25 @@ export async function POST(request: Request) {
 
     // 4. SUSPEND / RESUME USER
     if (actionType === "SUSPEND_USER" || actionType === "RESUME_USER") {
-      if (!userId) throw new Error("userId is required.");
+      if (!resolvedUid) throw new Error("userId or valid email is required.");
       const newStatus = actionType === "SUSPEND_USER" ? "SUSPENDED" : "ACTIVE";
 
       if (newStatus === "SUSPENDED" && adminAuth) {
-        await adminAuth.revokeRefreshTokens(userId).catch(() => {});
+        await adminAuth.revokeRefreshTokens(resolvedUid).catch(() => {});
+      }
+
+      if (adminDb) {
+        await adminDb.collection("users").doc(resolvedUid).set(
+          {
+            status: newStatus === "SUSPENDED" ? "suspended" : "active",
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        ).catch(() => {});
       }
 
       const updated = await updateUserSecurityControl(
-        userId,
+        resolvedUid,
         {
           status: newStatus,
           securityVersion: Date.now(),
@@ -153,7 +182,7 @@ export async function POST(request: Request) {
 
       return NextResponse.json({
         success: true,
-        message: `User "${userId}" status updated to ${newStatus}.`,
+        message: `User "${userId}" (${resolvedUid}) status updated to ${newStatus}.`,
         securityControl: updated,
       });
     }

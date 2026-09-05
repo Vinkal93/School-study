@@ -2,12 +2,14 @@ import {
   collection,
   doc,
   addDoc,
+  setDoc,
   getDocs,
   query,
   where,
   orderBy,
   limit,
   serverTimestamp,
+  onSnapshot,
   type Timestamp,
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
@@ -15,6 +17,7 @@ import { COLLECTIONS } from "@/lib/utils/constants";
 import type {
   AuditLogEntry,
   LoginLogEntry,
+  ActiveSessionEntry,
   AuditAction,
   AuditTargetType,
   ActivityLogEntry,
@@ -26,6 +29,7 @@ export const AUDIT_COLLECTIONS = {
   AUDIT_LOGS: "audit_logs",
   LOGIN_LOGS: "login_logs",
   ACTIVITY_LOGS: "activity_logs",
+  ACTIVE_SESSIONS: "active_sessions",
 };
 
 /**
@@ -92,6 +96,54 @@ export async function logLoginAttempt(
       ...entry,
       timestamp: serverTimestamp(),
     });
+
+    // 1. If login succeeded, create/upsert active session record
+    if (entry.status === "success" && entry.uid) {
+      const sessionId = `sess_${entry.uid}_${Date.now()}`;
+      await setDoc(doc(db, AUDIT_COLLECTIONS.ACTIVE_SESSIONS, sessionId), {
+        sessionId,
+        userId: entry.uid,
+        userEmail: entry.email,
+        role: entry.role || "student",
+        schoolId: entry.schoolId || null,
+        ipAddress: entry.ipAddress || "unknown",
+        userAgent: entry.userAgent || "unknown",
+        browser: entry.browser || "Unknown",
+        platform: entry.platform || "Unknown",
+        deviceType: entry.deviceType || "desktop",
+        status: "active",
+        startedAt: serverTimestamp(),
+        lastActiveAt: serverTimestamp(),
+      }).catch((e) => console.warn("Notice: Active session creation notice:", e));
+    }
+
+    // 2. If login failed, automatically record a Security Event in audit_logs
+    if (entry.status === "failed") {
+      await addDoc(collection(db, AUDIT_COLLECTIONS.AUDIT_LOGS), {
+        action: "LOGIN_FAILED",
+        targetId: entry.uid || "unknown",
+        targetType: "user",
+        targetName: entry.email,
+        targetEmail: entry.email,
+        schoolId: entry.schoolId || null,
+        performedBy: {
+          uid: entry.uid || "anonymous",
+          name: entry.email,
+          email: entry.email,
+          role: entry.role || "student",
+        },
+        reason: entry.failureReason || "Authentication attempt failed",
+        ipAddress: entry.ipAddress || "unknown",
+        userAgent: entry.userAgent || "unknown",
+        timestamp: serverTimestamp(),
+        metadata: {
+          browser: entry.browser,
+          platform: entry.platform,
+          deviceType: entry.deviceType,
+        },
+      }).catch((e) => console.warn("Notice: Security audit failure notice:", e));
+    }
+
     return docRef.id;
   } catch (error) {
     console.warn("Failed to record login log entry:", error);
@@ -271,4 +323,108 @@ export async function getActivityLogs(
     console.warn("Could not fetch activity logs:", error);
     return [];
   }
+}
+
+/**
+ * Realtime subscription to platform activity logs.
+ */
+export function subscribeToActivityLogs(
+  callback: (logs: ActivityLogEntry[]) => void,
+  limitCount = 50
+): () => void {
+  const db = getFirebaseDb();
+  const q = query(
+    collection(db, AUDIT_COLLECTIONS.ACTIVITY_LOGS),
+    orderBy("timestamp", "desc"),
+    limit(limitCount)
+  );
+  return onSnapshot(
+    q,
+    (snap) => {
+      const logs = snap.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      })) as ActivityLogEntry[];
+      callback(logs);
+    },
+    (err) => console.warn("Activity logs subscription notice:", err)
+  );
+}
+
+/**
+ * Realtime subscription to login attempt logs.
+ */
+export function subscribeToLoginLogs(
+  callback: (logs: LoginLogEntry[]) => void,
+  limitCount = 50
+): () => void {
+  const db = getFirebaseDb();
+  const q = query(
+    collection(db, AUDIT_COLLECTIONS.LOGIN_LOGS),
+    orderBy("timestamp", "desc"),
+    limit(limitCount)
+  );
+  return onSnapshot(
+    q,
+    (snap) => {
+      const logs = snap.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      })) as LoginLogEntry[];
+      callback(logs);
+    },
+    (err) => console.warn("Login logs subscription notice:", err)
+  );
+}
+
+/**
+ * Realtime subscription to audit / security events.
+ */
+export function subscribeToAuditLogs(
+  callback: (logs: AuditLogEntry[]) => void,
+  limitCount = 50
+): () => void {
+  const db = getFirebaseDb();
+  const q = query(
+    collection(db, AUDIT_COLLECTIONS.AUDIT_LOGS),
+    orderBy("timestamp", "desc"),
+    limit(limitCount)
+  );
+  return onSnapshot(
+    q,
+    (snap) => {
+      const logs = snap.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      })) as AuditLogEntry[];
+      callback(logs);
+    },
+    (err) => console.warn("Audit logs subscription notice:", err)
+  );
+}
+
+/**
+ * Realtime subscription to active sessions.
+ */
+export function subscribeToActiveSessions(
+  callback: (sessions: ActiveSessionEntry[]) => void,
+  limitCount = 50
+): () => void {
+  const db = getFirebaseDb();
+  const q = query(
+    collection(db, AUDIT_COLLECTIONS.ACTIVE_SESSIONS),
+    orderBy("startedAt", "desc"),
+    limit(limitCount)
+  );
+  return onSnapshot(
+    q,
+    (snap) => {
+      const sessions = snap.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      })) as ActiveSessionEntry[];
+      callback(sessions);
+    },
+    (err) => console.warn("Active sessions subscription notice:", err)
+  );
 }
