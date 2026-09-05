@@ -11,6 +11,10 @@ export interface AppUser {
   role: UserRole;
   schoolId?: string; // null/undefined for super_admin
   status: UserStatus;
+  studentId?: string;
+  teacherCode?: string;
+  teacherId?: string;
+  admissionNumber?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

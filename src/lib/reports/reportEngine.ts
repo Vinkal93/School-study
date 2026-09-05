@@ -256,32 +256,49 @@ export async function generateSchoolReport(
   // 1. STUDENTS REPORT
   if (reportType === "STUDENTS") {
     try {
-      const q = query(collection(db, "schools", schoolId, "students"));
-      const snap = await getDocs(q);
+      let snap = await getDocs(query(collection(db, "schools", schoolId, "students")));
+      if (snap.empty) {
+        snap = await getDocs(query(collection(db, "students"), where("schoolId", "==", schoolId)));
+      }
       let activeCount = 0;
 
       snap.forEach((d) => {
         const s = d.data();
-        if (s.status === "ACTIVE" || !s.status) activeCount++;
+        const rawStatus = String(s.status || "active").toLowerCase();
+        const isActive = rawStatus === "active";
+        if (isActive) activeCount++;
 
         // Apply filters
         if (filters.search) {
-          const kw = filters.search.toLowerCase();
-          const match = (s.fullName || "").toLowerCase().includes(kw) || (s.rollNo || "").toLowerCase().includes(kw);
-          if (!match) return;
+          const kw = filters.search.toLowerCase().trim();
+          const studentName = String(s.name || s.fullName || "").toLowerCase();
+          const roll = String(s.rollNumber || s.rollNo || s.studentId || "").toLowerCase();
+          const adm = String(s.admissionNumber || s.admissionNo || "").toLowerCase();
+          const cls = String(s.className || "").toLowerCase();
+          if (!studentName.includes(kw) && !roll.includes(kw) && !adm.includes(kw) && !cls.includes(kw)) return;
         }
-        if (filters.status && s.status !== filters.status) return;
+        if (filters.status && filters.status !== "all") {
+          if (rawStatus !== String(filters.status).toLowerCase()) return;
+        }
+
+        const rollDisplay = String(s.rollNumber || s.rollNo || s.studentId || "-");
+        const nameDisplay = s.name || s.fullName || "Student";
+        const classDisplay = s.className ? `${s.className} ${s.sectionName || s.section || ""}`.trim() : "Unassigned";
+        const genderDisplay = s.gender ? String(s.gender).toUpperCase() : "-";
+        const parentDisplay = s.parentName || s.fatherName || s.guardianName || "-";
+        const phoneDisplay = s.phone || s.parentPhone || s.parentContact || "-";
+        const admDateDisplay = s.admissionDate || (s.createdAt ? (s.createdAt.toDate ? s.createdAt.toDate().toLocaleDateString("en-IN") : new Date(s.createdAt).toLocaleDateString("en-IN")) : "-");
 
         rows.push({
           id: d.id,
-          rollNo: s.rollNo || "N/A",
-          fullName: s.fullName || s.name || "Student",
-          className: s.className ? `${s.className} ${s.section || ""}`.trim() : "Unassigned",
-          gender: s.gender || "N/A",
-          parentName: s.parentName || s.fatherName || "N/A",
-          parentPhone: s.parentPhone || s.phone || "N/A",
-          admissionDate: s.admissionDate || s.createdAt ? new Date(s.admissionDate || s.createdAt).toLocaleDateString("en-IN") : "N/A",
-          status: s.status || "ACTIVE",
+          rollNo: rollDisplay,
+          fullName: nameDisplay,
+          className: classDisplay,
+          gender: genderDisplay,
+          parentName: parentDisplay,
+          parentPhone: phoneDisplay,
+          admissionDate: admDateDisplay,
+          status: rawStatus.toUpperCase(),
         });
       });
 
@@ -298,28 +315,37 @@ export async function generateSchoolReport(
   // 2. TEACHERS REPORT
   else if (reportType === "TEACHERS") {
     try {
-      const q = query(collection(db, "schools", schoolId, "teachers"));
-      const snap = await getDocs(q);
+      let snap = await getDocs(query(collection(db, "schools", schoolId, "teachers")));
+      if (snap.empty) {
+        snap = await getDocs(query(collection(db, "teachers"), where("schoolId", "==", schoolId)));
+      }
       let activeCount = 0;
 
       snap.forEach((d) => {
         const t = d.data();
-        if (t.status === "ACTIVE" || !t.status) activeCount++;
+        const rawStatus = String(t.status || "active").toLowerCase();
+        if (rawStatus === "active") activeCount++;
 
         if (filters.search) {
-          const kw = filters.search.toLowerCase();
-          if (!(t.fullName || "").toLowerCase().includes(kw) && !(t.email || "").toLowerCase().includes(kw)) return;
+          const kw = filters.search.toLowerCase().trim();
+          const name = String(t.name || t.fullName || "").toLowerCase();
+          const email = String(t.email || "").toLowerCase();
+          const subj = String(t.specialization || t.subject || "").toLowerCase();
+          if (!name.includes(kw) && !email.includes(kw) && !subj.includes(kw)) return;
+        }
+        if (filters.status && filters.status !== "all") {
+          if (rawStatus !== String(filters.status).toLowerCase()) return;
         }
 
         rows.push({
           id: d.id,
-          fullName: t.fullName || t.name || "Teacher",
-          email: t.email || "N/A",
-          phone: t.phone || "N/A",
-          subject: t.subject || t.specialization || "General",
-          assignedClass: t.assignedClass || t.className || "None",
-          joiningDate: t.joiningDate || t.createdAt ? new Date(t.joiningDate || t.createdAt).toLocaleDateString("en-IN") : "N/A",
-          status: t.status || "ACTIVE",
+          fullName: t.name || t.fullName || "Teacher",
+          email: t.email || "-",
+          phone: t.phone || "-",
+          subject: t.specialization || t.subject || "General",
+          assignedClass: t.assignedClass || t.className || "-",
+          joiningDate: t.joiningDate || (t.createdAt ? (t.createdAt.toDate ? t.createdAt.toDate().toLocaleDateString("en-IN") : new Date(t.createdAt).toLocaleDateString("en-IN")) : "-"),
+          status: rawStatus.toUpperCase(),
         });
       });
 
@@ -335,23 +361,33 @@ export async function generateSchoolReport(
   // 3. ATTENDANCE REPORT
   else if (reportType === "ATTENDANCE") {
     try {
-      const q = query(collection(db, "schools", schoolId, "attendance"));
-      const snap = await getDocs(q);
+      let snap = await getDocs(query(collection(db, "attendance"), where("schoolId", "==", schoolId)));
+      if (snap.empty) {
+        snap = await getDocs(query(collection(db, "schools", schoolId, "attendance")));
+      }
       let presentCount = 0;
       let absentCount = 0;
 
       snap.forEach((d) => {
         const a = d.data();
-        if (a.status === "PRESENT") presentCount++;
-        if (a.status === "ABSENT") absentCount++;
+        const st = String(a.status || "").toUpperCase();
+        if (st === "PRESENT") presentCount++;
+        else if (st === "ABSENT") absentCount++;
+
+        if (filters.search) {
+          const kw = filters.search.toLowerCase().trim();
+          const sName = String(a.studentName || "").toLowerCase();
+          const cls = String(a.className || "").toLowerCase();
+          if (!sName.includes(kw) && !cls.includes(kw)) return;
+        }
 
         rows.push({
           id: d.id,
-          date: a.date ? new Date(a.date).toLocaleDateString("en-IN") : "Today",
+          date: a.date ? (typeof a.date === "string" ? a.date : new Date(a.date).toLocaleDateString("en-IN")) : "Today",
           studentName: a.studentName || "Student",
-          className: a.className || "Class",
-          status: a.status || "PRESENT",
-          markedBy: a.markedByName || a.markedBy || "Teacher",
+          className: a.className ? `${a.className} ${a.sectionName || ""}`.trim() : "Class",
+          status: st || "PRESENT",
+          markedBy: a.teacherName || a.markedByName || a.markedBy || "Teacher",
         });
       });
 
@@ -372,17 +408,19 @@ export async function generateSchoolReport(
   // 4. CLASSES REPORT
   else if (reportType === "CLASSES") {
     try {
-      const q = query(collection(db, "schools", schoolId, "classes"));
-      const snap = await getDocs(q);
+      let snap = await getDocs(query(collection(db, "schools", schoolId, "classes")));
+      if (snap.empty) {
+        snap = await getDocs(query(collection(db, "classes"), where("schoolId", "==", schoolId)));
+      }
 
       snap.forEach((d) => {
         const c = d.data();
         rows.push({
           id: d.id,
           className: c.name || c.className || "Class",
-          section: c.section || "A",
+          section: c.section || c.sectionName || "A",
           classTeacher: c.teacherName || c.classTeacher || "Not Assigned",
-          studentCount: c.studentCount || 0,
+          studentCount: c.studentCount || (Array.isArray(c.sections) ? c.sections.length : 0),
           capacity: c.capacity || 40,
         });
       });
@@ -396,30 +434,42 @@ export async function generateSchoolReport(
   // 5. FEES / PAYMENTS REPORT
   else if (reportType === "FEES_PAYMENTS") {
     try {
-      const q = query(collection(db, "schools", schoolId, "feePayments"));
-      const snap = await getDocs(q);
-      let totalCollectedPaise = 0;
+      let snap = await getDocs(query(collection(db, "feePayments"), where("schoolId", "==", schoolId)));
+      if (snap.empty) {
+        snap = await getDocs(query(collection(db, "schools", schoolId, "feePayments")));
+      }
+      let totalCollectedRupees = 0;
 
       snap.forEach((d) => {
         const f = d.data();
-        const amt = typeof f.amount === "number" ? f.amount : 0;
-        totalCollectedPaise += amt;
+        const amt = typeof f.amountPaidRupees === "number" ? f.amountPaidRupees : (typeof f.amount === "number" ? Math.round(f.amount / 100) : 0);
+        totalCollectedRupees += amt;
+
+        if (filters.search) {
+          const kw = filters.search.toLowerCase().trim();
+          const sName = String(f.studentName || "").toLowerCase();
+          const rNo = String(f.receiptNumber || f.receiptNo || "").toLowerCase();
+          const adm = String(f.admissionNumber || "").toLowerCase();
+          if (!sName.includes(kw) && !rNo.includes(kw) && !adm.includes(kw)) return;
+        }
+
+        const dateDisplay = f.createdAt ? (f.createdAt.toDate ? f.createdAt.toDate().toLocaleDateString("en-IN") : new Date(f.createdAt).toLocaleDateString("en-IN")) : (f.paidAt ? new Date(f.paidAt).toLocaleDateString("en-IN") : "Recent");
 
         rows.push({
           id: d.id,
-          receiptNo: f.receiptNo || d.id.slice(0, 8).toUpperCase(),
+          receiptNo: f.receiptNumber || f.receiptNo || d.id.slice(0, 8).toUpperCase(),
           studentName: f.studentName || "Student",
-          className: f.className || "Class",
-          amount: Math.round(amt / 100),
-          paymentMethod: f.method || "Cash / UPI",
-          paidAt: f.paidAt ? new Date(f.paidAt).toLocaleDateString("en-IN") : "Recent",
-          status: f.status || "PAID",
+          className: f.className ? `${f.className} ${f.sectionName || ""}`.trim() : "Class",
+          amount: amt,
+          paymentMethod: f.paymentMethod || f.method || "Cash",
+          paidAt: dateDisplay,
+          status: (f.status || "PAID").toUpperCase(),
         });
       });
 
       summaryMetrics.push(
         { label: "Total Fee Transactions", value: snap.size },
-        { label: "Total Collected (₹)", value: (totalCollectedPaise / 100).toLocaleString("en-IN") }
+        { label: "Total Collected (₹)", value: totalCollectedRupees.toLocaleString("en-IN") }
       );
     } catch (err) {
       console.warn("Fees report query error:", err);
@@ -444,7 +494,7 @@ export async function generateSchoolReport(
           planName: inv.planName || "Subscription Plan",
           billingCycle: inv.billingCycle || "MONTHLY",
           amount: Math.round(totalAmt / 100),
-          issuedAt: inv.createdAt ? new Date(inv.createdAt).toLocaleDateString("en-IN") : "Recent",
+          issuedAt: inv.createdAt ? (inv.createdAt.toDate ? inv.createdAt.toDate().toLocaleDateString("en-IN") : new Date(inv.createdAt).toLocaleDateString("en-IN")) : (inv.issuedAt || "Recent"),
           status: inv.status || "PAID",
         });
       });
@@ -461,18 +511,21 @@ export async function generateSchoolReport(
   // 7. ADMISSIONS REPORT
   else if (reportType === "ADMISSIONS") {
     try {
-      const q = query(collection(db, "schools", schoolId, "students"));
-      const snap = await getDocs(q);
+      let snap = await getDocs(query(collection(db, "schools", schoolId, "students")));
+      if (snap.empty) {
+        snap = await getDocs(query(collection(db, "students"), where("schoolId", "==", schoolId)));
+      }
 
       snap.forEach((d) => {
         const s = d.data();
+        const admDate = s.admissionDate || (s.createdAt ? (s.createdAt.toDate ? s.createdAt.toDate().toLocaleDateString("en-IN") : new Date(s.createdAt).toLocaleDateString("en-IN")) : "Recent");
         rows.push({
           id: d.id,
-          admissionNo: s.rollNo || s.admissionNo || d.id.slice(0, 6).toUpperCase(),
-          studentName: s.fullName || s.name || "Student",
-          classApplied: s.className || "Class 1",
-          guardianContact: s.parentPhone || s.phone || "N/A",
-          admissionDate: s.admissionDate ? new Date(s.admissionDate).toLocaleDateString("en-IN") : "N/A",
+          admissionNo: s.admissionNumber || s.rollNumber || s.studentId || d.id.slice(0, 6).toUpperCase(),
+          studentName: s.name || s.fullName || "Student",
+          classApplied: s.className ? `${s.className} ${s.sectionName || ""}`.trim() : "Class 1",
+          guardianContact: s.phone || s.parentPhone || "-",
+          admissionDate: admDate,
           status: "ENROLLED",
         });
       });

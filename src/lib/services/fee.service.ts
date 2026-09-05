@@ -408,6 +408,140 @@ export function subscribeToStudentFeePayments(
   );
 }
 
+export async function getStudentFeePayments(
+  schoolId: string,
+  studentId: string
+): Promise<FeePayment[]> {
+  const db = getFirebaseDb();
+  if (!db || !schoolId || !studentId) return [];
+  try {
+    const q = query(
+      collection(db, "feePayments"),
+      where("schoolId", "==", schoolId),
+      where("studentId", "==", studentId)
+    );
+    const snap = await getDocs(q);
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as FeePayment[];
+    list.sort((a, b) => b.paymentDate.localeCompare(a.paymentDate));
+    return list;
+  } catch (err) {
+    console.warn("getStudentFeePayments notice:", err);
+    return [];
+  }
+}
+
+export function matchesClass(structureClassName: string, studentClassName: string): boolean {
+  if (!structureClassName || !studentClassName) return false;
+  const s = structureClassName.trim().toLowerCase();
+  const st = studentClassName.trim().toLowerCase();
+  if (s === "all" || s === "any") return true;
+  if (s === st) return true;
+  if (s.replace(/\s+/g, "") === st.replace(/\s+/g, "")) return true;
+  const sDigits = s.replace(/[^0-9]/g, "");
+  const stDigits = st.replace(/[^0-9]/g, "");
+  if (sDigits && stDigits && sDigits === stDigits) return true;
+  return false;
+}
+
+export interface StudentFeeSummary {
+  assignment: StudentFeeAssignment;
+  recentPayments: FeePayment[];
+  paidMonths: string[];
+  lastPaidMonth: string | null;
+  pendingMonths: string[];
+  nextDueMonth: string | null;
+  monthlyFeeRupees: number;
+  totalPaidRupees: number;
+  totalPendingRupees: number;
+  lastPayment: FeePayment | null;
+}
+
+export async function getStudentFeeSummary(
+  schoolId: string,
+  student: {
+    id: string;
+    name: string;
+    admissionNumber?: string;
+    className?: string;
+    sectionName?: string;
+    admissionDate?: string;
+  },
+  academicYearId: string = "ay_current"
+): Promise<StudentFeeSummary> {
+  let assignment = await getStudentFeeAssignment(schoolId, student.id, academicYearId);
+  if (!assignment) {
+    assignment = await provisionStudentFeeAssignment(
+      schoolId,
+      {
+        id: student.id,
+        name: student.name,
+        admissionNumber: student.admissionNumber || student.id,
+        className: student.className || "",
+        sectionName: student.sectionName || "A",
+        admissionDate: student.admissionDate,
+      },
+      academicYearId
+    );
+  }
+
+  const payments = await getStudentFeePayments(schoolId, student.id);
+  const structures = await getFeeStructures(schoolId, academicYearId);
+  const classStructures = structures.filter(
+    (s) => s.status === "ACTIVE" && matchesClass(s.className, student.className || "")
+  );
+
+  // Compute monthly rate
+  let monthlyFeeRupees = 0;
+  classStructures.forEach((s) => {
+    if (s.frequency === "monthly") monthlyFeeRupees += s.amountPaise / 100;
+  });
+
+  if (monthlyFeeRupees === 0) {
+    // If ledger has non-zero amount for active months, derive from ledger
+    const nonZeroMonth = assignment.monthLedger.find((m) => m.amountPaise > 0);
+    if (nonZeroMonth) {
+      monthlyFeeRupees = nonZeroMonth.amountPaise / 100;
+    } else {
+      monthlyFeeRupees = 500; // fallback standard rate
+    }
+  }
+
+  // Determine paid vs pending
+  const paidMonths: string[] = [];
+  const pendingMonths: string[] = [];
+  let lastPaidMonth: string | null = null;
+  let nextDueMonth: string | null = null;
+
+  assignment.monthLedger.forEach((item) => {
+    if (item.status === "PAID" || (item.pendingAmountPaise === 0 && item.amountPaise > 0)) {
+      paidMonths.push(item.month);
+      lastPaidMonth = item.month;
+    } else {
+      pendingMonths.push(item.month);
+      if (!nextDueMonth) {
+        nextDueMonth = item.month;
+      }
+    }
+  });
+
+  const totalPaidRupees = assignment.totalPaidPaise / 100;
+  const totalPendingRupees = assignment.totalPendingPaise / 100;
+  const lastPayment = payments.length > 0 ? payments[0] : null;
+
+  return {
+    assignment,
+    recentPayments: payments.slice(0, 5),
+    paidMonths,
+    lastPaidMonth,
+    pendingMonths,
+    nextDueMonth,
+    monthlyFeeRupees,
+    totalPaidRupees,
+    totalPendingRupees,
+    lastPayment,
+  };
+}
+
 export async function provisionStudentFeeAssignment(
   schoolId: string,
   student: {
@@ -422,7 +556,7 @@ export async function provisionStudentFeeAssignment(
 ): Promise<StudentFeeAssignment> {
   const structures = await getFeeStructures(schoolId, academicYearId);
   const applicableStructures = structures.filter(
-    (s) => s.status === "ACTIVE" && (s.className === "all" || s.className === student.className)
+    (s) => s.status === "ACTIVE" && matchesClass(s.className, student.className)
   );
 
   const monthLedger: MonthLedgerItem[] = [];
@@ -459,11 +593,16 @@ export async function provisionStudentFeeAssignment(
     }
 
     let monthAmountPaise = 0;
-    applicableStructures.forEach((s) => {
-      if (s.frequency === "monthly") monthAmountPaise += s.amountPaise;
-      else if (s.frequency === "one_time" && idx === startCycleIdx) monthAmountPaise += s.amountPaise;
-      else if (s.frequency === "annual" && idx === startCycleIdx) monthAmountPaise += s.amountPaise;
-    });
+    if (applicableStructures.length > 0) {
+      applicableStructures.forEach((s) => {
+        if (s.frequency === "monthly") monthAmountPaise += s.amountPaise;
+        else if (s.frequency === "one_time" && idx === startCycleIdx) monthAmountPaise += s.amountPaise;
+        else if (s.frequency === "annual" && idx === startCycleIdx) monthAmountPaise += s.amountPaise;
+      });
+    } else {
+      const anyMonthly = structures.find((s) => s.status === "ACTIVE" && s.frequency === "monthly");
+      monthAmountPaise = anyMonthly ? anyMonthly.amountPaise : 50000;
+    }
 
     monthLedger.push({
       month: `${m} ${year}`,
@@ -669,7 +808,14 @@ export async function collectFeePayment(
 
   assignment.monthLedger = assignment.monthLedger.map((item) => {
     if (input.periodMonths.includes(item.month)) {
-      const needed = item.pendingAmountPaise;
+      // If item.amountPaise is 0 or less than payment, ensure it reflects at least the fee being collected
+      const allocatedAmount = Math.max(item.amountPaise, Math.round(amountPaidPaise / Math.max(1, input.periodMonths.length)));
+      if (item.amountPaise < allocatedAmount) {
+        item.amountPaise = allocatedAmount;
+        item.pendingAmountPaise = Math.max(0, item.amountPaise - item.paidAmountPaise - item.discountPaise);
+      }
+
+      const needed = item.pendingAmountPaise > 0 ? item.pendingAmountPaise : item.amountPaise;
       const curDiscount = Math.min(needed, remainingDiscountPaise);
       remainingDiscountPaise -= curDiscount;
 
@@ -698,6 +844,7 @@ export async function collectFeePayment(
     return item;
   });
 
+  assignment.totalAssignedPaise = assignment.monthLedger.reduce((sum, item) => sum + item.amountPaise, 0);
   assignment.totalPaidPaise += amountPaidPaise;
   assignment.totalDiscountPaise += discountPaise;
   assignment.totalLateFeePaise += lateFeePaise;

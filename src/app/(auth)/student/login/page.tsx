@@ -108,14 +108,14 @@ export default function StudentLoginPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <AuthInput
             id="student-email"
-            type="email"
-            label="Email / Student ID"
+            type="text"
+            label="Email or Student Unique ID"
             required
             autoComplete="username"
             icon={<Mail className="h-4 w-4" />}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="student@school.com"
+            placeholder="e.g. SBCI1 or student@school.com"
             disabled={isSubmitting}
           />
 

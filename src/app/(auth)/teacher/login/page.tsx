@@ -108,14 +108,14 @@ export default function TeacherLoginPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <AuthInput
             id="teacher-email"
-            type="email"
-            label="Email Address"
+            type="text"
+            label="Email or Teacher ID / Code"
             required
-            autoComplete="email"
+            autoComplete="username"
             icon={<Mail className="h-4 w-4" />}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="teacher@school.com"
+            placeholder="e.g. SBCI-T1 or teacher@school.com"
             disabled={isSubmitting}
           />
 

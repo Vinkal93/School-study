@@ -57,7 +57,7 @@ export function ClassicSchoolAdminDashboard() {
     return <PageSkeleton hasStats={true} hasTable={false} className="py-4" />;
   }
 
-  const isSetupIncomplete = !school?.setupCompleted;
+  const isSetupIncomplete = !school?.setupCompleted && !school?.onboardingCompleted;
 
   return (
     <EntitlementGate

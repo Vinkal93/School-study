@@ -29,6 +29,14 @@ service firebase.storage {
                    && request.resource.contentType.matches('image/.*');
     }
 
+    // School branding (logos, banners): Publicly readable, writable by authenticated users
+    match /schools/{schoolId}/branding/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAuthenticated()
+                   && request.resource.size < 5 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+
     // Multi-tenant school documents & photos: Max 15MB, strictly isolated by schoolId
     match /schools/{schoolId}/{allPaths=**} {
       allow read: if isSchoolMember(schoolId);

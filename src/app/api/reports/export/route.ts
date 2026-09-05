@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { generateSchoolReport, generateGlobalSuperAdminReport } from "@/lib/reports/reportEngine";
+import { generateSchoolReport, generateGlobalSuperAdminReport, REPORT_CONFIGS } from "@/lib/reports/reportEngine";
 import { exportToCsv, exportToExcel, exportToPdf } from "@/lib/reports/exportEngine";
 import type { SchoolReportType, SuperAdminReportType, ReportExportFormat } from "@/types/reports";
 import { createBillingAuditLog } from "@/lib/billing/audit";
@@ -62,7 +62,26 @@ export async function POST(request: Request) {
         }
       }
 
-      reportResult = await generateSchoolReport(schoolId, reportType as SchoolReportType, filters, userPlanTier);
+      if (body.clientRows && Array.isArray(body.clientRows) && body.clientRows.length > 0) {
+        const config = REPORT_CONFIGS[reportType as SchoolReportType];
+        reportResult = {
+          reportType: reportType as SchoolReportType,
+          title: config?.title || "Report",
+          description: "Official Institutional Record",
+          schoolName: body.schoolName || "School",
+          schoolId,
+          generatedAt: new Date().toISOString(),
+          columns: config?.columns || [],
+          rows: body.clientRows,
+          summaryMetrics: [
+            { label: "Total Records", value: body.clientRows.length },
+          ],
+          totalRecords: body.clientRows.length,
+          isRestricted: false,
+        };
+      } else {
+        reportResult = await generateSchoolReport(schoolId, reportType as SchoolReportType, filters, userPlanTier);
+      }
     }
 
     const timestamp = new Date().toISOString().split("T")[0];

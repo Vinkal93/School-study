@@ -29,7 +29,9 @@ import {
   Camera,
   RotateCcw,
   ArrowRightLeft,
+  Crop,
 } from "lucide-react";
+import { ImageCropModal } from "@/components/common/ImageCropModal";
 import {
   getStudents,
   createStudentWithAuth,
@@ -110,6 +112,7 @@ export default function AdminStudentsPage() {
   const [admissionDate, setAdmissionDate] = useState(new Date().toISOString().split("T")[0]);
   const [selectedClassId, setSelectedClassId] = useState("");
   const [selectedSectionId, setSelectedSectionId] = useState("");
+  const [usePhoneAsPassword, setUsePhoneAsPassword] = useState(false);
 
   // Photo for Enroll Modal
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -122,6 +125,11 @@ export default function AdminStudentsPage() {
   const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null);
   const [isUpdatingPhoto, setIsUpdatingPhoto] = useState(false);
 
+  // Photo Cropping State
+  const [rawImageForCrop, setRawImageForCrop] = useState<string | null>(null);
+  const [cropTarget, setCropTarget] = useState<"edit" | "enroll" | null>(null);
+  const [cropFileName, setCropFileName] = useState("student_photo.jpg");
+
   const loadData = async () => {
     if (!schoolId) return;
     await Promise.all([refetchStudents(true), refetchLimit(true)]);
@@ -130,25 +138,49 @@ export default function AdminStudentsPage() {
   const handlePhotoChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (file.size > 2 * 1024 * 1024) {
-        toast.error("Photo size must be less than 2MB.");
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error("Photo size must be less than 5MB.");
         return;
       }
-      setPhotoFile(file);
-      setPhotoPreview(URL.createObjectURL(file));
+      setCropFileName(file.name);
+      setCropTarget("enroll");
+      const reader = new FileReader();
+      reader.onload = () => {
+        setRawImageForCrop(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+      e.target.value = "";
     }
   };
 
   const handleEditPhotoChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (file.size > 2 * 1024 * 1024) {
-        toast.error("Photo size must be less than 2MB.");
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error("Photo size must be less than 5MB.");
         return;
       }
-      setEditPhotoFile(file);
-      setEditPhotoPreview(URL.createObjectURL(file));
+      setCropFileName(file.name);
+      setCropTarget("edit");
+      const reader = new FileReader();
+      reader.onload = () => {
+        setRawImageForCrop(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+      e.target.value = "";
     }
+  };
+
+  const handleCropComplete = (croppedFile: File, previewUrl: string) => {
+    if (cropTarget === "edit") {
+      setEditPhotoFile(croppedFile);
+      setEditPhotoPreview(previewUrl);
+    } else if (cropTarget === "enroll") {
+      setPhotoFile(croppedFile);
+      setPhotoPreview(previewUrl);
+    }
+    setRawImageForCrop(null);
+    setCropTarget(null);
   };
 
   const handleUpdateStudentPhoto = async (e: FormEvent) => {
@@ -246,6 +278,7 @@ export default function AdminStudentsPage() {
     setSelectedSectionId("");
     setPhotoFile(null);
     setPhotoPreview(null);
+    setUsePhoneAsPassword(false);
   };
 
   const handleToggleStatus = async (stu: StudentProfile) => {
@@ -608,114 +641,150 @@ export default function AdminStudentsPage() {
         ) : (
           <>
             {/* Mobile Card List (< sm) */}
-            <div className="block sm:hidden divide-y divide-gray-200 dark:divide-gray-800">
+            <div className="block sm:hidden p-3 space-y-3">
               {filteredStudents.map((s) => (
-                <div key={s.id} className="p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div
+                <div
+                  key={s.id}
+                  className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 shadow-xs space-y-3.5 hover:border-blue-300 dark:hover:border-blue-800 transition-all"
+                >
+                  {/* Top Row: Avatar + Name & IDs + Status Badge */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      {/* Avatar with edit photo trigger */}
+                      <button
+                        type="button"
                         onClick={() => {
                           setPhotoEditingStudent(s);
                           setEditPhotoPreview(s.photoUrl || null);
                           setEditPhotoFile(null);
                         }}
-                        className="relative cursor-pointer group shrink-0"
+                        className="relative cursor-pointer group shrink-0 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500"
                         title="Click to upload/change photo"
                       >
                         {s.photoUrl ? (
                           <img
                             src={s.photoUrl}
                             alt={s.name}
-                            className="h-11 w-11 rounded-full object-cover border-2 border-blue-100 group-hover:opacity-80 transition-all shadow-sm"
+                            className="h-12 w-12 rounded-full object-cover border-2 border-slate-100 dark:border-slate-800 shadow-xs group-hover:opacity-85 transition-opacity"
                           />
                         ) : (
-                          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-purple-100 font-bold text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 border border-purple-200">
-                            {s.name.charAt(0)}
+                          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-linear-to-br from-blue-600 to-indigo-700 font-extrabold text-white text-base shadow-xs">
+                            {s.name.charAt(0).toUpperCase()}
                           </div>
                         )}
-                        <div className="absolute -bottom-1 -right-1 p-1 bg-blue-600 text-white rounded-full shadow-sm">
+                        <div className="absolute -bottom-1 -right-1 p-1 bg-blue-600 text-white rounded-full shadow-md group-hover:scale-110 transition-transform">
                           <Camera className="h-2.5 w-2.5" />
                         </div>
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-100 text-[10px] font-bold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-                            {s.rollNumber ?? "-"}
+                      </button>
+
+                      {/* Name + Roll No + Student ID */}
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                          {s.name}
+                        </h3>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/70 text-[10px] font-mono font-bold text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800">
+                            Roll #{s.rollNumber ?? "-"}
                           </span>
-                          <p className="font-bold text-gray-900 dark:text-white text-sm">{s.name}</p>
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono font-semibold text-slate-600 dark:text-slate-400">
+                            {s.studentId || s.admissionNumber}
+                          </span>
                         </div>
-                        <p className="text-[11px] text-gray-500 dark:text-gray-400 font-mono">
-                          {s.studentId || s.admissionNumber}
-                        </p>
                       </div>
                     </div>
 
+                    {/* Status Chip */}
                     <span
-                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                      className={`shrink-0 inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold capitalize ${
                         s.status === "active"
-                          ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400"
+                          ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
                           : s.status === "deleted"
-                          ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-                          : "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"
+                          ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
+                          : "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800"
                       }`}
                     >
+                      <span className={`h-1.5 w-1.5 rounded-full ${s.status === "active" ? "bg-emerald-500" : s.status === "deleted" ? "bg-slate-400" : "bg-rose-500"}`} />
                       {s.status}
                     </span>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-0.5 font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
-                      <BookOpen className="h-3 w-3" />
-                      {s.className} ({s.sectionName})
+                  {/* Middle Meta Info Chips: Class/Section + Phone Contact */}
+                  <div className="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
+                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/50 px-2.5 py-1 font-semibold text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-900/60">
+                      <BookOpen className="h-3.5 w-3.5 text-blue-500" />
+                      <span>{s.className} ({s.sectionName})</span>
                     </span>
-                    {s.phone && (
-                      <span className="text-gray-500 dark:text-gray-400 flex items-center gap-1">
-                        <Phone className="h-3 w-3" />
-                        {s.phone}
+
+                    {s.phone ? (
+                      <a
+                        href={`tel:${s.phone}`}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 px-2.5 py-1 font-medium text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 hover:text-blue-600 transition-colors"
+                      >
+                        <Phone className="h-3.5 w-3.5 text-slate-400" />
+                        <span>{s.phone}</span>
+                      </a>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-xl bg-slate-50 dark:bg-slate-800/50 px-2 py-1 text-slate-400 text-[11px]">
+                        No phone
+                      </span>
+                    )}
+
+                    {s.gender && (
+                      <span className="inline-flex items-center rounded-xl bg-slate-50 dark:bg-slate-800/50 px-2 py-1 text-slate-500 dark:text-slate-400 text-[11px] capitalize font-medium">
+                        {s.gender}
                       </span>
                     )}
                   </div>
 
-                  <div className="pt-1 flex items-center justify-end gap-2">
+                  {/* Action Buttons: Full-width symmetric grid */}
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80">
                     {s.status === "deleted" ? (
                       <button
+                        type="button"
                         onClick={() => handleRestoreStudent(s)}
-                        className="text-xs font-semibold px-3 py-1 rounded-md border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 flex items-center gap-1"
+                        className="w-full text-xs font-bold py-2 rounded-xl border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 flex items-center justify-center gap-1.5 active:scale-95 transition-all"
                       >
-                        <RotateCcw className="h-3 w-3" />
+                        <RotateCcw className="h-3.5 w-3.5" />
                         Restore Student
                       </button>
                     ) : (
-                      <>
+                      <div className="grid grid-cols-3 gap-2">
                         <button
+                          type="button"
                           onClick={() => {
                             setTransferringStudent(s);
                             setTargetClassId("");
                             setTargetSectionId("");
                           }}
-                          className="text-xs font-semibold px-2.5 py-1 rounded-md border border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100 flex items-center gap-1"
+                          className="w-full text-xs font-bold py-2 rounded-xl border border-purple-200 text-purple-700 bg-purple-50/80 hover:bg-purple-100 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800 flex items-center justify-center gap-1 active:scale-95 transition-all cursor-pointer"
                         >
-                          <ArrowRightLeft className="h-3 w-3" />
-                          Transfer
+                          <ArrowRightLeft className="h-3.5 w-3.5 shrink-0" />
+                          <span>Transfer</span>
                         </button>
+
                         <button
+                          type="button"
                           onClick={() => handleToggleStatus(s)}
                           disabled={togglingId === s.id}
-                          className={`text-xs font-semibold px-3 py-1 rounded-md border ${
+                          className={`w-full text-xs font-bold py-2 rounded-xl border flex items-center justify-center gap-1 active:scale-95 transition-all cursor-pointer ${
                             s.status === "active"
-                              ? "border-red-200 text-red-600 bg-red-50/50"
-                              : "border-green-200 text-green-600 bg-green-50/50"
+                              ? "border-amber-200 text-amber-700 bg-amber-50/80 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
+                              : "border-emerald-200 text-emerald-700 bg-emerald-50/80 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
                           }`}
                         >
-                          {s.status === "active" ? "Deactivate" : "Activate"}
+                          <Power className="h-3.5 w-3.5 shrink-0" />
+                          <span>{s.status === "active" ? "Deactivate" : "Activate"}</span>
                         </button>
+
                         <button
+                          type="button"
                           onClick={() => handleDeleteStudent(s)}
-                          className="text-xs font-semibold px-2.5 py-1 rounded-md border border-rose-200 text-rose-600 bg-rose-50 hover:bg-rose-100"
+                          className="w-full text-xs font-bold py-2 rounded-xl border border-rose-200 text-rose-600 bg-rose-50/80 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800 flex items-center justify-center gap-1 active:scale-95 transition-all cursor-pointer"
                         >
-                          Delete
+                          <Trash2 className="h-3.5 w-3.5 shrink-0" />
+                          <span>Delete</span>
                         </button>
-                      </>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1050,9 +1119,35 @@ export default function AdminStudentsPage() {
                 </div>
 
                 <div>
-                  <label htmlFor="student-password" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 cursor-pointer">
-                    Initial Password <span className="text-red-500">*</span> (Min 6 chars)
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label htmlFor="student-password" className="block text-xs font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+                      Initial Password <span className="text-red-500">*</span> (Min 6 chars)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !usePhoneAsPassword;
+                        setUsePhoneAsPassword(next);
+                        if (next) {
+                          const digits = phone.replace(/\D/g, "");
+                          if (digits) setPassword(digits);
+                        }
+                      }}
+                      className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded transition-colors ${
+                        usePhoneAsPassword
+                          ? "bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300 dark:border-blue-800"
+                          : "text-blue-600 hover:text-blue-800 dark:text-blue-400 hover:underline"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={usePhoneAsPassword}
+                        onChange={() => {}}
+                        className="h-3 w-3 rounded text-blue-600 focus:ring-blue-500 pointer-events-none"
+                      />
+                      Same as Phone as Password
+                    </button>
+                  </div>
                   <input
                     id="student-password"
                     name="password"
@@ -1060,10 +1155,20 @@ export default function AdminStudentsPage() {
                     required
                     minLength={6}
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (usePhoneAsPassword && e.target.value !== phone.replace(/\D/g, "")) {
+                        setUsePhoneAsPassword(false);
+                      }
+                    }}
                     placeholder="••••••••"
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
                   />
+                  {usePhoneAsPassword && (
+                    <p className="text-[11px] text-blue-600 dark:text-blue-400 mt-1">
+                      ✓ Password synced to phone digits ({phone ? phone.replace(/\D/g, "") || "enter phone below" : "enter phone below"}).
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -1075,7 +1180,14 @@ export default function AdminStudentsPage() {
                     name="phone"
                     type="tel"
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setPhone(val);
+                      if (usePhoneAsPassword) {
+                        const digits = val.replace(/\D/g, "");
+                        setPassword(digits);
+                      }
+                    }}
                     placeholder="e.g. +91 98765 43210"
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
                   />
@@ -1209,17 +1321,35 @@ export default function AdminStudentsPage() {
                   </div>
                 )}
 
-                <label className="cursor-pointer inline-flex items-center gap-2 rounded-xl bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 px-4 py-2 text-xs font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-100 transition-colors shadow-sm">
-                  <Upload className="h-4 w-4" />
-                  <span>{editPhotoFile ? "Choose Different Photo" : "Select Student Photo"}</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleEditPhotoChange}
-                    className="hidden"
-                  />
-                </label>
-                <p className="text-[11px] text-gray-400">JPG, PNG, or WEBP (Auto-compressed for instant loading)</p>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <label className="cursor-pointer inline-flex items-center gap-2 rounded-xl bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 px-4 py-2 text-xs font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-100 transition-colors shadow-xs">
+                    <Upload className="h-4 w-4" />
+                    <span>{editPhotoFile ? "Choose Different Photo" : "Select Student Photo"}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleEditPhotoChange}
+                      className="hidden"
+                    />
+                  </label>
+
+                  {editPhotoPreview && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRawImageForCrop(editPhotoPreview);
+                        setCropTarget("edit");
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                    >
+                      <Crop className="h-3.5 w-3.5 text-blue-600" />
+                      <span>Adjust / Crop</span>
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-gray-400 text-center">
+                  Drag & zoom to center face • Auto-compressed for fast loading
+                </p>
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-gray-800">
@@ -1367,6 +1497,21 @@ export default function AdminStudentsPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Interactive Image Crop & Adjust Modal */}
+      {rawImageForCrop && (
+        <ImageCropModal
+          isOpen={Boolean(rawImageForCrop)}
+          imageSrc={rawImageForCrop}
+          fileName={cropFileName}
+          title={cropTarget === "enroll" ? "Adjust Student Photo" : "Adjust & Crop Photo"}
+          onCropComplete={handleCropComplete}
+          onCancel={() => {
+            setRawImageForCrop(null);
+            setCropTarget(null);
+          }}
+        />
       )}
       </div>
     </EntitlementGate>

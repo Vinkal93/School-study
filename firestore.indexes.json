@@ -44,6 +44,14 @@
         { "fieldPath": "classId", "order": "ASCENDING" },
         { "fieldPath": "name", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "bells",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "classId", "order": "ASCENDING" },
+        { "fieldPath": "bellNumber", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

@@ -8,8 +8,8 @@ export interface SupportHelpSectionProps {
 }
 
 export function SupportHelpSection({ siteSettings }: SupportHelpSectionProps) {
-  const email = siteSettings?.supportEmail || "support@schoolstudy.in";
-  const phone = siteSettings?.supportPhone || "+91 8000 123 456";
+  const email = siteSettings?.supportEmail || "SBCI224234@gmail.com";
+  const phone = siteSettings?.supportPhone || "+91 9118245636";
   const hours = siteSettings?.supportHours || "Mon - Sat (9:00 AM - 7:00 PM IST)";
 
   return (
@@ -43,7 +43,9 @@ export function SupportHelpSection({ siteSettings }: SupportHelpSectionProps) {
           </div>
           <div>
             <span className="font-bold text-slate-900 dark:text-white block">Direct Helpline</span>
-            <span className="text-slate-700 dark:text-slate-300 font-bold mt-0.5 block">{phone}</span>
+            <a href={`tel:${phone.replace(/\s+/g, "")}`} className="text-slate-700 dark:text-slate-300 font-bold hover:text-blue-600 dark:hover:text-blue-400 mt-0.5 block">
+              {phone}
+            </a>
           </div>
         </div>
 

@@ -138,6 +138,37 @@ export async function getSubscriptionReminder(
   // Target role filter (Section 7)
   const isRoleTargeted = policy.targetRoles?.includes(userRole as any) ?? userRole === "school_admin";
 
+  if (sub.status === "CANCELLED") {
+    return {
+      shouldRemind: isRoleTargeted,
+      daysRemaining: 0,
+      severity: "expired",
+      title: "Subscription Cancelled",
+      message: "Your subscription has been cancelled. Recharge to reactivate your plan.",
+      showPopup: isRoleTargeted,
+      showBanner: isRoleTargeted,
+      showRechargeButton: canRecharge,
+      canRecharge,
+      accessMode: "NO_ACCESS",
+    };
+  }
+
+  // Lifetime / unlimited plan guard
+  if ((sub.billingCycle as string) === "lifetime" || (sub as any).isLifetime) {
+    return {
+      shouldRemind: false,
+      daysRemaining: 9999,
+      severity: "info",
+      title: "",
+      message: "",
+      showPopup: false,
+      showBanner: false,
+      showRechargeButton: false,
+      canRecharge: false,
+      accessMode,
+    };
+  }
+
   if (accessMode === "NO_ACCESS") {
     return {
       shouldRemind: isRoleTargeted,
@@ -170,14 +201,16 @@ export async function getSubscriptionReminder(
     };
   }
 
-  // Super Admin Configured Thresholds Guard
-  const reminderCutoffs = (policy.reminderDays && policy.reminderDays.length > 0)
-    ? policy.reminderDays
-    : [7, 3, 1];
-  const maxReminderDays = Math.max(...reminderCutoffs);
+  // Super Admin Configurable Threshold Guard
+  const configuredThreshold =
+    typeof policy.renewalNoticeThresholdDays === "number"
+      ? policy.renewalNoticeThresholdDays
+      : policy.reminderDays && policy.reminderDays.length > 0
+      ? Math.max(...policy.reminderDays)
+      : 7;
 
-  // If daysRemaining is higher than the max cutoff set by Super Admin, do not show any reminder
-  if (daysRemaining > maxReminderDays) {
+  // If daysRemaining is higher than the threshold set by Super Admin, do not show any renewal notice
+  if (daysRemaining > configuredThreshold || !isRoleTargeted) {
     return {
       shouldRemind: false,
       daysRemaining,
@@ -192,71 +225,43 @@ export async function getSubscriptionReminder(
     };
   }
 
-  // Find active matching reminder threshold sorted by closest threshold
-  const activeReminders = policy.reminders
-    .filter((r) => r.enabled && r.daysBeforeExpiry <= maxReminderDays && daysRemaining <= r.daysBeforeExpiry)
-    .sort((a, b) => a.daysBeforeExpiry - b.daysBeforeExpiry);
+  // Authoritative dynamic countdown formatting
+  let dynamicTitle = "Subscription Renewal Notice";
+  let dynamicMessage = "";
 
-  let matchedReminder = activeReminders[0];
-
-  // If no predefined template matched but daysRemaining is within configured cutoff, build dynamic reminder
-  if (!matchedReminder && reminderCutoffs.some((d) => daysRemaining <= d)) {
-    matchedReminder = {
-      id: `rem_${daysRemaining}d`,
-      daysBeforeExpiry: daysRemaining,
-      enabled: true,
-      priority: daysRemaining <= 3 ? "urgent" : daysRemaining <= 7 ? "high" : "medium",
-      title: daysRemaining <= 3 ? "Urgent: Subscription Expiring" : "Subscription Renewal Notice",
-      message: `Your School Study plan expires in ${daysRemaining} day${daysRemaining === 1 ? "" : "s"}. Recharge now to keep your school running smoothly.`,
-      showPopup: daysRemaining <= 3,
-      showBanner: true,
-      showRechargeButton: true,
-      frequency: "SHOW_DAILY",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+  if (daysRemaining === 0) {
+    dynamicTitle = "Subscription Renewal Notice";
+    dynamicMessage = "Your School Study plan expires today. Recharge now to keep your school running smoothly.";
+  } else if (daysRemaining === 1) {
+    dynamicTitle = "Subscription Renewal Notice";
+    dynamicMessage = "Your School Study plan expires tomorrow. Recharge now to keep your school running smoothly.";
+  } else {
+    dynamicTitle = daysRemaining <= 3 ? "Urgent: Subscription Expiring" : "Subscription Renewal Notice";
+    dynamicMessage = `Your School Study plan expires in ${daysRemaining} days. Recharge now to keep your school running smoothly.`;
   }
 
-  if (!matchedReminder || !isRoleTargeted) {
-    return {
-      shouldRemind: false,
-      daysRemaining,
-      severity: "info",
-      title: "",
-      message: "",
-      showPopup: false,
-      showBanner: false,
-      showRechargeButton: canRecharge,
-      canRecharge,
-      accessMode,
-    };
-  }
+  const reminderId = `rem_${daysRemaining}d`;
+  const severity: SubscriptionReminderResult["severity"] =
+    daysRemaining <= 1 ? "critical" : daysRemaining <= 3 ? "urgent" : "warning";
 
   // Check frequency deduplication
   const showPopupAllowed = await shouldShowNotificationTrack(
     schoolId,
-    matchedReminder.id,
-    matchedReminder.frequency,
+    reminderId,
+    daysRemaining <= 1 ? "SHOW_ON_LOGIN" : "SHOW_DAILY",
     nowMs
   );
 
-  const severityMap: Record<string, SubscriptionReminderResult["severity"]> = {
-    low: "info",
-    medium: "warning",
-    high: "urgent",
-    urgent: "critical",
-  };
-
   return {
     shouldRemind: true,
-    reminderId: matchedReminder.id,
+    reminderId,
     daysRemaining,
-    severity: severityMap[matchedReminder.priority] || "warning",
-    title: matchedReminder.title,
-    message: matchedReminder.message.replace("${daysRemaining}", String(daysRemaining)),
-    showPopup: matchedReminder.showPopup && showPopupAllowed,
-    showBanner: matchedReminder.showBanner,
-    showRechargeButton: matchedReminder.showRechargeButton && canRecharge,
+    severity,
+    title: dynamicTitle,
+    message: dynamicMessage,
+    showPopup: daysRemaining <= 3 && showPopupAllowed,
+    showBanner: true,
+    showRechargeButton: canRecharge,
     canRecharge,
     accessMode,
   };

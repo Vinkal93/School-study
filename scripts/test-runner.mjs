@@ -25,6 +25,7 @@ const testSuites = [
   { name: "Dynamic Pricing, GST & Coupon Engine", file: "scripts/test-dynamic-pricing-gst-coupons-standalone.mjs" },
   { name: "Super Admin Emergency Control Center", file: "scripts/test-emergency-control-center.mjs" },
   { name: "Realtime Notification & Live Event System", file: "scripts/test-realtime-notification-system.ts" },
+  { name: "Subscription Renewal & Responsive System", file: "scripts/test-subscription-renewal-system.mjs" },
 ];
 
 console.log("==================================================");

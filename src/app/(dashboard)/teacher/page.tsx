@@ -36,10 +36,16 @@ import {
   type AssignedClassInfo,
 } from "@/lib/services/teacher-portal.service";
 import { subscribeToTeacherHomework } from "@/lib/services/homework.service";
-import { getClassBells, getCurrentDayOfWeek } from "@/lib/services/timetable.service";
+import {
+  getClassBells,
+  getTeacherBells,
+  getCurrentDayOfWeek,
+  calculateBellStatus,
+} from "@/lib/services/timetable.service";
 import { getNoticesForTeacher } from "@/lib/services/notice.service";
 import type { TeacherProfile, TeacherTask, Notice } from "@/types";
 import type { HomeworkItem, ClassBell } from "@/types/timetable";
+import { useClassBellAlert } from "@/hooks/use-class-bell-alert";
 import { toast } from "sonner";
 
 export default function TeacherDashboardPage() {
@@ -47,6 +53,9 @@ export default function TeacherDashboardPage() {
   const schoolId = profile?.schoolId || "";
   const teacherUid = profile?.uid || "";
   const teacherEmail = profile?.email || "";
+
+  // Mount real-time class bell audio and banner alert hook
+  useClassBellAlert();
 
   const [loading, setLoading] = useState(true);
   const [teacher, setTeacher] = useState<TeacherProfile | null>(null);
@@ -88,16 +97,31 @@ export default function TeacherDashboardPage() {
         );
         if (isMounted) setNotices(noticeList.slice(0, 3));
 
-        // Load today bells across assigned classes
+        // Load today bells across teacher assigned and class bells
+        const teacherAssignedBells = await getTeacherBells(schoolId, teacherUid, currentDay);
+        const classBellsAcc: ClassBell[] = [];
         if (ctx.assignedClasses.length > 0) {
-          const allBells: ClassBell[] = [];
           for (const cls of ctx.assignedClasses) {
-            const bells = await getClassBells(schoolId, cls.classId, currentDay);
-            allBells.push(...bells);
+            const bells = await getClassBells(schoolId, cls.classId, currentDay, cls.sectionId);
+            classBellsAcc.push(...bells);
           }
-          allBells.sort((a, b) => a.bellNumber - b.bellNumber);
-          if (isMounted) setTodayBells(allBells);
         }
+
+        const bellMap = new Map<string, ClassBell>();
+        teacherAssignedBells.forEach((b) => bellMap.set(b.id, b));
+        classBellsAcc.forEach((b) => {
+          if (!b.teacherId || b.teacherId === teacherUid) {
+            bellMap.set(b.id, b);
+          }
+        });
+
+        const sortedBells = Array.from(bellMap.values()).sort((a, b) => {
+          const startDiff = (a.startTime || "").localeCompare(b.startTime || "");
+          if (startDiff !== 0) return startDiff;
+          return (a.bellNumber || 0) - (b.bellNumber || 0);
+        });
+
+        if (isMounted) setTodayBells(sortedBells);
       } catch (err) {
         console.error("Failed to load teacher dashboard context:", err);
       } finally {
@@ -256,54 +280,8 @@ export default function TeacherDashboardPage() {
           },
         ];
 
-  // Fallback demo timetable bells if none configured (matching reference image)
-  const displayBells =
-    todayBells.length > 0
-      ? todayBells.slice(0, 5)
-      : [
-          {
-            id: "b-1",
-            bellNumber: 1,
-            startTime: "08:00",
-            endTime: "08:40",
-            className: "Class 6-A",
-            subject: "Mathematics",
-            status: "Ongoing",
-          },
-          {
-            id: "b-2",
-            bellNumber: 2,
-            startTime: "08:40",
-            endTime: "09:20",
-            className: "Class 7-B",
-            subject: "Science",
-            status: "Next",
-          },
-          {
-            id: "b-3",
-            bellNumber: 3,
-            startTime: "09:40",
-            endTime: "10:20",
-            className: "Class 8-A",
-            subject: "English",
-          },
-          {
-            id: "b-4",
-            bellNumber: 4,
-            startTime: "10:30",
-            endTime: "11:10",
-            className: "Class 6-B",
-            subject: "Mathematics",
-          },
-          {
-            id: "b-5",
-            bellNumber: 5,
-            startTime: "11:20",
-            endTime: "12:00",
-            className: "Class 9-A",
-            subject: "Computer",
-          },
-        ];
+  // Real timetable bells for today
+  const displayBells = todayBells;
 
   const classColorMap: Record<number, { bg: string; text: string }> = {
     0: { bg: "bg-blue-100 dark:bg-blue-900/40", text: "text-blue-700 dark:text-blue-300" },
@@ -934,45 +912,77 @@ export default function TeacherDashboardPage() {
             </div>
 
             <div className="space-y-3">
-              {displayBells.map((bell: any, idx: number) => {
-                const isOngoing = bell.status === "Ongoing" || idx === 0;
-                const isNext = bell.status === "Next" || idx === 1;
-
-                return (
-                  <div
-                    key={bell.id || idx}
-                    className="flex items-center justify-between p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors group"
+              {displayBells.length === 0 ? (
+                <div className="text-center py-6 px-3 space-y-2">
+                  <Clock className="h-8 w-8 text-slate-300 dark:text-slate-700 mx-auto" />
+                  <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+                    No periods scheduled for today
+                  </p>
+                  <Link
+                    href="/teacher/timetable"
+                    className="inline-block text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center">
-                        {bell.bellNumber || idx + 1}
-                      </div>
-                      <div>
-                        <p className="text-[11px] text-slate-400 font-medium">
-                          {bell.startTime} - {bell.endTime}
-                        </p>
-                        <p className="text-xs font-bold text-slate-800 dark:text-white">
-                          {bell.className} • {bell.subject}
-                        </p>
-                      </div>
-                    </div>
+                    View Weekly Timetable →
+                  </Link>
+                </div>
+              ) : (
+                displayBells.map((bell: ClassBell) => {
+                  const status = calculateBellStatus(bell.startTime, bell.endTime);
+                  const isRunning = status === "Running";
 
-                    <div className="flex items-center gap-2">
-                      {isOngoing && (
-                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 dark:bg-emerald-950/80 dark:text-emerald-300 px-2 py-0.5 rounded-full">
-                          Ongoing
-                        </span>
-                      )}
-                      {isNext && (
-                        <span className="text-[10px] font-bold text-blue-700 bg-blue-100 dark:bg-blue-950/80 dark:text-blue-300 px-2 py-0.5 rounded-full">
-                          Next
-                        </span>
-                      )}
-                      <ChevronRight className="h-3.5 w-3.5 text-slate-300 group-hover:text-blue-600 transition-colors" />
-                    </div>
-                  </div>
-                );
-              })}
+                  return (
+                    <Link
+                      key={bell.id}
+                      href={`/teacher/timetable?bellId=${bell.id}`}
+                      className="flex items-center justify-between p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors group border border-transparent hover:border-slate-200 dark:hover:border-slate-800"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div
+                          className={`h-8 w-8 rounded-lg font-bold text-xs flex items-center justify-center shrink-0 ${
+                            isRunning
+                              ? "bg-emerald-600 text-white shadow-sm animate-pulse"
+                              : "bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400"
+                          }`}
+                        >
+                          {bell.bellNumber}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[11px] text-slate-400 font-mono font-medium">
+                            {bell.startTime} - {bell.endTime}
+                          </p>
+                          <p className="text-xs font-bold text-slate-800 dark:text-white truncate">
+                            {bell.className} • {bell.subject}
+                          </p>
+                          {bell.task && (
+                            <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium truncate">
+                              📝 {bell.task}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {status === "Running" && (
+                          <span className="text-[10px] font-black text-emerald-700 bg-emerald-100 dark:bg-emerald-950/80 dark:text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-300/40">
+                            NOW
+                          </span>
+                        )}
+                        {status === "Upcoming" && (
+                          <span className="text-[10px] font-bold text-blue-700 bg-blue-100 dark:bg-blue-950/80 dark:text-blue-300 px-2 py-0.5 rounded-full">
+                            Upcoming
+                          </span>
+                        )}
+                        {status === "Completed" && (
+                          <span className="text-[10px] font-medium text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
+                            Done
+                          </span>
+                        )}
+                        <ChevronRight className="h-3.5 w-3.5 text-slate-300 group-hover:text-blue-600 transition-colors" />
+                      </div>
+                    </Link>
+                  );
+                })
+              )}
             </div>
           </div>
 

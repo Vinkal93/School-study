@@ -312,8 +312,8 @@ export async function GET(request: Request) {
 
     // 9. Site Support Settings
     let siteSettings: any = {
-      supportEmail: "support@schoolstudy.in",
-      supportPhone: "+91 8000 123 456",
+      supportEmail: "SBCI224234@gmail.com",
+      supportPhone: "+91 9118245636",
       supportHours: "Mon - Sat (9:00 AM - 7:00 PM IST)",
     };
 

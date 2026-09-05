@@ -41,6 +41,7 @@ export default function PlatformSettingsPage() {
   const [loadingPolicy, setLoadingPolicy] = useState(true);
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [reminderDaysInput, setReminderDaysInput] = useState("30, 15, 7, 3, 1");
+  const [renewalThreshold, setRenewalThreshold] = useState<number>(7);
 
   // Razorpay Gateway Credentials State
   const [rzpKeyId, setRzpKeyId] = useState("");
@@ -60,6 +61,13 @@ export default function PlatformSettingsPage() {
       try {
         const pol = await getGlobalAccessPolicy();
         setPolicy(pol);
+        const activeThreshold =
+          typeof pol.renewalNoticeThresholdDays === "number"
+            ? pol.renewalNoticeThresholdDays
+            : pol.reminderDays && pol.reminderDays.length > 0
+            ? Math.max(...pol.reminderDays)
+            : 7;
+        setRenewalThreshold(activeThreshold);
         setReminderDaysInput((pol.reminderDays || [30, 15, 7, 3, 1]).join(", "));
       } catch (err) {
         console.error("Failed to load access policy:", err);
@@ -132,16 +140,40 @@ export default function PlatformSettingsPage() {
         .map((s) => parseInt(s.trim(), 10))
         .filter((n) => !isNaN(n) && n > 0);
 
-      const updated = await updateGlobalAccessPolicy(
-        {
-          ...policy,
-          reminderDays: parsedReminderDays.length > 0 ? parsedReminderDays : [7, 3, 1],
-        },
-        profile?.email || "super_admin"
-      );
+      const payload = {
+        ...policy,
+        renewalNoticeThresholdDays: renewalThreshold,
+        reminderDays: parsedReminderDays.length > 0 ? parsedReminderDays : [7, 3, 1],
+      };
 
-      setPolicy(updated);
-      toast.success("Global Access Policy & Entitlement Engine rules updated!");
+      let savedViaApi = false;
+      try {
+        const { firebaseUser } = await import("@/lib/firebase/client").then((m) => ({
+          firebaseUser: m.getFirebaseAuth().currentUser,
+        }));
+        const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
+        const res = await fetch("/api/super-admin/billing/access-policy", {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+            "x-user-id": profile?.uid || "",
+            "x-user-email": profile?.email || "",
+            "x-user-role": profile?.role || "super_admin",
+          },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+          savedViaApi = true;
+        }
+      } catch (apiErr) {}
+
+      if (!savedViaApi) {
+        await updateGlobalAccessPolicy(payload, profile?.email || "super_admin");
+      }
+
+      setPolicy(payload);
+      toast.success("Global Access Policy & Subscription Renewal Threshold updated!");
     } catch (err: any) {
       toast.error("Failed to update Global Access Policy.");
     } finally {
@@ -515,7 +547,71 @@ export default function PlatformSettingsPage() {
             <span>Loading Global Access Policy...</span>
           </div>
         ) : (
-          <form onSubmit={handleSavePolicy} className="space-y-4">
+          <form onSubmit={handleSavePolicy} className="space-y-5">
+            {/* Renewal Notice Threshold Control */}
+            <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="block text-xs font-bold text-gray-900 dark:text-white">
+                    Subscription Renewal Notice Threshold
+                  </label>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                    Defines how many days prior to expiry renewal countdown banners and notifications start appearing across school portals.
+                  </p>
+                </div>
+                <span className="text-xs font-mono font-bold bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 px-2.5 py-1 rounded-lg">
+                  {renewalThreshold} Days
+                </span>
+              </div>
+
+              {/* Preset buttons */}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                {[3, 5, 7, 10, 15, 30].map((days) => (
+                  <button
+                    key={days}
+                    type="button"
+                    onClick={() => {
+                      setRenewalThreshold(days);
+                      if (policy) setPolicy({ ...policy, renewalNoticeThresholdDays: days });
+                    }}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all cursor-pointer ${
+                      renewalThreshold === days
+                        ? "bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/20"
+                        : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
+                    }`}
+                  >
+                    {days} Days
+                  </button>
+                ))}
+              </div>
+
+              {/* Custom input */}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-1">
+                <div className="w-full sm:w-48">
+                  <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                    Custom Days (0–90)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={90}
+                    value={renewalThreshold}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      const safe = isNaN(val) ? 0 : Math.max(0, Math.min(90, val));
+                      setRenewalThreshold(safe);
+                      if (policy) setPolicy({ ...policy, renewalNoticeThresholdDays: safe });
+                    }}
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g. 7"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 sm:pt-4">
+                  Schools with more than {renewalThreshold} days remaining will not see countdown warnings.
+                </p>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">

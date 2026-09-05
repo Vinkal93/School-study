@@ -3,6 +3,8 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  setPersistence,
+  browserLocalPersistence,
   type User,
   type Unsubscribe,
 } from "firebase/auth";
@@ -15,8 +17,16 @@ export async function signInWithEmail(
   email: string,
   password: string
 ): Promise<User> {
+  const auth = getFirebaseAuth();
+  if (typeof window !== "undefined") {
+    try {
+      await setPersistence(auth, browserLocalPersistence);
+    } catch (e) {
+      console.warn("Could not set browser local persistence:", e);
+    }
+  }
   const credential = await signInWithEmailAndPassword(
-    getFirebaseAuth(),
+    auth,
     email,
     password
   );

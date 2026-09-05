@@ -79,7 +79,33 @@ export default function AccessPolicyAdminPage() {
     if (!policy || !profile?.uid) return;
     setSaving(true);
     try {
-      await updateGlobalAccessPolicy(policy, profile.uid);
+      const { firebaseUser } = await import("@/lib/firebase/client").then(m => ({ firebaseUser: m.getFirebaseAuth().currentUser }));
+      const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
+      
+      let savedViaApi = false;
+      try {
+        const res = await fetch("/api/super-admin/billing/access-policy", {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+            "x-user-id": profile.uid,
+            "x-user-email": profile.email,
+            "x-user-role": profile.role,
+          },
+          body: JSON.stringify(policy),
+        });
+        if (res.ok) {
+          savedViaApi = true;
+        }
+      } catch (apiErr) {
+        // proceed to client fallback
+      }
+
+      if (!savedViaApi) {
+        await updateGlobalAccessPolicy(policy, profile.uid);
+      }
+
       toast.success("Global subscription access policy updated successfully!");
     } catch (err: any) {
       toast.error(err.message || "Failed to update access policy.");
@@ -282,6 +308,74 @@ export default function AccessPolicyAdminPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column: Reminders & Policy (2 cols) */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Super Admin Renewal Notice Threshold Setting */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                  <BellRing className="h-5 w-5 text-blue-600" />
+                  Subscription Renewal Notice Threshold
+                </h2>
+                <span className="px-2.5 py-1 text-xs font-black rounded-lg bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                  Active: {policy.renewalNoticeThresholdDays ?? 7} Days
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Show renewal notice when subscription has <strong>X or fewer days remaining</strong>. Applied across all school portals.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {/* Preset Chips */}
+              <div className="flex flex-wrap items-center gap-2">
+                {[3, 5, 7, 10, 15, 30].map((days) => (
+                  <button
+                    key={days}
+                    type="button"
+                    onClick={() => setPolicy({ ...policy, renewalNoticeThresholdDays: days })}
+                    className={`px-3.5 py-1.5 text-xs font-extrabold rounded-xl border transition-all cursor-pointer ${
+                      policy.renewalNoticeThresholdDays === days
+                        ? "bg-blue-600 text-white border-blue-600 shadow-xs shadow-blue-500/20"
+                        : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
+                    }`}
+                  >
+                    {days} Days
+                  </button>
+                ))}
+              </div>
+
+              {/* Custom Input */}
+              <div className="flex items-center gap-3 pt-1">
+                <div className="flex-1 max-w-xs">
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                    Custom Threshold (Days Remaining)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={90}
+                    value={policy.renewalNoticeThresholdDays ?? 7}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      setPolicy({ ...policy, renewalNoticeThresholdDays: isNaN(val) ? 0 : Math.max(0, Math.min(90, val)) });
+                    }}
+                    className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter custom days (e.g. 7)"
+                  />
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 flex-1 pt-4">
+                  {policy.renewalNoticeThresholdDays ? (
+                    <span>
+                      Notice starts at <strong>{policy.renewalNoticeThresholdDays} days</strong> remaining. At {policy.renewalNoticeThresholdDays + 1}+ days, no banner appears.
+                    </span>
+                  ) : (
+                    <span>Notice will only show on same-day or expired state.</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* 1. Reminder Schedule Configurator (Sections 3 & 4) */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
             <div className="flex items-center justify-between">

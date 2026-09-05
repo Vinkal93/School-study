@@ -209,6 +209,9 @@ export async function GET(request: Request) {
     const totalItems = filtered.length;
     const totalPages = Math.ceil(totalItems / pageSize) || 1;
     const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
+    // Background run of expiring subscriptions notifier (idempotent)
+    const { checkAndNotifyExpiringSchools } = await import("@/lib/billing/expiryNotifier");
+    checkAndNotifyExpiringSchools().catch((err) => console.warn("[SubscriptionsRoute] Expiry notifier notice:", err));
 
     return NextResponse.json({
       success: true,

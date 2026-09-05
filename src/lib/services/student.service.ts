@@ -130,16 +130,21 @@ export async function getStudents(
 ): Promise<StudentProfile[]> {
   try {
     const db = getFirebaseDb();
-    let q = query(
-      collection(db, "schools", schoolId, "students"),
-      orderBy("name", "asc")
-    );
+    if (!db || !schoolId) return [];
 
-    const snapshot = await getDocs(q);
-    let students = snapshot.docs.map((d) => ({
-      id: d.id,
-      ...d.data(),
-    })) as StudentProfile[];
+    let snapshot = await getDocs(collection(db, "schools", schoolId, "students"));
+    if (snapshot.empty) {
+      snapshot = await getDocs(query(collection(db, "students"), where("schoolId", "==", schoolId)));
+    }
+
+    let students = snapshot.docs.map((d) => {
+      const data = d.data();
+      return {
+        id: d.id,
+        ...data,
+        name: data.name || data.fullName || "Student",
+      };
+    }) as StudentProfile[];
 
     if (options?.classId && options.classId !== "all") {
       students = students.filter((s) => s.classId === options.classId);
@@ -148,15 +153,15 @@ export async function getStudents(
       students = students.filter((s) => s.sectionId === options.sectionId);
     }
     if (options?.status && options.status !== "all") {
-      students = students.filter((s) => s.status === options.status);
+      students = students.filter((s) => (s.status || "active").toLowerCase() === options.status?.toLowerCase());
     }
 
     // Sort active students first by class order / roll number
     students.sort((a, b) => {
       if (a.classId === b.classId) {
-        return (a.rollNumber || 9999) - (b.rollNumber || 9999);
+        return (Number(a.rollNumber) || 9999) - (Number(b.rollNumber) || 9999);
       }
-      return (a.className || "").localeCompare(b.className || "");
+      return (a.className || "").localeCompare(b.className || "") || (a.name || "").localeCompare(b.name || "");
     });
 
     return students;
@@ -310,6 +315,7 @@ export async function createStudentWithAuth(
     role: "student",
     schoolId: schoolId,
     studentId: autoStudentId,
+    admissionNumber: cleanAdmNo,
     status: "active",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),

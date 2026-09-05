@@ -26,10 +26,17 @@ export function calculateAccessMode(
   const now = nowMs || Date.now();
   const expiresAtMs = new Date(subscription.expiresAt).getTime();
   const graceEndsAtMs = new Date(subscription.graceEndsAt).getTime();
-  const daysRemaining = Math.ceil((expiresAtMs - now) / (1000 * 60 * 60 * 24));
+  const daysRemaining = Math.max(0, Math.ceil((expiresAtMs - now) / (1000 * 60 * 60 * 24)));
+
+  const effectiveThreshold =
+    typeof policy.renewalNoticeThresholdDays === "number"
+      ? policy.renewalNoticeThresholdDays
+      : policy.reminderDays && policy.reminderDays.length > 0
+      ? Math.max(...policy.reminderDays)
+      : 7;
 
   if (now < expiresAtMs) {
-    const isReminderWindow = policy.reminderDays.some((d) => daysRemaining <= d);
+    const isReminderWindow = daysRemaining <= effectiveThreshold;
     return isReminderWindow ? "EXPIRING" : "FULL_ACCESS";
   }
 
@@ -72,8 +79,15 @@ export function calculateSubscriptionState(
 
   const accessMode = calculateAccessMode(subscription, policy, now);
 
+  const effectiveThreshold =
+    typeof policy.renewalNoticeThresholdDays === "number"
+      ? policy.renewalNoticeThresholdDays
+      : policy.reminderDays && policy.reminderDays.length > 0
+      ? Math.max(...policy.reminderDays)
+      : 7;
+
   const reminderRequired =
-    now < expiresAtMs && policy.reminderDays.some((d) => daysRemaining <= d);
+    now < expiresAtMs && daysRemaining <= effectiveThreshold;
 
   return {
     daysRemaining,

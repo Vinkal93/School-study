@@ -145,6 +145,7 @@ export interface ReminderThresholdConfig {
 export interface GlobalAccessPolicy {
   id: string; // "global"
   enabled: boolean;
+  renewalNoticeThresholdDays?: number; // Configurable threshold (e.g. 7): Notice appears when daysRemaining <= threshold
   reminderDays: number[]; // e.g. [30, 15, 7, 3, 1]
   reminders: ReminderThresholdConfig[];
   gracePeriodDays: number; // e.g. 7

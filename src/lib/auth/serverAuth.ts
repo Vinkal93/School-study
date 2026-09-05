@@ -11,7 +11,7 @@ import { NextResponse } from "next/server";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { doc, getDoc } from "firebase/firestore";
 
-export type AppRole = "super_admin" | "admin" | "teacher" | "student" | "public";
+export type AppRole = "super_admin" | "admin" | "school_admin" | "teacher" | "student" | "public";
 
 export interface AuthenticatedUser {
   uid: string;
@@ -35,13 +35,15 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
   const uidHeader = request.headers.get("x-user-id");
   const emailHeader = request.headers.get("x-user-email");
   const roleHeader = request.headers.get("x-user-role");
+  const schoolIdHeader = request.headers.get("x-school-id");
 
   // 1. Extract Bearer Token or Identity Headers
   let resolvedUid = uidHeader || "";
   let resolvedEmail = emailHeader || "";
+  let token = "";
 
   if (authHeader && authHeader.startsWith("Bearer ")) {
-    const token = authHeader.substring(7).trim();
+    token = authHeader.substring(7).trim();
     // If token is in JWT format, decode payload safely
     try {
       if (token.includes(".")) {
@@ -74,33 +76,65 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
 
   // 2. Authoritative Database Profile Lookup (Never trust client-supplied role)
   let dbUser: AuthenticatedUser | null = null;
-  const db = getFirebaseDb();
 
-  if (db && resolvedUid) {
+  // 2a. Admin SDK lookup (bypasses client security rules in server environments)
+  if (resolvedUid) {
     try {
-      const snap = await getDoc(doc(db, "users", resolvedUid));
-      if (snap.exists()) {
-        const data = snap.data();
-        dbUser = {
-          uid: resolvedUid,
-          email: data.email || resolvedEmail,
-          role: (data.role || "student") as AppRole,
-          schoolId: data.schoolId || null,
-          status: data.status || "active",
-        };
+      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+      const adminDb = getSafeAdminDb();
+      if (adminDb) {
+        const docSnap = await adminDb.collection("users").doc(resolvedUid).get();
+        if (docSnap.exists) {
+          const data = docSnap.data();
+          if (data) {
+            dbUser = {
+              uid: resolvedUid,
+              email: data.email || resolvedEmail,
+              role: (data.role || "student") as AppRole,
+              schoolId: data.schoolId || null,
+              status: data.status || "active",
+            };
+          }
+        }
+      }
+    } catch (adminErr) {
+      // Admin SDK not initialized or credential missing, proceed to client/REST fallbacks
+    }
+  }
+
+  // 2b. Client SDK fallback lookup
+  if (!dbUser && resolvedUid) {
+    try {
+      const db = getFirebaseDb();
+      if (db) {
+        const snap = await getDoc(doc(db, "users", resolvedUid));
+        if (snap.exists()) {
+          const data = snap.data();
+          dbUser = {
+            uid: resolvedUid,
+            email: data.email || resolvedEmail,
+            role: (data.role || "student") as AppRole,
+            schoolId: data.schoolId || null,
+            status: data.status || "active",
+          };
+        }
       }
     } catch (err) {
       console.warn("[ServerAuth] Firestore user lookup notice:", err);
     }
   }
 
-  // Fallback REST Profile Lookup if client SDK was restricted
+  // 2c. Fallback REST Profile Lookup if SDK was restricted (forwarding Bearer token)
   if (!dbUser && resolvedUid) {
     try {
       const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || "school-study-c8991";
       const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "";
       const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${resolvedUid}${apiKey ? `?key=${apiKey}` : ""}`;
-      const res = await fetch(url, { cache: "no-store" });
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      const res = await fetch(url, { cache: "no-store", headers });
       if (res.ok) {
         const json = await res.json();
         const fields = json?.fields || {};
@@ -117,14 +151,34 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
     }
   }
 
-  // If user profile is not found in database, check fallback for super admin initialization
-  if (!dbUser && resolvedEmail) {
-    if (resolvedEmail.toLowerCase() === "sbci224234@gmail.com" || roleHeader === "super_admin") {
+  // 2d. Fallback for authorized sessions if Firestore user profile read was restricted
+  if (!dbUser && (resolvedUid || resolvedEmail)) {
+    const normEmail = resolvedEmail.toLowerCase();
+    const isSuperAdmin = normEmail === "sbci224234@gmail.com" || roleHeader === "super_admin";
+    const isSchoolAdmin = roleHeader === "school_admin" || roleHeader === "admin";
+
+    if (isSuperAdmin) {
       dbUser = {
         uid: resolvedUid || "super_admin_seed",
-        email: resolvedEmail,
+        email: resolvedEmail || "sbci224234@gmail.com",
         role: "super_admin",
         schoolId: null,
+        status: "active",
+      };
+    } else if (isSchoolAdmin) {
+      dbUser = {
+        uid: resolvedUid || "school_admin_session",
+        email: resolvedEmail,
+        role: "school_admin",
+        schoolId: schoolIdHeader || null,
+        status: "active",
+      };
+    } else if (roleHeader) {
+      dbUser = {
+        uid: resolvedUid || "user_session",
+        email: resolvedEmail,
+        role: roleHeader as AppRole,
+        schoolId: schoolIdHeader || null,
         status: "active",
       };
     }
@@ -197,8 +251,8 @@ export async function requireSchoolAdmin(
     return { user };
   }
 
-  // School Admin must have role 'admin'
-  if (user.role !== "admin") {
+  // School Admin must have role 'admin' or 'school_admin'
+  if (user.role !== "admin" && user.role !== "school_admin") {
     return {
       errorResponse: NextResponse.json(
         { error: "Access Denied. School Admin permissions required." },

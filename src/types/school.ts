@@ -19,8 +19,20 @@ export interface School {
   adminUid?: string;
   adminName?: string;
   adminEmail?: string;
+  pincode?: string;
+  website?: string;
+  description?: string;
+  primaryContactName?: string;
+  primaryContactPhone?: string;
+  primaryContactEmail?: string;
   setupCompleted?: boolean;
   setupStep?: number;
+  onboardingStatus?: "not_started" | "in_progress" | "completed";
+  onboardingCurrentStep?: number;
+  onboardingCompletedSteps?: number[];
+  onboardingCompleted?: boolean;
+  onboardingStartedAt?: any;
+  onboardingCompletedAt?: any;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

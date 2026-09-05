@@ -21,15 +21,24 @@ export interface ClassBell {
   bellName: string; // "Period 1", "Bell 1", "Recess", "Zero Period"
   startTime: string; // "08:00"
   endTime: string; // "08:40"
+  durationMinutes?: number; // e.g. 40
   subject: string; // "Mathematics", "English", "Break"
   bookName?: string; // "NCERT Ganit Part 1"
+  chapter?: string; // "Chapter 4 — Linear Equations"
+  task?: string; // "Complete Exercise 4.2"
+  reminder?: string; // "Check homework from previous class"
+  message?: string; // "Bring notebook and geometry box"
+  room?: string; // "Room 204"
   teacherId?: string;
   teacherName?: string;
   dayOfWeek: DayOfWeek;
   isBreak?: boolean;
   order: number;
-  createdAt: Timestamp | string;
-  updatedAt: Timestamp | string;
+  academicYearId?: string;
+  status?: "active" | "inactive";
+  createdBy?: string;
+  createdAt: Timestamp | string | any;
+  updatedAt: Timestamp | string | any;
 }
 
 export interface CreateClassBellInput {
@@ -43,10 +52,48 @@ export interface CreateClassBellInput {
   endTime: string;
   subject: string;
   bookName?: string;
+  chapter?: string;
+  task?: string;
+  reminder?: string;
+  message?: string;
+  room?: string;
   teacherId?: string;
   teacherName?: string;
   dayOfWeek: DayOfWeek;
   isBreak?: boolean;
+  academicYearId?: string;
+}
+
+export interface DailyClassPlan {
+  id: string;
+  schoolId: string;
+  classId: string;
+  sectionId?: string;
+  bellId: string;
+  date: string; // "YYYY-MM-DD"
+  chapter?: string;
+  task?: string;
+  reminder?: string;
+  message?: string;
+  createdAt: any;
+  updatedAt: any;
+}
+
+export interface TeacherDevice {
+  id: string;
+  userId: string;
+  teacherId: string;
+  schoolId: string;
+  tokenOrSubscription: any;
+  deviceInfo?: string;
+  notificationPermission: "granted" | "denied" | "default";
+  lastSeenAt: any;
+}
+
+export interface TimetableValidationConflict {
+  type: "overlap" | "duplicate_bell" | "teacher_conflict";
+  message: string;
+  conflictingBell?: Partial<ClassBell>;
 }
 
 export interface HomeworkItem {

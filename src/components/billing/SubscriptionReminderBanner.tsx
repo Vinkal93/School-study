@@ -45,32 +45,38 @@ export function SubscriptionReminderBanner() {
 
   return (
     <>
-      <div className={`w-full px-4 py-2.5 shadow-md flex items-center justify-between text-xs sm:text-sm font-semibold transition-all ${bannerBg}`}>
-        <div className="flex items-center gap-2 max-w-4xl mx-auto flex-1 justify-center text-center">
-          {isExpired ? (
-            <AlertCircle className="h-4 w-4 shrink-0" />
-          ) : (
-            <AlertTriangle className="h-4 w-4 shrink-0" />
-          )}
-          <span>
-            {reminder.title ? `${reminder.title}: ` : ""}
-            {reminder.message}
-          </span>
+      <div className={`relative w-full px-3 sm:px-4 py-2.5 sm:py-2 shadow-md text-xs sm:text-sm font-semibold transition-all ${bannerBg}`}>
+        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-4 pr-7 sm:pr-8">
+          <div className="flex items-start sm:items-center gap-2 text-left sm:text-center flex-1 min-w-0">
+            {isExpired ? (
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 sm:mt-0" />
+            ) : (
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 sm:mt-0" />
+            )}
+            <span className="break-words leading-relaxed">
+              <strong className="font-bold">{reminder.title ? `${reminder.title}: ` : ""}</strong>
+              {reminder.message}
+            </span>
+          </div>
 
-          {reminder.canRecharge && (
-            <button
-              onClick={() => setShowRechargeModal(true)}
-              className="ml-2 inline-flex items-center gap-1 px-3 py-1 rounded-full bg-white text-slate-900 font-bold text-xs shadow-xs hover:bg-slate-100 active:scale-95 transition-all cursor-pointer shrink-0"
-            >
-              <Zap className="h-3 w-3 text-amber-500 fill-current" />
-              <span>Recharge Now</span>
-            </button>
-          )}
+          <div className="flex items-center gap-2 self-start sm:self-center shrink-0 pl-6 sm:pl-0">
+            {reminder.canRecharge && (
+              <button
+                type="button"
+                onClick={() => setShowRechargeModal(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-slate-900 font-bold text-xs shadow-xs hover:bg-slate-100 active:scale-95 transition-all cursor-pointer"
+              >
+                <Zap className="h-3 w-3 text-amber-500 fill-current" />
+                <span>Recharge Now</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <button
+          type="button"
           onClick={() => setDismissed(true)}
-          className="p-1 hover:bg-white/20 rounded-md transition-colors cursor-pointer shrink-0"
+          className="absolute right-2 top-2 sm:top-1/2 sm:-translate-y-1/2 p-1.5 hover:bg-white/20 rounded-lg transition-colors cursor-pointer text-white"
           aria-label="Dismiss banner"
         >
           <X className="h-4 w-4" />

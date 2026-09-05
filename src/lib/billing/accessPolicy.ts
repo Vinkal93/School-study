@@ -11,7 +11,7 @@ export const DEFAULT_REMINDER_THRESHOLDS: ReminderThresholdConfig[] = [
     enabled: false,
     priority: "low",
     title: "Subscription Renewal Notice",
-    message: "Your School Study plan expires in 30 days.",
+    message: "Your School Study plan expires in ${daysRemaining} days.",
     showPopup: false,
     showBanner: true,
     showRechargeButton: true,
@@ -25,7 +25,7 @@ export const DEFAULT_REMINDER_THRESHOLDS: ReminderThresholdConfig[] = [
     enabled: false,
     priority: "medium",
     title: "Plan Renewal Reminder",
-    message: "Your plan expires in 15 days. Recharge early to avoid service interruption.",
+    message: "Your plan expires in ${daysRemaining} days. Recharge early to avoid service interruption.",
     showPopup: false,
     showBanner: true,
     showRechargeButton: true,
@@ -38,8 +38,8 @@ export const DEFAULT_REMINDER_THRESHOLDS: ReminderThresholdConfig[] = [
     daysBeforeExpiry: 7,
     enabled: true,
     priority: "high",
-    title: "Important: 7 Days Remaining",
-    message: "Your plan expires in 7 days. Recharge now to keep your school running smoothly.",
+    title: "Subscription Renewal Notice",
+    message: "Your plan expires in ${daysRemaining} days. Recharge now to keep your school running smoothly.",
     showPopup: true,
     showBanner: true,
     showRechargeButton: true,
@@ -52,8 +52,8 @@ export const DEFAULT_REMINDER_THRESHOLDS: ReminderThresholdConfig[] = [
     daysBeforeExpiry: 3,
     enabled: true,
     priority: "urgent",
-    title: "Urgent: 3 Days Until Expiry",
-    message: "Your plan expires in 3 days. Service disruption imminent without recharge.",
+    title: "Urgent: Subscription Expiring",
+    message: "Your plan expires in ${daysRemaining} days. Recharge now to avoid service disruption.",
     showPopup: true,
     showBanner: true,
     showRechargeButton: true,
@@ -66,7 +66,7 @@ export const DEFAULT_REMINDER_THRESHOLDS: ReminderThresholdConfig[] = [
     daysBeforeExpiry: 1,
     enabled: true,
     priority: "urgent",
-    title: "Final Warning: Expires Tomorrow",
+    title: "Subscription Renewal Notice",
     message: "Your plan expires tomorrow. Recharge immediately to retain full access.",
     showPopup: true,
     showBanner: true,
@@ -80,6 +80,7 @@ export const DEFAULT_REMINDER_THRESHOLDS: ReminderThresholdConfig[] = [
 export const DEFAULT_GLOBAL_ACCESS_POLICY: GlobalAccessPolicy = {
   id: "global",
   enabled: true,
+  renewalNoticeThresholdDays: 7,
   reminderDays: [7, 3, 1],
   reminders: DEFAULT_REMINDER_THRESHOLDS,
   gracePeriodDays: 7,
@@ -121,9 +122,17 @@ export async function getGlobalAccessPolicy(): Promise<GlobalAccessPolicy> {
 
     if (policySnap.exists()) {
       const data = policySnap.data() as GlobalAccessPolicy;
+      const effectiveThreshold =
+        typeof data.renewalNoticeThresholdDays === "number"
+          ? data.renewalNoticeThresholdDays
+          : data.reminderDays && data.reminderDays.length > 0
+          ? Math.max(...data.reminderDays)
+          : 7;
+
       return {
         ...DEFAULT_GLOBAL_ACCESS_POLICY,
         ...data,
+        renewalNoticeThresholdDays: effectiveThreshold,
         id: policySnap.id,
         reminders: data.reminders || DEFAULT_REMINDER_THRESHOLDS,
       };

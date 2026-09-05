@@ -226,7 +226,7 @@ export default function InvoiceDetailPage() {
             {/* Footer */}
             <div className="border-t border-slate-100 dark:border-slate-800 pt-6 text-center space-y-1">
               <p className="text-xs font-semibold text-slate-500">Thank you for subscribing to School Study!</p>
-              <p className="text-[11px] text-slate-400">For support inquiries, contact support@schoolstudy.in</p>
+              <p className="text-[11px] text-slate-400">For billing & support inquiries, contact SBCI224234@gmail.com | Helpline: +91 9118245636 (Mon - Sat 9:00 AM - 7:00 PM IST)</p>
             </div>
           </div>
         )}

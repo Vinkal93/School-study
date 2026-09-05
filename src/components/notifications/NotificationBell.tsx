@@ -42,7 +42,8 @@ export function NotificationBell({ className = "", variant = "default" }: Notifi
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const schoolId = profile?.schoolId || "";
+  // Super admin uses "global" as schoolId to receive platform & subscription alerts
+  const schoolId = profile?.schoolId || (profile?.role === "super_admin" ? "global" : "");
   const user = useMemo(
     () => ({
       uid: profile?.uid || firebaseUser?.uid || "",
@@ -69,18 +70,27 @@ export function NotificationBell({ className = "", variant = "default" }: Notifi
     return () => unsub();
   }, [schoolId, user]);
 
-  // 2. Click outside listener to close dropdown
+  // 2. Click outside & Escape key listeners to close dropdown
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsOpen(false);
       }
     }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    }
+
     if (isOpen) {
       document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", handleKeyDown);
     }
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
     };
   }, [isOpen]);
 
@@ -194,7 +204,7 @@ export function NotificationBell({ className = "", variant = "default" }: Notifi
           DROPDOWN FLYOUT PANEL
       ========================================== */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed sm:absolute left-2 right-2 sm:left-auto sm:right-0 top-16 sm:top-full sm:mt-2 w-auto sm:w-96 max-w-[calc(100vw-16px)] sm:max-w-none rounded-2xl sm:rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
           {/* Header */}
           <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-900/50">
             <div className="flex items-center gap-2">
@@ -253,7 +263,7 @@ export function NotificationBell({ className = "", variant = "default" }: Notifi
           </div>
 
           {/* Notification List Container */}
-          <div className="max-h-[380px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/60 focus:outline-none">
+          <div className="max-h-[calc(100dvh-180px)] sm:max-h-[380px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/60 focus:outline-none overscroll-contain">
             {displayedItems.length === 0 ? (
               <div className="p-8 text-center space-y-2">
                 <div className="w-10 h-10 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
@@ -324,7 +334,15 @@ export function NotificationBell({ className = "", variant = "default" }: Notifi
           {/* Footer */}
           <div className="p-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-center">
             <Link
-              href="/student/notifications"
+              href={
+                profile?.role === "super_admin"
+                  ? "/super-admin/notifications"
+                  : (profile?.role as string) === "admin" || (profile?.role as string) === "school_admin"
+                  ? "/admin/notifications"
+                  : profile?.role === "teacher"
+                  ? "/teacher/notifications"
+                  : "/student/notifications"
+              }
               onClick={() => setIsOpen(false)}
               className="text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
             >

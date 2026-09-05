@@ -1,25 +1,22 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { LogOut, User, Menu, Search } from "lucide-react";
+import { Menu, Search } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useMobileNav } from "@/context/mobile-nav-context";
 import { ThemeToggle } from "@/components/common/theme-toggle";
 import { GlobalSearchModal } from "@/components/super-admin/GlobalSearchModal";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
-
 import { getSchoolById } from "@/lib/services/school.service";
 import { VerifyBadge } from "@/components/common/VerifyBadge";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { ProfileDropdown } from "@/components/layout/ProfileDropdown";
 import type { School } from "@/types";
 
 export function Topbar() {
-  const { profile, signOut } = useAuth();
+  const { profile } = useAuth();
   const { toggleMobileNav } = useMobileNav();
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [school, setSchool] = useState<School | null>(null);
-  const router = useRouter();
 
   useEffect(() => {
     if (profile?.schoolId) {
@@ -43,16 +40,6 @@ export function Topbar() {
     window.addEventListener("keydown", handleGlobalKeyDown);
     return () => window.removeEventListener("keydown", handleGlobalKeyDown);
   }, [profile?.role]);
-
-  const handleSignOut = async () => {
-    try {
-      await signOut();
-      toast.success("Logged out successfully");
-      router.push("/login");
-    } catch {
-      toast.error("Failed to log out");
-    }
-  };
 
   const roleLabelMap: Record<string, string> = {
     super_admin: "Super Admin Platform Control",
@@ -121,30 +108,10 @@ export function Topbar() {
           {/* Realtime Notification Bell with Live Indicator & Dropdown */}
           <NotificationBell />
 
-          {/* User Info */}
-          <div className="flex items-center gap-2 pl-2 border-l border-gray-200 dark:border-gray-800">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 font-bold text-xs text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-              {profile?.name ? profile.name.charAt(0) : <User className="h-4 w-4" />}
-            </div>
-            <div className="hidden lg:block">
-              <p className="text-sm font-medium text-gray-900 dark:text-white">
-                {profile?.name || "User"}
-              </p>
-              <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                {profile?.email || ""}
-              </p>
-            </div>
+          {/* User Profile Dropdown */}
+          <div className="pl-1 sm:pl-2 border-l border-gray-200 dark:border-gray-800">
+            <ProfileDropdown school={school} />
           </div>
-
-          {/* Logout */}
-          <button
-            onClick={handleSignOut}
-            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors"
-            aria-label="Sign out"
-            title="Sign out"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
         </div>
       </header>
 

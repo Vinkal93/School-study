@@ -4,11 +4,13 @@ import {
   getDocs,
   getDoc,
   query,
+  where,
   orderBy,
   setDoc,
   updateDoc,
   deleteDoc,
   serverTimestamp,
+  runTransaction,
   type Timestamp,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -26,15 +28,24 @@ import type { TeacherProfile, CreateTeacherInput } from "@/types";
 export async function getTeachers(schoolId: string): Promise<TeacherProfile[]> {
   try {
     const db = getFirebaseDb();
-    const q = query(
-      collection(db, "schools", schoolId, "teachers"),
-      orderBy("name", "asc")
-    );
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map((d) => ({
-      id: d.id,
-      ...d.data(),
-    })) as TeacherProfile[];
+    if (!db || !schoolId) return [];
+
+    let snapshot = await getDocs(collection(db, "schools", schoolId, "teachers"));
+    if (snapshot.empty) {
+      snapshot = await getDocs(query(collection(db, "teachers"), where("schoolId", "==", schoolId)));
+    }
+
+    const teachers = snapshot.docs.map((d) => {
+      const data = d.data();
+      return {
+        id: d.id,
+        ...data,
+        name: data.name || data.fullName || "Teacher",
+      };
+    }) as TeacherProfile[];
+
+    teachers.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    return teachers;
   } catch (error: any) {
     console.warn("Could not fetch teachers:", error?.message);
     return [];
@@ -64,17 +75,60 @@ import {
 } from "@/lib/billing";
 
 /**
+ * Atomically generates the next unique Teacher ID scoped to the school.
+ * Format: `${schoolCode}-T${sequence}` -> e.g. SBCI-T1, SBCI-T2, SBCI-T3...
+ * 
+ * Uses an atomic Firestore transaction on the school document.
+ * - ID is 100% collision-free under concurrent registrations.
+ * - Sequence is monotonically increasing and never decrements or reuses IDs upon deletion.
+ */
+export async function generateNextTeacherId(schoolId: string): Promise<string> {
+  const db = getFirebaseDb();
+  if (!db) throw new Error("Database offline.");
+
+  const schoolRef = doc(db, COLLECTIONS.SCHOOLS, schoolId);
+
+  return await runTransaction(db, async (tx) => {
+    const schoolSnap = await tx.get(schoolRef);
+    let schoolCode = "SBCI";
+
+    if (schoolSnap.exists()) {
+      const sData = schoolSnap.data();
+      if (sData?.code && typeof sData.code === "string" && sData.code.trim().length > 0) {
+        schoolCode = sData.code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+      }
+    }
+
+    const currentNumber = (schoolSnap.exists() && typeof schoolSnap.data()?.lastTeacherNumber === "number")
+      ? schoolSnap.data().lastTeacherNumber
+      : 0;
+
+    const nextNumber = currentNumber + 1;
+
+    // Update the counter on school doc atomically
+    tx.set(schoolRef, { lastTeacherNumber: nextNumber }, { merge: true });
+
+    return `${schoolCode}-T${nextNumber}`;
+  });
+}
+
+/**
  * Creates a new teacher, provisions their Firebase Auth account, and creates their user + teacher docs.
  */
 export async function createTeacherWithAuth(
   schoolId: string,
   input: CreateTeacherInput
-): Promise<{ teacherId: string; userId: string }> {
+): Promise<{ teacherId: string; userId: string; teacherCode: string }> {
   const db = getFirebaseDb();
 
   // 1. Authoritative Backend Check: Feature Access & Plan Limit
   await requireFeatureAccess(schoolId, "teacher_management");
   await requirePlanLimit(schoolId, "teachers");
+
+  // 2. Resolve Unique Teacher Code (Auto-generate if not provided)
+  const finalTeacherCode = (input.teacherCode && input.teacherCode.trim().length > 0)
+    ? input.teacherCode.trim().toUpperCase()
+    : await generateNextTeacherId(schoolId);
 
   const secondaryAppName = `teacher-auth-${Date.now()}`;
   const secondaryApp = initializeApp(firebaseClientConfig, secondaryAppName);
@@ -106,6 +160,9 @@ export async function createTeacherWithAuth(
     }
   }
 
+  const teacherDocRef = doc(collection(db, "schools", schoolId, "teachers"));
+  const teacherId = teacherDocRef.id;
+
   const userDocRef = doc(db, COLLECTIONS.USERS, userId);
   await setDoc(userDocRef, {
     uid: userId,
@@ -113,19 +170,18 @@ export async function createTeacherWithAuth(
     email: input.email.trim().toLowerCase(),
     role: "teacher",
     schoolId: schoolId,
+    teacherCode: finalTeacherCode,
+    teacherId: teacherId,
     status: "active",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
 
-  const teacherDocRef = doc(collection(db, "schools", schoolId, "teachers"));
-  const teacherId = teacherDocRef.id;
-
   const teacherData: Omit<TeacherProfile, "createdAt" | "updatedAt"> = {
     id: teacherId,
     schoolId,
     userId,
-    teacherCode: input.teacherCode.trim().toUpperCase(),
+    teacherCode: finalTeacherCode,
     name: input.name.trim(),
     email: input.email.trim().toLowerCase(),
     phone: input.phone?.trim() || "",
@@ -145,10 +201,10 @@ export async function createTeacherWithAuth(
     updatedAt: serverTimestamp(),
   });
 
-  // 2. Increment usage count atomically
+  // 3. Increment usage count atomically
   await incrementSchoolUsage(schoolId, "teachers", 1);
 
-  return { teacherId, userId };
+  return { teacherId, userId, teacherCode: finalTeacherCode };
 }
 
 export async function updateTeacher(
