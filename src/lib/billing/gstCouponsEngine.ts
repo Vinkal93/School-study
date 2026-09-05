@@ -428,9 +428,33 @@ export async function validateCouponForOrder(
   }
 
   const cleanCode = code.trim().toUpperCase();
-  const coupon = await getCouponByCode(cleanCode);
+  let coupon = await getCouponByCode(cleanCode);
 
   if (!coupon) {
+    try {
+      const { validateOfferForCheckout } = await import("./offersPromotionsEngine");
+      const promoRes = await validateOfferForCheckout({
+        code: cleanCode,
+        planId,
+        billingCycle,
+        baseAmountPaise,
+      });
+      if (promoRes.isValid) {
+        return {
+          isValid: true,
+          code: promoRes.code,
+          discountPaise: promoRes.discountPaise,
+        };
+      } else if (promoRes.error) {
+        return {
+          isValid: false,
+          code: cleanCode,
+          error: promoRes.error,
+          discountPaise: 0,
+        };
+      }
+    } catch (e) {}
+
     return { isValid: false, code: cleanCode, error: `Coupon code "${cleanCode}" is invalid.`, discountPaise: 0 };
   }
 

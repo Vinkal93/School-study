@@ -285,6 +285,30 @@ export async function fulfillSuccessfulPayment(
   const txRef = doc(db, BILLING_COLLECTIONS.FINANCE_TRANSACTIONS || "financeTransactions", txId);
   await setDoc(txRef, financeTxRecord, { merge: true });
 
+  // 5b. Concurrency-Safe Atomic Coupon Redemption if coupon was applied
+  if (order.couponId) {
+    try {
+      const { executeAtomicCouponRedemption } = await import("@/lib/billing/offersPromotionsEngine");
+      await executeAtomicCouponRedemption({
+        couponCode: order.couponId,
+        schoolId: order.schoolId,
+        userId: order.userId,
+        orderId: order.id,
+        paymentId,
+        invoiceId,
+        planId: order.planId,
+        planName: order.planId,
+        billingCycle: order.billingCycle,
+        baseAmountPaise: order.baseAmount,
+        discountAmountPaise: order.discountAmount,
+        taxAmountPaise: order.taxAmount,
+        finalAmountPaise: order.finalAmount,
+      });
+    } catch (couponErr: any) {
+      console.warn("[Fulfillment] Coupon atomic redemption notice:", couponErr?.message || couponErr);
+    }
+  }
+
   // 6. Audit Trail Logging (Section 28)
   await createBillingAuditLog(
     order.userId,

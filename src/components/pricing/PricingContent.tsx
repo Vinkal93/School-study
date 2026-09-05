@@ -104,6 +104,61 @@ export function PricingContent() {
   const [activeVersions, setActiveVersions] = useState<Record<string, PlanVersion>>(DEFAULT_FALLBACK_VERSIONS);
   const [loading, setLoading] = useState(true);
   const [processingPlanId, setProcessingPlanId] = useState<string | null>(null);
+  const [promoCodeInput, setPromoCodeInput] = useState("");
+  const [validatingPromo, setValidatingPromo] = useState(false);
+  const [appliedCoupon, setAppliedCoupon] = useState<{
+    code: string;
+    discountRupees: number;
+    discountPaise: number;
+    discountType?: string;
+    discountValue?: number;
+    terms?: string;
+  } | null>(null);
+  const [showPromoInput, setShowPromoInput] = useState(false);
+
+  const handleApplyPromo = async () => {
+    if (!promoCodeInput.trim()) {
+      toast.error("Please enter a coupon or promo code.");
+      return;
+    }
+    setValidatingPromo(true);
+    try {
+      const res = await fetch("/api/billing/coupons/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: promoCodeInput.trim().toUpperCase(),
+          planId: plans[0]?.id || "plan_starter",
+          billingCycle: isAnnual ? "annual" : "monthly",
+          schoolId: profile?.schoolId,
+          userId: profile?.uid,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.isValid) {
+        throw new Error(data.error || "Invalid promo code.");
+      }
+      setAppliedCoupon({
+        code: data.code,
+        discountRupees: data.discountRupees,
+        discountPaise: data.discountPaise,
+        discountType: data.discountType,
+        discountValue: data.discountValue,
+        terms: data.terms,
+      });
+      toast.success(`Promo code "${data.code}" applied! Save ₹${data.discountRupees.toLocaleString("en-IN")}`);
+    } catch (e: any) {
+      toast.error(e.message || "Invalid coupon code.");
+    } finally {
+      setValidatingPromo(false);
+    }
+  };
+
+  const handleRemovePromo = () => {
+    setAppliedCoupon(null);
+    setPromoCodeInput("");
+    toast.info("Promo code removed.");
+  };
 
   useEffect(() => {
     async function loadPublicPlans() {
@@ -200,6 +255,7 @@ export function PricingContent() {
       await triggerRazorpayCheckout({
         planId: plan.id,
         billingCycle: isAnnual ? "annual" : "monthly",
+        couponCode: appliedCoupon?.code || undefined,
         schoolId: profile.schoolId,
         userId: profile.uid,
         prefillData: {
@@ -288,6 +344,58 @@ export function PricingContent() {
           <span className={`text-sm font-semibold flex items-center gap-1.5 ${isAnnual ? "text-slate-900 dark:text-white" : "text-slate-500"}`}>
             Annual <span className="text-xs bg-green-100 dark:bg-green-950/80 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full font-bold">Save 20%</span>
           </span>
+        </div>
+
+        {/* Promo Code Input Accordion */}
+        <div className="pt-2 flex flex-col items-center justify-center">
+          {!appliedCoupon ? (
+            !showPromoInput ? (
+              <button
+                type="button"
+                onClick={() => setShowPromoInput(true)}
+                className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+              >
+                <span>Have a coupon or promotion code?</span>
+              </button>
+            ) : (
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="text"
+                  placeholder="Enter code (e.g. WELCOME20)"
+                  value={promoCodeInput}
+                  onChange={(e) => setPromoCodeInput(e.target.value.toUpperCase())}
+                  className="px-3 py-1.5 text-xs font-mono uppercase rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 w-56 text-slate-800 dark:text-white"
+                />
+                <button
+                  type="button"
+                  onClick={handleApplyPromo}
+                  disabled={validatingPromo}
+                  className="px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition"
+                >
+                  {validatingPromo ? "Applying..." : "Apply"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPromoInput(false)}
+                  className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  Cancel
+                </button>
+              </div>
+            )
+          ) : (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-xs font-medium text-emerald-800 dark:text-emerald-300">
+              <span>🎉 Promo code <strong>{appliedCoupon.code}</strong> applied!</span>
+              <button
+                type="button"
+                onClick={handleRemovePromo}
+                className="text-slate-400 hover:text-red-500 font-bold ml-1 text-xs"
+                title="Remove Coupon"
+              >
+                ✕
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
