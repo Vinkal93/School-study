@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getSafeAdminDb } from "@/lib/firebase/admin";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import {
   collection,
@@ -38,8 +39,21 @@ export async function GET(request: Request) {
     const page = parseInt(searchParams.get("page") || "1", 10);
     const pageSize = parseInt(searchParams.get("pageSize") || "20", 10);
 
-    const db = getFirebaseDb();
     let rawDocs: { id: string; data: any }[] = [];
+    const adminDb = getSafeAdminDb();
+    if (adminDb) {
+      try {
+        const snapPrimary = await adminDb.collection(INQUIRY_COLLECTION).orderBy("createdAt", "desc").get();
+        snapPrimary.forEach((doc) => rawDocs.push({ id: doc.id, data: doc.data() }));
+        const snapLegacy = await adminDb.collection(LEGACY_COLLECTION).orderBy("createdAt", "desc").get();
+        snapLegacy.forEach((doc) => {
+          if (!rawDocs.some((d) => d.id === doc.id)) rawDocs.push({ id: doc.id, data: doc.data() });
+        });
+      } catch (adminErr) {
+        console.warn("Notice: adminDb inquiries fetch notice:", adminErr);
+      }
+    }
+    const db = getFirebaseDb();
 
     if (db) {
       // 1. Fetch primary inquiries collection

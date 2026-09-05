@@ -34,7 +34,12 @@ export function useClassBellAlert(onSelectBell?: (bellId: string) => void) {
       // Register device session to backend
       fetch("/api/teacher/devices", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": teacherUid,
+          "x-school-id": schoolId,
+          "x-user-role": "teacher",
+        },
         body: JSON.stringify({
           schoolId,
           teacherId: teacherUid,

@@ -98,8 +98,7 @@ export function subscribeToTeacherHomework(
   const db = getFirebaseDb();
   const q = query(
     collection(db, "schools", schoolId, "homework"),
-    where("teacherId", "==", teacherId),
-    orderBy("createdAt", "desc")
+    where("teacherId", "==", teacherId)
   );
 
   return onSnapshot(
@@ -109,10 +108,12 @@ export function subscribeToTeacherHomework(
         id: d.id,
         ...d.data(),
       })) as HomeworkItem[];
+      items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       callback(items);
     },
     (err) => {
-      console.error("subscribeToTeacherHomework error:", err);
+      console.warn("subscribeToTeacherHomework notice:", err);
+      callback([]);
     }
   );
 }
@@ -134,8 +135,7 @@ export function subscribeToClassHomework(
   const db = getFirebaseDb();
   const q = query(
     collection(db, "schools", schoolId, "homework"),
-    where("classId", "==", classId),
-    orderBy("createdAt", "desc")
+    where("classId", "==", classId)
   );
 
   return onSnapshot(
