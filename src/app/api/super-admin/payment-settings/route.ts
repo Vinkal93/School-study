@@ -11,7 +11,7 @@ function maskSecret(secret: string): string {
   return `${secret.slice(0, 4)}****************${secret.slice(-4)}`;
 }
 
-export async function GET(request: Request) {
+export async function GET(request?: Request) {
   try {
     const creds = await loadRazorpayCredentials().catch(() => ({
       keyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID || "",
