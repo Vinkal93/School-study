@@ -43,6 +43,7 @@ import {
   OverrideType,
 } from "@/types/featureControl";
 import { FEATURE_REGISTRY } from "@/lib/feature-control/featureRegistry";
+import { useAuth } from "@/hooks/use-auth";
 
 interface SchoolSimple {
   id: string;
@@ -52,6 +53,7 @@ interface SchoolSimple {
 }
 
 export default function SuperAdminFeatureControlPage() {
+  const { profile } = useAuth();
   const [activeTab, setActiveTab] = useState<
     "modules" | "features" | "actions" | "rollout" | "overrides" | "audit"
   >("modules");
@@ -88,13 +90,29 @@ export default function SuperAdminFeatureControlPage() {
   const [selectedSchoolsForRollout, setSelectedSchoolsForRollout] = useState<string[]>([]);
   const [rolloutReason, setRolloutReason] = useState("");
 
+  const authHeaders = useMemo(() => ({
+    "x-user-id": profile?.uid || "",
+    "x-user-role": profile?.role || "super_admin",
+    "x-user-email": profile?.email || "",
+  }), [profile]);
+
   // 1. Initial Data Fetch
   const fetchData = useCallback(async () => {
     try {
       setRefreshing(true);
-      const res = await fetch("/api/super-admin/features");
-      const data = await res.json();
-      if (data.success) {
+      const res = await fetch(`/api/super-admin/features?performerUid=${profile?.uid || ""}`, {
+        headers: {
+          "x-user-id": profile?.uid || "",
+          "x-user-role": profile?.role || "super_admin",
+          "x-user-email": profile?.email || "",
+        },
+      });
+      if (!res.ok) {
+        console.warn("Feature control endpoint returned status:", res.status);
+        return;
+      }
+      const data = await res.json().catch(() => null);
+      if (data && data.success) {
         setGlobalStates(data.globalStates || {});
         setOverrides(data.overrides || []);
         setSchools(data.schools || []);
@@ -107,7 +125,7 @@ export default function SuperAdminFeatureControlPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [profile]);
 
   useEffect(() => {
     fetchData();
@@ -141,7 +159,7 @@ export default function SuperAdminFeatureControlPage() {
       const newEnabled = !currentEnabled;
       const res = await fetch("/api/super-admin/features", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({
           featureId: feature.id,
           enabled: newEnabled,
@@ -150,7 +168,7 @@ export default function SuperAdminFeatureControlPage() {
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (data.success) {
         setGlobalStates((prev) => ({
           ...prev,
@@ -179,7 +197,7 @@ export default function SuperAdminFeatureControlPage() {
       setActionLoading(true);
       const res = await fetch("/api/super-admin/features", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({
           featureId: rolloutFeatureId,
           rolloutMode,
@@ -189,7 +207,7 @@ export default function SuperAdminFeatureControlPage() {
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (data.success) {
         setGlobalStates((prev) => ({
           ...prev,
@@ -220,7 +238,7 @@ export default function SuperAdminFeatureControlPage() {
       setActionLoading(true);
       const res = await fetch("/api/super-admin/features/overrides", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({
           schoolId: newOverrideSchoolId,
           featureId: newOverrideFeatureId,
@@ -230,7 +248,7 @@ export default function SuperAdminFeatureControlPage() {
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (data.success) {
         setIsOverrideModalOpen(false);
         setNewOverrideSchoolId("");
@@ -260,8 +278,8 @@ export default function SuperAdminFeatureControlPage() {
       const url = id
         ? `/api/super-admin/features/overrides?id=${id}`
         : `/api/super-admin/features/overrides?schoolId=${schoolId}&featureId=${featureId}`;
-      const res = await fetch(url, { method: "DELETE" });
-      const data = await res.json();
+      const res = await fetch(url, { method: "DELETE", headers: authHeaders });
+      const data = await res.json().catch(() => ({}));
       if (data.success) {
         setOverrides((prev) => prev.filter((o) => o.id !== id));
         fetchData();

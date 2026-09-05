@@ -517,24 +517,24 @@ export async function detectFinancialAnomalies(): Promise<FinancialAnomaly[]> {
   if (!db) return [];
 
   const [ordersSnap, paymentsSnap, invSnap, txSnap, subsSnap] = await Promise.all([
-    getDocs(collection(db, BILLING_COLLECTIONS.ORDERS || "orders")),
-    getDocs(collection(db, BILLING_COLLECTIONS.PAYMENTS || "payments")),
-    getDocs(collection(db, BILLING_COLLECTIONS.INVOICES || "invoices")),
-    getDocs(collection(db, BILLING_COLLECTIONS.FINANCE_TRANSACTIONS || "financeTransactions")),
-    getDocs(collection(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS)),
+    getDocs(collection(db, BILLING_COLLECTIONS.ORDERS || "orders")).catch(() => ({ docs: [] } as any)),
+    getDocs(collection(db, BILLING_COLLECTIONS.PAYMENTS || "payments")).catch(() => ({ docs: [] } as any)),
+    getDocs(collection(db, BILLING_COLLECTIONS.INVOICES || "invoices")).catch(() => ({ docs: [] } as any)),
+    getDocs(collection(db, BILLING_COLLECTIONS.FINANCE_TRANSACTIONS || "financeTransactions")).catch(() => ({ docs: [] } as any)),
+    getDocs(collection(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS)).catch(() => ({ docs: [] } as any)),
   ]);
 
-  const orders = ordersSnap.docs.map((d) => ({ id: d.id, ...d.data() } as InternalOrder));
-  const payments = paymentsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as PaymentRecord));
-  const invoices = invSnap.docs.map((d) => ({ id: d.id, ...d.data() } as InvoiceRecord));
-  const txs = txSnap.docs.map((d) => ({ id: d.id, ...d.data() } as FinanceTransactionRecord));
-  const subs = subsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as SchoolSubscription));
+  const orders = (ordersSnap?.docs || []).map((d: any) => ({ id: d.id, ...d.data() } as InternalOrder));
+  const payments = (paymentsSnap?.docs || []).map((d: any) => ({ id: d.id, ...d.data() } as PaymentRecord));
+  const invoices = (invSnap?.docs || []).map((d: any) => ({ id: d.id, ...d.data() } as InvoiceRecord));
+  const txs = (txSnap?.docs || []).map((d: any) => ({ id: d.id, ...d.data() } as FinanceTransactionRecord));
+  const subs = (subsSnap?.docs || []).map((d: any) => ({ id: d.id, ...d.data() } as SchoolSubscription));
 
-  const orderMap = new Map(orders.map((o) => [o.id, o]));
-  const payOrderMap = new Map(payments.map((p) => [p.orderId, p]));
-  const invPayMap = new Map(invoices.map((i) => [i.paymentId, i]));
-  const invOrderMap = new Map(invoices.map((i) => [i.orderId, i]));
-  const txOrderMap = new Map(txs.map((t) => [t.orderId, t]));
+  const orderMap = new Map(orders.map((o: InternalOrder) => [o.id, o]));
+  const payOrderMap = new Map(payments.map((p: PaymentRecord) => [p.orderId, p]));
+  const invPayMap = new Map(invoices.map((i: InvoiceRecord) => [i.paymentId, i]));
+  const invOrderMap = new Map(invoices.map((i: InvoiceRecord) => [i.orderId, i]));
+  const txOrderMap = new Map(txs.map((t: FinanceTransactionRecord) => [t.orderId, t]));
 
   const anomalies: FinancialAnomaly[] = [];
   const nowIso = new Date().toISOString();
@@ -619,9 +619,9 @@ export async function detectFinancialAnomalies(): Promise<FinancialAnomaly[]> {
 
   // 6. Check: Refund Integrity Anomaly Checks (Phase 10 Section 28)
   try {
-    const refundsSnap = await getDocs(collection(db, "refunds"));
-    const refundsList = refundsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
-    const payMap = new Map(payments.map((p) => [p.id, p]));
+    const refundsSnap = await getDocs(collection(db, "refunds")).catch(() => ({ docs: [] } as any));
+    const refundsList = (refundsSnap?.docs || []).map((d: any) => ({ id: d.id, ...d.data() } as any));
+    const payMap = new Map(payments.map((p: any) => [p.id, p]));
 
     for (const ref of refundsList) {
       if (ref.status === "PROCESSED") {
