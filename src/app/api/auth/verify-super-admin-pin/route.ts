@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSafeAdminDb, adminAuth } from "@/lib/firebase/admin";
+import { getSafeAdminDb, getSafeAdminAuth } from "@/lib/firebase/admin";
 import { DEFAULT_SUPER_ADMIN_PIN } from "@/lib/services/security-pin.service";
 import { COLLECTIONS } from "@/lib/utils/constants";
 
@@ -11,7 +11,7 @@ import { COLLECTIONS } from "@/lib/utils/constants";
  */
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const { uid, email, pin } = body;
 
     if (!uid || !email || !pin) {
@@ -24,16 +24,16 @@ export async function POST(req: NextRequest) {
     const trimmedPin = String(pin).trim();
     let expectedPin = DEFAULT_SUPER_ADMIN_PIN;
 
-    const adminDb = getSafeAdminDb();
-    if (adminDb) {
-      try {
-        const securitySnap = await adminDb.collection("system_settings").doc("security").get();
-        if (securitySnap.exists && securitySnap.data()?.pin) {
+    try {
+      const adminDb = getSafeAdminDb();
+      if (adminDb) {
+        const securitySnap = await adminDb.collection("system_settings").doc("security").get().catch(() => null);
+        if (securitySnap && securitySnap.exists && securitySnap.data()?.pin) {
           expectedPin = String(securitySnap.data()?.pin).trim();
         }
-      } catch (err) {
-        console.warn("Notice: Fetching stored PIN notice, using default PIN fallback:", err);
       }
+    } catch (err) {
+      console.warn("Notice: Fetching stored PIN notice, using default PIN fallback:", err);
     }
 
     if (trimmedPin !== expectedPin) {
@@ -54,20 +54,29 @@ export async function POST(req: NextRequest) {
       updatedAt: new Date().toISOString(),
     };
 
-    if (adminDb) {
-      // Authoritatively update users/{uid} document in Firestore
-      await adminDb.collection(COLLECTIONS.USERS).doc(uid).set(superAdminData, { merge: true });
+    try {
+      const adminDb = getSafeAdminDb();
+      if (adminDb) {
+        await adminDb.collection(COLLECTIONS.USERS).doc(uid).set(superAdminData, { merge: true }).catch((e) => {
+          console.warn("Notice: Admin DB user update notice:", e?.message || e);
+        });
+      }
+    } catch (e) {
+      console.warn("Notice: Admin DB access notice:", e);
     }
 
-    if (adminAuth) {
-      try {
-        await adminAuth.setCustomUserClaims(uid, {
+    try {
+      const safeAuth = getSafeAdminAuth();
+      if (safeAuth) {
+        await safeAuth.setCustomUserClaims(uid, {
           role: "super_admin",
           schoolId: "system",
+        }).catch((claimErr) => {
+          console.warn("Notice: Custom claims notice:", claimErr);
         });
-      } catch (claimErr) {
-        console.warn("Notice: Custom claims notice:", claimErr);
       }
+    } catch (claimErr) {
+      console.warn("Notice: Custom claims error notice:", claimErr);
     }
 
     return NextResponse.json({

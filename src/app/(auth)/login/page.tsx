@@ -79,13 +79,6 @@ function PortalSelectionContent() {
         </Link>
 
         <div className="flex items-center gap-3">
-          <Link
-            href={`/super-admin/login${queryString}`}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors shadow-sm"
-          >
-            <Shield className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-            <span>Super Admin</span>
-          </Link>
           <ThemeToggle />
         </div>
       </header>

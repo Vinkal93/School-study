@@ -21,12 +21,6 @@ export function PortalSwitcher({ currentPortal }: PortalSwitcherProps) {
       href: "/student-login",
       icon: <GraduationCap className="h-3.5 w-3.5" />,
     },
-    {
-      id: "super_admin",
-      label: "Super Admin",
-      href: "/super-admin-login",
-      icon: <Shield className="h-3.5 w-3.5" />,
-    },
   ];
 
   return (

@@ -12,21 +12,52 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
   }
 }
 
-export const adminApp = !getApps().length
-  ? initializeApp(
+let _adminApp: any = null;
+function getAdminApp() {
+  if (_adminApp) return _adminApp;
+  const apps = getApps();
+  if (apps.length > 0) {
+    _adminApp = apps[0];
+    return _adminApp;
+  }
+  try {
+    _adminApp = initializeApp(
       parsedServiceAccount
         ? { credential: cert(parsedServiceAccount) }
         : { projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || "school-study-c8991" }
-    )
-  : getApps()[0];
+    );
+    return _adminApp;
+  } catch (e) {
+    console.warn("Notice: Failed to initialize Firebase Admin App:", e);
+    return null;
+  }
+}
 
-export const adminAuth = getAuth(adminApp);
-export const adminDb = getFirestore(adminApp);
+export const adminApp = getAdminApp();
 
-export function getSafeAdminDb() {
-  // If no service account JSON and no GOOGLE_APPLICATION_CREDENTIALS env var, adminDb will throw "Could not load default credentials"
+export function getSafeAdminAuth() {
   if (!parsedServiceAccount && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
     return null;
   }
-  return adminDb;
+  try {
+    const app = getAdminApp();
+    return app ? getAuth(app) : null;
+  } catch (e) {
+    return null;
+  }
 }
+
+export function getSafeAdminDb() {
+  if (!parsedServiceAccount && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    return null;
+  }
+  try {
+    const app = getAdminApp();
+    return app ? getFirestore(app) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+export const adminAuth = getSafeAdminAuth();
+export const adminDb = getSafeAdminDb();

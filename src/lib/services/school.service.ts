@@ -16,7 +16,7 @@ import {
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { initializeApp, getApps, deleteApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
-import { getFirebaseDb, getFirebaseStorage } from "@/lib/firebase/client";
+import { getFirebaseDb, getFirebaseAuth, getFirebaseStorage } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/utils/constants";
 import { firebaseClientConfig } from "@/lib/firebase/config";
 import type { School, SchoolStatus, CreateSchoolInput, AppUser } from "@/types";
@@ -40,47 +40,97 @@ export async function uploadSchoolLogo(
 export async function createSchoolWithAdmin(
   input: CreateSchoolInput
 ): Promise<{ schoolId: string; adminUid: string }> {
+  // 1. Attempt Server-Authoritative Registration
+  try {
+    const res = await fetch("/api/school/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success && data.schoolId && data.adminUid) {
+      return { schoolId: data.schoolId, adminUid: data.adminUid };
+    }
+    if (!res.ok && data.error && !data.fallbackToClient) {
+      throw new Error(data.error);
+    }
+  } catch (apiErr: any) {
+    if (apiErr?.message && !apiErr.message.includes("fetch")) {
+      throw apiErr;
+    }
+  }
+
+  // 2. Client-Side Resilient Fallback
   const db = getFirebaseDb();
   const upperCode = input.code.trim().toUpperCase();
 
-  // 1. Verify school code is unique
-  const codeQuery = query(
-    collection(db, COLLECTIONS.SCHOOLS),
-    where("code", "==", upperCode)
-  );
-  const codeSnapshot = await getDocs(codeQuery);
-  if (!codeSnapshot.empty) {
-    throw new Error(`School code "${upperCode}" is already in use.`);
+  // Verify school code is unique
+  try {
+    const codeQuery = query(
+      collection(db, COLLECTIONS.SCHOOLS),
+      where("code", "==", upperCode)
+    );
+    const codeSnapshot = await getDocs(codeQuery);
+    if (!codeSnapshot.empty) {
+      throw new Error(`School code "${upperCode}" is already in use.`);
+    }
+  } catch (codeErr: any) {
+    if (codeErr?.message?.includes("already in use")) {
+      throw codeErr;
+    }
   }
 
-  // 2. Create the Admin account using a secondary Firebase App instance
-  const secondaryAppName = `secondary-auth-${Date.now()}`;
-  const secondaryApp = initializeApp(firebaseClientConfig, secondaryAppName);
-  const secondaryAuth = getAuth(secondaryApp);
+  const primaryAuth = getFirebaseAuth();
+  const currentLoggedInUser = primaryAuth?.currentUser;
 
   let adminUid = "";
-  try {
-    const userCredential = await createUserWithEmailAndPassword(
-      secondaryAuth,
-      input.adminEmail.trim().toLowerCase(),
-      input.adminPassword
-    );
-    adminUid = userCredential.user.uid;
-    await signOut(secondaryAuth);
-  } catch (authError: any) {
-    if (getApps().some((app) => app.name === secondaryAppName)) {
-      await deleteApp(secondaryApp);
+  if (currentLoggedInUser) {
+    // If Super Admin is logged in, preserve session with secondary app
+    const secondaryAppName = `secondary-auth-${Date.now()}`;
+    const secondaryApp = initializeApp(firebaseClientConfig, secondaryAppName);
+    const secondaryAuth = getAuth(secondaryApp);
+
+    try {
+      const userCredential = await createUserWithEmailAndPassword(
+        secondaryAuth,
+        input.adminEmail.trim().toLowerCase(),
+        input.adminPassword
+      );
+      adminUid = userCredential.user.uid;
+      await signOut(secondaryAuth);
+    } catch (authError: any) {
+      if (getApps().some((app) => app.name === secondaryAppName)) {
+        await deleteApp(secondaryApp);
+      }
+      if (authError.code === "auth/email-already-in-use") {
+        throw new Error(`Email "${input.adminEmail}" is already registered.`);
+      }
+      if (authError.code === "auth/weak-password") {
+        throw new Error("Password should be at least 6 characters.");
+      }
+      throw new Error(authError.message || "Failed to create admin user account.");
+    } finally {
+      if (getApps().some((app) => app.name === secondaryAppName)) {
+        await deleteApp(secondaryApp);
+      }
     }
-    if (authError.code === "auth/email-already-in-use") {
-      throw new Error(`Email "${input.adminEmail}" is already registered.`);
-    }
-    if (authError.code === "auth/weak-password") {
-      throw new Error("Password should be at least 6 characters.");
-    }
-    throw new Error(authError.message || "Failed to create admin user account.");
-  } finally {
-    if (getApps().some((app) => app.name === secondaryAppName)) {
-      await deleteApp(secondaryApp);
+  } else {
+    // Public Registration: Authenticate immediately on primary auth
+    try {
+      const userCredential = await createUserWithEmailAndPassword(
+        primaryAuth,
+        input.adminEmail.trim().toLowerCase(),
+        input.adminPassword
+      );
+      adminUid = userCredential.user.uid;
+    } catch (authError: any) {
+      if (authError.code === "auth/email-already-in-use") {
+        throw new Error(`Email "${input.adminEmail}" is already registered.`);
+      }
+      if (authError.code === "auth/weak-password") {
+        throw new Error("Password should be at least 6 characters.");
+      }
+      throw new Error(authError.message || "Failed to create admin user account.");
     }
   }
 

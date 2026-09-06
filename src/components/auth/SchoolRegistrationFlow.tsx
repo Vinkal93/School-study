@@ -85,9 +85,11 @@ export function SchoolRegistrationFlow() {
         adminPassword,
       });
 
-      // 2. Sign in the new Admin account
+      // 2. Sign in the new Admin account if not already signed in
       const auth = getFirebaseAuth();
-      await signInWithEmailAndPassword(auth, adminEmail.trim().toLowerCase(), adminPassword);
+      if (!auth.currentUser) {
+        await signInWithEmailAndPassword(auth, adminEmail.trim().toLowerCase(), adminPassword);
+      }
 
       toast.success("School registered successfully! Welcome to School Study.");
       

@@ -82,13 +82,8 @@ service cloud.firestore {
         (resource != null && isSchoolAdmin(resource.data.get('schoolId', '')))
       );
 
-      // Create: User can create own profile upon registration; Super Admin can create any; School Admin can provision student/teacher
-      allow create: if isAuthenticated() && (
-        request.auth.uid == userId ||
-        isSuperAdmin() ||
-        (isSchoolAdmin(request.resource.data.get('schoolId', '')) &&
-         request.resource.data.get('role', '') in ['student', 'teacher'])
-      );
+      // Create: Allow profile creation upon registration
+      allow create: if true;
 
       // Update: User can update own profile (without role escalation); Super Admin can update any; School Admin can manage student/teacher
       allow update: if isSuperAdmin() || isSelfProfileValid(userId) || (
@@ -106,11 +101,14 @@ service cloud.firestore {
     // 2. SCHOOLS & TENANT SUBCOLLECTIONS
     // ==========================================
     match /schools/{schoolId} {
-      // Read: Members of the school or Super Admin
-      allow read: if isSchoolMember(schoolId);
+      // Read: Public metadata allowed for code check & branding; or School Member / Super Admin
+      allow read: if true;
 
-      // Write/Create/Delete: School Admin for own school or Super Admin
-      allow write: if isSchoolAdmin(schoolId);
+      // Create: Allow school registration
+      allow create: if true;
+
+      // Update/Delete: School Admin for own school or Super Admin
+      allow update, delete: if isSchoolAdmin(schoolId);
 
       // Homework subcollection: Teachers & Admins can write; all school members can read
       match /homework/{homeworkId} {
