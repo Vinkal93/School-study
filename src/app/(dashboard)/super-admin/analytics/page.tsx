@@ -42,6 +42,7 @@ import { getFirebaseDb } from "@/lib/firebase/client";
 import { collection, onSnapshot, query, orderBy, limit } from "firebase/firestore";
 import { COLLECTIONS } from "@/lib/utils/constants";
 import { AUDIT_COLLECTIONS } from "@/lib/services/audit.service";
+import { fetchPlatformIntelligence } from "@/lib/services/platform-analytics.service";
 import type {
   PlatformIntelligenceData,
   AnalyticsFilterState,
@@ -77,6 +78,7 @@ export default function PlatformAnalyticsPage() {
   const [liveActiveSessionCount, setLiveActiveSessionCount] = useState<number>(0);
   const [liveSchoolsCount, setLiveSchoolsCount] = useState<number>(0);
   const [liveUsersCount, setLiveUsersCount] = useState<number>(0);
+  const [allSchoolsList, setAllSchoolsList] = useState<{ id: string; name: string; code: string }[]>([]);
 
   // School Inspection Drawer
   const [selectedSchool, setSelectedSchool] = useState<any | null>(null);
@@ -88,26 +90,20 @@ export default function PlatformAnalyticsPage() {
     else setRefreshing(true);
 
     try {
-      const params = new URLSearchParams();
-      params.set("performerUid", currentUser.uid);
-      params.set("preset", preset);
-      if (preset === "custom" && startDate) params.set("startDate", startDate);
-      if (preset === "custom" && endDate) params.set("endDate", endDate);
-      if (schoolFilter !== "all") params.set("schoolId", schoolFilter);
-      if (planFilter !== "all") params.set("planId", planFilter);
-      if (roleFilter !== "all") params.set("role", roleFilter);
-      if (featureFilter !== "all") params.set("feature", featureFilter);
+      const intelData = await fetchPlatformIntelligence(currentUser, {
+        preset,
+        startDate: preset === "custom" && startDate ? startDate : undefined,
+        endDate: preset === "custom" && endDate ? endDate : undefined,
+        schoolId: schoolFilter !== "all" ? schoolFilter : undefined,
+        planId: planFilter !== "all" ? planFilter : undefined,
+        role: roleFilter !== "all" ? roleFilter : undefined,
+        feature: featureFilter !== "all" ? featureFilter : undefined,
+      });
 
-      const res = await fetch(`/api/super-admin/analytics?${params.toString()}`);
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || "Failed to load platform intelligence");
-      }
-
-      const json = await res.json();
-      if (json.success && json.data) {
-        setData(json.data);
-        setLastRefreshedAt(new Date());
+      setData(intelData);
+      setLastRefreshedAt(new Date());
+      if (isSilent) {
+        toast.success("Platform analytics refreshed with live data");
       }
     } catch (err: any) {
       console.error("Error loading analytics:", err);
@@ -116,7 +112,7 @@ export default function PlatformAnalyticsPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [currentUser?.uid, preset, startDate, endDate, schoolFilter, planFilter, roleFilter, featureFilter]);
+  }, [currentUser, preset, startDate, endDate, schoolFilter, planFilter, roleFilter, featureFilter]);
 
   // Initial & Filter-Change Fetch
   useEffect(() => {
@@ -145,6 +141,12 @@ export default function PlatformAnalyticsPage() {
     // 2. Live Schools
     const unsubSchools = onSnapshot(collection(db, COLLECTIONS.SCHOOLS), (snap) => {
       setLiveSchoolsCount(snap.size);
+      const list = snap.docs.map((d) => ({
+        id: d.id,
+        name: d.data().name || "School " + d.id.slice(0, 6),
+        code: d.data().code || d.id.slice(0, 6).toUpperCase(),
+      }));
+      setAllSchoolsList(list);
     });
 
     // 3. Live Active Sessions
@@ -173,9 +175,10 @@ export default function PlatformAnalyticsPage() {
 
   // Distinct Schools for Filter Dropdown
   const schoolOptions = useMemo(() => {
+    if (allSchoolsList.length > 0) return allSchoolsList;
     if (!data) return [];
-    return data.schools.newRegistrations.map((s) => ({ id: s.id, name: s.name }));
-  }, [data]);
+    return data.schools.newRegistrations.map((s) => ({ id: s.id, name: s.name, code: s.code }));
+  }, [allSchoolsList, data]);
 
   if (loading && !data) {
     return (
@@ -282,9 +285,25 @@ export default function PlatformAnalyticsPage() {
             ))}
           </div>
 
-          <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
-            <Clock className="h-3 w-3" />
-            <span>Updated: {lastRefreshedAt.toLocaleTimeString()}</span>
+          <div className="flex items-center gap-3">
+            {(schoolFilter !== "all" || planFilter !== "all" || roleFilter !== "all" || featureFilter !== "all" || preset !== "30d") && (
+              <button
+                onClick={() => {
+                  setSchoolFilter("all");
+                  setPlanFilter("all");
+                  setRoleFilter("all");
+                  setFeatureFilter("all");
+                  setPreset("30d");
+                }}
+                className="text-xs font-bold text-red-600 hover:text-red-700 dark:text-red-400 cursor-pointer flex items-center gap-1"
+              >
+                <X className="h-3 w-3" /> Reset Filters
+              </button>
+            )}
+            <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              <span>Updated: {lastRefreshedAt.toLocaleTimeString()}</span>
+            </div>
           </div>
         </div>
 
@@ -300,10 +319,10 @@ export default function PlatformAnalyticsPage() {
               onChange={(e) => setSchoolFilter(e.target.value)}
               className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs text-gray-900 focus:border-blue-500 focus:bg-white dark:border-gray-800 dark:bg-gray-950 dark:text-white"
             >
-              <option value="all">All School Tenants</option>
+              <option value="all">All School Tenants ({schoolOptions.length})</option>
               {schoolOptions.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name}
+                  {s.name} {(s as any).code ? `(${(s as any).code})` : ""}
                 </option>
               ))}
             </select>
