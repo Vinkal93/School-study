@@ -15,11 +15,12 @@ import {
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { initializeApp, getApps, deleteApp } from "firebase/app";
-import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { getFirebaseDb, getFirebaseAuth, getFirebaseStorage } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/utils/constants";
 import { firebaseClientConfig } from "@/lib/firebase/config";
 import type { School, SchoolStatus, CreateSchoolInput, AppUser } from "@/types";
+import { isSuperAdminEmail } from "./user.service";
 
 import { compressImageToBase64 } from "@/lib/utils/image-compression";
 
@@ -82,9 +83,10 @@ export async function createSchoolWithAdmin(
 
   const primaryAuth = getFirebaseAuth();
   const currentLoggedInUser = primaryAuth?.currentUser;
+  const isSuperAdminSessionActive = Boolean(currentLoggedInUser && isSuperAdminEmail(currentLoggedInUser.email));
 
   let adminUid = "";
-  if (currentLoggedInUser) {
+  if (isSuperAdminSessionActive) {
     // If Super Admin is logged in, preserve session with secondary app
     const secondaryAppName = `secondary-auth-${Date.now()}`;
     const secondaryApp = initializeApp(firebaseClientConfig, secondaryAppName);
@@ -115,7 +117,13 @@ export async function createSchoolWithAdmin(
       }
     }
   } else {
-    // Public Registration: Authenticate immediately on primary auth
+    // Public Registration: Clean stale session and authenticate immediately on primary auth
+    if (primaryAuth.currentUser) {
+      try {
+        await signOut(primaryAuth);
+      } catch (e) {}
+    }
+
     try {
       const userCredential = await createUserWithEmailAndPassword(
         primaryAuth,
@@ -125,12 +133,21 @@ export async function createSchoolWithAdmin(
       adminUid = userCredential.user.uid;
     } catch (authError: any) {
       if (authError.code === "auth/email-already-in-use") {
-        throw new Error(`Email "${input.adminEmail}" is already registered.`);
-      }
-      if (authError.code === "auth/weak-password") {
+        try {
+          const cred = await signInWithEmailAndPassword(
+            primaryAuth,
+            input.adminEmail.trim().toLowerCase(),
+            input.adminPassword
+          );
+          adminUid = cred.user.uid;
+        } catch (signInErr: any) {
+          throw new Error(`Email "${input.adminEmail}" is already registered. Please sign in or use a different email.`);
+        }
+      } else if (authError.code === "auth/weak-password") {
         throw new Error("Password should be at least 6 characters.");
+      } else {
+        throw new Error(authError.message || "Failed to create admin user account.");
       }
-      throw new Error(authError.message || "Failed to create admin user account.");
     }
   }
 
