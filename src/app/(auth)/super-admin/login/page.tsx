@@ -44,6 +44,12 @@ export default function SuperAdminLoginPage() {
       const profile = await signIn(email, password);
 
       // Auto-provision/ensure user has Super Admin role for manual Firebase Auth accounts
+      try {
+        sessionStorage.setItem("ss_super_admin_auth", profile.uid);
+        localStorage.setItem("ss_super_admin_auth", profile.uid);
+      } catch (e) {
+        // ignore
+      }
       await ensureSuperAdminProfile(profile.uid, email);
       await refreshProfile();
 
@@ -67,22 +73,43 @@ export default function SuperAdminLoginPage() {
     setIsSubmitting(true);
 
     try {
-      const isPinValid = await verifySuperAdminPin(pin);
+      const uid = authenticatedUid || firebaseUser?.uid;
+      const userEmail = firebaseUser?.email || email;
 
-      if (!isPinValid) {
-        toast.error("Invalid Security PIN code. Please check your 6-digit PIN and try again.");
+      if (!uid || !userEmail) {
+        toast.error("Session information missing. Please re-enter your credentials.");
+        setStep("credentials");
         setIsSubmitting(false);
         return;
       }
 
-      const uid = authenticatedUid || firebaseUser?.uid;
-      const userEmail = firebaseUser?.email || email;
+      const res = await fetch("/api/auth/verify-super-admin-pin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          uid,
+          email: userEmail,
+          pin: pin.trim(),
+        }),
+      });
 
-      if (uid && userEmail) {
-        await ensureSuperAdminProfile(uid, userEmail);
-        await refreshProfile();
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data.success) {
+        toast.error(data.error || "Invalid Security PIN code. Please check your 6-digit PIN and try again.");
+        setIsSubmitting(false);
+        return;
       }
 
+      try {
+        sessionStorage.setItem("ss_super_admin_auth", uid);
+        localStorage.setItem("ss_super_admin_auth", uid);
+      } catch (e) {
+        // ignore
+      }
+
+      await ensureSuperAdminProfile(uid, userEmail);
+      await refreshProfile();
       toast.success("Security PIN verified! Welcome Super Admin!");
       window.location.href = "/super-admin";
     } catch (error: any) {

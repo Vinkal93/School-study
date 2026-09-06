@@ -86,7 +86,30 @@ export function PortalUIProvider({ children }: { children: ReactNode }) {
         uid: profile?.uid || firebaseUser?.uid || "super_admin",
         name: profile?.name || firebaseUser?.displayName || "Super Admin",
       };
-      await updatePortalUIVersion(portal, version, operator);
+
+      let savedViaApi = false;
+      try {
+        const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
+        const res = await fetch("/api/super-admin/portal-ui", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+            "x-user-id": operator.uid,
+            "x-user-role": profile?.role || "super_admin",
+          },
+          body: JSON.stringify({ portal, version }),
+        });
+        if (res.ok) {
+          savedViaApi = true;
+        }
+      } catch (apiErr) {
+        console.warn("Server API portal-ui notice, using client SDK fallback:", apiErr);
+      }
+
+      if (!savedViaApi) {
+        await updatePortalUIVersion(portal, version, operator);
+      }
     },
     [profile, firebaseUser]
   );
@@ -96,7 +119,30 @@ export function PortalUIProvider({ children }: { children: ReactNode }) {
       uid: profile?.uid || firebaseUser?.uid || "super_admin",
       name: profile?.name || firebaseUser?.displayName || "Super Admin",
     };
-    await resetAllPortalsToClassic(operator);
+
+    let savedViaApi = false;
+    try {
+      const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
+      const res = await fetch("/api/super-admin/portal-ui", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+          "x-user-id": operator.uid,
+          "x-user-role": profile?.role || "super_admin",
+        },
+        body: JSON.stringify({ action: "resetAll" }),
+      });
+      if (res.ok) {
+        savedViaApi = true;
+      }
+    } catch (apiErr) {
+      console.warn("Server API emergency reset notice, using client SDK fallback:", apiErr);
+    }
+
+    if (!savedViaApi) {
+      await resetAllPortalsToClassic(operator);
+    }
   }, [profile, firebaseUser]);
 
   return (

@@ -56,7 +56,9 @@ export function useRealtimeSecurityListener() {
         }
       },
       (err) => {
-        console.warn("Realtime user security listener notice:", err);
+        if (err.code !== "permission-denied") {
+          console.warn("Realtime user security listener notice:", err);
+        }
       }
     );
 
@@ -85,7 +87,9 @@ export function useRealtimeSecurityListener() {
         }
       },
       (err) => {
-        console.warn("Realtime global emergency listener notice:", err);
+        if (err.code !== "permission-denied") {
+          console.warn("Realtime global emergency listener notice:", err);
+        }
       }
     );
 

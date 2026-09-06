@@ -30,14 +30,8 @@ export const OFFERS_COLLECTION = "offersPromotions";
 export const CAMPAIGNS_COLLECTION = "promotionCampaigns";
 export const REDEMPTIONS_COLLECTION = "couponRedemptions";
 
-async function getAdminDbServerOnly() {
-  if (typeof window !== "undefined") return null;
-  try {
-    const adminModule = await import("@/lib/firebase/admin");
-    return typeof adminModule.getSafeAdminDb === "function" ? adminModule.getSafeAdminDb() : null;
-  } catch (e) {
-    return null;
-  }
+function getAdminDbServerOnly(): any {
+  return null;
 }
 
 // Global in-memory fallback stores for local testing / zero-credential serverless resilience
@@ -271,12 +265,12 @@ export async function getAllOffers(filters?: {
     const adminDb = await getAdminDbServerOnly();
     if (adminDb) {
       const snap = await adminDb.collection(OFFERS_COLLECTION).get();
-      list = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as OfferPromotion[];
+      list = snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) as OfferPromotion[];
     } else {
       const db = getFirebaseDb();
       if (db) {
         const snap = await getDocs(collection(db, OFFERS_COLLECTION));
-        list = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as OfferPromotion[];
+        list = snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) as OfferPromotion[];
       }
     }
   } catch (e) {
@@ -588,12 +582,12 @@ export async function getAllCampaigns(): Promise<PromotionCampaign[]> {
     const adminDb = await getAdminDbServerOnly();
     if (adminDb) {
       const snap = await adminDb.collection(CAMPAIGNS_COLLECTION).get();
-      list = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as PromotionCampaign[];
+      list = snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) as PromotionCampaign[];
     } else {
       const db = getFirebaseDb();
       if (db) {
         const snap = await getDocs(collection(db, CAMPAIGNS_COLLECTION));
-        list = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as PromotionCampaign[];
+        list = snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) as PromotionCampaign[];
       }
     }
   } catch (e) {}
@@ -729,7 +723,7 @@ export async function getAllRedemptions(filters?: {
         if (filters?.offerId) q = query(q, where("offerId", "==", filters.offerId));
         if (filters?.schoolId) q = query(q, where("schoolId", "==", filters.schoolId));
         const snap = await getDocs(q);
-        list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as CouponRedemptionRecord[];
+        list = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })) as CouponRedemptionRecord[];
       }
     }
   } catch (e) {}

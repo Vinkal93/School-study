@@ -59,6 +59,28 @@ export async function POST(request: Request) {
       );
     }
 
+    // Emergency Control Check: Payments kill switch or School paused/read-only
+    const { resolveEmergencyAccess } = await import("@/lib/emergency/emergencyResolver");
+    const emCheck = await resolveEmergencyAccess({
+      schoolId,
+      userId,
+      moduleKey: "payments",
+      action: "create_order",
+      httpMethod: "POST",
+    });
+    if (!emCheck.allowed) {
+      console.warn(`[BillingOrdersAPI] Order creation blocked by Emergency Control: ${emCheck.code}`);
+      return NextResponse.json(
+        {
+          success: false,
+          error: emCheck.message || "Online payments and order creation are temporarily unavailable.",
+          code: emCheck.code || "ONLINE_PAYMENTS_DISABLED",
+          reason: emCheck.reason,
+        },
+        { status: emCheck.status || 503 }
+      );
+    }
+
     if (!planId || typeof planId !== "string" || !planId.trim()) {
       console.warn("[BillingOrdersAPI] Validation failed: Missing or invalid planId.");
       return NextResponse.json(

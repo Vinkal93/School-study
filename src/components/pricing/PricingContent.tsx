@@ -163,6 +163,23 @@ export function PricingContent() {
   useEffect(() => {
     async function loadPublicPlans() {
       try {
+        const res = await fetch("/api/pricing");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.plans && data.plans.length > 0) {
+            setPlans(data.plans);
+            const versionMap: Record<string, PlanVersion> = {};
+            for (const p of data.plans) {
+              if (p.activeVersion) {
+                versionMap[p.id] = p.activeVersion;
+              }
+            }
+            setActiveVersions(versionMap);
+            setLoading(false);
+            return;
+          }
+        }
+
         const fetchedPlans = await getAllPlans();
         if (fetchedPlans && fetchedPlans.length > 0) {
           setPlans(fetchedPlans);

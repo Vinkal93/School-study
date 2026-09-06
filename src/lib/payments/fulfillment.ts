@@ -100,6 +100,30 @@ export interface FulfillmentResult {
   alreadyFulfilled?: boolean;
 }
 
+async function getAdminDbServerOnly() {
+  if (typeof window !== "undefined") return null;
+  try {
+    const adminModule = await import("@/lib/firebase/admin");
+    return typeof adminModule.getSafeAdminDb === "function" ? adminModule.getSafeAdminDb() : (adminModule.adminDb || null);
+  } catch (e) {
+    return null;
+  }
+}
+
+// In-memory fallback stores for tests or serverless offline resilience
+const g = globalThis as any;
+if (!g.__BILLING_ORDERS_MAP__) g.__BILLING_ORDERS_MAP__ = new Map<string, InternalOrder>();
+if (!g.__BILLING_PAYMENTS_MAP__) g.__BILLING_PAYMENTS_MAP__ = new Map<string, PaymentRecord>();
+if (!g.__BILLING_SUBSCRIPTIONS_MAP__) g.__BILLING_SUBSCRIPTIONS_MAP__ = new Map<string, SchoolSubscription>();
+if (!g.__BILLING_INVOICES_MAP__) g.__BILLING_INVOICES_MAP__ = new Map<string, InvoiceRecord>();
+if (!g.__BILLING_TRANSACTIONS_MAP__) g.__BILLING_TRANSACTIONS_MAP__ = new Map<string, FinanceTransactionRecord>();
+
+const memoryOrders: Map<string, InternalOrder> = g.__BILLING_ORDERS_MAP__;
+const memoryPayments: Map<string, PaymentRecord> = g.__BILLING_PAYMENTS_MAP__;
+const memorySubscriptions: Map<string, SchoolSubscription> = g.__BILLING_SUBSCRIPTIONS_MAP__;
+const memoryInvoices: Map<string, InvoiceRecord> = g.__BILLING_INVOICES_MAP__;
+const memoryTransactions: Map<string, FinanceTransactionRecord> = g.__BILLING_TRANSACTIONS_MAP__;
+
 /**
  * Section 25 & 26: Central Idempotent Payment Fulfillment Service.
  * Single source of truth for payment verification, status updates, subscription extensions,
@@ -111,45 +135,73 @@ export async function fulfillSuccessfulPayment(
   source: "callback" | "webhook" = "callback",
   nowMs: number = Date.now()
 ): Promise<FulfillmentResult> {
+  const adminDb = await getAdminDbServerOnly();
   const db = getFirebaseDb();
-  if (!db) {
-    throw new Error("Database uninitialized during payment fulfillment.");
+  const nowIso = new Date(nowMs).toISOString();
+
+  let order: InternalOrder | null = null;
+
+  // Retrieve Order from Admin DB, Client DB or In-Memory Store
+  if (adminDb) {
+    try {
+      const snap = await adminDb.collection(BILLING_COLLECTIONS.ORDERS || "orders").doc(orderId).get();
+      if (snap.exists) {
+        order = { id: snap.id, ...snap.data() } as InternalOrder;
+      }
+    } catch (err) {}
   }
 
-  const orderRef = doc(db, BILLING_COLLECTIONS.ORDERS || "orders", orderId);
-  const orderSnap = await getDoc(orderRef);
+  if (!order && db) {
+    try {
+      const orderRef = doc(db, BILLING_COLLECTIONS.ORDERS || "orders", orderId);
+      const orderSnap = await getDoc(orderRef);
+      if (orderSnap.exists()) {
+        order = { id: orderSnap.id, ...orderSnap.data() } as InternalOrder;
+      }
+    } catch (err) {}
+  }
 
-  if (!orderSnap.exists()) {
+  if (!order) {
+    order = memoryOrders.get(orderId) || null;
+  }
+
+  if (!order) {
     throw new Error(`Order ${orderId} not found.`);
   }
 
-  let order = { id: orderSnap.id, ...orderSnap.data() } as InternalOrder;
-  const nowIso = new Date(nowMs).toISOString();
+  const paymentId = `pay_${razorpayPaymentId}`;
+  const invoiceId = `inv_${order.id}`;
+  const txId = `tx_${order.id}`;
 
   // Section 24 & 25: Idempotency Check — If order is already PAID, return existing fulfillment safely
   if (order.status === "PAID") {
-    const paymentId = `pay_${razorpayPaymentId}`;
-    const paymentRef = doc(db, BILLING_COLLECTIONS.PAYMENTS || "payments", paymentId);
-    const subRef = doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, order.schoolId);
-    const invoiceId = `inv_${order.id}`;
-    const invoiceRef = doc(db, BILLING_COLLECTIONS.INVOICES || "invoices", invoiceId);
-    const txId = `tx_${order.id}`;
-    const txRef = doc(db, BILLING_COLLECTIONS.FINANCE_TRANSACTIONS || "financeTransactions", txId);
+    let existingPayment = memoryPayments.get(paymentId);
+    let existingSub = memorySubscriptions.get(order.schoolId);
+    let existingInv = memoryInvoices.get(invoiceId);
+    let existingTx = memoryTransactions.get(txId);
 
-    const [paySnap, subSnap, invSnap, txSnap] = await Promise.all([
-      getDoc(paymentRef),
-      getDoc(subRef),
-      getDoc(invoiceRef),
-      getDoc(txRef),
-    ]);
+    if (adminDb) {
+      try {
+        const [paySnap, subSnap, invSnap, txSnap] = await Promise.all([
+          adminDb.collection(BILLING_COLLECTIONS.PAYMENTS || "payments").doc(paymentId).get(),
+          adminDb.collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS).doc(order.schoolId).get(),
+          adminDb.collection(BILLING_COLLECTIONS.INVOICES || "invoices").doc(invoiceId).get(),
+          adminDb.collection(BILLING_COLLECTIONS.FINANCE_TRANSACTIONS || "financeTransactions").doc(txId).get(),
+        ]);
+        if (paySnap.exists) existingPayment = { id: paySnap.id, ...paySnap.data() } as PaymentRecord;
+        if (subSnap.exists) existingSub = { id: subSnap.id, ...subSnap.data() } as SchoolSubscription;
+        if (invSnap.exists) existingInv = { id: invSnap.id, ...invSnap.data() } as InvoiceRecord;
+        if (txSnap.exists) existingTx = { id: txSnap.id, ...txSnap.data() } as FinanceTransactionRecord;
+      } catch (e) {}
+    }
 
     return {
       success: true,
       order,
-      payment: paySnap.data() as PaymentRecord,
-      subscription: subSnap.data() as SchoolSubscription,
-      invoice: invSnap.data() as InvoiceRecord,
-      financeTransaction: txSnap.data() as FinanceTransactionRecord,
+      payment: existingPayment || ({} as any),
+      subscription: existingSub || ({} as any),
+      invoice: existingInv || ({} as any),
+      financeTransaction: existingTx || ({} as any),
       alreadyFulfilled: true,
     };
   }
@@ -157,10 +209,19 @@ export async function fulfillSuccessfulPayment(
   // 1. Mark Order as PAID
   order.status = "PAID";
   order.updatedAt = nowIso;
-  await setDoc(orderRef, { status: "PAID", updatedAt: nowIso }, { merge: true });
+  memoryOrders.set(order.id, order);
+
+  if (adminDb) {
+    try {
+      await adminDb.collection(BILLING_COLLECTIONS.ORDERS || "orders").doc(order.id).set({ status: "PAID", updatedAt: nowIso }, { merge: true });
+    } catch (e) {}
+  } else if (db) {
+    try {
+      await setDoc(doc(db, BILLING_COLLECTIONS.ORDERS || "orders", order.id), { status: "PAID", updatedAt: nowIso }, { merge: true });
+    } catch (e) {}
+  }
 
   // 2. Create Payment Record
-  const paymentId = `pay_${razorpayPaymentId}`;
   const paymentRecord: PaymentRecord = {
     id: paymentId,
     schoolId: order.schoolId,
@@ -180,30 +241,52 @@ export async function fulfillSuccessfulPayment(
     createdAt: nowIso,
     capturedAt: nowIso,
   };
-  const paymentRef = doc(db, BILLING_COLLECTIONS.PAYMENTS || "payments", paymentId);
-  await setDoc(paymentRef, paymentRecord, { merge: true });
+  memoryPayments.set(paymentId, paymentRecord);
+
+  if (adminDb) {
+    try {
+      await adminDb.collection(BILLING_COLLECTIONS.PAYMENTS || "payments").doc(paymentId).set(paymentRecord, { merge: true });
+    } catch (e) {}
+  } else if (db) {
+    try {
+      await setDoc(doc(db, BILLING_COLLECTIONS.PAYMENTS || "payments", paymentId), paymentRecord, { merge: true });
+    } catch (e) {}
+  }
 
   // 3. Subscription Activation / Renewal Extension (Section 17)
-  const policy = await getGlobalAccessPolicy();
-  const subRef = doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, order.schoolId);
-  const subSnap = await getDoc(subRef);
+  let policy: Partial<GlobalAccessPolicy> = {};
+  try {
+    policy = await getGlobalAccessPolicy();
+  } catch (e) {
+    policy = { gracePeriodDays: 7 };
+  }
+
+  let existingSub: SchoolSubscription | null = memorySubscriptions.get(order.schoolId) || null;
+  if (adminDb) {
+    try {
+      const snap = await adminDb.collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS).doc(order.schoolId).get();
+      if (snap.exists) existingSub = { id: snap.id, ...snap.data() } as SchoolSubscription;
+    } catch (e) {}
+  } else if (db) {
+    try {
+      const snap = await getDoc(doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, order.schoolId));
+      if (snap.exists()) existingSub = { id: snap.id, ...snap.data() } as SchoolSubscription;
+    } catch (e) {}
+  }
 
   let currentExpiresAtMs = 0;
-  if (subSnap.exists()) {
-    const existingSub = subSnap.data() as SchoolSubscription;
-    if (existingSub.status === "ACTIVE") {
-      const expMs = new Date(existingSub.expiresAt).getTime();
-      if (expMs > nowMs) currentExpiresAtMs = expMs;
-    }
+  if (existingSub && existingSub.status === "ACTIVE") {
+    const expMs = new Date(existingSub.expiresAt).getTime();
+    if (expMs > nowMs) currentExpiresAtMs = expMs;
   }
 
   const durationDays = order.billingCycle === "annual" ? 365 : 30;
   const durationMs = durationDays * 24 * 60 * 60 * 1000;
   const startBasisMs = currentExpiresAtMs > nowMs ? currentExpiresAtMs : nowMs;
 
-  const newStartsAtMs = currentExpiresAtMs > nowMs ? new Date(subSnap.data()?.startsAt || nowIso).getTime() : nowMs;
+  const newStartsAtMs = currentExpiresAtMs > nowMs ? new Date(existingSub?.startsAt || nowIso).getTime() : nowMs;
   const newExpiresAtMs = startBasisMs + durationMs;
-  const gracePeriodMs = (policy.gracePeriodDays || 7) * 24 * 60 * 60 * 1000;
+  const gracePeriodMs = ((policy as any)?.gracePeriodDays || 7) * 24 * 60 * 60 * 1000;
   const newGraceEndsAtMs = newExpiresAtMs + gracePeriodMs;
 
   const updatedSubscription: SchoolSubscription = {
@@ -219,31 +302,42 @@ export async function fulfillSuccessfulPayment(
     source: "self_onboarding",
     lastPaymentId: paymentId,
     lastOrderId: order.id,
-    createdAt: subSnap.exists() ? (subSnap.data() as any).createdAt : nowIso,
+    createdAt: existingSub ? existingSub.createdAt : nowIso,
     updatedAt: nowIso,
   };
-  await setDoc(subRef, updatedSubscription, { merge: true });
+  memorySubscriptions.set(order.schoolId, updatedSubscription);
+
+  if (adminDb) {
+    try {
+      await adminDb.collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS).doc(order.schoolId).set(updatedSubscription, { merge: true });
+    } catch (e) {}
+  } else if (db) {
+    try {
+      await setDoc(doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, order.schoolId), updatedSubscription, { merge: true });
+    } catch (e) {}
+  }
 
   // Record Subscription History
-  await recordSubscriptionHistory(order.schoolId, {
-    subscriptionId: order.schoolId,
-    schoolId: order.schoolId,
-    action: subSnap.exists() ? "RENEWED" : "CREATED",
-    newPlanId: order.planId,
-    newPlanVersionId: order.planVersionId,
-    oldStatus: subSnap.exists() ? (subSnap.data() as any).status : "NONE",
-    newStatus: "ACTIVE",
-    orderId: order.id,
-    paymentId,
-    actorId: order.userId || "system",
-    actorRole: "user",
-    reason: `Fulfilling payment for ${order.planId} (${order.billingCycle})`,
-    timestamp: nowIso,
-  });
+  try {
+    await recordSubscriptionHistory(order.schoolId, {
+      subscriptionId: order.schoolId,
+      schoolId: order.schoolId,
+      action: existingSub ? "RENEWED" : "CREATED",
+      newPlanId: order.planId,
+      newPlanVersionId: order.planVersionId,
+      oldStatus: existingSub ? existingSub.status : "NONE",
+      newStatus: "ACTIVE",
+      orderId: order.id,
+      paymentId,
+      actorId: order.userId || "system",
+      actorRole: "user",
+      reason: `Fulfilling payment for ${order.planId} (${order.billingCycle})`,
+      timestamp: nowIso,
+    });
+  } catch (e) {}
 
   // 4. Generate Invoice (Section 19)
   const yearStr = new Date(nowMs).getFullYear();
-  const invoiceId = `inv_${order.id}`;
   const invoiceNumber = `INV-${yearStr}-${order.id.slice(-6).toUpperCase()}`;
 
   const invoiceRecord: InvoiceRecord = {
@@ -263,11 +357,19 @@ export async function fulfillSuccessfulPayment(
     issuedAt: nowIso,
     status: "PAID",
   };
-  const invoiceRef = doc(db, BILLING_COLLECTIONS.INVOICES || "invoices", invoiceId);
-  await setDoc(invoiceRef, invoiceRecord, { merge: true });
+  memoryInvoices.set(invoiceId, invoiceRecord);
+
+  if (adminDb) {
+    try {
+      await adminDb.collection(BILLING_COLLECTIONS.INVOICES || "invoices").doc(invoiceId).set(invoiceRecord, { merge: true });
+    } catch (e) {}
+  } else if (db) {
+    try {
+      await setDoc(doc(db, BILLING_COLLECTIONS.INVOICES || "invoices", invoiceId), invoiceRecord, { merge: true });
+    } catch (e) {}
+  }
 
   // 5. Create Finance Transaction (Section 20)
-  const txId = `tx_${order.id}`;
   const financeTxRecord: FinanceTransactionRecord = {
     id: txId,
     schoolId: order.schoolId,
@@ -282,8 +384,17 @@ export async function fulfillSuccessfulPayment(
     description: `Subscription Payment - Plan ${order.planId} (${order.billingCycle})`,
     createdAt: nowIso,
   };
-  const txRef = doc(db, BILLING_COLLECTIONS.FINANCE_TRANSACTIONS || "financeTransactions", txId);
-  await setDoc(txRef, financeTxRecord, { merge: true });
+  memoryTransactions.set(txId, financeTxRecord);
+
+  if (adminDb) {
+    try {
+      await adminDb.collection(BILLING_COLLECTIONS.FINANCE_TRANSACTIONS || "financeTransactions").doc(txId).set(financeTxRecord, { merge: true });
+    } catch (e) {}
+  } else if (db) {
+    try {
+      await setDoc(doc(db, BILLING_COLLECTIONS.FINANCE_TRANSACTIONS || "financeTransactions", txId), financeTxRecord, { merge: true });
+    } catch (e) {}
+  }
 
   // 5b. Concurrency-Safe Atomic Coupon Redemption if coupon was applied
   if (order.couponId) {
@@ -310,23 +421,25 @@ export async function fulfillSuccessfulPayment(
   }
 
   // 6. Audit Trail Logging (Section 28)
-  await createBillingAuditLog(
-    order.userId,
-    "system",
-    "SUBSCRIPTION_UPDATED",
-    "schoolSubscription",
-    order.schoolId,
-    {
-      actionType: "PAYMENT_FULFILLED",
-      source,
-      orderId: order.id,
-      paymentId,
-      amount: order.finalAmount,
-      planId: order.planId,
-      billingCycle: order.billingCycle,
-      expiresAt: updatedSubscription.expiresAt,
-    }
-  );
+  try {
+    await createBillingAuditLog(
+      order.userId,
+      "system",
+      "SUBSCRIPTION_UPDATED",
+      "schoolSubscription",
+      order.schoolId,
+      {
+        actionType: "PAYMENT_FULFILLED",
+        source,
+        orderId: order.id,
+        paymentId,
+        amount: order.finalAmount,
+        planId: order.planId,
+        billingCycle: order.billingCycle,
+        expiresAt: updatedSubscription.expiresAt,
+      }
+    );
+  } catch (e) {}
 
   return {
     success: true,

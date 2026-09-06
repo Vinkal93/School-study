@@ -17,6 +17,7 @@ import {
   INQUIRY_COLLECTION,
   SEED_INQUIRIES_2_0,
 } from "@/lib/inquiries";
+import { canAccessFeature } from "@/lib/billing/featureAccess";
 
 /**
  * GET /api/school/inquiries
@@ -114,6 +115,16 @@ export async function POST(request: Request) {
 
     if (!name || !name.trim()) {
       return NextResponse.json({ success: false, error: "Contact name is required." }, { status: 400 });
+    }
+
+    if (schoolId) {
+      const access = await canAccessFeature(schoolId, "inquiries_action_create");
+      if (!access.allowed) {
+        return NextResponse.json(
+          { success: false, error: access.message || "Creating inquiries is not allowed on your plan." },
+          { status: 403 }
+        );
+      }
     }
 
     const newId = `inq_${Date.now()}`;

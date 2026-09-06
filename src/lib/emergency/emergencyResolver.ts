@@ -48,6 +48,52 @@ function normalizeKey(key?: string): string {
   return k;
 }
 
+function isFeatureKillSwitched(featureKey: string, switches: Record<string, "ON" | "OFF">): boolean {
+  if (!featureKey || !switches) return false;
+  const clean = featureKey.toLowerCase().trim();
+  if (switches[clean] === "OFF") return true;
+
+  const aliasMapping: Record<string, string[]> = {
+    "students.add": ["student_action_add", "students.create", "students_add"],
+    "student_action_add": ["students.add", "students.create", "students_add"],
+    "students.edit": ["student_action_edit", "students.update", "students_edit"],
+    "student_action_edit": ["students.edit", "students.update", "students_edit"],
+    "students.delete": ["student_action_delete", "students.remove", "students_delete"],
+    "student_action_delete": ["students.delete", "students.remove", "students_delete"],
+    "students.import": ["student_action_import", "students_import"],
+    "student_action_import": ["students.import", "students_import"],
+    "students.export": ["student_action_export", "students_export"],
+    "student_action_export": ["students.export", "students_export"],
+
+    "fees.collect": ["fee_action_collect", "fee_collection", "fees_collect"],
+    "fee_action_collect": ["fees.collect", "fee_collection", "fees_collect"],
+    "fees.edit": ["fee_action_edit", "fees_edit"],
+    "fee_action_edit": ["fees.edit", "fees_edit"],
+    "fees.refund": ["fee_action_refund", "fees_refund"],
+    "fee_action_refund": ["fees.refund", "fees_refund"],
+    "fees.delete": ["fee_action_delete", "fees_delete"],
+    "fee_action_delete": ["fees.delete", "fees_delete"],
+
+    "reports.export": ["reports_action_export", "fee_exports", "reports_export"],
+    "reports_action_export": ["reports.export", "fee_exports", "reports_export"],
+  };
+
+  const aliases = aliasMapping[clean] || [];
+  for (const a of aliases) {
+    if (switches[a] === "OFF") return true;
+  }
+
+  for (const [k, v] of Object.entries(switches)) {
+    if (v === "OFF") {
+      if (k === clean) return true;
+      const kClean = k.toLowerCase().trim();
+      if (aliasMapping[kClean]?.includes(clean)) return true;
+    }
+  }
+
+  return false;
+}
+
 /**
  * Core Emergency State Resolver.
  * Enforces strict precedence hierarchy:
@@ -130,15 +176,15 @@ export async function resolveEmergencyAccess(
   }
 
   // Check Granular Action Kill Switch
-  if (featureKey && globalControls.featureKillSwitches) {
-    const cleanFeature = featureKey.toLowerCase().trim();
-    if (globalControls.featureKillSwitches[cleanFeature] === "OFF") {
+  if ((featureKey || action) && globalControls.featureKillSwitches) {
+    const targetKey = (featureKey || action).toLowerCase().trim();
+    if (isFeatureKillSwitched(targetKey, globalControls.featureKillSwitches)) {
       return {
         allowed: false,
         status: 503,
         code: "FEATURE_DISABLED",
-        message: `Action feature "${featureKey}" is temporarily disabled by system administrators.`,
-        reason: `FEATURE_OFF_${cleanFeature.toUpperCase()}`,
+        message: `Action feature "${featureKey || action}" is temporarily disabled by system administrators.`,
+        reason: `FEATURE_OFF_${targetKey.toUpperCase()}`,
         emergencyControls: { systemStatus: globalControls.systemStatus },
       };
     }

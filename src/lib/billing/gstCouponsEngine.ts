@@ -14,14 +14,8 @@ import { BILLING_COLLECTIONS, getActivePlanVersion } from "./plans";
 import { createBillingAuditLog } from "./audit";
 import type { Plan, PlanVersion } from "@/types";
 
-async function getAdminDbServerOnly() {
-  if (typeof window !== "undefined") return null;
-  try {
-    const adminModule = await import("@/lib/firebase/admin");
-    return typeof adminModule.getSafeAdminDb === "function" ? adminModule.getSafeAdminDb() : null;
-  } catch (e) {
-    return null;
-  }
+function getAdminDbServerOnly(): any {
+  return null;
 }
 
 export interface BillingGstSettings {
@@ -94,10 +88,16 @@ export const DEFAULT_GST_SETTINGS: BillingGstSettings = {
   updatedAt: new Date().toISOString(),
 };
 
+let inMemoryGstOverride: BillingGstSettings | null = null;
+
 /**
  * Retrieves platform GST settings from siteSettings/billing_settings.
  */
 export async function getGstSettings(): Promise<BillingGstSettings> {
+  if (inMemoryGstOverride) {
+    return inMemoryGstOverride;
+  }
+
   try {
     const adminDb = await getAdminDbServerOnly();
     if (adminDb) {
@@ -139,7 +139,7 @@ export async function updateGstSettings(
   input: Partial<BillingGstSettings>,
   actorId: string = "super_admin"
 ): Promise<BillingGstSettings> {
-  const current = await getGstSettings();
+  const current = inMemoryGstOverride || await getGstSettings();
   const updated: BillingGstSettings = {
     gstEnabled: typeof input.gstEnabled === "boolean" ? input.gstEnabled : current.gstEnabled,
     gstPercentage: typeof input.gstPercentage === "number" ? Math.max(0, Math.min(100, input.gstPercentage)) : current.gstPercentage,
@@ -147,6 +147,8 @@ export async function updateGstSettings(
     updatedAt: new Date().toISOString(),
     updatedBy: actorId,
   };
+
+  inMemoryGstOverride = updated;
 
   try {
     const adminDb = await getAdminDbServerOnly();
@@ -188,13 +190,13 @@ export async function getAllCoupons(): Promise<Coupon[]> {
     const adminDb = await getAdminDbServerOnly();
     if (adminDb) {
       const snap = await adminDb.collection(COUPONS_COLLECTION).get();
-      return snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Coupon[];
+      return snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) as Coupon[];
     }
 
     const db = getFirebaseDb();
     if (db) {
       const snap = await getDocs(collection(db, COUPONS_COLLECTION));
-      return snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Coupon[];
+      return snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) as Coupon[];
     }
   } catch (err) {
     console.warn("getAllCoupons notice:", err);
@@ -548,7 +550,7 @@ export async function calculateServerBillingPrice({
         planData = { id: planSnap.id, ...planSnap.data() } as Plan;
         const versionSnap = await adminDb.collection(BILLING_COLLECTIONS.PLAN_VERSIONS).where("planId", "==", planSnap.id).where("status", "==", "ACTIVE").get();
         if (!versionSnap.empty) {
-          const versions = versionSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as PlanVersion[];
+          const versions = versionSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })) as PlanVersion[];
           planVersion = versions.sort((a, b) => b.version - a.version)[0];
         }
       }

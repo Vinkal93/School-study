@@ -57,8 +57,10 @@ import {
   BillingGstSettings,
   Coupon,
 } from "@/lib/billing/gstCouponsEngine";
-import type { Plan, PlanVersion, FeatureDefinition, GlobalAccessPolicy, PlanStatus } from "@/types";
+import type { Plan, PlanVersion, FeatureDefinition, GlobalAccessPolicy, PlanStatus, FeatureAccessMode } from "@/types";
+import { FEATURE_REGISTRY } from "@/lib/features/featureRegistry";
 import { GranularPermissionTree } from "@/components/super-admin/GranularPermissionTree";
+import { cn } from "@/lib/utils/cn";
 import { toast } from "sonner";
 
 export default function SuperAdminPricingPage() {
@@ -103,6 +105,22 @@ export default function SuperAdminPricingPage() {
   const [planVersionsHistory, setPlanVersionsHistory] = useState<PlanVersion[]>([]);
   const [saving, setSaving] = useState(false);
 
+  // Initial default access modes
+  const getDefaultFeatureAccess = (enabledKeys: string[]): Record<string, FeatureAccessMode> => {
+    const map: Record<string, FeatureAccessMode> = {};
+    for (const item of FEATURE_REGISTRY) {
+      map[item.key] = enabledKeys.includes(item.key) ? "FULL_ACCESS" : "HIDDEN";
+    }
+    return map;
+  };
+
+  const initialCreateFeatures = [
+    "student_management",
+    "teacher_management",
+    "attendance_automation",
+    "notices_announcements",
+  ];
+
   // Create Form State
   const [createForm, setCreateForm] = useState({
     name: "",
@@ -111,9 +129,11 @@ export default function SuperAdminPricingPage() {
     monthlyPriceRupees: 999,
     annualPriceRupees: 799,
     isPopular: false,
+    publicVisible: true,
     displayOrder: 1,
     status: "ACTIVE" as PlanStatus,
-    features: ["student_management", "teacher_management", "attendance_automation", "notices_announcements"],
+    features: initialCreateFeatures,
+    featureAccess: getDefaultFeatureAccess(initialCreateFeatures),
     maxStudents: 500,
     maxTeachers: 20,
     maxClasses: 15,
@@ -127,13 +147,16 @@ export default function SuperAdminPricingPage() {
     monthlyPriceRupees: 0,
     annualPriceRupees: 0,
     isPopular: false,
+    publicVisible: true,
     displayOrder: 1,
     status: "ACTIVE" as PlanStatus,
     features: [] as string[],
+    featureAccess: {} as Record<string, FeatureAccessMode>,
     maxStudents: 500,
     maxTeachers: 20,
     maxClasses: 15,
     maxStaffAccounts: 2,
+    changeNotes: "",
   });
 
   // Duplicate Form State
@@ -212,9 +235,11 @@ export default function SuperAdminPricingPage() {
         annualPricePaise: Math.round(createForm.annualPriceRupees * 100),
         currency: "INR",
         isPopular: createForm.isPopular,
+        publicVisible: createForm.publicVisible,
         displayOrder: Number(createForm.displayOrder),
         status: createForm.status,
         features: createForm.features,
+        featureAccess: createForm.featureAccess,
         limits: {
           maxStudents: Number(createForm.maxStudents),
           maxTeachers: Number(createForm.maxTeachers),
@@ -238,19 +263,35 @@ export default function SuperAdminPricingPage() {
   const openEditModal = (plan: Plan) => {
     setSelectedPlan(plan);
     const ver = activeVersions[plan.id];
+
+    // Compute initial feature access preserving all granular sub-keys
+    const initialAccess: Record<string, FeatureAccessMode> = { ...(plan.featureAccess || {}) };
+    for (const item of FEATURE_REGISTRY) {
+      if (!initialAccess[item.key]) {
+        if (plan.features?.includes(item.key)) {
+          initialAccess[item.key] = "FULL_ACCESS";
+        } else {
+          initialAccess[item.key] = "HIDDEN";
+        }
+      }
+    }
+
     setEditForm({
       name: plan.name,
       description: plan.description,
       monthlyPriceRupees: ver ? ver.monthlyPrice / 100 : 0,
       annualPriceRupees: ver ? ver.annualPrice / 100 : 0,
       isPopular: plan.isPopular,
+      publicVisible: plan.publicVisible !== undefined ? plan.publicVisible : true,
       displayOrder: plan.displayOrder,
       status: plan.status,
       features: [...plan.features],
+      featureAccess: initialAccess,
       maxStudents: plan.limits?.maxStudents !== undefined ? plan.limits.maxStudents : 500,
       maxTeachers: plan.limits?.maxTeachers !== undefined ? plan.limits.maxTeachers : 20,
       maxClasses: plan.limits?.maxClasses !== undefined ? plan.limits.maxClasses : 15,
       maxStaffAccounts: plan.limits?.maxStaffAccounts !== undefined ? plan.limits.maxStaffAccounts : 2,
+      changeNotes: "",
     });
     setShowEditModal(true);
   };
@@ -262,9 +303,12 @@ export default function SuperAdminPricingPage() {
 
     const ver = activeVersions[selectedPlan.id];
     const currentMonthlyRs = ver ? ver.monthlyPrice / 100 : 0;
+    const isFeatureAccessChanged =
+      JSON.stringify(editForm.featureAccess) !== JSON.stringify(selectedPlan.featureAccess || {});
     const isPriceOrVersionChange =
       editForm.monthlyPriceRupees !== currentMonthlyRs ||
       JSON.stringify(editForm.features.sort()) !== JSON.stringify(selectedPlan.features.sort()) ||
+      isFeatureAccessChanged ||
       editForm.maxStudents !== selectedPlan.limits?.maxStudents;
 
     if (isPriceOrVersionChange) {
@@ -285,16 +329,19 @@ export default function SuperAdminPricingPage() {
         description: editForm.description,
         displayOrder: Number(editForm.displayOrder),
         isPopular: editForm.isPopular,
+        publicVisible: editForm.publicVisible,
         status: editForm.status,
         monthlyPricePaise: Math.round(editForm.monthlyPriceRupees * 100),
         annualPricePaise: Math.round(editForm.annualPriceRupees * 100),
         features: editForm.features,
+        featureAccess: editForm.featureAccess,
         limits: {
           maxStudents: Number(editForm.maxStudents),
           maxTeachers: Number(editForm.maxTeachers),
           maxClasses: Number(editForm.maxClasses),
           maxStaffAccounts: Number(editForm.maxStaffAccounts),
         },
+        changeNotes: editForm.changeNotes,
       };
 
       const res = await updatePlan(selectedPlan.id, input, profile?.email || "super_admin");
@@ -657,6 +704,15 @@ export default function SuperAdminPricingPage() {
                                   {p.isPopular && (
                                     <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 rounded-full border border-amber-300 dark:border-amber-800">
                                       POPULAR
+                                    </span>
+                                  )}
+                                  {p.publicVisible === false ? (
+                                    <span className="px-2 py-0.5 text-[10px] font-bold bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 rounded-full border border-gray-300 dark:border-gray-700">
+                                      PRIVATE
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 rounded-full border border-blue-200 dark:border-blue-800">
+                                      PUBLIC
                                     </span>
                                   )}
                                 </div>
@@ -1162,9 +1218,95 @@ export default function SuperAdminPricingPage() {
                 </div>
               </div>
 
+              <div className="flex items-center gap-6 pt-1">
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={createForm.publicVisible}
+                    onChange={(e) => setCreateForm({ ...createForm, publicVisible: e.target.checked })}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>Public Visible on /pricing</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={createForm.isPopular}
+                    onChange={(e) => setCreateForm({ ...createForm, isPopular: e.target.checked })}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>Mark as Most Popular</span>
+                </label>
+              </div>
+
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Enabled Features</label>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Dynamic Feature & Sidebar Access Matrix
+                </label>
+                <p className="text-[11px] text-gray-500 mb-2">
+                  Configure access mode per module: <strong>FULL ACCESS</strong> (active), <strong>SHOWCASE</strong> (🔒 locked preview & dynamic upsell), or <strong>HIDDEN</strong> (omitted from sidebar).
+                </p>
+                <div className="border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden max-h-56 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-800 bg-white dark:bg-gray-900">
+                  {FEATURE_REGISTRY.map((feat) => {
+                    const currentMode =
+                      createForm.featureAccess?.[feat.key] ||
+                      (createForm.features.includes(feat.key) ? "FULL_ACCESS" : "HIDDEN");
+                    return (
+                      <div
+                        key={feat.key}
+                        className="flex items-center justify-between p-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                      >
+                        <div className="min-w-0 pr-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-gray-900 dark:text-white truncate">
+                              {feat.displayName}
+                            </span>
+                            <span className="px-1.5 py-0.5 text-[9px] font-semibold uppercase rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                              {feat.category}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-gray-500 truncate">{feat.description}</p>
+                        </div>
+
+                        <div className="shrink-0">
+                          <select
+                            value={currentMode}
+                            onChange={(e) => {
+                              const newMode = e.target.value as FeatureAccessMode;
+                              const newAccess = { ...createForm.featureAccess, [feat.key]: newMode };
+                              let newFeatures = [...createForm.features];
+                              if (newMode === "FULL_ACCESS") {
+                                if (!newFeatures.includes(feat.key)) newFeatures.push(feat.key);
+                              } else {
+                                newFeatures = newFeatures.filter((k) => k !== feat.key);
+                              }
+                              setCreateForm({ ...createForm, featureAccess: newAccess, features: newFeatures });
+                            }}
+                            className={cn(
+                              "px-2.5 py-1 text-xs font-bold rounded-lg border focus:outline-none transition-colors",
+                              currentMode === "FULL_ACCESS"
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-400 dark:border-emerald-800"
+                                : currentMode === "SHOWCASE"
+                                ? "bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/60 dark:text-amber-400 dark:border-amber-800"
+                                : "bg-gray-100 text-gray-600 border-gray-300 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700"
+                            )}
+                          >
+                            <option value="FULL_ACCESS">✓ FULL ACCESS</option>
+                            <option value="SHOWCASE">🔒 SHOWCASE</option>
+                            <option value="HIDDEN">— HIDDEN</option>
+                          </select>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Granular Capabilities & Sub-Permissions</label>
                 <GranularPermissionTree
+                  featureAccess={createForm.featureAccess}
+                  onChangeFeatureAccess={(access) => setCreateForm({ ...createForm, featureAccess: access })}
                   selectedPermissions={createForm.features}
                   onChangeSelected={(keys: string[]) => setCreateForm({ ...createForm, features: keys })}
                 />
@@ -1237,9 +1379,95 @@ export default function SuperAdminPricingPage() {
                 </div>
               </div>
 
+              <div className="flex items-center gap-6 pt-1">
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={editForm.publicVisible}
+                    onChange={(e) => setEditForm({ ...editForm, publicVisible: e.target.checked })}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>Public Visible on /pricing</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={editForm.isPopular}
+                    onChange={(e) => setEditForm({ ...editForm, isPopular: e.target.checked })}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>Mark as Most Popular</span>
+                </label>
+              </div>
+
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Plan Features</label>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Dynamic Feature & Sidebar Access Matrix
+                </label>
+                <p className="text-[11px] text-gray-500 mb-2">
+                  Configure access mode per module: <strong>FULL ACCESS</strong> (active), <strong>SHOWCASE</strong> (🔒 locked preview & dynamic upsell), or <strong>HIDDEN</strong> (omitted from sidebar).
+                </p>
+                <div className="border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden max-h-56 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-800 bg-white dark:bg-gray-900">
+                  {FEATURE_REGISTRY.map((feat) => {
+                    const currentMode =
+                      editForm.featureAccess?.[feat.key] ||
+                      (editForm.features.includes(feat.key) ? "FULL_ACCESS" : "HIDDEN");
+                    return (
+                      <div
+                        key={feat.key}
+                        className="flex items-center justify-between p-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                      >
+                        <div className="min-w-0 pr-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-gray-900 dark:text-white truncate">
+                              {feat.displayName}
+                            </span>
+                            <span className="px-1.5 py-0.5 text-[9px] font-semibold uppercase rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                              {feat.category}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-gray-500 truncate">{feat.description}</p>
+                        </div>
+
+                        <div className="shrink-0">
+                          <select
+                            value={currentMode}
+                            onChange={(e) => {
+                              const newMode = e.target.value as FeatureAccessMode;
+                              const newAccess = { ...editForm.featureAccess, [feat.key]: newMode };
+                              let newFeatures = [...editForm.features];
+                              if (newMode === "FULL_ACCESS") {
+                                if (!newFeatures.includes(feat.key)) newFeatures.push(feat.key);
+                              } else {
+                                newFeatures = newFeatures.filter((k) => k !== feat.key);
+                              }
+                              setEditForm({ ...editForm, featureAccess: newAccess, features: newFeatures });
+                            }}
+                            className={cn(
+                              "px-2.5 py-1 text-xs font-bold rounded-lg border focus:outline-none transition-colors",
+                              currentMode === "FULL_ACCESS"
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-400 dark:border-emerald-800"
+                                : currentMode === "SHOWCASE"
+                                ? "bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/60 dark:text-amber-400 dark:border-amber-800"
+                                : "bg-gray-100 text-gray-600 border-gray-300 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700"
+                            )}
+                          >
+                            <option value="FULL_ACCESS">✓ FULL ACCESS</option>
+                            <option value="SHOWCASE">🔒 SHOWCASE</option>
+                            <option value="HIDDEN">— HIDDEN</option>
+                          </select>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Granular Capabilities & Sub-Permissions</label>
                 <GranularPermissionTree
+                  featureAccess={editForm.featureAccess}
+                  onChangeFeatureAccess={(access) => setEditForm({ ...editForm, featureAccess: access })}
                   selectedPermissions={editForm.features}
                   onChangeSelected={(keys: string[]) => setEditForm({ ...editForm, features: keys })}
                 />

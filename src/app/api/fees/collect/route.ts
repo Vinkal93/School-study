@@ -26,9 +26,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing required fee payment fields" }, { status: 400 });
     }
 
-    const access = await canAccessFeature(schoolId, "fee_management");
+    const access = await canAccessFeature(schoolId, "fee_collection");
     if (!access.allowed) {
-      return NextResponse.json({ error: "Fee collection feature is not enabled for your plan." }, { status: 403 });
+      return NextResponse.json(
+        { error: access.message || "Fee collection feature is not enabled for your plan.", code: access.code || "FORBIDDEN" },
+        { status: 403 }
+      );
     }
 
     const result = await collectFeePayment(

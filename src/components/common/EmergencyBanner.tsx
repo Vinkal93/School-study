@@ -45,7 +45,9 @@ export function EmergencyBanner() {
         }
       },
       (err) => {
-        console.warn("Emergency banner listener notice:", err);
+        if (err.code !== "permission-denied") {
+          console.warn("Emergency banner listener notice:", err);
+        }
       }
     );
 

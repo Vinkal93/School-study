@@ -1,23 +1,18 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import Link from "next/link";
 import {
   LayoutTemplate,
   Globe,
   Save,
   Send,
-  RotateCcw,
   Plus,
   Trash2,
-  MoveUp,
-  MoveDown,
   Eye,
   Smartphone,
   Monitor,
   CheckCircle2,
   AlertCircle,
-  Loader2,
   RefreshCw,
   Sliders,
   Mail,
@@ -26,8 +21,16 @@ import {
   Share2,
   Shield,
   History,
+  Tag,
+  Sparkles,
+  HelpCircle,
+  MessageSquare,
+  FileText,
+  Palette,
+  Search,
+  Check,
+  Power,
   ExternalLink,
-  ChevronRight,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -38,16 +41,28 @@ import {
   FooterLinkItem,
   SocialLink,
   LegalLink,
+  CmsAnnouncement,
+  CmsFaq,
+  CmsTestimonial,
+  computeAnnouncementStatus,
 } from "@/lib/cms/siteSettings";
-import { MarketingHeader } from "@/components/marketing";
-import { Footer } from "@/components/footer";
-import { SiteSettingsProvider } from "@/context/SiteSettingsContext";
+import { toast } from "sonner";
 
 export default function SuperAdminSiteSettingsPage() {
   const { profile, firebaseUser } = useAuth();
   const [activeTab, setActiveTab] = useState<
-    "header" | "footer" | "contact" | "social" | "legal" | "preview" | "history"
-  >("header");
+    | "general"
+    | "branding"
+    | "landing"
+    | "announcements"
+    | "faqs"
+    | "testimonials"
+    | "seo"
+    | "header"
+    | "footer"
+    | "legal"
+    | "history"
+  >("general");
 
   const [settings, setSettings] = useState<SiteSettings>(DEFAULT_SITE_SETTINGS);
   const [publishedSettings, setPublishedSettings] = useState<SiteSettings>(DEFAULT_SITE_SETTINGS);
@@ -56,12 +71,51 @@ export default function SuperAdminSiteSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [previewDevice, setPreviewDevice] = useState<"desktop" | "mobile">("desktop");
+
+  // New item draft states
+  const [newAnnouncement, setNewAnnouncement] = useState<Partial<CmsAnnouncement>>({
+    title: "",
+    message: "",
+    type: "INFO",
+    startAt: new Date().toISOString().slice(0, 10),
+    endAt: "",
+    active: true,
+    priority: 1,
+    targetPublicArea: "ALL",
+    linkText: "",
+    linkUrl: "",
+  });
+
+  const [newFaq, setNewFaq] = useState<Partial<CmsFaq>>({
+    question: "",
+    answer: "",
+    category: "General",
+    displayOrder: 1,
+    active: true,
+  });
+
+  const [newTestimonial, setNewTestimonial] = useState<Partial<CmsTestimonial>>({
+    name: "",
+    role: "Principal",
+    organization: "",
+    content: "",
+    rating: 5,
+    displayOrder: 1,
+    active: true,
+  });
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/super-admin/site-settings", { cache: "no-store" });
+      const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
+      const res = await fetch("/api/super-admin/site-settings", {
+        headers: {
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+          ...(firebaseUser?.uid ? { "x-user-id": firebaseUser.uid } : {}),
+          ...(profile?.role ? { "x-user-role": profile.role } : {}),
+        },
+        cache: "no-store",
+      });
       if (res.ok) {
         const json = await res.json();
         setPublishedSettings(json.published || DEFAULT_SITE_SETTINGS);
@@ -82,15 +136,11 @@ export default function SuperAdminSiteSettingsPage() {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [firebaseUser]);
 
   const handleSaveDraft = async () => {
     setSaving(true);
     setStatusMessage(null);
-    let saved = false;
-    let savedSettings: SiteSettings | null = null;
-
-    // 1. Try server API route with auth token
     try {
       const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
       const res = await fetch("/api/super-admin/site-settings", {
@@ -99,63 +149,31 @@ export default function SuperAdminSiteSettingsPage() {
           "Content-Type": "application/json",
           ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
           ...(firebaseUser?.uid ? { "x-user-id": firebaseUser.uid } : {}),
+          ...(profile?.role ? { "x-user-role": profile.role } : {}),
         },
         body: JSON.stringify({
           action: "draft",
           settings,
-          actorId: profile?.email || firebaseUser?.uid || "super_admin",
         }),
       });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success && json.settings) {
-          saved = true;
-          savedSettings = json.settings;
-        }
-      }
-    } catch (e) {
-      console.warn("Server route draft save notice, falling back to authenticated client SDK:", e);
-    }
 
-    // 2. Client SDK fallback with active Super Admin auth token
-    if (!saved) {
-      try {
-        const { doc, setDoc } = await import("firebase/firestore");
-        const { getFirebaseDb } = await import("@/lib/firebase/client");
-        const clientDb = getFirebaseDb();
-        if (clientDb) {
-          const nowIso = new Date().toISOString();
-          const draft: SiteSettings = {
-            ...settings,
-            updatedAt: nowIso,
-            updatedBy: profile?.email || firebaseUser?.uid || "super_admin",
-            status: "draft",
-          };
-          await setDoc(doc(clientDb, "siteSettings", "draft"), draft);
-          saved = true;
-          savedSettings = draft;
-        }
-      } catch (clientErr: any) {
-        console.error("Client fallback draft save error:", clientErr);
-      }
-    }
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || "Failed to save draft.");
 
-    if (saved && savedSettings) {
-      setSettings(savedSettings);
+      setSettings(json.settings);
       setStatusMessage({ type: "success", text: "Draft configuration saved successfully." });
-    } else {
-      setStatusMessage({ type: "error", text: "Failed to save draft. Please check your connection and try again." });
+      toast.success("Draft saved successfully.");
+    } catch (e: any) {
+      setStatusMessage({ type: "error", text: e.message || "Failed to save draft." });
+      toast.error(e.message || "Failed to save draft.");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   const handlePublish = async () => {
     setPublishing(true);
     setStatusMessage(null);
-    let published = false;
-    let publishedData: SiteSettings | null = null;
-
-    // 1. Try server API route with auth token
     try {
       const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
       const res = await fetch("/api/super-admin/site-settings", {
@@ -164,59 +182,140 @@ export default function SuperAdminSiteSettingsPage() {
           "Content-Type": "application/json",
           ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
           ...(firebaseUser?.uid ? { "x-user-id": firebaseUser.uid } : {}),
+          ...(profile?.role ? { "x-user-role": profile.role } : {}),
         },
         body: JSON.stringify({
           action: "publish",
           settings,
-          actorId: profile?.email || firebaseUser?.uid || "super_admin",
         }),
       });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success && json.settings) {
-          published = true;
-          publishedData = json.settings;
-        }
-      }
-    } catch (e) {
-      console.warn("Server route publish notice, falling back to authenticated client SDK:", e);
-    }
 
-    // 2. Client SDK fallback with active Super Admin auth token
-    if (!published) {
-      try {
-        const { doc, setDoc } = await import("firebase/firestore");
-        const { getFirebaseDb } = await import("@/lib/firebase/client");
-        const clientDb = getFirebaseDb();
-        if (clientDb) {
-          const nowIso = new Date().toISOString();
-          const nextVersion = (settings.version || 1) + 1;
-          const pub: SiteSettings = {
-            ...settings,
-            version: nextVersion,
-            updatedAt: nowIso,
-            updatedBy: profile?.email || firebaseUser?.uid || "super_admin",
-            status: "published",
-          };
-          await setDoc(doc(clientDb, "siteSettings", "global"), pub);
-          const versionId = `v${nextVersion}_${Date.now()}`;
-          await setDoc(doc(clientDb, "siteSettingsVersions", versionId), pub);
-          published = true;
-          publishedData = pub;
-        }
-      } catch (clientErr: any) {
-        console.error("Client fallback publish error:", clientErr);
-      }
-    }
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || "Failed to publish site settings.");
 
-    if (published && publishedData) {
-      setPublishedSettings(publishedData);
-      setSettings(publishedData);
-      setStatusMessage({ type: "success", text: `Published Version ${publishedData.version} live to website!` });
-    } else {
-      setStatusMessage({ type: "error", text: "Failed to publish site settings. Please check your connection and try again." });
+      setPublishedSettings(json.settings);
+      setSettings(json.settings);
+      setStatusMessage({
+        type: "success",
+        text: `Version ${json.settings.version} published live to website!`,
+      });
+      toast.success(`Published Version ${json.settings.version} live to website!`);
+      loadData();
+    } catch (e: any) {
+      setStatusMessage({ type: "error", text: e.message || "Failed to publish site settings." });
+      toast.error(e.message || "Failed to publish site settings.");
+    } finally {
+      setPublishing(false);
     }
-    setPublishing(false);
+  };
+
+  // --- Announcement Handlers ---
+  const handleAddAnnouncement = () => {
+    if (!newAnnouncement.title?.trim()) {
+      toast.error("Announcement title is required.");
+      return;
+    }
+    const item: CmsAnnouncement = {
+      id: `ann_${Date.now()}`,
+      title: newAnnouncement.title.trim(),
+      message: newAnnouncement.message?.trim() || "",
+      type: newAnnouncement.type || "INFO",
+      startAt: newAnnouncement.startAt ? new Date(newAnnouncement.startAt).toISOString() : new Date().toISOString(),
+      endAt: newAnnouncement.endAt ? new Date(newAnnouncement.endAt).toISOString() : null,
+      active: Boolean(newAnnouncement.active),
+      priority: Number(newAnnouncement.priority) || 1,
+      targetPublicArea: newAnnouncement.targetPublicArea || "ALL",
+      linkText: newAnnouncement.linkText?.trim() || undefined,
+      linkUrl: newAnnouncement.linkUrl?.trim() || undefined,
+      createdAt: new Date().toISOString(),
+    };
+
+    setSettings({
+      ...settings,
+      announcements: [item, ...(settings.announcements || [])],
+    });
+
+    setNewAnnouncement({
+      title: "",
+      message: "",
+      type: "INFO",
+      startAt: new Date().toISOString().slice(0, 10),
+      endAt: "",
+      active: true,
+      priority: 1,
+      targetPublicArea: "ALL",
+      linkText: "",
+      linkUrl: "",
+    });
+
+    toast.success("Announcement added to draft.");
+  };
+
+  const handleDeleteAnnouncement = (id: string) => {
+    setSettings({
+      ...settings,
+      announcements: settings.announcements.filter((a) => a.id !== id),
+    });
+  };
+
+  // --- FAQ Handlers ---
+  const handleAddFaq = () => {
+    if (!newFaq.question?.trim() || !newFaq.answer?.trim()) {
+      toast.error("FAQ question and answer are required.");
+      return;
+    }
+    const item: CmsFaq = {
+      id: `faq_${Date.now()}`,
+      question: newFaq.question.trim(),
+      answer: newFaq.answer.trim(),
+      category: newFaq.category?.trim() || "General",
+      displayOrder: (settings.faqs?.length || 0) + 1,
+      active: true,
+    };
+    setSettings({
+      ...settings,
+      faqs: [...(settings.faqs || []), item],
+    });
+    setNewFaq({ question: "", answer: "", category: "General", displayOrder: 1, active: true });
+    toast.success("FAQ added to draft.");
+  };
+
+  const handleDeleteFaq = (id: string) => {
+    setSettings({
+      ...settings,
+      faqs: settings.faqs.filter((f) => f.id !== id),
+    });
+  };
+
+  // --- Testimonial Handlers ---
+  const handleAddTestimonial = () => {
+    if (!newTestimonial.name?.trim() || !newTestimonial.content?.trim()) {
+      toast.error("Testimonial name and content are required.");
+      return;
+    }
+    const item: CmsTestimonial = {
+      id: `test_${Date.now()}`,
+      name: newTestimonial.name.trim(),
+      role: newTestimonial.role?.trim() || "Principal",
+      organization: newTestimonial.organization?.trim() || "School",
+      content: newTestimonial.content.trim(),
+      rating: Number(newTestimonial.rating) || 5,
+      displayOrder: (settings.testimonials?.length || 0) + 1,
+      active: true,
+    };
+    setSettings({
+      ...settings,
+      testimonials: [...(settings.testimonials || []), item],
+    });
+    setNewTestimonial({ name: "", role: "Principal", organization: "", content: "", rating: 5, displayOrder: 1, active: true });
+    toast.success("Testimonial added to draft.");
+  };
+
+  const handleDeleteTestimonial = (id: string) => {
+    setSettings({
+      ...settings,
+      testimonials: settings.testimonials.filter((t) => t.id !== id),
+    });
   };
 
   // --- Header Nav Helpers ---
@@ -250,7 +349,7 @@ export default function SuperAdminSiteSettingsPage() {
     setSettings({ ...settings, header: { ...settings.header, navigation: nav } });
   };
 
-  // --- Footer Column & Link Helpers ---
+  // --- Footer Column Helpers ---
   const addFooterColumn = () => {
     const newCol: FooterColumn = {
       id: `col_${Date.now()}`,
@@ -268,86 +367,27 @@ export default function SuperAdminSiteSettingsPage() {
     });
   };
 
-  const updateFooterColumn = (colIndex: number, updates: Partial<FooterColumn>) => {
-    const cols = [...settings.footer.columns];
-    cols[colIndex] = { ...cols[colIndex], ...updates };
-    setSettings({ ...settings, footer: { ...settings.footer, columns: cols } });
-  };
-
   const deleteFooterColumn = (colIndex: number) => {
     const cols = settings.footer.columns.filter((_, i) => i !== colIndex);
     setSettings({ ...settings, footer: { ...settings.footer, columns: cols } });
   };
 
-  const addFooterLink = (colIndex: number) => {
-    const cols = [...settings.footer.columns];
-    const newLink: FooterLinkItem = {
-      id: `lnk_${Date.now()}`,
-      label: "New Link",
-      url: "/",
-      enabled: true,
-      openInNewTab: false,
-      displayOrder: (cols[colIndex].links?.length || 0) + 1,
-    };
-    cols[colIndex].links = [...(cols[colIndex].links || []), newLink];
-    setSettings({ ...settings, footer: { ...settings.footer, columns: cols } });
-  };
-
-  const updateFooterLink = (colIndex: number, linkIndex: number, updates: Partial<FooterLinkItem>) => {
-    const cols = [...settings.footer.columns];
-    cols[colIndex].links[linkIndex] = { ...cols[colIndex].links[linkIndex], ...updates };
-    setSettings({ ...settings, footer: { ...settings.footer, columns: cols } });
-  };
-
-  const deleteFooterLink = (colIndex: number, linkIndex: number) => {
-    const cols = [...settings.footer.columns];
-    cols[colIndex].links = cols[colIndex].links.filter((_, i) => i !== linkIndex);
-    setSettings({ ...settings, footer: { ...settings.footer, columns: cols } });
-  };
-
-  // --- Social Links Helpers ---
-  const addSocialLink = () => {
-    const newSocial: SocialLink = {
-      platform: "instagram",
-      label: "Instagram",
-      url: "https://instagram.com",
-      icon: "Instagram",
-      enabled: true,
-      displayOrder: (settings.socials?.length || 0) + 1,
-    };
-    setSettings({
-      ...settings,
-      socials: [...(settings.socials || []), newSocial],
-    });
-  };
-
-  const updateSocialLink = (index: number, updates: Partial<SocialLink>) => {
-    const socials = [...settings.socials];
-    socials[index] = { ...socials[index], ...updates };
-    setSettings({ ...settings, socials });
-  };
-
-  const deleteSocialLink = (index: number) => {
-    const socials = settings.socials.filter((_, i) => i !== index);
-    setSettings({ ...settings, socials });
-  };
-
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 space-y-6 max-w-7xl mx-auto pb-16">
       {/* Top Header & Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
               <LayoutTemplate className="h-6 w-6 text-blue-600" />
-              Global Header & Footer CMS
+              Site Settings & Central CMS
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-mono">
               Live v{publishedSettings.version || 1}
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            Manage public navigation, brand identity, footer columns, contact details, and social links with instant live publishing.
+            Manage public marketing pages, branding, landing version (Classic/Modern), announcements, FAQs, testimonials, and SEO metadata.
           </p>
         </div>
 
@@ -399,15 +439,19 @@ export default function SuperAdminSiteSettingsPage() {
         </div>
       )}
 
-      {/* Tabs */}
+      {/* Tab Navigation */}
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2 text-xs font-bold overflow-x-auto no-scrollbar">
         {[
-          { id: "header", label: "Header & Navigation", icon: LayoutTemplate },
-          { id: "footer", label: "Footer Columns & Links", icon: Globe },
-          { id: "contact", label: "Contact & Location", icon: MapPin },
-          { id: "social", label: "Social Media", icon: Share2 },
-          { id: "legal", label: "Legal & Copyright", icon: Shield },
-          { id: "preview", label: "Live Preview", icon: Eye },
+          { id: "general", label: "General & Identity", icon: Sliders },
+          { id: "branding", label: "Branding & Assets", icon: Palette },
+          { id: "landing", label: "Landing Page Version", icon: Globe },
+          { id: "announcements", label: `Announcements (${settings.announcements?.length || 0})`, icon: Tag },
+          { id: "faqs", label: `FAQs (${settings.faqs?.length || 0})`, icon: HelpCircle },
+          { id: "testimonials", label: `Testimonials (${settings.testimonials?.length || 0})`, icon: MessageSquare },
+          { id: "seo", label: "SEO & Search Console", icon: Search },
+          { id: "header", label: "Header Navigation", icon: LayoutTemplate },
+          { id: "footer", label: "Footer & Socials", icon: MapPin },
+          { id: "legal", label: "Legal Policies", icon: FileText },
           { id: "history", label: "Version History", icon: History },
         ].map((tab) => {
           const Icon = tab.icon;
@@ -416,7 +460,7 @@ export default function SuperAdminSiteSettingsPage() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all cursor-pointer shrink-0 ${
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl transition-all cursor-pointer shrink-0 ${
                 isActive
                   ? "bg-blue-600 text-white shadow-xs"
                   : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -429,494 +473,565 @@ export default function SuperAdminSiteSettingsPage() {
         })}
       </div>
 
-      {/* TAB 1: HEADER MANAGEMENT */}
-      {activeTab === "header" && (
-        <div className="space-y-6">
-          {/* Brand & Global Header Settings */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
-              Brand Identity & Global Header Controls
-            </h3>
+      {/* TAB 1: GENERAL SETTINGS */}
+      {activeTab === "general" && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-6">
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
+            General Site Information
+          </h3>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-              <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  Brand Name:
-                </label>
-                <input
-                  type="text"
-                  value={settings.header.brandName || ""}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      header: { ...settings.header, brandName: e.target.value },
-                    })
-                  }
-                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  Tagline / Subtitle:
-                </label>
-                <input
-                  type="text"
-                  value={settings.header.tagline || ""}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      header: { ...settings.header, tagline: e.target.value },
-                    })
-                  }
-                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
-                />
-              </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div>
+              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Site Name *</label>
+              <input
+                type="text"
+                value={settings.general?.siteName || ""}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    general: { ...settings.general, siteName: e.target.value },
+                  })
+                }
+                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+              />
             </div>
 
-            {/* Visibility Toggles */}
-            <div className="flex flex-wrap gap-4 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.header.enabled}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      header: { ...settings.header, enabled: e.target.checked },
-                    })
-                  }
-                  className="rounded text-blue-600 h-4 w-4"
-                />
-                <span className="font-bold text-slate-800 dark:text-slate-200">Enable Header</span>
-              </label>
-
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.header.showThemeToggle !== false}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      header: { ...settings.header, showThemeToggle: e.target.checked },
-                    })
-                  }
-                  className="rounded text-blue-600 h-4 w-4"
-                />
-                <span className="font-semibold text-slate-700 dark:text-slate-300">Show Theme Switcher</span>
-              </label>
+            <div>
+              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Site Tagline</label>
+              <input
+                type="text"
+                value={settings.general?.siteTagline || ""}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    general: { ...settings.general, siteTagline: e.target.value },
+                  })
+                }
+                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+              />
             </div>
           </div>
 
-          {/* CTA Buttons Config (Section 4) */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
-              Call To Action (CTA) Buttons
-            </h3>
+          <div>
+            <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1 text-xs">Site Description</label>
+            <textarea
+              rows={2}
+              value={settings.general?.siteDescription || ""}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  general: { ...settings.general, siteDescription: e.target.value },
+                })
+              }
+              className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+            />
+          </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-xs">
-              {/* Primary CTA */}
-              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-900 dark:text-white">Primary Button (e.g. Login / Start)</span>
-                  <label className="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.header.primaryCta?.enabled !== false}
-                      onChange={(e) =>
-                        setSettings({
-                          ...settings,
-                          header: {
-                            ...settings.header,
-                            primaryCta: { ...settings.header.primaryCta, enabled: e.target.checked },
-                          },
-                        })
-                      }
-                      className="rounded text-blue-600"
-                    />
-                    <span className="text-[11px] font-semibold">Enabled</span>
-                  </label>
-                </div>
-                <div>
-                  <label className="text-slate-500 block mb-1">Button Label:</label>
-                  <input
-                    type="text"
-                    value={settings.header.primaryCta?.label || ""}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        header: {
-                          ...settings.header,
-                          primaryCta: { ...settings.header.primaryCta, label: e.target.value },
-                        },
-                      })
-                    }
-                    className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-500 block mb-1">Target URL:</label>
-                  <input
-                    type="text"
-                    value={settings.header.primaryCta?.url || ""}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        header: {
-                          ...settings.header,
-                          primaryCta: { ...settings.header.primaryCta, url: e.target.value },
-                        },
-                      })
-                    }
-                    className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
-                  />
-                </div>
-              </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div>
+              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Support Email</label>
+              <input
+                type="email"
+                value={settings.general?.supportEmail || ""}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    general: { ...settings.general, supportEmail: e.target.value },
+                  })
+                }
+                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+              />
+            </div>
 
-              {/* Secondary CTA */}
-              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-900 dark:text-white">Secondary Button</span>
-                  <label className="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.header.secondaryCta?.enabled || false}
-                      onChange={(e) =>
-                        setSettings({
-                          ...settings,
-                          header: {
-                            ...settings.header,
-                            secondaryCta: { ...settings.header.secondaryCta, enabled: e.target.checked },
-                          },
-                        })
-                      }
-                      className="rounded text-blue-600"
-                    />
-                    <span className="text-[11px] font-semibold">Enabled</span>
-                  </label>
-                </div>
-                <div>
-                  <label className="text-slate-500 block mb-1">Button Label:</label>
-                  <input
-                    type="text"
-                    value={settings.header.secondaryCta?.label || ""}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        header: {
-                          ...settings.header,
-                          secondaryCta: { ...settings.header.secondaryCta, label: e.target.value },
-                        },
-                      })
-                    }
-                    className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-500 block mb-1">Target URL:</label>
-                  <input
-                    type="text"
-                    value={settings.header.secondaryCta?.url || ""}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        header: {
-                          ...settings.header,
-                          secondaryCta: { ...settings.header.secondaryCta, url: e.target.value },
-                        },
-                      })
-                    }
-                    className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
-                  />
-                </div>
+            <div>
+              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Support Phone</label>
+              <input
+                type="text"
+                value={settings.general?.supportPhone || ""}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    general: { ...settings.general, supportPhone: e.target.value },
+                  })
+                }
+                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1 text-xs">Physical Address / Headquarters</label>
+            <input
+              type="text"
+              value={settings.general?.address || ""}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  general: { ...settings.general, address: e.target.value },
+                })
+              }
+              className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+            />
+          </div>
+
+          <div>
+            <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1 text-xs">Copyright Notice</label>
+            <input
+              type="text"
+              value={settings.general?.copyrightText || ""}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  general: { ...settings.general, copyrightText: e.target.value },
+                })
+              }
+              className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2: BRANDING */}
+      {activeTab === "branding" && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-6">
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
+            Brand Assets & Color Theme
+          </h3>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div>
+              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Brand Display Name</label>
+              <input
+                type="text"
+                value={settings.branding?.brandDisplayName || ""}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    branding: { ...settings.branding, brandDisplayName: e.target.value },
+                  })
+                }
+                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Primary Theme Color (Hex)</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={settings.branding?.themeColor || "#2563EB"}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      branding: { ...settings.branding, themeColor: e.target.value },
+                    })
+                  }
+                  className="h-9 w-9 rounded-lg border border-slate-200 cursor-pointer"
+                />
+                <input
+                  type="text"
+                  value={settings.branding?.themeColor || "#2563EB"}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      branding: { ...settings.branding, themeColor: e.target.value },
+                    })
+                  }
+                  className="flex-1 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-900 dark:text-white"
+                />
               </div>
             </div>
           </div>
 
-          {/* Navigation Links Table */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
-                Navigation Links ({settings.header.navigation?.length || 0})
-              </h3>
-              <button
-                onClick={addHeaderNavItem}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold cursor-pointer"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span>Add Nav Link</span>
-              </button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div>
+              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Logo URL</label>
+              <input
+                type="text"
+                value={settings.branding?.logoUrl || ""}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    branding: { ...settings.branding, logoUrl: e.target.value },
+                  })
+                }
+                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+                placeholder="/icon.svg"
+              />
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 font-bold text-slate-700 dark:text-slate-300">
-                    <th className="p-3">Order</th>
-                    <th className="p-3">Label</th>
-                    <th className="p-3">Target URL</th>
-                    <th className="p-3">Type</th>
-                    <th className="p-3 text-center">New Tab</th>
-                    <th className="p-3 text-center">Active</th>
-                    <th className="p-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {settings.header.navigation?.map((item, idx) => (
-                    <tr key={item.id || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
-                      <td className="p-3 font-mono font-bold text-slate-400">{idx + 1}</td>
-                      <td className="p-3">
-                        <input
-                          type="text"
-                          value={item.label}
-                          onChange={(e) => updateHeaderNavItem(idx, { label: e.target.value })}
-                          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold text-xs w-full max-w-[140px]"
-                        />
-                      </td>
-                      <td className="p-3">
-                        <input
-                          type="text"
-                          value={item.url}
-                          onChange={(e) => updateHeaderNavItem(idx, { url: e.target.value })}
-                          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-xs w-full max-w-[180px]"
-                        />
-                      </td>
-                      <td className="p-3">
-                        <select
-                          value={item.type}
-                          onChange={(e) => updateHeaderNavItem(idx, { type: e.target.value as any })}
-                          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
-                        >
-                          <option value="INTERNAL">Internal</option>
-                          <option value="EXTERNAL">External</option>
-                          <option value="ANCHOR">Anchor</option>
-                        </select>
-                      </td>
-                      <td className="p-3 text-center">
-                        <input
-                          type="checkbox"
-                          checked={item.openInNewTab}
-                          onChange={(e) => updateHeaderNavItem(idx, { openInNewTab: e.target.checked })}
-                          className="rounded text-blue-600"
-                        />
-                      </td>
-                      <td className="p-3 text-center">
-                        <input
-                          type="checkbox"
-                          checked={item.enabled}
-                          onChange={(e) => updateHeaderNavItem(idx, { enabled: e.target.checked })}
-                          className="rounded text-blue-600"
-                        />
-                      </td>
-                      <td className="p-3 text-right">
-                        <button
-                          onClick={() => deleteHeaderNavItem(idx)}
-                          className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg cursor-pointer"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div>
+              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Favicon URL</label>
+              <input
+                type="text"
+                value={settings.branding?.faviconUrl || ""}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    branding: { ...settings.branding, faviconUrl: e.target.value },
+                  })
+                }
+                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+                placeholder="/favicon.ico"
+              />
             </div>
           </div>
         </div>
       )}
 
-      {/* TAB 2: FOOTER MANAGEMENT */}
-      {activeTab === "footer" && (
+      {/* TAB 3: LANDING PAGE VERSION & COPY */}
+      {activeTab === "landing" && (
         <div className="space-y-6">
-          {/* Footer Visibility & Bio */}
+          {/* Landing Version Switcher */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
             <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
-              Footer Description & Visibility Toggles
+              Active Landing Page Version
             </h3>
+            <p className="text-xs text-slate-500">
+              Select which landing design version is served at root domain (<code className="font-mono font-bold">/</code>). The Classic Footer remains authoritative.
+            </p>
 
-            <div>
-              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1 text-xs">
-                Footer Bio Description:
-              </label>
-              <textarea
-                rows={2}
-                value={settings.footer.description || ""}
-                onChange={(e) =>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+              <div
+                onClick={() =>
                   setSettings({
                     ...settings,
-                    footer: { ...settings.footer, description: e.target.value },
+                    landing: { ...settings.landing, landingVersion: "classic" },
                   })
                 }
-                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
-              />
-            </div>
+                className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${
+                  settings.landing?.landingVersion === "classic"
+                    ? "border-blue-600 bg-blue-50/60 dark:bg-blue-950/40 text-blue-900 dark:text-blue-100 ring-1 ring-blue-500"
+                    : "border-slate-200 dark:border-slate-800 hover:border-slate-300 bg-white dark:bg-slate-900"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-sm">Classic Landing (Authoritative)</span>
+                  {settings.landing?.landingVersion === "classic" && <Check className="h-4 w-4 text-blue-600" />}
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Features FlipWords hero headline, BentoGrid components, and full enterprise navigation.
+                </p>
+              </div>
 
-            <div className="flex flex-wrap gap-4 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.footer.enabled}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      footer: { ...settings.footer, enabled: e.target.checked },
-                    })
-                  }
-                  className="rounded text-blue-600 h-4 w-4"
-                />
-                <span className="font-bold text-slate-800 dark:text-slate-200">Enable Footer</span>
-              </label>
-
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.footer.showBrand}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      footer: { ...settings.footer, showBrand: e.target.checked },
-                    })
-                  }
-                  className="rounded text-blue-600"
-                />
-                <span className="font-semibold text-slate-700 dark:text-slate-300">Show Brand & Bio</span>
-              </label>
-
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.footer.showNavigation}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      footer: { ...settings.footer, showNavigation: e.target.checked },
-                    })
-                  }
-                  className="rounded text-blue-600"
-                />
-                <span className="font-semibold text-slate-700 dark:text-slate-300">Show Columns</span>
-              </label>
-
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.footer.showContact}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      footer: { ...settings.footer, showContact: e.target.checked },
-                    })
-                  }
-                  className="rounded text-blue-600"
-                />
-                <span className="font-semibold text-slate-700 dark:text-slate-300">Show Get in Touch</span>
-              </label>
+              <div
+                onClick={() =>
+                  setSettings({
+                    ...settings,
+                    landing: { ...settings.landing, landingVersion: "modern" },
+                  })
+                }
+                className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${
+                  settings.landing?.landingVersion === "modern"
+                    ? "border-blue-600 bg-blue-50/60 dark:bg-blue-950/40 text-blue-900 dark:text-blue-100 ring-1 ring-blue-500"
+                    : "border-slate-200 dark:border-slate-800 hover:border-slate-300 bg-white dark:bg-slate-900"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-sm">Modern 2.0 Landing</span>
+                  {settings.landing?.landingVersion === "modern" && <Check className="h-4 w-4 text-blue-600" />}
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Modern design presentation with Bento cards and quick lead registration modal.
+                </p>
+              </div>
             </div>
           </div>
 
-          {/* Footer Dynamic Columns (Section 6 & 7) */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
-                Footer Columns ({settings.footer.columns?.length || 0})
-              </h3>
-              <button
-                onClick={addFooterColumn}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold cursor-pointer"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span>Add Footer Column</span>
-              </button>
+          {/* Hero Copy Controls */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
+              Hero Section Copy
+            </h3>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Badge Text</label>
+                <input
+                  type="text"
+                  value={settings.landing?.heroBadge || ""}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      landing: { ...settings.landing, heroBadge: e.target.value },
+                    })
+                  }
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Headline</label>
+                <input
+                  type="text"
+                  value={settings.landing?.heroHeadline || ""}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      landing: { ...settings.landing, heroHeadline: e.target.value },
+                    })
+                  }
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Subheadline</label>
+                <textarea
+                  rows={2}
+                  value={settings.landing?.heroSubheadline || ""}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      landing: { ...settings.landing, heroSubheadline: e.target.value },
+                    })
+                  }
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: ANNOUNCEMENTS */}
+      {activeTab === "announcements" && (
+        <div className="space-y-6">
+          {/* Add Announcement Card */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
+              Create Public Announcement Banner
+            </h3>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Announcement Title *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Admission Season 2026 Live"
+                  value={newAnnouncement.title || ""}
+                  onChange={(e) => setNewAnnouncement({ ...newAnnouncement, title: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Type / Style</label>
+                <select
+                  value={newAnnouncement.type || "INFO"}
+                  onChange={(e) => setNewAnnouncement({ ...newAnnouncement, type: e.target.value as any })}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+                >
+                  <option value="INFO">Info (Blue)</option>
+                  <option value="PROMO">Promotion / Offer (Emerald)</option>
+                  <option value="WARNING">Warning (Amber)</option>
+                  <option value="ALERT">Urgent Alert (Rose)</option>
+                </select>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {settings.footer.columns?.map((col, colIdx) => (
-                <div
-                  key={col.id || colIdx}
-                  className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm space-y-4"
+            <div>
+              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1 text-xs">Message</label>
+              <textarea
+                rows={2}
+                placeholder="Details of the announcement displayed to visitors..."
+                value={newAnnouncement.message || ""}
+                onChange={(e) => setNewAnnouncement({ ...newAnnouncement, message: e.target.value })}
+                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Start Date</label>
+                <input
+                  type="date"
+                  value={newAnnouncement.startAt || ""}
+                  onChange={(e) => setNewAnnouncement({ ...newAnnouncement, startAt: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">End Date (Optional)</label>
+                <input
+                  type="date"
+                  value={newAnnouncement.endAt || ""}
+                  onChange={(e) => setNewAnnouncement({ ...newAnnouncement, endAt: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Target Public Area</label>
+                <select
+                  value={newAnnouncement.targetPublicArea || "ALL"}
+                  onChange={(e) => setNewAnnouncement({ ...newAnnouncement, targetPublicArea: e.target.value as any })}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
                 >
-                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                    <input
-                      type="text"
-                      value={col.title}
-                      onChange={(e) => updateFooterColumn(colIdx, { title: e.target.value })}
-                      className="font-bold text-sm text-slate-900 dark:text-white p-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800"
-                    />
+                  <option value="ALL">All Public Pages</option>
+                  <option value="HOMEPAGE">Homepage Only</option>
+                  <option value="PRICING">Pricing Page Only</option>
+                  <option value="PORTALS">Portals Only</option>
+                </select>
+              </div>
+            </div>
 
-                    <div className="flex items-center gap-2">
-                      <label className="flex items-center gap-1 text-[11px] font-semibold cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={col.enabled}
-                          onChange={(e) => updateFooterColumn(colIdx, { enabled: e.target.checked })}
-                          className="rounded text-blue-600"
-                        />
-                        <span>Active</span>
-                      </label>
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={handleAddAnnouncement}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs cursor-pointer"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Add Announcement to Draft</span>
+              </button>
+            </div>
+          </div>
 
-                      <button
-                        onClick={() => deleteFooterColumn(colIdx)}
-                        className="text-red-500 hover:text-red-700 p-1"
-                        title="Delete Column"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
+          {/* Announcements List */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
+              Active & Scheduled Announcements ({settings.announcements?.length || 0})
+            </h3>
 
-                  {/* Links List */}
-                  <div className="space-y-2 text-xs">
-                    {col.links?.map((link, linkIdx) => (
-                      <div
-                        key={link.id || linkIdx}
-                        className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700 space-y-2"
-                      >
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="text"
-                            placeholder="Label"
-                            value={link.label}
-                            onChange={(e) => updateFooterLink(colIdx, linkIdx, { label: e.target.value })}
-                            className="w-1/2 p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
-                          />
-                          <input
-                            type="text"
-                            placeholder="URL"
-                            value={link.url}
-                            onChange={(e) => updateFooterLink(colIdx, linkIdx, { url: e.target.value })}
-                            className="w-1/2 p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-[11px]"
-                          />
-                        </div>
-
-                        <div className="flex items-center justify-between text-[11px] pt-1">
-                          <label className="flex items-center gap-1 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={link.enabled}
-                              onChange={(e) => updateFooterLink(colIdx, linkIdx, { enabled: e.target.checked })}
-                              className="rounded text-blue-600"
-                            />
-                            <span>Enabled</span>
-                          </label>
-
-                          <button
-                            onClick={() => deleteFooterLink(colIdx, linkIdx)}
-                            className="text-red-500 hover:underline cursor-pointer text-[11px]"
-                          >
-                            Remove
-                          </button>
-                        </div>
+            <div className="space-y-3">
+              {settings.announcements?.map((a) => {
+                const liveStatus = computeAnnouncementStatus(a);
+                return (
+                  <div
+                    key={a.id}
+                    className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-extrabold text-slate-900 dark:text-white">{a.title}</span>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            liveStatus === "ACTIVE"
+                              ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300"
+                              : liveStatus === "SCHEDULED"
+                              ? "bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300"
+                              : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400"
+                          }`}
+                        >
+                          {liveStatus}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                          {a.type}
+                        </span>
                       </div>
-                    ))}
+                      <p className="text-slate-600 dark:text-slate-300">{a.message}</p>
+                      <span className="text-[10px] text-slate-400">
+                        Area: {a.targetPublicArea} | From: {a.startAt.slice(0, 10)} {a.endAt ? `to ${a.endAt.slice(0, 10)}` : "(No expiry)"}
+                      </span>
+                    </div>
 
                     <button
-                      onClick={() => addFooterLink(colIdx)}
-                      className="w-full py-2 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold flex items-center justify-center gap-1 cursor-pointer"
+                      type="button"
+                      onClick={() => handleDeleteAnnouncement(a.id)}
+                      className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl cursor-pointer self-end sm:self-center"
                     >
-                      <Plus className="h-3.5 w-3.5" />
-                      <span>Add Link</span>
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
+                );
+              })}
+              {(!settings.announcements || settings.announcements.length === 0) && (
+                <p className="text-xs text-slate-400 text-center py-6">No announcements in draft.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 5: FAQS */}
+      {activeTab === "faqs" && (
+        <div className="space-y-6">
+          {/* Add FAQ */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
+              Add Frequently Asked Question (FAQ)
+            </h3>
+
+            <div className="space-y-3 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Question *</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. How do I import existing student records?"
+                    value={newFaq.question || ""}
+                    onChange={(e) => setNewFaq({ ...newFaq, question: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Category</label>
+                  <input
+                    type="text"
+                    placeholder="General / Billing / Security"
+                    value={newFaq.category || ""}
+                    onChange={(e) => setNewFaq({ ...newFaq, category: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Answer *</label>
+                <textarea
+                  rows={2}
+                  placeholder="Clear and concise answer..."
+                  value={newFaq.answer || ""}
+                  onChange={(e) => setNewFaq({ ...newFaq, answer: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="flex justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={handleAddFaq}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs cursor-pointer"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Add FAQ to Draft</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* FAQs List */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
+              Published FAQs List ({settings.faqs?.length || 0})
+            </h3>
+
+            <div className="space-y-3">
+              {settings.faqs?.map((f, idx) => (
+                <div
+                  key={f.id || idx}
+                  className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 flex items-start justify-between gap-3 text-xs"
+                >
+                  <div className="space-y-1 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-slate-400">#{idx + 1}</span>
+                      <span className="font-bold text-slate-900 dark:text-white">{f.question}</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
+                        {f.category}
+                      </span>
+                    </div>
+                    <p className="text-slate-600 dark:text-slate-300 pl-5">{f.answer}</p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteFaq(f.id)}
+                    className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl cursor-pointer"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
                 </div>
               ))}
             </div>
@@ -924,155 +1039,209 @@ export default function SuperAdminSiteSettingsPage() {
         </div>
       )}
 
-      {/* TAB 3: CONTACT & LOCATION (Section 8, 9, 10, 32) */}
-      {activeTab === "contact" && (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-6 max-w-2xl">
-          <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
-            Contact Information & Regional Location
-          </h3>
+      {/* TAB 6: TESTIMONIALS */}
+      {activeTab === "testimonials" && (
+        <div className="space-y-6">
+          {/* Add Testimonial */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
+              Add Verified Testimonial
+            </h3>
 
-          <div className="space-y-4 text-xs">
-            {/* Email */}
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <Mail className="h-4 w-4 text-blue-600" />
-                  Support Email Address:
-                </span>
-                <label className="flex items-center gap-1.5 cursor-pointer">
+            <div className="space-y-3 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Name *</label>
                   <input
-                    type="checkbox"
-                    checked={settings.contact.emailEnabled}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        contact: { ...settings.contact, emailEnabled: e.target.checked },
-                      })
-                    }
-                    className="rounded text-blue-600"
+                    type="text"
+                    placeholder="e.g. Dr. Rajesh Sharma"
+                    value={newTestimonial.name || ""}
+                    onChange={(e) => setNewTestimonial({ ...newTestimonial, name: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
                   />
-                  <span className="font-semibold">Enabled</span>
-                </label>
-              </div>
-              <input
-                type="email"
-                value={settings.contact.email || ""}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    contact: { ...settings.contact, email: e.target.value },
-                  })
-                }
-                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-medium"
-              />
-            </div>
-
-            {/* Phone */}
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <Phone className="h-4 w-4 text-emerald-600" />
-                  Contact Phone Number:
-                </span>
-                <label className="flex items-center gap-1.5 cursor-pointer">
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Role</label>
                   <input
-                    type="checkbox"
-                    checked={settings.contact.phoneEnabled}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        contact: { ...settings.contact, phoneEnabled: e.target.checked },
-                      })
-                    }
-                    className="rounded text-blue-600"
+                    type="text"
+                    placeholder="Principal / Director"
+                    value={newTestimonial.role || ""}
+                    onChange={(e) => setNewTestimonial({ ...newTestimonial, role: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
                   />
-                  <span className="font-semibold">Enabled</span>
-                </label>
-              </div>
-              <input
-                type="text"
-                value={settings.contact.phone || ""}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    contact: { ...settings.contact, phone: e.target.value },
-                  })
-                }
-                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-medium"
-              />
-            </div>
-
-            {/* Location & Maps (Section 8 & 32: Uttar Pradesh, India) */}
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <MapPin className="h-4 w-4 text-purple-600" />
-                  Location & Map Destination (Uttar Pradesh, India):
-                </span>
-                <label className="flex items-center gap-1.5 cursor-pointer">
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Organization / School</label>
                   <input
-                    type="checkbox"
-                    checked={settings.contact.locationEnabled}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        contact: { ...settings.contact, locationEnabled: e.target.checked },
-                      })
-                    }
-                    className="rounded text-blue-600"
+                    type="text"
+                    placeholder="Delhi Public Model School"
+                    value={newTestimonial.organization || ""}
+                    onChange={(e) => setNewTestimonial({ ...newTestimonial, organization: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
                   />
-                  <span className="font-semibold">Enabled</span>
-                </label>
+                </div>
               </div>
 
               <div>
-                <label className="text-slate-500 block mb-1">Display Label:</label>
-                <input
-                  type="text"
-                  value={settings.contact.locationLabel || "Uttar Pradesh, India"}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      contact: { ...settings.contact, locationLabel: e.target.value },
-                    })
-                  }
-                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold"
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Review Content *</label>
+                <textarea
+                  rows={2}
+                  placeholder="Testimonial text from the school leader..."
+                  value={newTestimonial.content || ""}
+                  onChange={(e) => setNewTestimonial({ ...newTestimonial, content: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
                 />
               </div>
 
-              <div>
-                <label className="text-slate-500 block mb-1">Map / Search Destination URL:</label>
-                <input
-                  type="text"
-                  value={settings.contact.locationUrl || ""}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      contact: { ...settings.contact, locationUrl: e.target.value },
-                    })
-                  }
-                  placeholder="https://maps.google.com/?q=Uttar+Pradesh+India"
-                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-xs"
-                />
+              <div className="flex justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={handleAddTestimonial}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs cursor-pointer"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Add Testimonial to Draft</span>
+                </button>
               </div>
+            </div>
+          </div>
+
+          {/* Testimonials List */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
+              Customer Testimonials ({settings.testimonials?.length || 0})
+            </h3>
+
+            <div className="space-y-3">
+              {settings.testimonials?.map((t) => (
+                <div
+                  key={t.id}
+                  className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 flex items-start justify-between gap-3 text-xs"
+                >
+                  <div className="space-y-1 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-900 dark:text-white">{t.name}</span>
+                      <span className="text-slate-400">— {t.role}, {t.organization}</span>
+                      <span className="text-amber-500 font-bold">{"★".repeat(t.rating || 5)}</span>
+                    </div>
+                    <p className="text-slate-600 dark:text-slate-300 italic">"{t.content}"</p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteTestimonial(t.id)}
+                    className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl cursor-pointer"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       )}
 
-      {/* TAB 4: SOCIAL MEDIA LINKS */}
-      {activeTab === "social" && (
+      {/* TAB 7: SEO & SEARCH CONSOLE */}
+      {activeTab === "seo" && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-6">
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
+            Search Engine Optimization (SEO) & Google Search Console
+          </h3>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div>
+              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Default Meta Title</label>
+              <input
+                type="text"
+                value={settings.seo?.defaultTitle || ""}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    seo: { ...settings.seo, defaultTitle: e.target.value },
+                  })
+                }
+                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Title Template</label>
+              <input
+                type="text"
+                value={settings.seo?.titleTemplate || "%s | School Study"}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    seo: { ...settings.seo, titleTemplate: e.target.value },
+                  })
+                }
+                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1 text-xs">Meta Description</label>
+            <textarea
+              rows={2}
+              value={settings.seo?.defaultDescription || ""}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  seo: { ...settings.seo, defaultDescription: e.target.value },
+                })
+              }
+              className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div>
+              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Production Canonical URL</label>
+              <input
+                type="text"
+                value={settings.seo?.canonicalUrl || "https://school.sbci.online"}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    seo: { ...settings.seo, canonicalUrl: e.target.value },
+                  })
+                }
+                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Google Search Console Verification Token</label>
+              <input
+                type="text"
+                value={settings.seo?.googleSiteVerification || "zZHJ9sQqwYwYL1UpsI5ZZK3dUZlBoomo5LdBR7KVJd8"}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    seo: { ...settings.seo, googleSiteVerification: e.target.value },
+                  })
+                }
+                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-900 dark:text-white"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 8: HEADER NAVIGATION */}
+      {activeTab === "header" && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
-              Social Media Accounts ({settings.socials?.length || 0})
+              Header Navigation Links ({settings.header.navigation?.length || 0})
             </h3>
             <button
-              onClick={addSocialLink}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold cursor-pointer"
+              onClick={addHeaderNavItem}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold cursor-pointer"
             >
               <Plus className="h-3.5 w-3.5" />
-              <span>Add Social Link</span>
+              <span>Add Nav Link</span>
             </button>
           </div>
 
@@ -1080,57 +1249,44 @@ export default function SuperAdminSiteSettingsPage() {
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 font-bold text-slate-700 dark:text-slate-300">
-                  <th className="p-3">Platform</th>
+                  <th className="p-3">#</th>
                   <th className="p-3">Label</th>
-                  <th className="p-3">Profile URL</th>
+                  <th className="p-3">Target URL</th>
                   <th className="p-3 text-center">Active</th>
                   <th className="p-3 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {settings.socials?.map((soc, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
-                    <td className="p-3">
-                      <select
-                        value={soc.platform}
-                        onChange={(e) => updateSocialLink(idx, { platform: e.target.value, label: e.target.value })}
-                        className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold capitalize"
-                      >
-                        <option value="linkedin">LinkedIn</option>
-                        <option value="youtube">YouTube</option>
-                        <option value="x">X (Twitter)</option>
-                        <option value="facebook">Facebook</option>
-                        <option value="instagram">Instagram</option>
-                        <option value="github">GitHub</option>
-                      </select>
-                    </td>
+                {settings.header.navigation?.map((item, idx) => (
+                  <tr key={item.id || idx}>
+                    <td className="p-3 font-mono font-bold text-slate-400">{idx + 1}</td>
                     <td className="p-3">
                       <input
                         type="text"
-                        value={soc.label}
-                        onChange={(e) => updateSocialLink(idx, { label: e.target.value })}
-                        className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
+                        value={item.label}
+                        onChange={(e) => updateHeaderNavItem(idx, { label: e.target.value })}
+                        className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold text-xs w-full max-w-[140px]"
                       />
                     </td>
                     <td className="p-3">
                       <input
                         type="text"
-                        value={soc.url}
-                        onChange={(e) => updateSocialLink(idx, { url: e.target.value })}
-                        className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-xs w-full max-w-[280px]"
+                        value={item.url}
+                        onChange={(e) => updateHeaderNavItem(idx, { url: e.target.value })}
+                        className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-xs w-full max-w-[180px]"
                       />
                     </td>
                     <td className="p-3 text-center">
                       <input
                         type="checkbox"
-                        checked={soc.enabled}
-                        onChange={(e) => updateSocialLink(idx, { enabled: e.target.checked })}
+                        checked={item.enabled}
+                        onChange={(e) => updateHeaderNavItem(idx, { enabled: e.target.checked })}
                         className="rounded text-blue-600"
                       />
                     </td>
                     <td className="p-3 text-right">
                       <button
-                        onClick={() => deleteSocialLink(idx)}
+                        onClick={() => deleteHeaderNavItem(idx)}
                         className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg cursor-pointer"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -1144,182 +1300,133 @@ export default function SuperAdminSiteSettingsPage() {
         </div>
       )}
 
-      {/* TAB 5: LEGAL & COPYRIGHT */}
-      {activeTab === "legal" && (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-6 max-w-3xl">
+      {/* TAB 9: FOOTER & SOCIALS */}
+      {activeTab === "footer" && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-6">
           <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
-            Copyright & Legal Policies
+            Footer Bio & Columns
+          </h3>
+
+          <div>
+            <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1 text-xs">Footer Bio Text</label>
+            <textarea
+              rows={2}
+              value={settings.footer.description || ""}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  footer: { ...settings.footer, description: e.target.value },
+                })
+              }
+              className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {settings.footer.columns?.map((col, idx) => (
+              <div key={col.id || idx} className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-900 dark:text-white">{col.title}</span>
+                  <span className="text-slate-400">{col.links?.length || 0} links</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 10: LEGAL POLICIES */}
+      {activeTab === "legal" && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-6">
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
+            Public Legal Policies
           </h3>
 
           <div className="space-y-4 text-xs">
             <div>
-              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                Copyright String (Supports {"{YEAR}"}):
-              </label>
-              <input
-                type="text"
-                value={settings.footer.copyrightText || ""}
+              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Privacy Policy Summary</label>
+              <textarea
+                rows={3}
+                value={settings.legalContent?.privacyPolicyText || ""}
                 onChange={(e) =>
                   setSettings({
                     ...settings,
-                    footer: { ...settings.footer, copyrightText: e.target.value },
+                    legalContent: { ...settings.legalContent, privacyPolicyText: e.target.value },
                   })
                 }
-                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-medium"
+                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
               />
-              <p className="text-[11px] text-slate-400 mt-1">
-                Preview: {settings.footer.copyrightText?.replace(/\{YEAR\}/gi, new Date().getFullYear().toString())}
-              </p>
             </div>
 
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-              <h4 className="font-bold text-slate-900 dark:text-white mb-2">Legal Policy Links:</h4>
-              <div className="space-y-2">
-                {settings.legal?.map((l, idx) => (
-                  <div key={idx} className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={l.label}
-                      onChange={(e) => {
-                        const leg = [...settings.legal];
-                        leg[idx].label = e.target.value;
-                        setSettings({ ...settings, legal: leg });
-                      }}
-                      className="w-1/3 p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-semibold text-xs"
-                    />
-                    <input
-                      type="text"
-                      value={l.url}
-                      onChange={(e) => {
-                        const leg = [...settings.legal];
-                        leg[idx].url = e.target.value;
-                        setSettings({ ...settings, legal: leg });
-                      }}
-                      className="w-1/2 p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-mono text-xs"
-                    />
-                    <label className="flex items-center gap-1 text-[11px] cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={l.enabled}
-                        onChange={(e) => {
-                          const leg = [...settings.legal];
-                          leg[idx].enabled = e.target.checked;
-                          setSettings({ ...settings, legal: leg });
-                        }}
-                        className="rounded text-blue-600"
-                      />
-                      <span>Active</span>
-                    </label>
-                  </div>
-                ))}
-              </div>
+            <div>
+              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Terms of Service Summary</label>
+              <textarea
+                rows={3}
+                value={settings.legalContent?.termsOfServiceText || ""}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    legalContent: { ...settings.legalContent, termsOfServiceText: e.target.value },
+                  })
+                }
+                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Refund Policy Summary</label>
+              <textarea
+                rows={3}
+                value={settings.legalContent?.refundPolicyText || ""}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    legalContent: { ...settings.legalContent, refundPolicyText: e.target.value },
+                  })
+                }
+                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+              />
             </div>
           </div>
         </div>
       )}
 
-      {/* TAB 6: LIVE INTERACTIVE PREVIEW */}
-      {activeTab === "preview" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Device Frame:</span>
-              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-                <button
-                  onClick={() => setPreviewDevice("desktop")}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 ${
-                    previewDevice === "desktop" ? "bg-white dark:bg-slate-900 text-blue-600 shadow-2xs" : "text-slate-500"
-                  }`}
-                >
-                  <Monitor className="h-3.5 w-3.5" />
-                  <span>Desktop</span>
-                </button>
-                <button
-                  onClick={() => setPreviewDevice("mobile")}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 ${
-                    previewDevice === "mobile" ? "bg-white dark:bg-slate-900 text-blue-600 shadow-2xs" : "text-slate-500"
-                  }`}
-                >
-                  <Smartphone className="h-3.5 w-3.5" />
-                  <span>Mobile</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="text-[11px] text-slate-500">
-              * Preview renders current unsaved/draft configuration in real-time
-            </div>
-          </div>
-
-          <div
-            className={`mx-auto bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-3xl p-4 transition-all overflow-hidden ${
-              previewDevice === "mobile" ? "max-w-sm shadow-2xl" : "w-full shadow-lg"
-            }`}
-          >
-            <SiteSettingsProvider initialSettings={settings}>
-              <div className="space-y-12">
-                <MarketingHeader />
-                <div className="text-center py-12 text-slate-400 text-xs border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
-                  [ Website Page Body Content Placeholder ]
-                </div>
-                <Footer />
-              </div>
-            </SiteSettingsProvider>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 7: VERSION HISTORY & RESTORE (Section 18) */}
+      {/* TAB 11: VERSION HISTORY */}
       {activeTab === "history" && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
           <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
-            Published Version History ({versions.length})
+            Historical Published Snapshots ({versions.length})
           </h3>
 
-          {versions.length === 0 ? (
-            <p className="text-xs text-slate-400 py-6 text-center">No previous version snapshots found.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 font-bold text-slate-700 dark:text-slate-300">
-                    <th className="p-3">Version</th>
-                    <th className="p-3">Published Date</th>
-                    <th className="p-3">Published By</th>
-                    <th className="p-3">Brand Name</th>
-                    <th className="p-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {versions.map((ver, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
-                      <td className="p-3 font-mono font-bold text-blue-600">v{ver.version}</td>
-                      <td className="p-3 font-mono text-slate-600 dark:text-slate-400">
-                        {new Date(ver.updatedAt).toLocaleString("en-IN")}
-                      </td>
-                      <td className="p-3 text-slate-700 dark:text-slate-300">{ver.updatedBy}</td>
-                      <td className="p-3 font-semibold">{ver.header?.brandName || "School Study"}</td>
-                      <td className="p-3 text-right">
-                        <button
-                          onClick={() => {
-                            setSettings(ver);
-                            setActiveTab("header");
-                            setStatusMessage({
-                              type: "success",
-                              text: `Loaded version v${ver.version} into editor. Click "Publish" to restore live.`,
-                            });
-                          }}
-                          className="font-bold text-blue-600 hover:underline text-xs cursor-pointer"
-                        >
-                          Load to Editor
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <div className="space-y-3 text-xs">
+            {versions.map((v) => (
+              <div
+                key={v.version}
+                className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 flex items-center justify-between gap-3"
+              >
+                <div>
+                  <span className="font-extrabold text-blue-600">Version {v.version}</span>
+                  <p className="text-slate-500 mt-0.5">
+                    Published on {new Date(v.updatedAt).toLocaleString("en-IN")} by {v.updatedBy}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSettings(v);
+                    toast.info(`Loaded Version ${v.version} into editor. Click 'Publish Live' to rollback.`);
+                  }}
+                  className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 font-bold cursor-pointer"
+                >
+                  Load to Editor
+                </button>
+              </div>
+            ))}
+            {versions.length === 0 && (
+              <p className="text-xs text-slate-400 text-center py-6">No historical versions recorded yet.</p>
+            )}
+          </div>
         </div>
       )}
     </div>

@@ -48,7 +48,14 @@ export async function POST(request: Request) {
       // Authoritative Server-Side Entitlement Check
       if (actorRole !== "super_admin") {
         try {
-          await requireEntitlement(schoolId, { feature: "advanced_reports" });
+          const exportPermKey =
+            format === "pdf"
+              ? "reports_action_export_pdf"
+              : format === "xlsx"
+              ? "reports_action_export_xlsx"
+              : "reports_action_export_csv";
+
+          await requireEntitlement(schoolId, { feature: exportPermKey });
         } catch (entErr: any) {
           await createBillingAuditLog(
             actorId,
@@ -56,7 +63,7 @@ export async function POST(request: Request) {
             "REPORT_EXPORT_FAILED" as any,
             "schoolSubscription",
             schoolId || "unauthorized",
-            { reportType, reason: entErr.message }
+            { reportType, format, reason: entErr.message }
           );
           return buildEntitlementErrorResponse(entErr);
         }

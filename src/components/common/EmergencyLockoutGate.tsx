@@ -37,6 +37,9 @@ export function EmergencyLockoutGate({
           setControls(snap.data() as GlobalEmergencyControls);
         }
         setLoading(false);
+      },
+      () => {
+        setLoading(false);
       }
     );
 
@@ -48,7 +51,8 @@ export function EmergencyLockoutGate({
           if (snap.exists()) {
             setSchoolStatus(snap.data().status || "ACTIVE");
           }
-        }
+        },
+        () => {}
       );
     }
 

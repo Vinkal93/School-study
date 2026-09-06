@@ -4,6 +4,7 @@ import { getFirebaseDb } from "@/lib/firebase/client";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { loadRazorpayCredentials, type RazorpayCredentials } from "@/lib/payments/razorpay";
 import { createBillingAuditLog } from "@/lib/billing";
+import { requireSuperAdmin } from "@/lib/auth/serverAuth";
 
 function maskSecret(secret: string): string {
   if (!secret) return "";
@@ -11,7 +12,10 @@ function maskSecret(secret: string): string {
   return `${secret.slice(0, 4)}****************${secret.slice(-4)}`;
 }
 
-export async function GET(request?: Request) {
+export async function GET(request: Request) {
+  const auth = await requireSuperAdmin(request);
+  if (auth.errorResponse) return auth.errorResponse;
+
   try {
     const creds = await loadRazorpayCredentials().catch(() => ({
       keyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID || "",
@@ -53,9 +57,13 @@ export async function GET(request?: Request) {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireSuperAdmin(request);
+  if (auth.errorResponse) return auth.errorResponse;
+
   try {
     const body = await request.json();
-    const { keyId, keySecret, webhookSecret, isLiveMode, actorEmail } = body;
+    const { keyId, keySecret, webhookSecret, isLiveMode } = body;
+    const actorEmail = auth.user!.email || auth.user!.uid;
 
     if (!keyId || typeof keyId !== "string" || keyId.trim().length === 0) {
       return NextResponse.json({ success: false, error: "Razorpay Key ID is required." });

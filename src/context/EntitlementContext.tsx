@@ -4,10 +4,11 @@ import React, { createContext, useContext, useEffect, useState, type ReactNode }
 import { doc, onSnapshot, collection, query, where } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { useAuth } from "@/hooks/use-auth";
-import type { EffectiveEntitlement } from "@/types";
+import type { EffectiveEntitlement, FeatureAccessMode } from "@/types";
 import { getEffectiveEntitlement } from "@/lib/billing/entitlement";
 import { resolveEffectiveFeatureAccess } from "@/lib/feature-control/resolver";
 import type { GlobalFeatureState, SchoolFeatureOverride } from "@/types/featureControl";
+import { canonicalizeCapabilityKey, getParentFeatureKey, getParentCapabilityKey } from "@/lib/billing/permissions";
 
 interface EntitlementContextType {
   entitlement: EffectiveEntitlement | null;
@@ -15,6 +16,11 @@ interface EntitlementContextType {
   accessMode: string;
   canAccess: (featureKey: string) => boolean;
   canAccessFeature: (featureKey: string) => boolean;
+  canAccessAction: (actionKey: string) => boolean;
+  getFeatureAccessMode: (featureKey: string) => FeatureAccessMode;
+  getCapabilityAccessMode: (key: string) => FeatureAccessMode;
+  getRequiredPlanForFeature: (featureKey: string) => string;
+  getRequiredPlanForCapability: (key: string) => string;
   refreshEntitlement: () => Promise<void>;
   globalFeatureStates: Record<string, GlobalFeatureState>;
   schoolFeatureOverrides: SchoolFeatureOverride[];
@@ -26,6 +32,11 @@ const EntitlementContext = createContext<EntitlementContextType>({
   accessMode: "FULL_ACCESS",
   canAccess: () => true,
   canAccessFeature: () => true,
+  canAccessAction: () => true,
+  getFeatureAccessMode: () => "FULL_ACCESS",
+  getCapabilityAccessMode: () => "FULL_ACCESS",
+  getRequiredPlanForFeature: () => "Professional Plan",
+  getRequiredPlanForCapability: () => "Professional Plan",
   refreshEntitlement: async () => {},
   globalFeatureStates: {},
   schoolFeatureOverrides: [],
@@ -72,7 +83,9 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
         }
       },
       (err) => {
-        console.warn("Feature controls real-time listener notice:", err);
+        if (err.code !== "permission-denied") {
+          console.warn("Feature controls real-time listener notice:", err);
+        }
       }
     );
 
@@ -93,7 +106,9 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
         fetchEntitlement();
       },
       (err) => {
-        console.warn("Subscription real-time listener notice:", err);
+        if (err.code !== "permission-denied") {
+          console.warn("Subscription real-time listener notice:", err);
+        }
       }
     );
 
@@ -106,7 +121,9 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
         fetchEntitlement();
       },
       (err) => {
-        console.warn("AccessOverrides real-time listener notice:", err);
+        if (err.code !== "permission-denied") {
+          console.warn("AccessOverrides real-time listener notice:", err);
+        }
       }
     );
 
@@ -123,7 +140,9 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
         setSchoolFeatureOverrides(list);
       },
       (err) => {
-        console.warn("School feature overrides listener notice:", err);
+        if (err.code !== "permission-denied") {
+          console.warn("School feature overrides listener notice:", err);
+        }
       }
     );
 
@@ -135,7 +154,9 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
         fetchEntitlement();
       },
       (err) => {
-        console.warn("Plans real-time listener notice:", err);
+        if (err.code !== "permission-denied") {
+          console.warn("Plans real-time listener notice:", err);
+        }
       }
     );
 
@@ -150,10 +171,14 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
 
   const canAccess = (featureKey: string): boolean => {
     if (role === "super_admin") return true;
+    if (!featureKey) return false;
+
+    const canonical = canonicalizeCapabilityKey(featureKey);
+    const parentKey = getParentFeatureKey(canonical);
 
     // 1. Layered Feature Control Resolver Check
     const result = resolveEffectiveFeatureAccess({
-      featureKey,
+      featureKey: canonical,
       schoolId,
       role,
       globalStates: globalFeatureStates,
@@ -164,11 +189,101 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
 
     if (!result.allowed) return false;
 
-    // 2. Base Entitlement checks
+    // 2. 3-Way Mode check: if explicitly SHOWCASE or HIDDEN, canAccess is false
+    if (entitlement?.featureAccessModes) {
+      if (entitlement.featureAccessModes[canonical] !== undefined) {
+        return entitlement.featureAccessModes[canonical] === "FULL_ACCESS";
+      }
+      if (entitlement.featureAccessModes[featureKey] !== undefined) {
+        return entitlement.featureAccessModes[featureKey] === "FULL_ACCESS";
+      }
+      if (parentKey && entitlement.featureAccessModes[parentKey] !== undefined) {
+        return entitlement.featureAccessModes[parentKey] === "FULL_ACCESS";
+      }
+    }
+
+    // 3. Base Entitlement checks
     if (!entitlement) return true; // Default fallback while loading
     if (entitlement.accessMode === "NO_ACCESS") return false;
     if (entitlement.accessMode === "FULL_ACCESS") return true;
-    return entitlement.features[featureKey] !== false;
+
+    if (entitlement.features[canonical] !== undefined) {
+      return entitlement.features[canonical] !== false;
+    }
+    if (entitlement.features[featureKey] !== undefined) {
+      return entitlement.features[featureKey] !== false;
+    }
+    if (parentKey && entitlement.features[parentKey] !== undefined) {
+      return entitlement.features[parentKey] !== false;
+    }
+
+    return false;
+  };
+
+  const getFeatureAccessMode = (featureKey: string): FeatureAccessMode => {
+    if (role === "super_admin") return "FULL_ACCESS";
+    if (!featureKey) return "HIDDEN";
+
+    const canonical = canonicalizeCapabilityKey(featureKey);
+    const parentCapKey = getParentCapabilityKey(canonical);
+    const parentKey = getParentFeatureKey(canonical);
+
+    // Layered Feature Control Resolver Check
+    const result = resolveEffectiveFeatureAccess({
+      featureKey: canonical,
+      schoolId,
+      role,
+      globalStates: globalFeatureStates,
+      schoolOverrides: schoolFeatureOverrides,
+      planAllowedFeatures: entitlement ? Object.keys(entitlement.features).filter((k) => entitlement.features[k]) : [],
+      isFullControl: entitlement?.accessMode === "FULL_ACCESS",
+    });
+
+    if (!result.allowed) {
+      return "HIDDEN";
+    }
+
+    if (entitlement?.featureAccessModes) {
+      if (entitlement.featureAccessModes[canonical]) {
+        return entitlement.featureAccessModes[canonical];
+      }
+      if (entitlement.featureAccessModes[featureKey]) {
+        return entitlement.featureAccessModes[featureKey];
+      }
+      if (parentCapKey && entitlement.featureAccessModes[parentCapKey]) {
+        return entitlement.featureAccessModes[parentCapKey];
+      }
+      if (parentKey && entitlement.featureAccessModes[parentKey]) {
+        return entitlement.featureAccessModes[parentKey];
+      }
+    }
+
+    if (entitlement?.features) {
+      if (entitlement.features[canonical] !== undefined) {
+        return entitlement.features[canonical] ? "FULL_ACCESS" : "HIDDEN";
+      }
+      if (entitlement.features[featureKey] !== undefined) {
+        return entitlement.features[featureKey] ? "FULL_ACCESS" : "HIDDEN";
+      }
+      if (parentKey && entitlement.features[parentKey] !== undefined) {
+        return entitlement.features[parentKey] ? "FULL_ACCESS" : "HIDDEN";
+      }
+    }
+
+    return "FULL_ACCESS";
+  };
+
+  const getRequiredPlanForFeature = (featureKey: string): string => {
+    if (!featureKey) return "Higher Plan Required";
+    const canonical = canonicalizeCapabilityKey(featureKey);
+    const parentKey = getParentFeatureKey(canonical);
+
+    return (
+      entitlement?.availableFromMap?.[canonical] ||
+      entitlement?.availableFromMap?.[featureKey] ||
+      (parentKey ? entitlement?.availableFromMap?.[parentKey] : undefined) ||
+      "Higher Plan Required"
+    );
   };
 
   return (
@@ -179,6 +294,11 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
         accessMode: entitlement?.accessMode || "FULL_ACCESS",
         canAccess,
         canAccessFeature: canAccess,
+        canAccessAction: canAccess,
+        getFeatureAccessMode,
+        getCapabilityAccessMode: getFeatureAccessMode,
+        getRequiredPlanForFeature,
+        getRequiredPlanForCapability: getRequiredPlanForFeature,
         refreshEntitlement: fetchEntitlement,
         globalFeatureStates,
         schoolFeatureOverrides,
@@ -196,4 +316,3 @@ export function useEntitlement() {
 export function useFeatureControl() {
   return useContext(EntitlementContext);
 }
-

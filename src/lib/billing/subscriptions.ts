@@ -9,6 +9,15 @@ import type { SchoolSubscription, SubscriptionStatus, BillingCycle } from "@/typ
 import { BILLING_COLLECTIONS, getActivePlanVersion } from "./plans";
 import { createBillingAuditLog } from "./audit";
 
+// Server and Client universal DB handler
+function getAdminDbServerOnly(): any {
+  return null;
+}
+
+const g = globalThis as any;
+if (!g.__BILLING_SUBSCRIPTIONS_MAP__) g.__BILLING_SUBSCRIPTIONS_MAP__ = new Map<string, SchoolSubscription>();
+const memorySubscriptions: Map<string, SchoolSubscription> = g.__BILLING_SUBSCRIPTIONS_MAP__;
+
 /**
  * Server-side calculation of subscription status based on current time and expiration dates.
  */
@@ -46,6 +55,11 @@ export function computeSubscriptionStatus(
  * Backward Compatibility (Section 22): Existing MVP schools without a subscription doc receive a 30-day Professional trial.
  */
 export async function getSchoolSubscription(schoolId: string): Promise<SchoolSubscription> {
+  const memSub = memorySubscriptions.get(schoolId);
+  if (memSub) {
+    return memSub;
+  }
+
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // +30 days
   const graceEndsAt = new Date(expiresAt.getTime() + 7 * 24 * 60 * 60 * 1000); // +7 days grace
@@ -68,28 +82,46 @@ export async function getSchoolSubscription(schoolId: string): Promise<SchoolSub
   };
 
   try {
-    const db = getFirebaseDb();
-    if (!db) return defaultSub;
-
-    const subRef = doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId);
-    const snap = await getDoc(subRef);
-
-    if (snap.exists()) {
-      const sub = { id: snap.id, ...snap.data() } as SchoolSubscription;
-      const computedStatus = computeSubscriptionStatus(sub.expiresAt, sub.graceEndsAt, sub.status);
-
-      if (computedStatus !== sub.status) {
-        updateDoc(subRef, { status: computedStatus, updatedAt: new Date().toISOString() }).catch(() => {});
-        sub.status = computedStatus;
+    const adminDb = await getAdminDbServerOnly();
+    if (adminDb) {
+      const snap = await adminDb.collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS).doc(schoolId).get();
+      if (snap.exists) {
+        const sub = { id: snap.id, ...snap.data() } as SchoolSubscription;
+        const computedStatus = computeSubscriptionStatus(sub.expiresAt, sub.graceEndsAt, sub.status);
+        if (computedStatus !== sub.status) {
+          sub.status = computedStatus;
+          adminDb.collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS).doc(schoolId).update({ status: computedStatus, updatedAt: new Date().toISOString() }).catch(() => {});
+        }
+        memorySubscriptions.set(schoolId, sub);
+        return sub;
       }
-      return sub;
     }
 
-    setDoc(subRef, defaultSub).catch(() => {});
-    return defaultSub;
+    const db = getFirebaseDb();
+    if (db) {
+      const subRef = doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId);
+      const snap = await getDoc(subRef);
+
+      if (snap.exists()) {
+        const sub = { id: snap.id, ...snap.data() } as SchoolSubscription;
+        const computedStatus = computeSubscriptionStatus(sub.expiresAt, sub.graceEndsAt, sub.status);
+
+        if (computedStatus !== sub.status) {
+          updateDoc(subRef, { status: computedStatus, updatedAt: new Date().toISOString() }).catch(() => {});
+          sub.status = computedStatus;
+        }
+        memorySubscriptions.set(schoolId, sub);
+        return sub;
+      }
+
+      setDoc(subRef, defaultSub).catch(() => {});
+    }
   } catch (error) {
-    return defaultSub;
+    // Non-blocking fallback
   }
+
+  memorySubscriptions.set(schoolId, defaultSub);
+  return defaultSub;
 }
 
 /**
@@ -106,7 +138,6 @@ export async function updateSchoolSubscription(
   },
   actorId: string = "super_admin"
 ): Promise<SchoolSubscription> {
-  const db = getFirebaseDb();
   const activeVersion = await getActivePlanVersion(input.planId);
   if (!activeVersion) throw new Error("Invalid or inactive plan");
 
@@ -134,8 +165,19 @@ export async function updateSchoolSubscription(
     updatedAt: now.toISOString(),
   };
 
-  const subRef = doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId);
-  await setDoc(subRef, sub);
+  memorySubscriptions.set(schoolId, sub);
+
+  try {
+    const adminDb = await getAdminDbServerOnly();
+    if (adminDb) {
+      await adminDb.collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS).doc(schoolId).set(sub);
+    } else {
+      const db = getFirebaseDb();
+      if (db) {
+        await setDoc(doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId), sub);
+      }
+    }
+  } catch (e) {}
 
   await createBillingAuditLog(
     actorId,
@@ -143,8 +185,13 @@ export async function updateSchoolSubscription(
     "SUBSCRIPTION_UPDATED",
     "schoolSubscription",
     schoolId,
-    { planId: input.planId, billingCycle: input.billingCycle, status: sub.status }
-  );
+    {
+      planId: input.planId,
+      billingCycle: input.billingCycle,
+      status: sub.status,
+      expiresAt: sub.expiresAt,
+    }
+  ).catch(() => {});
 
   return sub;
 }

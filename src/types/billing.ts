@@ -39,15 +39,23 @@ export interface PlanLimits {
   [key: string]: number;
 }
 
+export type FeatureAccessMode = "FULL_ACCESS" | "SHOWCASE" | "HIDDEN";
+
+export type PermissionCategory = "module" | "page" | "tab" | "section" | "action" | "export" | "limit";
+
 export interface Plan {
   id: string;
   name: string;
-  slug: string; // e.g. "starter", "professional", "enterprise"
+  slug: string; // e.g. "starter", "professional", "enterprise", "premium"
   description: string;
   status: PlanStatus;
   displayOrder: number;
   isPopular: boolean;
+  publicVisible?: boolean; // Controls whether this plan appears on the public /pricing page
+  version?: number; // Latest active version number (e.g. 1, 2, 3)
+  isArchived?: boolean; // Flag when plan is archived to protect historical data
   features: string[]; // Feature keys
+  featureAccess?: Record<string, FeatureAccessMode>; // Granular access modes per feature
   limits: PlanLimits;
   createdAt: string;
   updatedAt: string;
@@ -61,11 +69,24 @@ export interface PlanVersion {
   annualPrice: number; // Integer PAISE per month billed annually (e.g. 79900 = ₹799/mo)
   currency: string; // "INR"
   features: string[];
+  featureAccess?: Record<string, FeatureAccessMode>;
   limits: PlanLimits;
   effectiveFrom: string;
   effectiveUntil: string | null;
-  status: PlanVersionStatus;
+  status: PlanVersionStatus | "DEPRECATED";
+  changeNotes?: string;
   createdAt: string;
+}
+
+export interface FeatureRegistryItem {
+  key: string; // Unique feature key e.g. "student_management"
+  moduleKey: string; // Module group e.g. "students", "attendance"
+  displayName: string; // Human readable title e.g. "Student Admissions & Profiles"
+  description: string; // Clear description of the capability
+  category: "core" | "academic" | "security" | "analytics" | "integration" | "financial";
+  route?: string; // App route or URL associated with this feature
+  status: "ACTIVE" | "BETA" | "DEPRECATED";
+  sortOrder: number;
 }
 
 export interface SchoolSubscription {
@@ -74,6 +95,7 @@ export interface SchoolSubscription {
   planId: string;
   planVersionId: string;
   status: SubscriptionStatus;
+  controlMode?: "PLAN_DEFAULT" | "FULL_CONTROL" | "LIMITED_CONTROL" | "CUSTOM_ACCESS";
   billingCycle: BillingCycle;
   startsAt: string;
   expiresAt: string;
@@ -178,6 +200,7 @@ export interface SchoolAccessSummary {
   planId: string;
   planVersionId: string;
   status: SubscriptionStatus;
+  controlMode?: "PLAN_DEFAULT" | "FULL_CONTROL" | "LIMITED_CONTROL" | "CUSTOM_ACCESS";
   accessMode: AccessMode;
   startsAt: string;
   expiresAt: string;
@@ -219,6 +242,8 @@ export interface EffectiveEntitlement {
     version: number;
   };
   features: Record<string, boolean>;
+  featureAccessModes?: Record<string, FeatureAccessMode>;
+  availableFromMap?: Record<string, string>;
   limits: {
     students: ResourceLimitStatus;
     teachers: ResourceLimitStatus;
@@ -332,7 +357,18 @@ export type BillingAuditAction =
   | "PLAN_FEATURE_UPDATED"
   | "PLAN_LIMIT_UPDATED"
   | "PLAN_FEATURE_CHANGED"
+  | "PLAN_FEATURE_ACCESS_CHANGED"
+  | "PLAN_ACTION_ACCESS_CHANGED"
+  | "PLAN_PAGE_ACCESS_CHANGED"
+  | "PLAN_TAB_ACCESS_CHANGED"
+  | "PLAN_EXPORT_ACCESS_CHANGED"
   | "PLAN_LIMIT_CHANGED"
+  | "SCHOOL_ACTION_OVERRIDE_CHANGED"
+  | "SCHOOL_ENTITLEMENT_RESET"
+  | "SCHOOL_FEATURE_OVERRIDE_CHANGED"
+  | "SCHOOL_CONTROL_MODE_CHANGED"
+  | "SCHOOL_PLAN_ASSIGNED"
+  | "SCHOOL_LIMIT_OVERRIDE_CHANGED"
   | "POPULAR_PLAN_CHANGED"
   | "SUBSCRIPTION_UPDATED"
   | "ACCESS_POLICY_UPDATED"
@@ -428,8 +464,9 @@ export interface SubscriptionAdjustmentRecord {
 export interface AccessOverrideRecord {
   id: string;
   schoolId: string;
-  type: "FEATURE_GRANT" | "FEATURE_RESTRICT" | "TEMPORARY_ACCESS";
+  type: "FEATURE_GRANT" | "FEATURE_RESTRICT" | "TEMPORARY_ACCESS" | "FEATURE_SHOWCASE";
   featureKey?: string;
+  accessMode?: FeatureAccessMode;
   enabled: boolean;
   startAt: string;
   endAt: string;
@@ -437,6 +474,7 @@ export interface AccessOverrideRecord {
   createdBy: string;
   status: "ACTIVE" | "EXPIRED" | "REVOKED";
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface LimitOverrideRecord {

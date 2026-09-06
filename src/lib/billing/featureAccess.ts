@@ -1,5 +1,14 @@
-import type { FeatureCheckResult, PlanLimits, AccessMode } from "@/types";
+import type { FeatureCheckResult, PlanLimits, AccessMode, FeatureAccessMode } from "@/types";
 import { getSchoolAccess } from "./accessEngine";
+import { FEATURE_REGISTRY } from "@/lib/features/featureRegistry";
+import { getActivePlan, getAllPlans } from "./plans";
+import { getActiveAccessOverrides } from "./subscriptionAdjustmentEngine";
+import {
+  GRANULAR_PERMISSIONS,
+  canonicalizeCapabilityKey,
+  getParentFeatureKey,
+  getParentCapabilityKey,
+} from "./permissions";
 
 /**
  * Feature Dependencies Map.
@@ -11,113 +20,230 @@ const FEATURE_DEPENDENCIES: Record<string, string[]> = {
 };
 
 /**
- * Feature key normalization alias map.
+ * Feature key normalization alias map for legacy and dot-notation keys.
  */
 const FEATURE_KEY_ALIASES: Record<string, string[]> = {
-  student_management: ["student_management", "students"],
-  teacher_management: ["teacher_management", "teachers"],
+  student_management: ["student_management", "students", "student_portal"],
+  students: ["student_management", "students", "student_portal"],
+  teacher_management: ["teacher_management", "teachers", "teacher_portal"],
+  teachers: ["teacher_management", "teachers", "teacher_portal"],
   class_management: ["class_management", "classes"],
+  classes: ["class_management", "classes"],
   attendance: ["attendance", "attendance_automation", "basic_attendance"],
-  attendance_automation: ["attendance_automation", "attendance"],
+  attendance_automation: ["attendance_automation", "attendance", "basic_attendance"],
   basic_attendance: ["basic_attendance", "attendance"],
-  reports: ["reports", "advanced_reports"],
-  advanced_reports: ["advanced_reports", "reports"],
+  reports: ["reports", "advanced_reports", "reports_export"],
+  advanced_reports: ["advanced_reports", "reports", "reports_export"],
   notices: ["notices", "notices_announcements"],
   notices_announcements: ["notices_announcements", "notices"],
   dashboard: ["dashboard", "school_dashboard"],
   school_dashboard: ["school_dashboard", "dashboard"],
-  student_portal: ["student_portal"],
-  teacher_portal: ["teacher_portal"],
-  billing: ["billing"],
-  fee_management: ["fee_management", "fees", "fee_dashboard", "fee_structure", "fee_collection", "fee_transactions", "fee_reports", "fee_exports", "fee_discounts", "fee_receipts"],
+  timetable: ["timetable", "timetable_bells"],
+  timetable_bells: ["timetable_bells", "timetable"],
+  rules_policies: ["rules_policies", "rules"],
+  rules: ["rules_policies", "rules"],
+  billing: ["billing", "subscription_billing"],
+  subscription_billing: ["subscription_billing", "billing"],
+  fee_management: ["fee_management", "fees", "fee_collection_system"],
   fees: ["fees", "fee_management"],
+  inquiries: ["inquiries", "inquiries_portal", "leads"],
+  inquiries_portal: ["inquiries_portal", "inquiries", "leads"],
 };
 
-import { getActiveAccessOverrides } from "./subscriptionAdjustmentEngine";
+/**
+ * Resolves all known keys from both high-level Feature Registry and Granular Permissions.
+ */
+function getAllKnownCapabilityKeys(): string[] {
+  const keys = new Set<string>();
+  for (const f of FEATURE_REGISTRY) {
+    keys.add(f.key);
+  }
+  for (const p of GRANULAR_PERMISSIONS) {
+    keys.add(p.id);
+    if (p.aliases) {
+      p.aliases.forEach((a) => keys.add(a));
+    }
+  }
+  return Array.from(keys);
+}
 
 /**
- * Section 3: Resolves effective feature flags for a school as a Boolean dictionary.
- * Flow: Security/Suspension -> Manual Restrictions -> Subscription Status -> Plan Features -> Manual Grants
+ * Section 2A: Authoritative 3-Way Feature & Capability Access Mode Resolution.
+ * Resolves each capability into FULL_ACCESS | SHOWCASE | HIDDEN for the school with recursive parent inheritance
+ * and multi-level school custom overrides.
  */
-import { GRANULAR_PERMISSIONS, getParentFeatureKey } from "./permissions";
+export async function getEffectiveFeatureAccessModes(
+  schoolId: string
+): Promise<Record<string, FeatureAccessMode>> {
+  const allKnownKeys = getAllKnownCapabilityKeys();
 
-export async function getPlanFeatures(schoolId: string): Promise<Record<string, boolean>> {
+  if (!schoolId || schoolId === "school_default" || schoolId === "system") {
+    const defaultModes: Record<string, FeatureAccessMode> = {};
+    for (const key of allKnownKeys) {
+      defaultModes[key] = "FULL_ACCESS";
+    }
+    return defaultModes;
+  }
+
   const [summary, overrides] = await Promise.all([
     getSchoolAccess(schoolId),
     getActiveAccessOverrides(schoolId),
   ]);
-  const permissions: Record<string, boolean> = {};
+
+  const planDoc = await getActivePlan(summary.planId || "plan_starter");
+  const planFeatureAccess: Record<string, FeatureAccessMode> = planDoc?.featureAccess || {};
+  const planFeaturesList: string[] = planDoc?.features || summary.allowedFeatures || [];
 
   const hasTempAccess = overrides.some((o) => o.type === "TEMPORARY_ACCESS");
-  const isFullControl = summary.controlMode === "FULL_CONTROL" || (hasTempAccess && summary.status !== "SUSPENDED");
+  const isFullControl =
+    summary.controlMode === "FULL_CONTROL" ||
+    (hasTempAccess && summary.status !== "SUSPENDED" && summary.status !== "CANCELLED");
 
-  // List of all keys (granular IDs + legacy feature keys)
-  const allKnownKeys = Array.from(
-    new Set([
-      ...GRANULAR_PERMISSIONS.map((p) => p.id),
-      "student_management",
-      "teacher_management",
-      "class_management",
-      "basic_attendance",
-      "attendance_automation",
-      "school_dashboard",
-      "notices_announcements",
-      "advanced_reports",
-      "reports_export",
-      "student_portal",
-      "teacher_portal",
-      "billing",
-      "reports",
-      "notices",
-      "fee_management",
-      "fee_dashboard",
-      "fee_structure",
-      "fee_collection",
-      "fee_transactions",
-      "fee_reports",
-      "fee_exports",
-      "fee_discounts",
-      "fee_receipts",
-      "fees",
-    ])
-  );
+  const isSuspendedOrCancelled =
+    summary.status === "SUSPENDED" || summary.status === "CANCELLED" || summary.accessMode === "NO_ACCESS";
 
-  for (const permKey of allKnownKeys) {
-    const parentFeatureKey = getParentFeatureKey(permKey);
+  const resultModes: Record<string, FeatureAccessMode> = {};
 
-    // 1. Check if explicitly restricted by Super Admin override (for this key or its parent feature)
-    const isRestricted = overrides.some(
-      (o) =>
-        o.type === "FEATURE_RESTRICT" &&
-        (o.featureKey === permKey || o.featureKey === parentFeatureKey || o.featureKey === "all")
-    );
-    if (isRestricted) {
-      permissions[permKey] = false;
+  // Helper to check explicit configuration in plan.featureAccess
+  const getExplicitPlanMode = (rawKey: string): FeatureAccessMode | undefined => {
+    const canonical = canonicalizeCapabilityKey(rawKey);
+    if (planFeatureAccess[rawKey]) return planFeatureAccess[rawKey];
+    if (planFeatureAccess[canonical]) return planFeatureAccess[canonical];
+
+    const aliases = FEATURE_KEY_ALIASES[rawKey] || FEATURE_KEY_ALIASES[canonical] || [];
+    for (const alias of aliases) {
+      if (planFeatureAccess[alias]) return planFeatureAccess[alias];
+    }
+    return undefined;
+  };
+
+  // Helper to resolve inherited mode by traversing up the parent chain in the plan matrix
+  const resolveInheritedPlanMode = (rawKey: string): FeatureAccessMode => {
+    const canonical = canonicalizeCapabilityKey(rawKey);
+
+    // 1. Direct explicit configuration
+    const direct = getExplicitPlanMode(canonical);
+    if (direct) return direct;
+
+    // 2. Direct parent in capability hierarchy
+    let currentParentKey = getParentCapabilityKey(canonical);
+    while (currentParentKey) {
+      const parentMode = getExplicitPlanMode(currentParentKey);
+      if (parentMode) return parentMode;
+      currentParentKey = getParentCapabilityKey(currentParentKey);
+    }
+
+    // 3. Top-level module feature key
+    const topFeatureKey = getParentFeatureKey(canonical);
+    if (topFeatureKey && topFeatureKey !== canonical) {
+      const topMode = getExplicitPlanMode(topFeatureKey);
+      if (topMode) return topMode;
+    }
+
+    // 4. Fallback to legacy features array
+    const isAllowedInLegacy =
+      isFeatureAllowedInList(canonical, planFeaturesList) ||
+      isFeatureAllowedInList(topFeatureKey, planFeaturesList);
+
+    return isAllowedInLegacy ? "FULL_ACCESS" : "HIDDEN";
+  };
+
+  // Helper to find applicable school override by traversing up the capability ancestor chain
+  const findSchoolOverrideMode = (rawKey: string): FeatureAccessMode | null => {
+    const canonical = canonicalizeCapabilityKey(rawKey);
+    const aliases = FEATURE_KEY_ALIASES[rawKey] || FEATURE_KEY_ALIASES[canonical] || [];
+
+    // Helper to evaluate a single matching override record
+    const matchOverride = (targetKey: string): FeatureAccessMode | null => {
+      const matched = overrides.find(
+        (o) => o.status === "ACTIVE" && (o.featureKey === targetKey || (targetKey === "all" && o.featureKey === "all"))
+      );
+      if (!matched) return null;
+
+      if (matched.accessMode) return matched.accessMode;
+      if (matched.type === "FEATURE_GRANT") return "FULL_ACCESS";
+      if (matched.type === "FEATURE_RESTRICT") return "HIDDEN";
+      if (matched.type === "FEATURE_SHOWCASE") return "SHOWCASE";
+      if (matched.type === "TEMPORARY_ACCESS") return "FULL_ACCESS";
+      return null;
+    };
+
+    // 1. Exact match on rawKey or canonical
+    let mode = matchOverride(rawKey) || matchOverride(canonical);
+    if (mode) return mode;
+
+    // 2. Exact match on aliases
+    for (const a of aliases) {
+      mode = matchOverride(a);
+      if (mode) return mode;
+    }
+
+    // 3. Ancestor traversal up the granular capability tree
+    let parentCap = getParentCapabilityKey(canonical);
+    while (parentCap) {
+      mode = matchOverride(parentCap);
+      if (mode) return mode;
+      parentCap = getParentCapabilityKey(parentCap);
+    }
+
+    // 4. Top-level module key
+    const parentModule = getParentFeatureKey(canonical);
+    if (parentModule && parentModule !== canonical) {
+      mode = matchOverride(parentModule);
+      if (mode) return mode;
+    }
+
+    // 5. Global wildcard override
+    mode = matchOverride("all");
+    if (mode) return mode;
+
+    return null;
+  };
+
+  for (const rawKey of allKnownKeys) {
+    const canonical = canonicalizeCapabilityKey(rawKey);
+
+    // 1. Check school custom overrides first (Explicit Super Admin override takes highest priority)
+    const customOverride = findSchoolOverrideMode(canonical);
+    if (customOverride !== null) {
+      // If suspended or cancelled, even granted features are restricted
+      if (isSuspendedOrCancelled && customOverride === "FULL_ACCESS") {
+        resultModes[rawKey] = "SHOWCASE";
+      } else {
+        resultModes[rawKey] = customOverride;
+      }
       continue;
     }
 
-    // 2. Check if explicitly granted by Super Admin override (for this key or its parent feature)
-    const isGranted = overrides.some(
-      (o) =>
-        o.type === "FEATURE_GRANT" &&
-        (o.featureKey === permKey || o.featureKey === parentFeatureKey || o.featureKey === "all")
-    );
-    if (isGranted) {
-      permissions[permKey] = true;
+    // 2. Super Admin FULL_CONTROL Mode or Active Temporary Access
+    if (isFullControl && !isSuspendedOrCancelled) {
+      resultModes[rawKey] = "FULL_ACCESS";
       continue;
     }
 
-    // 3. Super Admin FULL_CONTROL Mode or Active Temporary Access
-    if (isFullControl && summary.status !== "SUSPENDED" && summary.status !== "CANCELLED") {
-      permissions[permKey] = true;
+    // 3. If suspended or cancelled, lock all features into SHOWCASE or HIDDEN
+    if (isSuspendedOrCancelled) {
+      const baseMode = resolveInheritedPlanMode(canonical);
+      resultModes[rawKey] = baseMode === "HIDDEN" ? "HIDDEN" : "SHOWCASE";
       continue;
     }
 
-    // 4. Single Source of Truth: Check if permKey or its parent feature is present in the plan's saved features in Firestore
-    const isAllowedInPlan = isFeatureAllowedInList(permKey, summary.allowedFeatures) || isFeatureAllowedInList(parentFeatureKey, summary.allowedFeatures);
+    // 4. Plan-level deterministic hierarchical resolution (PLAN_DEFAULT / LIMITED_CONTROL)
+    resultModes[rawKey] = resolveInheritedPlanMode(canonical);
+  }
 
-    // Effective resolution: Access Mode must not be NO_ACCESS, and feature must be in plan
-    permissions[permKey] = summary.accessMode !== "NO_ACCESS" && isAllowedInPlan;
+  return resultModes;
+}
+
+/**
+ * Section 3: Resolves effective feature flags for a school as a Boolean dictionary.
+ */
+export async function getPlanFeatures(schoolId: string): Promise<Record<string, boolean>> {
+  const modes = await getEffectiveFeatureAccessModes(schoolId);
+  const permissions: Record<string, boolean> = {};
+
+  for (const [key, mode] of Object.entries(modes)) {
+    permissions[key] = mode === "FULL_ACCESS";
   }
 
   return permissions;
@@ -128,12 +254,14 @@ export async function getPlanFeatures(schoolId: string): Promise<Record<string, 
  */
 function isFeatureAllowedInList(featureKey: string, allowedList: string[]): boolean {
   if (!allowedList || allowedList.length === 0) return false;
-  if (allowedList.includes(featureKey)) return true;
+  const canonical = canonicalizeCapabilityKey(featureKey);
 
-  const parentKey = getParentFeatureKey(featureKey);
+  if (allowedList.includes(featureKey) || allowedList.includes(canonical)) return true;
+
+  const parentKey = getParentFeatureKey(canonical);
   if (allowedList.includes(parentKey)) return true;
 
-  const aliases = FEATURE_KEY_ALIASES[featureKey] || [];
+  const aliases = FEATURE_KEY_ALIASES[featureKey] || FEATURE_KEY_ALIASES[canonical] || [];
   for (const a of aliases) {
     if (allowedList.includes(a)) return true;
     const aliasParent = getParentFeatureKey(a);
@@ -147,16 +275,15 @@ function isFeatureAllowedInList(featureKey: string, allowedList: string[]): bool
  * Verifies that all required parent feature dependencies are enabled.
  */
 function checkDependencies(featureKey: string, allowedList: string[]): boolean {
-  const deps = FEATURE_DEPENDENCIES[featureKey];
+  const canonical = canonicalizeCapabilityKey(featureKey);
+  const deps = FEATURE_DEPENDENCIES[canonical] || FEATURE_DEPENDENCIES[featureKey];
   if (!deps || deps.length === 0) return true;
   return deps.every((dep) => isFeatureAllowedInList(dep, allowedList));
 }
 
-import { getAllPlans } from "./plans";
-
 /**
  * Section 28: Dynamic Required Plan Resolution Engine.
- * Dynamically determines the lowest pricing plan that contains the target feature.
+ * Dynamically scans active plans to find the lowest pricing plan that gives FULL_ACCESS to the target capability.
  * If currentPlanSlug is provided, only searches plans higher than currentPlan.
  */
 export async function getRequiredPlanForFeature(
@@ -169,53 +296,105 @@ export async function getRequiredPlanForFeature(
       return { planName: "Higher Plan Required", planSlug: "professional", isCustomAccess: false };
     }
 
-    // Sort plans by display order ascending (lowest to highest)
-    const sortedPlans = [...plans].sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+    const canonical = canonicalizeCapabilityKey(featureKey);
+    const parentModuleKey = getParentFeatureKey(canonical);
+    const parentCapKey = getParentCapabilityKey(canonical);
 
-    let currentOrder = 0;
+    // Filter only active, non-archived plans and sort by display order ascending
+    const activePlans = plans
+      .filter((p) => p.status === "ACTIVE" && !p.isArchived)
+      .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+
+    let currentOrder = -1;
     if (currentPlanSlug) {
-      const currentPlan = sortedPlans.find((p) => p.slug === currentPlanSlug.replace("plan_", ""));
+      const cleanSlug = currentPlanSlug.replace("plan_", "").trim().toLowerCase();
+      const currentPlan = activePlans.find(
+        (p) => p.slug?.toLowerCase() === cleanSlug || p.id?.toLowerCase() === currentPlanSlug.toLowerCase()
+      );
       if (currentPlan) {
         currentOrder = currentPlan.displayOrder || 0;
       }
     }
 
-    // 1. Search for HIGHER plans that contain the feature
-    for (const plan of sortedPlans) {
-      if ((plan.displayOrder || 0) > currentOrder && Array.isArray(plan.features) && isFeatureAllowedInList(featureKey, plan.features)) {
-        return { planName: plan.name, planSlug: plan.slug, isCustomAccess: false };
-      }
-    }
+    const checkPlanGivesFullAccess = (plan: typeof plans[0]): boolean => {
+      if (plan.featureAccess) {
+        // Direct key or canonical check
+        if (plan.featureAccess[featureKey] === "FULL_ACCESS") return true;
+        if (plan.featureAccess[canonical] === "FULL_ACCESS") return true;
 
-    // 2. Search all plans if current order is 0
-    if (currentOrder === 0) {
-      for (const plan of sortedPlans) {
-        if (Array.isArray(plan.features) && isFeatureAllowedInList(featureKey, plan.features)) {
+        // If explicitly set to HIDDEN or SHOWCASE, do not elevate
+        if (plan.featureAccess[featureKey] === "HIDDEN" || plan.featureAccess[featureKey] === "SHOWCASE") return false;
+        if (plan.featureAccess[canonical] === "HIDDEN" || plan.featureAccess[canonical] === "SHOWCASE") return false;
+
+        // Parent capability check
+        if (parentCapKey && plan.featureAccess[parentCapKey] === "FULL_ACCESS") return true;
+
+        // Parent module key check
+        if (parentModuleKey && plan.featureAccess[parentModuleKey] === "FULL_ACCESS") return true;
+
+        // Alias check
+        const aliases = FEATURE_KEY_ALIASES[featureKey] || FEATURE_KEY_ALIASES[canonical] || [];
+        for (const alias of aliases) {
+          if (plan.featureAccess[alias] === "FULL_ACCESS") return true;
+        }
+      }
+
+      if (Array.isArray(plan.features) && isFeatureAllowedInList(canonical, plan.features)) {
+        return true;
+      }
+
+      return false;
+    };
+
+    // 1. Search for plans strictly HIGHER than currentPlan if currentOrder is set
+    if (currentOrder >= 0) {
+      for (const plan of activePlans) {
+        if ((plan.displayOrder || 0) > currentOrder && checkPlanGivesFullAccess(plan)) {
           return { planName: plan.name, planSlug: plan.slug, isCustomAccess: false };
         }
       }
     }
 
-    return { planName: "Custom Access Required", planSlug: "custom", isCustomAccess: true };
+    // 2. Search all active plans from lowest to highest
+    for (const plan of activePlans) {
+      if (checkPlanGivesFullAccess(plan)) {
+        return { planName: plan.name, planSlug: plan.slug, isCustomAccess: false };
+      }
+    }
+
+    return { planName: "Upgrade / Contact Administrator", planSlug: "custom", isCustomAccess: true };
   } catch (err) {
     return { planName: "Higher Plan Required", planSlug: "professional", isCustomAccess: false };
   }
 }
 
 /**
- * Section 4: Individual Feature Check.
- * Authoritatively verifies whether a school can access a specific feature.
+ * Section 4: Individual Feature & Capability Check.
+ * Authoritatively verifies whether a school can access a specific feature or granular action.
  */
 export async function canAccessFeature(
   schoolId: string,
   featureKey: string
 ): Promise<FeatureCheckResult> {
+  if (!featureKey || !featureKey.trim()) {
+    return {
+      allowed: false,
+      code: "INVALID_CAPABILITY",
+      reason: "INVALID_CAPABILITY",
+      feature: featureKey,
+      message: "No capability key provided.",
+      accessMode: "NO_ACCESS",
+    };
+  }
+
+  const canonical = canonicalizeCapabilityKey(featureKey);
+
   if (!schoolId || schoolId === "school_default" || schoolId === "system") {
     return {
       allowed: true,
       code: "ALLOWED",
       reason: "ALLOWED",
-      feature: featureKey,
+      feature: canonical,
       message: "Default access granted.",
       accessMode: "FULL_ACCESS",
     };
@@ -224,19 +403,22 @@ export async function canAccessFeature(
   try {
     // 0. HIGHEST PRIORITY EVALUATION: Global & School Emergency Kill Switches
     const { resolveEmergencyAccess } = await import("@/lib/emergency/emergencyResolver");
-    const emergencyRes = await resolveEmergencyAccess({ schoolId, featureKey });
+    const emergencyRes = await resolveEmergencyAccess({ schoolId, featureKey: canonical });
     if (!emergencyRes.allowed) {
       return {
         allowed: false,
         code: emergencyRes.code || "EMERGENCY_RESTRICTED",
         reason: emergencyRes.reason || "EMERGENCY_RESTRICTED",
-        feature: featureKey,
+        feature: canonical,
         message: emergencyRes.message,
         accessMode: "NO_ACCESS",
       };
     }
 
-    const summary = await getSchoolAccess(schoolId);
+    const [summary, effectiveModes] = await Promise.all([
+      getSchoolAccess(schoolId),
+      getEffectiveFeatureAccessModes(schoolId),
+    ]);
 
     // 1. Check if subscription is SUSPENDED or CANCELLED
     if (summary.status === "SUSPENDED" || summary.status === "CANCELLED") {
@@ -244,7 +426,7 @@ export async function canAccessFeature(
         allowed: false,
         code: "SUBSCRIPTION_SUSPENDED",
         reason: "SUBSCRIPTION_SUSPENDED",
-        feature: featureKey,
+        feature: canonical,
         message: "Your platform access is currently suspended or cancelled. Please contact support.",
         accessMode: summary.accessMode,
       };
@@ -256,63 +438,62 @@ export async function canAccessFeature(
         allowed: false,
         code: "SUBSCRIPTION_EXPIRED",
         reason: "SUBSCRIPTION_EXPIRED",
-        feature: featureKey,
+        feature: canonical,
         message: "Your subscription has expired and access has been restricted. Please recharge to continue.",
         accessMode: summary.accessMode,
       };
     }
 
-    // 3. Check if feature is included in the base plan or FULL_CONTROL mode
-    const isFullControl = summary.controlMode === "FULL_CONTROL";
-    const isIncludedInPlan = isFullControl || isFeatureAllowedInList(featureKey, summary.allowedFeatures);
-    if (!isIncludedInPlan) {
-      const requiredPlan = await getRequiredPlanForFeature(featureKey, summary.planId);
+    // 3. Check 3-way access mode (check canonical, raw, or default to HIDDEN)
+    const featureMode = effectiveModes[canonical] || effectiveModes[featureKey] || "HIDDEN";
+
+    if (featureMode === "SHOWCASE") {
+      const requiredPlan = await getRequiredPlanForFeature(canonical, summary.planId);
+      return {
+        allowed: false,
+        code: "FEATURE_SHOWCASE",
+        reason: "FEATURE_SHOWCASE",
+        feature: canonical,
+        message: `Capability "${featureKey}" is in showcase mode. Upgrade to ${requiredPlan.planName} to unlock full access.`,
+        accessMode: summary.accessMode,
+      };
+    }
+
+    if (featureMode === "HIDDEN") {
+      const requiredPlan = await getRequiredPlanForFeature(canonical, summary.planId);
       return {
         allowed: false,
         code: "FEATURE_NOT_INCLUDED",
         reason: "FEATURE_NOT_INCLUDED",
-        feature: featureKey,
-        message: `Feature "${featureKey}" is not included in your current plan (${summary.planId}). Upgrade to ${requiredPlan.planName} to unlock it.`,
+        feature: canonical,
+        message: `Capability "${featureKey}" is not included in your current plan (${summary.planId}). Upgrade to ${requiredPlan.planName} to unlock it.`,
         accessMode: summary.accessMode,
       };
     }
 
     // 4. Verify feature dependencies
-    const dependenciesMet = checkDependencies(featureKey, summary.allowedFeatures);
+    const isFullControl = summary.controlMode === "FULL_CONTROL";
+    const dependenciesMet = checkDependencies(canonical, summary.allowedFeatures);
     if (!dependenciesMet && !isFullControl) {
       return {
         allowed: false,
         code: "FEATURE_DEPENDENCY_MISSING",
         reason: "FEATURE_NOT_INCLUDED",
-        feature: featureKey,
-        message: `Feature "${featureKey}" requires prerequisite features not available on your plan.`,
+        feature: canonical,
+        message: `Capability "${featureKey}" requires prerequisite features not available on your plan.`,
         accessMode: summary.accessMode,
       };
     }
 
-    // 5. Expiry Policy Enforcement: Check if feature is allowed during GRACE_ACCESS
-    if (summary.accessMode === "GRACE_ACCESS") {
-      if (!isIncludedInPlan) {
+    // 5. Expiry Policy Enforcement: Check if feature is allowed during GRACE_ACCESS or RESTRICTED_ACCESS
+    if (summary.accessMode === "GRACE_ACCESS" || summary.accessMode === "RESTRICTED_ACCESS") {
+      if (featureMode !== "FULL_ACCESS") {
         return {
           allowed: false,
           code: "SUBSCRIPTION_RESTRICTED",
           reason: "SUBSCRIPTION_RESTRICTED",
-          feature: featureKey,
-          message: "Your subscription is operating in grace period with limited feature access.",
-          accessMode: summary.accessMode,
-        };
-      }
-    }
-
-    // 6. Expiry Policy Enforcement: Check if feature is allowed during RESTRICTED_ACCESS
-    if (summary.accessMode === "RESTRICTED_ACCESS") {
-      if (!isIncludedInPlan) {
-        return {
-          allowed: false,
-          code: "SUBSCRIPTION_RESTRICTED",
-          reason: "SUBSCRIPTION_RESTRICTED",
-          feature: featureKey,
-          message: "Your subscription has expired and is in restricted mode.",
+          feature: canonical,
+          message: "Your subscription is operating in restricted/grace mode.",
           accessMode: summary.accessMode,
         };
       }
@@ -322,7 +503,7 @@ export async function canAccessFeature(
       allowed: true,
       code: "ALLOWED",
       reason: "ALLOWED",
-      feature: featureKey,
+      feature: canonical,
       message: "Access granted.",
       accessMode: summary.accessMode,
     };
@@ -332,7 +513,7 @@ export async function canAccessFeature(
       allowed: false,
       code: "AUTHORIZATION_ERROR",
       reason: "PLAN_INACTIVE",
-      feature: featureKey,
+      feature: canonical,
       message: "Unable to verify your plan access. Please try again.",
       accessMode: "NO_ACCESS",
     };
@@ -356,4 +537,32 @@ export async function requireFeatureAccess(
     throw error;
   }
   return result;
+}
+
+/**
+ * Granular capability access alias for requireFeatureAccess.
+ */
+export const requireCapabilityAccess = requireFeatureAccess;
+
+
+/**
+ * Section 6: Semantic Action-Level Permission Check.
+ * Verifies whether a school has permission to perform a specific action, tab view, or data export.
+ */
+export async function canPerformAction(
+  schoolId: string,
+  actionKey: string
+): Promise<FeatureCheckResult> {
+  return canAccessFeature(schoolId, actionKey);
+}
+
+/**
+ * Section 7: Semantic Action-Level Enforcement Guard.
+ * Throws 403-equivalent structured Error if action is not permitted.
+ */
+export async function enforceActionAccess(
+  schoolId: string,
+  actionKey: string
+): Promise<FeatureCheckResult> {
+  return requireFeatureAccess(schoolId, actionKey);
 }

@@ -11,9 +11,185 @@ import {
   where,
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
-import type { Plan, PlanVersion, FeatureDefinition, PlanLimits, PlanStatus, BillingCycle } from "@/types";
+import type { Plan, PlanVersion, FeatureDefinition, PlanLimits, PlanStatus, BillingCycle, FeatureAccessMode } from "@/types";
 import { getGlobalAccessPolicy } from "./accessPolicy";
 import { createBillingAuditLog } from "./audit";
+
+
+export const DEFAULT_STATIC_PLANS: Plan[] = [
+  {
+    id: "plan_starter",
+    name: "Starter Plan",
+    slug: "starter",
+    description: "Core modules for small schools and new academies.",
+    status: "ACTIVE",
+    displayOrder: 1,
+    isPopular: false,
+    publicVisible: true,
+    version: 1,
+    features: [
+      "student_management",
+      "teacher_management",
+      "class_management",
+      "basic_attendance",
+      "school_dashboard",
+    ],
+    limits: {
+      maxStudents: 500,
+      maxTeachers: 20,
+      maxClasses: 15,
+      maxStaffAccounts: 2,
+    },
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  },
+  {
+    id: "plan_professional",
+    name: "Professional Plan",
+    slug: "professional",
+    description: "Advanced controls & analytics for growing institutions.",
+    status: "ACTIVE",
+    displayOrder: 2,
+    isPopular: true,
+    publicVisible: true,
+    version: 1,
+    features: [
+      "student_management",
+      "teacher_management",
+      "class_management",
+      "basic_attendance",
+      "attendance_automation",
+      "school_dashboard",
+      "notices_announcements",
+      "advanced_reports",
+      "fee_management",
+    ],
+    limits: {
+      maxStudents: 2000,
+      maxTeachers: 100,
+      maxClasses: 60,
+      maxStaffAccounts: 10,
+    },
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  },
+  {
+    id: "plan_enterprise",
+    name: "Enterprise Plan",
+    slug: "enterprise",
+    description: "Custom limits and dedicated support for large networks.",
+    status: "ACTIVE",
+    displayOrder: 3,
+    isPopular: false,
+    publicVisible: true,
+    version: 1,
+    features: [
+      "student_management",
+      "teacher_management",
+      "class_management",
+      "basic_attendance",
+      "attendance_automation",
+      "school_dashboard",
+      "notices_announcements",
+      "advanced_reports",
+      "fee_management",
+    ],
+    limits: {
+      maxStudents: -1,
+      maxTeachers: -1,
+      maxClasses: -1,
+      maxStaffAccounts: -1,
+    },
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  },
+];
+
+export const DEFAULT_STATIC_PLAN_VERSIONS: Record<string, PlanVersion> = {
+  plan_starter: {
+    id: "plan_starter_v1",
+    planId: "plan_starter",
+    version: 1,
+    monthlyPrice: 99900,
+    annualPrice: 79900,
+    currency: "INR",
+    features: [
+      "student_management",
+      "teacher_management",
+      "class_management",
+      "basic_attendance",
+      "school_dashboard",
+    ],
+    limits: {
+      maxStudents: 500,
+      maxTeachers: 20,
+      maxClasses: 15,
+      maxStaffAccounts: 2,
+    },
+    effectiveFrom: "2026-01-01T00:00:00.000Z",
+    effectiveUntil: null,
+    status: "ACTIVE",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+  plan_professional: {
+    id: "plan_professional_v1",
+    planId: "plan_professional",
+    version: 1,
+    monthlyPrice: 199900,
+    annualPrice: 159900,
+    currency: "INR",
+    features: [
+      "student_management",
+      "teacher_management",
+      "class_management",
+      "basic_attendance",
+      "attendance_automation",
+      "school_dashboard",
+      "notices_announcements",
+      "advanced_reports",
+      "fee_management",
+    ],
+    limits: {
+      maxStudents: 2000,
+      maxTeachers: 100,
+      maxClasses: 60,
+      maxStaffAccounts: 10,
+    },
+    effectiveFrom: "2026-01-01T00:00:00.000Z",
+    effectiveUntil: null,
+    status: "ACTIVE",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+  plan_enterprise: {
+    id: "plan_enterprise_v1",
+    planId: "plan_enterprise",
+    version: 1,
+    monthlyPrice: 499900,
+    annualPrice: 399900,
+    currency: "INR",
+    features: [
+      "student_management",
+      "teacher_management",
+      "class_management",
+      "basic_attendance",
+      "attendance_automation",
+      "school_dashboard",
+      "notices_announcements",
+      "advanced_reports",
+      "fee_management",
+    ],
+    limits: {
+      maxStudents: -1,
+      maxTeachers: -1,
+      maxClasses: -1,
+      maxStaffAccounts: -1,
+    },
+    effectiveFrom: "2026-01-01T00:00:00.000Z",
+    effectiveUntil: null,
+    status: "ACTIVE",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+};
 
 export const BILLING_COLLECTIONS = {
   PLANS: "plans",
@@ -45,9 +221,11 @@ export interface CreatePlanInput {
   annualPricePaise: number;
   currency?: string;
   isPopular?: boolean;
+  publicVisible?: boolean;
   displayOrder?: number;
   status?: PlanStatus;
-  features: string[];
+  features?: string[];
+  featureAccess?: Record<string, FeatureAccessMode>;
   limits: PlanLimits;
 }
 
@@ -56,11 +234,15 @@ export interface UpdatePlanInput {
   description?: string;
   displayOrder?: number;
   isPopular?: boolean;
+  publicVisible?: boolean;
+  isArchived?: boolean;
   status?: PlanStatus;
   monthlyPricePaise?: number;
   annualPricePaise?: number;
   features?: string[];
+  featureAccess?: Record<string, FeatureAccessMode>;
   limits?: PlanLimits;
+  changeNotes?: string;
 }
 
 /**
@@ -89,15 +271,43 @@ async function enforceSinglePopularPlan(targetPlanId?: string, actorId: string =
 /**
  * Server-side Limit & Feature Key Validation.
  */
-function validatePlanLimitsAndFeatures(limits: PlanLimits, features: string[]): { cleanLimits: PlanLimits; cleanFeatures: string[] } {
+function validatePlanLimitsAndFeatures(
+  limits: PlanLimits,
+  features?: string[],
+  featureAccess?: Record<string, FeatureAccessMode>
+): { cleanLimits: PlanLimits; cleanFeatures: string[]; cleanFeatureAccess: Record<string, FeatureAccessMode> } {
   for (const [key, val] of Object.entries(limits)) {
     if (typeof val !== "number" || isNaN(val) || val < -1) {
       throw new Error(`Invalid capacity limit for "${key}". Limits must be a non-negative integer or -1 for Unlimited.`);
     }
   }
 
-  const cleanFeatures = Array.from(new Set(features.map((f) => f.trim()).filter(Boolean)));
-  return { cleanLimits: limits, cleanFeatures };
+  const cleanFeatureAccess: Record<string, FeatureAccessMode> = {};
+  if (featureAccess && typeof featureAccess === "object") {
+    for (const [fKey, mode] of Object.entries(featureAccess)) {
+      if (typeof fKey === "string" && fKey.trim()) {
+        const validMode: FeatureAccessMode =
+          mode === "FULL_ACCESS" || mode === "SHOWCASE" || mode === "HIDDEN" ? mode : "FULL_ACCESS";
+        cleanFeatureAccess[fKey.trim()] = validMode;
+      }
+    }
+  }
+
+  // Derive or sanitize cleanFeatures
+  let cleanFeatures: string[] = [];
+  if (features && Array.isArray(features)) {
+    cleanFeatures = Array.from(new Set(features.map((f) => f.trim()).filter(Boolean)));
+    // If featureAccess is not set for a feature in cleanFeatures, default it to FULL_ACCESS
+    for (const f of cleanFeatures) {
+      if (!cleanFeatureAccess[f]) {
+        cleanFeatureAccess[f] = "FULL_ACCESS";
+      }
+    }
+  } else {
+    cleanFeatures = Object.keys(cleanFeatureAccess).filter((k) => cleanFeatureAccess[k] === "FULL_ACCESS");
+  }
+
+  return { cleanLimits: limits, cleanFeatures, cleanFeatureAccess };
 }
 
 /**
@@ -117,6 +327,8 @@ export async function initializeDefaultBillingCatalog(): Promise<void> {
         status: "ACTIVE",
         displayOrder: 1,
         isPopular: false,
+        publicVisible: true,
+        version: 1,
         features: [
           "student_management",
           "teacher_management",
@@ -141,6 +353,8 @@ export async function initializeDefaultBillingCatalog(): Promise<void> {
         status: "ACTIVE",
         displayOrder: 2,
         isPopular: true,
+        publicVisible: true,
+        version: 1,
         features: [
           "student_management",
           "teacher_management",
@@ -169,6 +383,8 @@ export async function initializeDefaultBillingCatalog(): Promise<void> {
         status: "ACTIVE",
         displayOrder: 3,
         isPopular: false,
+        publicVisible: true,
+        version: 1,
         features: [
           "student_management",
           "teacher_management",
@@ -231,16 +447,19 @@ export async function initializeDefaultBillingCatalog(): Promise<void> {
       } else {
         // Synchronize default features if existing uncustomized default doc is missing class_management
         const existingData = planSnap.data() as Plan;
+        const updates: Partial<Plan> = {};
+        if (existingData.publicVisible === undefined) {
+          updates.publicVisible = true;
+        }
+        if (existingData.version === undefined) {
+          updates.version = 1;
+        }
         if (p.slug === "professional" && existingData.features && !existingData.features.includes("class_management")) {
-          const updatedFeatures = Array.from(new Set([...existingData.features, "class_management", "basic_attendance", "fee_management"]));
-          await updateDoc(planRef, { features: updatedFeatures, updatedAt: new Date().toISOString() });
-          
-          const versionId = `${p.id}_v1`;
-          const versionRef = doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, versionId);
-          const verSnap = await getDoc(versionRef);
-          if (verSnap.exists()) {
-            await updateDoc(versionRef, { features: updatedFeatures });
-          }
+          updates.features = Array.from(new Set([...existingData.features, "class_management", "basic_attendance", "fee_management"]));
+        }
+        if (Object.keys(updates).length > 0) {
+          updates.updatedAt = new Date().toISOString();
+          await updateDoc(planRef, updates);
         }
       }
     }
@@ -251,12 +470,17 @@ export async function initializeDefaultBillingCatalog(): Promise<void> {
 
 export async function getActivePlan(planId: string): Promise<Plan | null> {
   const db = getFirebaseDb();
-  if (!db) return null;
-
-  const planSnap = await getDoc(doc(db, BILLING_COLLECTIONS.PLANS, planId));
-  if (!planSnap.exists()) return null;
-  const plan = { id: planSnap.id, ...planSnap.data() } as Plan;
-  return plan.status === "ACTIVE" ? plan : null;
+  if (db) {
+    try {
+      const planSnap = await getDoc(doc(db, BILLING_COLLECTIONS.PLANS, planId));
+      if (planSnap.exists()) {
+        const plan = { id: planSnap.id, ...planSnap.data() } as Plan;
+        if (plan.status === "ACTIVE" && !plan.isArchived) return plan;
+      }
+    } catch (err) {}
+  }
+  const fallback = DEFAULT_STATIC_PLANS.find((p) => p.id === planId || p.slug === planId);
+  return fallback || null;
 }
 
 export async function getPlanVersion(planId: string, version: number): Promise<PlanVersion | null> {
@@ -290,20 +514,22 @@ export async function calculatePlanPrice(
 
 export async function getAllPlans(): Promise<Plan[]> {
   const db = getFirebaseDb();
-  if (!db) return [];
-
-  await initializeDefaultBillingCatalog();
-
-  try {
-    const snap = await getDocs(collection(db, BILLING_COLLECTIONS.PLANS));
-    const allPlans = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Plan[];
-    return allPlans
-      .filter((p) => p.status === "ACTIVE")
-      .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
-  } catch (err) {
-    console.warn("getAllPlans error:", err);
-    return [];
+  if (db) {
+    await initializeDefaultBillingCatalog();
+    try {
+      const snap = await getDocs(collection(db, BILLING_COLLECTIONS.PLANS));
+      if (!snap.empty) {
+        const allPlans = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Plan[];
+        const filtered = allPlans
+          .filter((p) => p.status === "ACTIVE" && p.publicVisible !== false && !p.isArchived)
+          .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+        if (filtered.length > 0) return filtered;
+      }
+    } catch (err) {
+      console.warn("getAllPlans error:", err);
+    }
   }
+  return [...DEFAULT_STATIC_PLANS].sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
 }
 
 export async function getAllPlansAdmin(): Promise<Plan[]> {
@@ -324,24 +550,27 @@ export async function getAllPlansAdmin(): Promise<Plan[]> {
 
 export async function getActivePlanVersion(planId: string): Promise<PlanVersion | null> {
   const db = getFirebaseDb();
-  if (!db) return null;
+  if (db) {
+    try {
+      const snap = await getDocs(
+        query(collection(db, BILLING_COLLECTIONS.PLAN_VERSIONS), where("planId", "==", planId))
+      );
 
-  try {
-    const snap = await getDocs(
-      query(collection(db, BILLING_COLLECTIONS.PLAN_VERSIONS), where("planId", "==", planId))
-    );
-
-    if (snap.empty) return null;
-
-    const versions = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as PlanVersion[];
-    const activeVersions = versions.filter((v) => v.status === "ACTIVE");
-
-    if (activeVersions.length === 0) return null;
-    return activeVersions.sort((a, b) => b.version - a.version)[0];
-  } catch (err) {
-    console.warn("getActivePlanVersion error:", err);
-    return null;
+      if (!snap.empty) {
+        const versions = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as PlanVersion[];
+        const activeVersions = versions.filter((v) => v.status === "ACTIVE");
+        if (activeVersions.length > 0) {
+          return activeVersions.sort((a, b) => b.version - a.version)[0];
+        }
+      }
+    } catch (err) {
+      console.warn("getActivePlanVersion error:", err);
+    }
   }
+
+  const normalizedKey = planId.startsWith("plan_") ? planId : `plan_${planId}`;
+  const fallback = DEFAULT_STATIC_PLAN_VERSIONS[normalizedKey] || DEFAULT_STATIC_PLAN_VERSIONS[planId];
+  return fallback || null;
 }
 
 export async function getPlanVersions(planId: string): Promise<PlanVersion[]> {
@@ -369,7 +598,11 @@ export async function createPlan(input: CreatePlanInput, actorId: string = "supe
     throw new Error("Plan price cannot be negative.");
   }
 
-  const { cleanLimits, cleanFeatures } = validatePlanLimitsAndFeatures(input.limits, input.features);
+  const { cleanLimits, cleanFeatures, cleanFeatureAccess } = validatePlanLimitsAndFeatures(
+    input.limits,
+    input.features,
+    input.featureAccess
+  );
 
   const existingQuery = query(collection(db, BILLING_COLLECTIONS.PLANS), where("slug", "==", input.slug.trim().toLowerCase()));
   const existingSnap = await getDocs(existingQuery);
@@ -392,7 +625,11 @@ export async function createPlan(input: CreatePlanInput, actorId: string = "supe
     status: input.status || "ACTIVE",
     displayOrder: input.displayOrder || 1,
     isPopular: input.isPopular || false,
+    publicVisible: input.publicVisible ?? true,
+    version: 1,
+    isArchived: false,
     features: cleanFeatures,
+    featureAccess: cleanFeatureAccess,
     limits: cleanLimits,
     createdAt: nowIso,
     updatedAt: nowIso,
@@ -409,6 +646,7 @@ export async function createPlan(input: CreatePlanInput, actorId: string = "supe
     annualPrice: input.annualPricePaise,
     currency: input.currency || "INR",
     features: cleanFeatures,
+    featureAccess: cleanFeatureAccess,
     limits: cleanLimits,
     effectiveFrom: nowIso,
     effectiveUntil: null,
@@ -422,6 +660,7 @@ export async function createPlan(input: CreatePlanInput, actorId: string = "supe
     planName: plan.name,
     version: 1,
     monthlyPrice: input.monthlyPricePaise,
+    publicVisible: plan.publicVisible,
   });
 
   return plan;
@@ -453,22 +692,30 @@ export async function updatePlan(
     await enforceSinglePopularPlan(planId, actorId);
   }
 
+  const isFeatureAccessChange =
+    input.featureAccess !== undefined &&
+    JSON.stringify(input.featureAccess) !== JSON.stringify(currentVersion.featureAccess || currentPlan.featureAccess || {});
+
   const isPriceOrFeatureChange =
     (input.monthlyPricePaise !== undefined && input.monthlyPricePaise !== currentVersion.monthlyPrice) ||
     (input.annualPricePaise !== undefined && input.annualPricePaise !== currentVersion.annualPrice) ||
     (input.features !== undefined && JSON.stringify(input.features) !== JSON.stringify(currentVersion.features)) ||
-    (input.limits !== undefined && JSON.stringify(input.limits) !== JSON.stringify(currentVersion.limits));
+    (input.limits !== undefined && JSON.stringify(input.limits) !== JSON.stringify(currentVersion.limits)) ||
+    isFeatureAccessChange;
 
   let cleanLimits = currentPlan.limits;
   let cleanFeatures = currentPlan.features;
+  let cleanFeatureAccess = currentPlan.featureAccess || currentVersion.featureAccess || {};
 
-  if (input.limits || input.features) {
+  if (input.limits || input.features || input.featureAccess) {
     const validated = validatePlanLimitsAndFeatures(
       input.limits || currentPlan.limits,
-      input.features || currentPlan.features
+      input.features || currentPlan.features,
+      input.featureAccess || currentPlan.featureAccess || currentVersion.featureAccess
     );
     cleanLimits = validated.cleanLimits;
     cleanFeatures = validated.cleanFeatures;
+    cleanFeatureAccess = validated.cleanFeatureAccess;
   }
 
   const nowIso = new Date().toISOString();
@@ -478,23 +725,23 @@ export async function updatePlan(
     description: input.description !== undefined ? input.description.trim() : currentPlan.description,
     displayOrder: input.displayOrder !== undefined ? input.displayOrder : currentPlan.displayOrder,
     isPopular: input.isPopular !== undefined ? input.isPopular : currentPlan.isPopular,
+    publicVisible: input.publicVisible !== undefined ? input.publicVisible : currentPlan.publicVisible,
+    isArchived: input.isArchived !== undefined ? input.isArchived : currentPlan.isArchived,
     status: input.status !== undefined ? input.status : currentPlan.status,
     features: cleanFeatures,
+    featureAccess: cleanFeatureAccess,
     limits: cleanLimits,
     updatedAt: nowIso,
   };
 
-  await updateDoc(planRef, updatedPlanData);
-  const updatedPlan = { ...currentPlan, ...updatedPlanData };
-
   let newVersionCreated = false;
 
   if (isPriceOrFeatureChange) {
-    const nextVersionNum = currentVersion.version + 1;
+    const nextVersionNum = (currentVersion.version || 1) + 1;
     const newVersionId = `${planId}_v${nextVersionNum}`;
 
     await updateDoc(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, currentVersion.id), {
-      status: "DEPRECATED",
+      status: "ARCHIVED",
       effectiveUntil: nowIso,
     });
 
@@ -506,14 +753,17 @@ export async function updatePlan(
       annualPrice: input.annualPricePaise !== undefined ? input.annualPricePaise : currentVersion.annualPrice,
       currency: "INR",
       features: cleanFeatures,
+      featureAccess: cleanFeatureAccess,
       limits: cleanLimits,
       effectiveFrom: nowIso,
       effectiveUntil: null,
       status: "ACTIVE",
+      changeNotes: input.changeNotes || `Updated to version ${nextVersionNum}`,
       createdAt: nowIso,
     };
 
     await setDoc(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, newVersionId), newPlanVersion);
+    updatedPlanData.version = nextVersionNum;
     newVersionCreated = true;
 
     await createBillingAuditLog(actorId, "super_admin", "PLAN_VERSION_CREATED", "planVersion", newVersionId, {
@@ -521,15 +771,54 @@ export async function updatePlan(
       oldVersion: currentVersion.version,
       newVersion: nextVersionNum,
       monthlyPrice: newPlanVersion.monthlyPrice,
+      annualPrice: newPlanVersion.annualPrice,
     });
+
+    if (isFeatureAccessChange) {
+      await createBillingAuditLog(actorId, "super_admin", "PLAN_FEATURE_ACCESS_CHANGED", "plan", planId, {
+        planId,
+        version: nextVersionNum,
+        featureAccess: cleanFeatureAccess,
+      });
+    }
   }
+
+  await updateDoc(planRef, updatedPlanData);
+  const updatedPlan = { ...currentPlan, ...updatedPlanData };
 
   await createBillingAuditLog(actorId, "super_admin", "PLAN_UPDATED", "plan", planId, {
     planName: updatedPlan.name,
     newVersionCreated,
+    publicVisible: updatedPlan.publicVisible,
   });
 
   return { plan: updatedPlan, newVersionCreated };
+}
+
+export async function archivePlan(planId: string, actorId: string = "super_admin"): Promise<Plan> {
+  const db = getFirebaseDb();
+  if (!db) throw new Error("Database unavailable.");
+
+  const planRef = doc(db, BILLING_COLLECTIONS.PLANS, planId);
+  const planSnap = await getDoc(planRef);
+  if (!planSnap.exists()) throw new Error(`Plan "${planId}" not found.`);
+
+  const nowIso = new Date().toISOString();
+  const updateData = {
+    status: "ARCHIVED" as PlanStatus,
+    isArchived: true,
+    publicVisible: false,
+    updatedAt: nowIso,
+  };
+
+  await updateDoc(planRef, updateData);
+
+  await createBillingAuditLog(actorId, "super_admin", "PLAN_ARCHIVED", "plan", planId, {
+    planId,
+    archivedAt: nowIso,
+  });
+
+  return { id: planSnap.id, ...planSnap.data(), ...updateData } as Plan;
 }
 
 export async function togglePlanStatus(
@@ -574,7 +863,8 @@ export async function duplicatePlan(
       annualPricePaise: sourceVersion?.annualPrice || 0,
       currency: sourceVersion?.currency || "INR",
       isPopular: false,
-      displayOrder: sourcePlan.displayOrder + 1,
+      publicVisible: false,
+      displayOrder: (sourcePlan.displayOrder || 1) + 1,
       status: "INACTIVE",
       features: sourcePlan.features,
       limits: sourcePlan.limits,
@@ -609,10 +899,13 @@ export async function getAllFeatureDefinitions(): Promise<FeatureDefinition[]> {
 }
 
 /**
- * Safely deletes a pricing plan if no active schools are subscribed to it.
- * Preserves historical invoices and orders.
+ * Safely deletes a pricing plan if no active schools or historical records reference it.
+ * If referenced, safely archives the plan to protect subscriber and financial data integrity.
  */
-export async function deletePlan(planId: string, actorId: string = "super_admin"): Promise<{ success: boolean; message: string }> {
+export async function deletePlan(
+  planId: string,
+  actorId: string = "super_admin"
+): Promise<{ success: boolean; archived?: boolean; message: string }> {
   let adminDb: any = null;
   if (typeof window === "undefined") {
     try {
@@ -622,47 +915,81 @@ export async function deletePlan(planId: string, actorId: string = "super_admin"
   }
 
   let activeSubscriptionsCount = 0;
+  let totalSubscriptionsCount = 0;
+  let invoicesCount = 0;
 
   if (adminDb) {
     try {
-      const subSnap = await adminDb
+      const activeSnap = await adminDb
         .collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS)
         .where("planId", "==", planId)
-        .where("status", "in", ["ACTIVE", "TRIAL", "GRACE_PERIOD"])
+        .where("status", "in", ["ACTIVE", "TRIAL", "GRACE_PERIOD", "PENDING"])
         .get();
-      activeSubscriptionsCount = subSnap.docs.length;
+      activeSubscriptionsCount = activeSnap.docs.length;
+
+      const allSubSnap = await adminDb
+        .collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS)
+        .where("planId", "==", planId)
+        .get();
+      totalSubscriptionsCount = allSubSnap.docs.length;
+
+      const invoiceSnap = await adminDb
+        .collection(BILLING_COLLECTIONS.INVOICES)
+        .where("planId", "==", planId)
+        .get();
+      invoicesCount = invoiceSnap.docs.length;
     } catch (e) {}
   } else {
     const db = getFirebaseDb();
     if (db) {
       try {
-        const q = query(
+        const qActive = query(
           collection(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS),
           where("planId", "==", planId),
-          where("status", "in", ["ACTIVE", "TRIAL", "GRACE_PERIOD"])
+          where("status", "in", ["ACTIVE", "TRIAL", "GRACE_PERIOD", "PENDING"])
         );
-        const subSnap = await getDocs(q);
-        activeSubscriptionsCount = subSnap.docs.length;
+        const activeSnap = await getDocs(qActive);
+        activeSubscriptionsCount = activeSnap.docs.length;
+
+        const qAll = query(
+          collection(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS),
+          where("planId", "==", planId)
+        );
+        const allSnap = await getDocs(qAll);
+        totalSubscriptionsCount = allSnap.docs.length;
       } catch (e) {}
     }
   }
 
-  if (activeSubscriptionsCount > 0) {
-    throw new Error(
-      `Cannot delete plan "${planId}" because ${activeSubscriptionsCount} active school(s) are currently subscribed to it. Please migrate existing subscribers first.`
-    );
+  // If referenced by any active/past subscription or invoice, ARCHIVE instead of hard deleting
+  if (activeSubscriptionsCount > 0 || totalSubscriptionsCount > 0 || invoicesCount > 0) {
+    await archivePlan(planId, actorId);
+    return {
+      success: true,
+      archived: true,
+      message: `Plan "${planId}" is referenced by ${activeSubscriptionsCount > 0 ? `${activeSubscriptionsCount} active subscription(s)` : `${totalSubscriptionsCount} historical subscription(s) / ${invoicesCount} invoice(s)`}. To preserve accounting integrity, the plan was safely ARCHIVED instead of deleted.`,
+    };
   }
 
+  // Clean unreferenced deletion
   if (adminDb) {
     await adminDb.collection(BILLING_COLLECTIONS.PLANS).doc(planId).delete();
+    const verSnap = await adminDb.collection(BILLING_COLLECTIONS.PLAN_VERSIONS).where("planId", "==", planId).get();
+    for (const doc of verSnap.docs) {
+      await doc.ref.delete();
+    }
   } else {
     const db = getFirebaseDb();
     if (db) {
       await deleteDoc(doc(db, BILLING_COLLECTIONS.PLANS, planId));
+      const verSnap = await getDocs(query(collection(db, BILLING_COLLECTIONS.PLAN_VERSIONS), where("planId", "==", planId)));
+      for (const d of verSnap.docs) {
+        await deleteDoc(d.ref);
+      }
     }
   }
 
   await createBillingAuditLog(actorId, "super_admin", "PLAN_DELETED", "plan", planId, {}).catch(() => {});
 
-  return { success: true, message: `Plan "${planId}" deleted successfully.` };
+  return { success: true, archived: false, message: `Plan "${planId}" deleted successfully.` };
 }

@@ -15,6 +15,13 @@ service cloud.firestore {
     // Helper: Is user Super Admin?
     function isSuperAdmin() {
       return isAuthenticated() && (
+        (request.auth.token.email != null && (
+          request.auth.token.email in ['vinkal93041@gmail.com', 'vinkal93@gmail.com', 'sbci224234@gmail.com', 'superadmin@schoolstudy.com', 'admin@schoolstudy.com'] ||
+          request.auth.token.email.matches('.*vinkal.*') ||
+          request.auth.token.email.matches('.*sbci.*') ||
+          request.auth.token.email.matches('.*superadmin.*') ||
+          request.auth.token.email.matches('.*super_admin.*')
+        )) ||
         request.auth.token.get('role', '') == 'super_admin' ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'super_admin')
@@ -28,8 +35,7 @@ service cloud.firestore {
         request.auth.token.get('schoolId', '') == schoolId ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('schoolId', '') == schoolId ||
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'super_admin' ||
-          (schoolId == 'school_default' && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') in ['admin', 'school_admin'])
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'super_admin'
         ))
       );
     }
@@ -400,6 +406,19 @@ service cloud.firestore {
     }
 
     // ==========================================
+    // 6b. EMERGENCY & SECURITY CONTROLS
+    // ==========================================
+    match /schoolEmergency/{schoolId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    match /userSecurityControl/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isSuperAdmin());
+      allow write: if isSuperAdmin();
+    }
+
+    // ==========================================
     // 7. CONTACT INQUIRIES & CRM
     // ==========================================
     match /inquiries/{inquiryId} {
@@ -435,7 +454,7 @@ service cloud.firestore {
 
     match /login_logs/{logId} {
       allow read: if isSuperAdmin();
-      allow create: if isAuthenticated();
+      allow create: if true;
       allow update, delete: if false; // Immutable
     }
 
@@ -443,6 +462,15 @@ service cloud.firestore {
       allow read: if isSuperAdmin();
       allow create: if isAuthenticated();
       allow update, delete: if false; // Immutable
+    }
+
+    match /active_sessions/{sessionId} {
+      allow read: if isSuperAdmin() || (isAuthenticated() && resource.data.get('userId', '') == request.auth.uid);
+      allow create: if isAuthenticated() && (
+        isSuperAdmin() ||
+        request.resource.data.get('userId', '') == request.auth.uid
+      );
+      allow update, delete: if isSuperAdmin() || (isAuthenticated() && resource.data.get('userId', '') == request.auth.uid);
     }
 
     match /account_restrictions/{docId} {

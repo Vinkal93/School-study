@@ -5,19 +5,20 @@ import type {
 } from "@/types";
 import { getSchoolAccess } from "./accessEngine";
 import { getSchoolUsage } from "./usage";
-import { getPlanFeatures } from "./featureAccess";
+import { getPlanFeatures, getEffectiveFeatureAccessModes, getRequiredPlanForFeature } from "./featureAccess";
 import { getActiveLimitOverrides, getActiveAccessOverrides } from "./subscriptionAdjustmentEngine";
 import { getActivePlan } from "./plans";
 
 /**
  * Section 27 & Phase 12B: Authoritative Effective Entitlement Service.
- * Resolves: Security/Suspension -> Access Policy -> Manual Restrictions -> Subscription Status -> Plan Version -> Limits -> Limit Overrides -> Real Usage.
+ * Resolves: Security/Suspension -> Access Policy -> Manual Restrictions -> Subscription Status -> Plan Version -> Limits -> Limit Overrides -> Real Usage -> 3-Way Feature Access Modes.
  */
 export async function getEffectiveEntitlement(schoolId: string): Promise<EffectiveEntitlement> {
-  const [summary, usage, features, limitOverrides, accessOverrides] = await Promise.all([
+  const [summary, usage, features, featureAccessModes, limitOverrides, accessOverrides] = await Promise.all([
     getSchoolAccess(schoolId),
     getSchoolUsage(schoolId),
     getPlanFeatures(schoolId),
+    getEffectiveFeatureAccessModes(schoolId),
     getActiveLimitOverrides(schoolId),
     getActiveAccessOverrides(schoolId),
   ]);
@@ -69,6 +70,22 @@ export async function getEffectiveEntitlement(schoolId: string): Promise<Effecti
   const isExpired = effectiveAccessMode === "RESTRICTED_ACCESS" || effectiveAccessMode === "NO_ACCESS";
   const isInGrace = effectiveAccessMode === "GRACE_ACCESS";
 
+  // Build availableFromMap for showcase/hidden features dynamically
+  const availableFromMap: Record<string, string> = {};
+  const featureKeysToCheck = Object.keys(featureAccessModes);
+  await Promise.all(
+    featureKeysToCheck.map(async (fKey) => {
+      if (featureAccessModes[fKey] !== "FULL_ACCESS") {
+        try {
+          const req = await getRequiredPlanForFeature(fKey, summary.planId);
+          availableFromMap[fKey] = req.planName;
+        } catch {
+          availableFromMap[fKey] = "Higher Plan Required";
+        }
+      }
+    })
+  );
+
   return {
     schoolId,
     subscriptionStatus: summary.status,
@@ -77,9 +94,11 @@ export async function getEffectiveEntitlement(schoolId: string): Promise<Effecti
       id: summary.planId,
       name: planName,
       slug: planSlug,
-      version: 1,
+      version: planDoc?.version || 1,
     },
     features,
+    featureAccessModes,
+    availableFromMap,
     limits: {
       students: studentsLimit,
       teachers: teachersLimit,

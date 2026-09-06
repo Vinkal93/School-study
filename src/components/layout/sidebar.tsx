@@ -153,6 +153,7 @@ const roleNavItems: Record<string, NavItem[]> = {
     {
       label: "Inquiries",
       href: "/admin/inquiries",
+      featureKey: "inquiries_portal",
       icon: <MessageSquare className="h-5 w-5 text-sky-500" />,
     },
     {
@@ -164,6 +165,7 @@ const roleNavItems: Record<string, NavItem[]> = {
     {
       label: "Rules & Policies",
       href: "/admin/rules",
+      featureKey: "rules_policies",
       icon: <ShieldCheck className="h-5 w-5 text-indigo-500" />,
     },
     {
@@ -181,7 +183,7 @@ const roleNavItems: Record<string, NavItem[]> = {
     {
       label: "Timetable / Bells",
       href: "/admin/timetable",
-      featureKey: "class_management",
+      featureKey: "timetable_bells",
       icon: <Clock className="h-5 w-5 text-indigo-500" />,
     },
     {
@@ -330,7 +332,7 @@ export function Sidebar() {
 
   const { profile } = useAuth();
   const { isOpen, closeMobileNav } = useMobileNav();
-  const { canAccess } = useEntitlement();
+  const { canAccess, getFeatureAccessMode } = useEntitlement();
 
   // Expanded sections state
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
@@ -394,7 +396,15 @@ export function Sidebar() {
       {/* Nav Links */}
       <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
         {currentNavItems.map((item) => {
-          const hasSubItems = item.subItems && item.subItems.length > 0;
+          const itemAccessMode = item.featureKey ? getFeatureAccessMode(item.featureKey) : "FULL_ACCESS";
+
+          // If HIDDEN, omit from sidebar completely
+          if (itemAccessMode === "HIDDEN") {
+            return null;
+          }
+
+          const isShowcaseLocked = itemAccessMode === "SHOWCASE" || (item.featureKey ? !canAccess(item.featureKey) : false);
+          const hasSubItems = item.subItems && item.subItems.length > 0 && !isShowcaseLocked;
           const isParentActive =
             pathname === item.href ||
             (item.href !== "/admin" &&
@@ -457,8 +467,6 @@ export function Sidebar() {
             );
           }
 
-          const isLocked = item.featureKey ? !canAccess(item.featureKey) : false;
-
           return (
             <Link
               key={item.href}
@@ -476,9 +484,10 @@ export function Sidebar() {
               {(!collapsed || isOpen) && (
                 <span className="flex-1 flex items-center justify-between">
                   <span>{item.label}</span>
-                  {isLocked && (
+                  {isShowcaseLocked && (
                     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400 text-[10px] font-bold">
                       <Lock className="h-3 w-3" />
+                      <span>Lock</span>
                     </span>
                   )}
                 </span>

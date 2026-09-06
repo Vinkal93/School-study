@@ -26,6 +26,16 @@ const testSuites = [
   { name: "Super Admin Emergency Control Center", file: "scripts/test-emergency-control-center.mjs" },
   { name: "Realtime Notification & Live Event System", file: "scripts/test-realtime-notification-system.ts" },
   { name: "Subscription Renewal & Responsive System", file: "scripts/test-subscription-renewal-system.mjs" },
+  { name: "Dynamic Sidebar Access & Showcase System", file: "scripts/test-dynamic-sidebar-showcase.mjs" },
+  { name: "Granular Feature & Capability Entitlement", file: "scripts/test-granular-entitlement.mjs" },
+  { name: "School-Level Custom Access & Entitlement Overrides", file: "scripts/test-school-custom-access.mjs" },
+  { name: "Pricing, Checkout, GST, Coupon & Razorpay Pipeline", file: "scripts/test-pricing-checkout-pipeline.mjs" },
+  { name: "Subscription Lifecycle & Entitlement Synchronization", file: "scripts/test-subscription-lifecycle-entitlement-sync.mjs" },
+  { name: "Offers & Promotions + Coupon Engine", file: "scripts/test-offers-promotions.mjs" },
+  { name: "Super Admin Global Reports & Exports", file: "scripts/test-super-admin-global-reports.mjs" },
+  { name: "Super Admin Site Settings & CMS Module", file: "scripts/test-site-settings-cms.mjs" },
+  { name: "Portal UI/UX Version Control & Switching", file: "scripts/test-portal-ui-version-control.mjs" },
+  { name: "Platform Settings & Security Policies", file: "scripts/test-platform-settings-security.mjs" },
 ];
 
 console.log("==================================================");
@@ -38,9 +48,7 @@ let failedSuites = 0;
 for (const suite of testSuites) {
   try {
     console.log(`▶ Running [${suite.name}]...`);
-    const runnerCmd = suite.file.includes("dynamic-pricing") || suite.file.includes("emergency") || suite.file.endsWith(".ts")
-      ? `npx tsx "${suite.file}"`
-      : `node "${suite.file}"`;
+    const runnerCmd = `npx tsx "${suite.file}"`;
     execSync(runnerCmd, { stdio: "inherit" });
     passedSuites++;
     console.log(`✔ [${suite.name}] PASSED\n`);

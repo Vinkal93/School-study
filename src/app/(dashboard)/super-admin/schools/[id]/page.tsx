@@ -103,7 +103,7 @@ export default function SchoolDetailPage() {
   const [customExpiry, setCustomExpiry] = useState("");
 
   // Entitlements & Overrides
-  const [controlMode, setControlMode] = useState<"FULL_CONTROL" | "LIMITED_CONTROL" | "CUSTOM_ACCESS">("LIMITED_CONTROL");
+  const [controlMode, setControlMode] = useState<"PLAN_DEFAULT" | "FULL_CONTROL" | "LIMITED_CONTROL" | "CUSTOM_ACCESS">("PLAN_DEFAULT");
   const [matrix, setMatrix] = useState<any[]>([]);
   const [featureOverridesMap, setFeatureOverridesMap] = useState<Record<string, boolean>>({});
   const [savingEntitlements, setSavingEntitlements] = useState(false);
@@ -1051,35 +1051,46 @@ export default function SchoolDetailPage() {
               <div>
                 <h3 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
                   <Sliders className="h-5 w-5 text-blue-600" />
-                  School Entitlements & Access Overrides
+                  School Entitlements & Custom Access Overrides
                 </h3>
                 <p className="text-xs text-gray-500 mt-1">
-                  Master permissions for this tenant. Full Control bypasses all plan restrictions.
+                  Master capability overrides for this tenant. Full Control grants all capabilities; Custom Access overrides individual features.
                 </p>
               </div>
-              <button
-                onClick={handleSaveEntitlements}
-                disabled={savingEntitlements}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                {savingEntitlements ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                Save Entitlement Settings
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsPlanControlModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100 dark:border-blue-800/40 dark:bg-blue-900/20 dark:text-blue-300"
+                >
+                  <Sliders className="h-3.5 w-3.5" />
+                  Full Overrides Modal
+                </button>
+                <button
+                  onClick={handleSaveEntitlements}
+                  disabled={savingEntitlements}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {savingEntitlements ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                  Save Entitlement Settings
+                </button>
+              </div>
             </div>
 
-            {/* Control Mode Pills */}
-            <div className="flex flex-wrap gap-3 pt-2">
+            {/* Control Mode Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-2">
               {[
-                { id: "FULL_CONTROL", label: "⚡ Full Control (Master Override)", desc: "Grants ALL features regardless of plan tier" },
-                { id: "LIMITED_CONTROL", label: "🔒 Limited Control (Plan Default)", desc: "Enforces default tier entitlements" },
-                { id: "CUSTOM_ACCESS", label: "🛠️ Custom Access (Granular)", desc: "Per-feature custom overrides" },
+                { id: "PLAN_DEFAULT", label: "Plan Default", desc: "Follows base plan configuration strictly" },
+                { id: "FULL_CONTROL", label: "⚡ Full Control", desc: "Grants ALL features and unlimited limits" },
+                { id: "LIMITED_CONTROL", label: "🔒 Limited Control", desc: "Enforces standard plan restrictions" },
+                { id: "CUSTOM_ACCESS", label: "🛠️ Custom Access", desc: "Per-capability custom overrides" },
               ].map((m) => (
                 <div
                   key={m.id}
                   onClick={() => setControlMode(m.id as any)}
-                  className={`flex-1 min-w-[200px] cursor-pointer rounded-xl border p-4 transition-all ${
+                  className={`cursor-pointer rounded-xl border p-4 transition-all ${
                     controlMode === m.id
-                      ? "border-blue-500 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/20"
+                      ? "border-blue-500 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/20 shadow-sm"
                       : "border-gray-200 hover:border-gray-300 dark:border-gray-800"
                   }`}
                 >
@@ -1089,47 +1100,65 @@ export default function SchoolDetailPage() {
               ))}
             </div>
 
-            {/* Feature matrix */}
+            {/* 3-Column Transparent Matrix Table */}
             <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
-              <h4 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase mb-3">
-                Granular Feature Overrides Matrix
-              </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                {[
-                  { id: "attendance", name: "Student & Staff Attendance" },
-                  { id: "fees", name: "Fee Management & Receipts" },
-                  { id: "exams", name: "Exams & Report Cards" },
-                  { id: "bell_system", name: "Period Bell Alerts & Timetable" },
-                  { id: "sms_alerts", name: "SMS / WhatsApp Communication" },
-                  { id: "advanced_reports", name: "Custom Reports & PDF Export" },
-                ].map((feat) => {
-                  const isAllowed = controlMode === "FULL_CONTROL" || featureOverridesMap[feat.id] === true;
-                  return (
-                    <div
-                      key={feat.id}
-                      className="flex items-center justify-between p-3 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30"
-                    >
-                      <span className="text-xs font-medium text-gray-800 dark:text-gray-200">{feat.name}</span>
-                      <button
-                        type="button"
-                        disabled={controlMode === "FULL_CONTROL"}
-                        onClick={() =>
-                          setFeatureOverridesMap({
-                            ...featureOverridesMap,
-                            [feat.id]: !isAllowed,
-                          })
-                        }
-                        className={`px-2.5 py-1 rounded text-xs font-bold transition-colors ${
-                          isAllowed
-                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
-                            : "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300"
-                        }`}
-                      >
-                        {isAllowed ? "ENABLED" : "BLOCKED"}
-                      </button>
-                    </div>
-                  );
-                })}
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase">
+                  3-Way Entitlement Test Matrix (Base Plan vs School Override vs Effective Access)
+                </h4>
+                <span className="text-xs text-gray-500 font-mono">
+                  Total Monitored Features: <strong>{matrix.length}</strong>
+                </span>
+              </div>
+
+              <div className="rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-800 text-gray-500 text-[10px] uppercase font-bold">
+                    <tr>
+                      <th className="py-2.5 px-3">Capability / Feature</th>
+                      <th className="py-2.5 px-3">Category</th>
+                      <th className="py-2.5 px-3">Base Plan Access</th>
+                      <th className="py-2.5 px-3">School Override</th>
+                      <th className="py-2.5 px-3">Effective Access</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
+                    {matrix.slice(0, 15).map((row) => (
+                      <tr key={row.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-900/30">
+                        <td className="py-2 px-3">
+                          <span className="font-semibold text-gray-900 dark:text-white">{row.name}</span>
+                          <span className="block font-mono text-[10px] text-gray-400">{row.id}</span>
+                        </td>
+                        <td className="py-2 px-3 font-mono uppercase text-[10px] text-gray-500">
+                          {row.category}
+                        </td>
+                        <td className="py-2 px-3 font-mono">
+                          <span className={row.basePlanAccess === "ALLOW" ? "text-emerald-600 font-bold" : row.basePlanAccess === "SHOWCASE" ? "text-amber-600 font-bold" : "text-gray-400"}>
+                            {row.basePlanAccess}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 font-mono">
+                          <span className={row.schoolOverride !== "NONE" ? "text-purple-600 font-extrabold" : "text-gray-400"}>
+                            {row.schoolOverride}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                              row.effectiveAccess === "ALLOW"
+                                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+                                : row.effectiveAccess === "SHOWCASE"
+                                ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
+                                : "bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300"
+                            }`}
+                          >
+                            {row.effectiveAccess}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
@@ -1490,6 +1519,13 @@ export default function SchoolDetailPage() {
           </div>
         </div>
       )}
+      <SuperAdminSchoolEntitlementControlModal
+        isOpen={isPlanControlModalOpen}
+        onClose={() => setIsPlanControlModalOpen(false)}
+        schoolId={schoolId}
+        schoolName={school.name}
+        onUpdated={loadSchoolData}
+      />
     </div>
   );
 }

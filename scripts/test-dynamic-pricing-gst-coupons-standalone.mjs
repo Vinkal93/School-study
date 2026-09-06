@@ -158,7 +158,9 @@ async function runSuite() {
   console.log("======================================================================\n");
 }
 
-runSuite().catch((err) => {
-  console.error("❌ SUITE EXECUTOR FAILED:", err);
-  process.exit(1);
-});
+runSuite()
+  .then(() => process.exit(0))
+  .catch((err) => {
+    console.error("❌ SUITE EXECUTOR FAILED:", err);
+    process.exit(1);
+  });

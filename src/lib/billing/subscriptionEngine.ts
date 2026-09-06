@@ -184,6 +184,11 @@ export async function getCurrentSubscription(schoolId: string): Promise<SchoolSu
     return defaultSub;
   }
 
+  const g = globalThis as any;
+  if (g.__BILLING_SUBSCRIPTIONS_MAP__ && g.__BILLING_SUBSCRIPTIONS_MAP__.has(schoolId)) {
+    return g.__BILLING_SUBSCRIPTIONS_MAP__.get(schoolId);
+  }
+
   try {
     const db = getFirebaseDb();
     if (!db) return defaultSub;

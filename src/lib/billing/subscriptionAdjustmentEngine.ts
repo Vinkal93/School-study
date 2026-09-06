@@ -420,8 +420,9 @@ export async function resumeAccountSubscription(
 export async function createAccessOverride(
   schoolId: string,
   input: {
-    type: "FEATURE_GRANT" | "FEATURE_RESTRICT" | "TEMPORARY_ACCESS";
+    type: "FEATURE_GRANT" | "FEATURE_RESTRICT" | "TEMPORARY_ACCESS" | "FEATURE_SHOWCASE";
     featureKey?: string;
+    accessMode?: "FULL_ACCESS" | "SHOWCASE" | "HIDDEN";
     durationHours?: number;
     durationDays?: number;
     customEndAt?: string;
@@ -447,11 +448,19 @@ export async function createAccessOverride(
   }
 
   const overrideId = `ovr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  let resolvedMode: "FULL_ACCESS" | "SHOWCASE" | "HIDDEN" = input.accessMode || "FULL_ACCESS";
+  if (!input.accessMode) {
+    if (input.type === "FEATURE_RESTRICT") resolvedMode = "HIDDEN";
+    else if (input.type === "FEATURE_SHOWCASE") resolvedMode = "SHOWCASE";
+    else resolvedMode = "FULL_ACCESS";
+  }
+
   const override: AccessOverrideRecord = {
     id: overrideId,
     schoolId,
     type: input.type,
     featureKey: input.featureKey,
+    accessMode: resolvedMode,
     enabled: input.type !== "FEATURE_RESTRICT",
     startAt: now.toISOString(),
     endAt: endAt.toISOString(),
@@ -772,4 +781,81 @@ export async function applyManualCredit(
   });
 
   return { success: true, credit };
+}
+
+
+// ==========================================
+// 7. Reset School Entitlements to Plan Default
+// ==========================================
+
+export async function resetSchoolEntitlements(
+  schoolId: string,
+  input: {
+    actorId: string;
+    actorRole?: string;
+    reason?: string;
+  }
+): Promise<{ success: boolean; message: string }> {
+  const db = getFirebaseDb();
+  const nowIso = new Date().toISOString();
+  const actorId = input.actorId || "super_admin";
+  const actorRole = input.actorRole || "super_admin";
+  const reason = input.reason || "Super Admin reset school entitlements to Plan Default";
+
+  try {
+    if (db) {
+      // Client Firestore fallback
+      const qAccess = query(
+        collection(db, BILLING_COLLECTIONS.ACCESS_OVERRIDES),
+        where("schoolId", "==", schoolId)
+      );
+      const snapAccess = await getDocs(qAccess);
+      for (const d of snapAccess.docs) {
+        if (d.data().status === "ACTIVE") {
+          await updateDoc(doc(db, BILLING_COLLECTIONS.ACCESS_OVERRIDES, d.id), {
+            status: "REVOKED",
+            updatedAt: nowIso,
+          });
+        }
+      }
+
+      const qLimit = query(
+        collection(db, BILLING_COLLECTIONS.LIMIT_OVERRIDES),
+        where("schoolId", "==", schoolId)
+      );
+      const snapLimit = await getDocs(qLimit);
+      for (const d of snapLimit.docs) {
+        if (d.data().status === "ACTIVE") {
+          await updateDoc(doc(db, BILLING_COLLECTIONS.LIMIT_OVERRIDES, d.id), {
+            status: "REVOKED",
+            updatedAt: nowIso,
+          });
+        }
+      }
+
+      const subRef = doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId);
+      await setDoc(subRef, { controlMode: "PLAN_DEFAULT", updatedAt: nowIso }, { merge: true });
+    }
+  } catch (err) {
+    console.warn("resetSchoolEntitlements notice:", err);
+  }
+
+  // Create immutable audit log entry
+  await createBillingAuditLog({
+    actorId,
+    actorRole,
+    action: "SCHOOL_ENTITLEMENT_RESET",
+    targetType: "schoolSubscription",
+    targetId: schoolId,
+    metadata: {
+      controlMode: "PLAN_DEFAULT",
+      reason,
+      resetAt: nowIso,
+    },
+  }).catch(() => {});
+
+  return {
+    success: true,
+    message: `School ${schoolId} entitlements successfully reset to Plan Default.`,
+  };
 }

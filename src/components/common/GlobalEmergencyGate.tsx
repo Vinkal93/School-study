@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useEffect, useState, useTransition } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
@@ -50,7 +50,9 @@ export function GlobalEmergencyGate({ children }: GlobalEmergencyGateProps) {
         }
       },
       (err) => {
-        console.warn("Notice: global emergency gate listener:", err);
+        if (err.code !== "permission-denied") {
+          console.warn("Notice: global emergency gate listener:", err);
+        }
       }
     );
 
@@ -77,7 +79,9 @@ export function GlobalEmergencyGate({ children }: GlobalEmergencyGateProps) {
         }
       },
       (err) => {
-        console.warn("Notice: school emergency gate listener:", err);
+        if (err.code !== "permission-denied") {
+          console.warn("Notice: school emergency gate listener:", err);
+        }
       }
     );
 

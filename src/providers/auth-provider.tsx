@@ -269,6 +269,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
       sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
+      sessionStorage.removeItem("ss_super_admin_auth");
+      localStorage.removeItem("ss_super_admin_auth");
     } catch (e) {
       // ignore
     }

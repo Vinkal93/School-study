@@ -114,7 +114,11 @@ export async function logLoginAttempt(
         status: "active",
         startedAt: serverTimestamp(),
         lastActiveAt: serverTimestamp(),
-      }).catch((e) => console.warn("Notice: Active session creation notice:", e));
+      }).catch((e: any) => {
+        if (e?.code !== "permission-denied") {
+          console.warn("Notice: Active session creation notice:", e);
+        }
+      });
     }
 
     // 2. If login failed, automatically record a Security Event in audit_logs

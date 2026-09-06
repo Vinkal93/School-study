@@ -111,6 +111,11 @@ export async function renewSubscription(
     return sub;
   });
 
+  const g = globalThis as any;
+  if (g.__BILLING_SUBSCRIPTIONS_MAP__) {
+    g.__BILLING_SUBSCRIPTIONS_MAP__.set(schoolId, updatedSub);
+  }
+
   // Record Subscription History
   await recordSubscriptionHistory(schoolId, {
     subscriptionId: schoolId,
@@ -192,6 +197,11 @@ export async function upgradeSubscription(
     await setDoc(subRef, updatedSub, { merge: true });
   }
 
+  const g = globalThis as any;
+  if (g.__BILLING_SUBSCRIPTIONS_MAP__) {
+    g.__BILLING_SUBSCRIPTIONS_MAP__.set(schoolId, updatedSub);
+  }
+
   // Record History
   await recordSubscriptionHistory(schoolId, {
     subscriptionId: schoolId,
@@ -269,6 +279,14 @@ export async function scheduleDowngrade(
     });
   }
 
+  const g = globalThis as any;
+  if (g.__BILLING_SUBSCRIPTIONS_MAP__) {
+    const mem = g.__BILLING_SUBSCRIPTIONS_MAP__.get(schoolId);
+    if (mem) {
+      g.__BILLING_SUBSCRIPTIONS_MAP__.set(schoolId, { ...mem, pendingChange, updatedAt: now.toISOString() });
+    }
+  }
+
   // Record History
   await recordSubscriptionHistory(schoolId, {
     subscriptionId: schoolId,
@@ -313,6 +331,11 @@ export async function cancelSubscriptionAtPeriodEnd(
     await setDoc(subRef, updatedSub, { merge: true });
   }
 
+  const g = globalThis as any;
+  if (g.__BILLING_SUBSCRIPTIONS_MAP__) {
+    g.__BILLING_SUBSCRIPTIONS_MAP__.set(schoolId, updatedSub);
+  }
+
   await recordSubscriptionHistory(schoolId, {
     subscriptionId: schoolId,
     schoolId,
@@ -348,6 +371,11 @@ export async function resumeSubscription(
   if (db) {
     const subRef = doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId);
     await setDoc(subRef, updatedSub, { merge: true });
+  }
+
+  const g = globalThis as any;
+  if (g.__BILLING_SUBSCRIPTIONS_MAP__) {
+    g.__BILLING_SUBSCRIPTIONS_MAP__.set(schoolId, updatedSub);
   }
 
   await recordSubscriptionHistory(schoolId, {
@@ -391,6 +419,11 @@ export async function suspendSubscription(
   if (db) {
     const subRef = doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId);
     await setDoc(subRef, updatedSub, { merge: true });
+  }
+
+  const g = globalThis as any;
+  if (g.__BILLING_SUBSCRIPTIONS_MAP__) {
+    g.__BILLING_SUBSCRIPTIONS_MAP__.set(schoolId, updatedSub);
   }
 
   await recordSubscriptionHistory(schoolId, {
@@ -440,6 +473,11 @@ export async function resumeSuspendedSubscription(
   if (db) {
     const subRef = doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId);
     await setDoc(subRef, updatedSub, { merge: true });
+  }
+
+  const g = globalThis as any;
+  if (g.__BILLING_SUBSCRIPTIONS_MAP__) {
+    g.__BILLING_SUBSCRIPTIONS_MAP__.set(schoolId, updatedSub);
   }
 
   await recordSubscriptionHistory(schoolId, {

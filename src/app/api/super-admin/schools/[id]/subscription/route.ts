@@ -15,6 +15,7 @@ import {
   createLimitOverride,
   getActiveLimitOverrides,
   createBillingAuditLog,
+  resetSchoolEntitlements,
 } from "@/lib/billing";
 import type { BillingAuditAction } from "@/types";
 
@@ -239,7 +240,7 @@ export async function GET(
     const hasFullControl = activeAccessOverrides.some((o) => o.type === "TEMPORARY_ACCESS");
     const hasCustomOverrides = activeAccessOverrides.some((o) => o.type === "FEATURE_GRANT" || o.type === "FEATURE_RESTRICT");
     
-    let controlMode: "FULL_CONTROL" | "LIMITED_CONTROL" | "CUSTOM_ACCESS" = subscription?.controlMode || "LIMITED_CONTROL";
+    let controlMode: "PLAN_DEFAULT" | "FULL_CONTROL" | "LIMITED_CONTROL" | "CUSTOM_ACCESS" = subscription?.controlMode || "PLAN_DEFAULT";
     if (hasFullControl) controlMode = "FULL_CONTROL";
     else if (hasCustomOverrides && controlMode !== "FULL_CONTROL") controlMode = "CUSTOM_ACCESS";
 
@@ -336,7 +337,7 @@ export async function POST(
       await createBillingAuditLog({
         actorId,
         actorRole: "super_admin",
-        action: "SUBSCRIPTION_UPDATED",
+        action: "SCHOOL_PLAN_ASSIGNED",
         targetType: "schoolSubscription",
         targetId: schoolId,
         metadata: { oldPlanId, newPlanId: planId, billingCycle, reason },
@@ -472,16 +473,8 @@ export async function POST(
             metadata: { featureKey, allowed, reason },
           }).catch(() => {});
         }
-      } else if (controlMode === "RESET_TO_PLAN") {
-        await saveSubscriptionDoc(schoolId, { controlMode: "LIMITED_CONTROL", updatedAt: now.toISOString() });
-        await createBillingAuditLog({
-          actorId,
-          actorRole: "super_admin",
-          action: "FEATURE_ACCESS_RESTORED",
-          targetType: "schoolSubscription",
-          targetId: schoolId,
-          metadata: { controlMode: "RESET_TO_PLAN", reason },
-        }).catch(() => {});
+      } else if (controlMode === "RESET_TO_PLAN" || controlMode === "PLAN_DEFAULT") {
+        await resetSchoolEntitlements(schoolId, { actorId, reason });
       }
     }
 

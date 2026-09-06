@@ -12,12 +12,28 @@ import {
   RotateCcw,
   Sparkles,
   Info,
+  Lock,
+  Eye,
+  EyeOff,
 } from "lucide-react";
-import { GRANULAR_PERMISSIONS, type GranularPermissionDefinition } from "@/lib/billing/permissions";
+import {
+  GRANULAR_PERMISSIONS,
+  type GranularPermissionDefinition,
+  getParentFeatureKey,
+  getParentCapabilityKey,
+} from "@/lib/billing/permissions";
+import type { FeatureAccessMode } from "@/types";
+import { cn } from "@/lib/utils/cn";
 
 export interface GranularPermissionTreeProps {
   /**
-   * Current selected permission IDs (in Plan Edit mode) or override map (in School Override mode).
+   * 3-Way Feature Access Modes (in Plan Create / Edit mode)
+   */
+  featureAccess?: Record<string, FeatureAccessMode>;
+  onChangeFeatureAccess?: (featureAccess: Record<string, FeatureAccessMode>) => void;
+
+  /**
+   * Selected permission IDs for legacy boolean list compatibility
    */
   selectedPermissions?: string[];
   onChangeSelected?: (permissions: string[]) => void;
@@ -32,6 +48,8 @@ export interface GranularPermissionTreeProps {
 }
 
 export function GranularPermissionTree({
+  featureAccess = {},
+  onChangeFeatureAccess,
   selectedPermissions = [],
   onChangeSelected,
   isOverrideMode = false,
@@ -47,6 +65,10 @@ export function GranularPermissionTree({
     basic_attendance: true,
     advanced_reports: true,
     notices_announcements: true,
+    fee_management: true,
+    timetable_bells: true,
+    rules_policies: true,
+    inquiries_portal: true,
   });
 
   // Group permissions by module
@@ -63,7 +85,11 @@ export function GranularPermissionTree({
     if (!search.trim()) return GRANULAR_PERMISSIONS;
     const query = search.toLowerCase();
     return GRANULAR_PERMISSIONS.filter(
-      (p) => p.name.toLowerCase().includes(query) || p.description.toLowerCase().includes(query) || p.id.toLowerCase().includes(query)
+      (p) =>
+        p.name.toLowerCase().includes(query) ||
+        p.description.toLowerCase().includes(query) ||
+        p.id.toLowerCase().includes(query) ||
+        p.aliases?.some((a) => a.toLowerCase().includes(query))
     );
   }, [search]);
 
@@ -81,46 +107,77 @@ export function GranularPermissionTree({
     setExpandedModules({});
   };
 
-  // Plan Edit Mode handlers
-  const handleTogglePlanPermission = (id: string) => {
-    if (!onChangeSelected) return;
+  // Helper to compute effective access mode for a node in plan mode
+  const getEffectivePlanNodeMode = (nodeId: string): { mode: FeatureAccessMode; isExplicit: boolean } => {
+    if (featureAccess[nodeId]) {
+      return { mode: featureAccess[nodeId], isExplicit: true };
+    }
 
-    const isCurrentlySelected = selectedPermissions.includes(id);
-    let next: string[];
+    // Check parent in hierarchy
+    const parentCapKey = getParentCapabilityKey(nodeId);
+    if (parentCapKey && featureAccess[parentCapKey]) {
+      return { mode: featureAccess[parentCapKey], isExplicit: false };
+    }
 
-    const item = GRANULAR_PERMISSIONS.find((p) => p.id === id);
-    if (!item) return;
+    const parentModuleKey = getParentFeatureKey(nodeId);
+    if (parentModuleKey && featureAccess[parentModuleKey]) {
+      return { mode: featureAccess[parentModuleKey], isExplicit: false };
+    }
 
-    if (item.category === "module") {
-      // Toggle entire module & all children
-      const childIds = GRANULAR_PERMISSIONS.filter((p) => p.featureKey === id).map((p) => p.id);
-      if (isCurrentlySelected) {
-        next = selectedPermissions.filter((pId) => !childIds.includes(pId));
-      } else {
-        next = Array.from(new Set([...selectedPermissions, ...childIds]));
-      }
+    // Fallback to legacy selectedPermissions
+    if (selectedPermissions.includes(nodeId) || (parentModuleKey && selectedPermissions.includes(parentModuleKey))) {
+      return { mode: "FULL_ACCESS", isExplicit: false };
+    }
+
+    return { mode: "HIDDEN", isExplicit: false };
+  };
+
+  // Plan Edit Mode 3-way access change handler
+  const handleSetNodeAccess = (nodeId: string, newMode: FeatureAccessMode | "INHERIT") => {
+    const nextAccess = { ...featureAccess };
+
+    if (newMode === "INHERIT") {
+      delete nextAccess[nodeId];
     } else {
-      // Toggle single item
-      if (isCurrentlySelected) {
-        next = selectedPermissions.filter((pId) => pId !== id);
+      nextAccess[nodeId] = newMode;
+    }
+
+    if (onChangeFeatureAccess) {
+      onChangeFeatureAccess(nextAccess);
+    }
+
+    // Keep legacy selectedPermissions synchronized
+    if (onChangeSelected) {
+      let nextSelected = [...selectedPermissions];
+      if (newMode === "FULL_ACCESS") {
+        if (!nextSelected.includes(nodeId)) nextSelected.push(nodeId);
+      } else if (newMode === "SHOWCASE" || newMode === "HIDDEN") {
+        nextSelected = nextSelected.filter((k) => k !== nodeId);
+      }
+      onChangeSelected(nextSelected);
+    }
+  };
+
+  const handleBulkSetMode = (mode: FeatureAccessMode) => {
+    const nextAccess: Record<string, FeatureAccessMode> = {};
+    for (const p of GRANULAR_PERMISSIONS) {
+      nextAccess[p.id] = mode;
+    }
+    if (onChangeFeatureAccess) {
+      onChangeFeatureAccess(nextAccess);
+    }
+    if (onChangeSelected) {
+      if (mode === "FULL_ACCESS") {
+        onChangeSelected(GRANULAR_PERMISSIONS.map((p) => p.id));
       } else {
-        // Automatically ensure parent module is selected
-        next = Array.from(new Set([...selectedPermissions, id, item.featureKey]));
+        onChangeSelected([]);
       }
     }
-
-    onChangeSelected(next);
   };
 
-  const handleSelectAllPlan = () => {
-    if (onChangeSelected) {
-      onChangeSelected(GRANULAR_PERMISSIONS.map((p) => p.id));
-    }
-  };
-
-  const handleClearAllPlan = () => {
-    if (onChangeSelected) {
-      onChangeSelected([]);
+  const handleResetToInherited = () => {
+    if (onChangeFeatureAccess) {
+      onChangeFeatureAccess({});
     }
   };
 
@@ -138,12 +195,12 @@ export function GranularPermissionTree({
         <div>
           <h3 className="text-sm sm:text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <ShieldCheck className="h-4.5 w-4.5 sm:h-5 sm:w-5 text-blue-600 dark:text-blue-400 shrink-0" />
-            <span>{isOverrideMode ? "School-Specific Permission Overrides" : "Granular Feature & Permission Tree"}</span>
+            <span>{isOverrideMode ? "School-Specific Permission Overrides" : "Granular Feature & Capability Access Matrix"}</span>
           </h3>
           <p className="text-[11px] sm:text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             {isOverrideMode
               ? "Configure custom ALLOW / DENY overrides for this school or reset to Plan Default."
-              : "Define exact page, tab, section, and action permissions for this plan version."}
+              : "Configure 3-way access (FULL ACCESS, SHOWCASE, HIDDEN) for modules, pages, tabs, sections, and actions."}
           </p>
         </div>
 
@@ -166,17 +223,24 @@ export function GranularPermissionTree({
             <>
               <button
                 type="button"
-                onClick={handleSelectAllPlan}
-                className="px-2.5 py-1.5 text-[11px] sm:text-xs font-medium rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-300"
+                onClick={() => handleBulkSetMode("FULL_ACCESS")}
+                className="px-2.5 py-1.5 text-[11px] sm:text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
               >
-                Select All
+                All Full Access
               </button>
               <button
                 type="button"
-                onClick={handleClearAllPlan}
-                className="px-2.5 py-1.5 text-[11px] sm:text-xs font-medium rounded-lg bg-red-50 text-red-700 hover:bg-red-100 dark:bg-red-950/60 dark:text-red-300"
+                onClick={() => handleBulkSetMode("SHOWCASE")}
+                className="px-2.5 py-1.5 text-[11px] sm:text-xs font-semibold rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800"
               >
-                Clear All
+                All Showcase
+              </button>
+              <button
+                type="button"
+                onClick={() => handleBulkSetMode("HIDDEN")}
+                className="px-2.5 py-1.5 text-[11px] sm:text-xs font-semibold rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-900 dark:text-gray-300 border border-gray-200 dark:border-gray-800"
+              >
+                All Hidden
               </button>
             </>
           )}
@@ -190,7 +254,7 @@ export function GranularPermissionTree({
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search pages, tabs, or action permissions..."
+          placeholder="Search modules, pages, tabs, actions, or exports..."
           className="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-gray-200 bg-gray-50/50 focus:border-blue-500 focus:bg-white focus:outline-none dark:border-gray-800 dark:bg-gray-900 dark:text-white"
         />
       </div>
@@ -200,7 +264,7 @@ export function GranularPermissionTree({
         {modules.map((mod) => {
           const children = getModuleChildren(mod.id);
           const isExpanded = expandedModules[mod.id] || search.trim().length > 0;
-          const isModuleSelected = selectedPermissions.includes(mod.id);
+          const { mode: moduleMode, isExplicit: moduleIsExplicit } = getEffectivePlanNodeMode(mod.id);
 
           return (
             <div
@@ -209,37 +273,44 @@ export function GranularPermissionTree({
             >
               {/* Module Header Row */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 bg-gray-100/60 dark:bg-gray-900/60 border-b border-gray-200/60 dark:border-gray-800/60">
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap min-w-0">
                   <button
                     type="button"
                     onClick={() => toggleExpand(mod.id)}
-                    className="text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white p-0.5"
+                    className="text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white p-0.5 shrink-0"
                   >
                     {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                   </button>
 
-                  {!isOverrideMode ? (
-                    <button
-                      type="button"
-                      onClick={() => handleTogglePlanPermission(mod.id)}
-                      className="flex items-center gap-2 text-xs sm:text-sm font-bold text-gray-900 dark:text-white text-left"
-                    >
-                      {isModuleSelected ? (
-                        <CheckSquare className="h-4.5 w-4.5 text-blue-600 dark:text-blue-400 shrink-0" />
-                      ) : (
-                        <Square className="h-4.5 w-4.5 text-gray-400 shrink-0" />
-                      )}
-                      <span className="break-words">{mod.name}</span>
-                    </button>
-                  ) : (
-                    <span className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white break-words">{mod.name}</span>
-                  )}
-                  <span className="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.2 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">
+                  <span className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white break-words">
+                    {mod.name}
+                  </span>
+                  <span className="text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 shrink-0">
                     Module
                   </span>
+                  <span className="text-[10px] font-mono text-gray-400 hidden sm:inline">({mod.id})</span>
                 </div>
 
-                {isOverrideMode && (
+                {!isOverrideMode ? (
+                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                    <select
+                      value={featureAccess[mod.id] || moduleMode}
+                      onChange={(e) => handleSetNodeAccess(mod.id, e.target.value as FeatureAccessMode)}
+                      className={cn(
+                        "px-2.5 py-1 text-xs font-bold rounded-lg border focus:outline-none transition-colors",
+                        moduleMode === "FULL_ACCESS"
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-400 dark:border-emerald-800"
+                          : moduleMode === "SHOWCASE"
+                          ? "bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/60 dark:text-amber-400 dark:border-amber-800"
+                          : "bg-gray-100 text-gray-600 border-gray-300 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700"
+                      )}
+                    >
+                      <option value="FULL_ACCESS">✓ FULL ACCESS</option>
+                      <option value="SHOWCASE">🔒 SHOWCASE</option>
+                      <option value="HIDDEN">— HIDDEN</option>
+                    </select>
+                  </div>
+                ) : (
                   <div className="flex items-center gap-1 self-end sm:self-center">
                     <button
                       type="button"
@@ -280,7 +351,7 @@ export function GranularPermissionTree({
                   {children
                     .filter((c) => filteredPermissions.some((fp) => fp.id === c.id))
                     .map((child) => {
-                      const isChildSelected = selectedPermissions.includes(child.id);
+                      const { mode: childMode, isExplicit: childIsExplicit } = getEffectivePlanNodeMode(child.id);
                       const currentOverride = overrides[child.id] || "INHERIT";
                       const planDefault = planDefaults[child.id] ?? true;
                       const effectiveAccess =
@@ -289,52 +360,75 @@ export function GranularPermissionTree({
                       return (
                         <div
                           key={child.id}
-                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 rounded-lg bg-white dark:bg-gray-950 border border-gray-100 dark:border-gray-800/80 text-xs"
+                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-lg bg-white dark:bg-gray-950 border border-gray-100 dark:border-gray-800/80 text-xs"
                         >
-                          <div className="flex items-start gap-2">
-                            {!isOverrideMode ? (
-                              <button
-                                type="button"
-                                onClick={() => handleTogglePlanPermission(child.id)}
-                                className="mt-0.5 shrink-0"
-                              >
-                                {isChildSelected ? (
-                                  <CheckSquare className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                                ) : (
-                                  <Square className="h-4 w-4 text-gray-400" />
-                                )}
-                              </button>
-                            ) : (
-                              <div className="mt-0.5 shrink-0">
-                                {effectiveAccess ? (
-                                  <ShieldCheck className="h-4 w-4 text-green-600 dark:text-green-400" />
-                                ) : (
-                                  <ShieldAlert className="h-4 w-4 text-red-600 dark:text-red-400" />
-                                )}
-                              </div>
-                            )}
+                          <div className="flex items-start gap-2.5 min-w-0">
+                            <div className="mt-1 shrink-0">
+                              {childMode === "FULL_ACCESS" ? (
+                                <Eye className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                              ) : childMode === "SHOWCASE" ? (
+                                <Lock className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                              ) : (
+                                <EyeOff className="h-4 w-4 text-gray-400" />
+                              )}
+                            </div>
 
-                            <div>
+                            <div className="min-w-0">
                               <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="font-semibold text-gray-900 dark:text-white break-words">{child.name}</span>
+                                <span className="font-semibold text-gray-900 dark:text-white break-words">
+                                  {child.name}
+                                </span>
                                 <span
-                                  className={`text-[9px] font-bold uppercase px-1.5 py-0.2 rounded ${
+                                  className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
                                     child.category === "page"
                                       ? "bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300"
                                       : child.category === "tab"
                                       ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
-                                      : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+                                      : child.category === "action"
+                                      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+                                      : child.category === "export"
+                                      ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300"
+                                      : "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300"
                                   }`}
                                 >
                                   {child.category}
                                 </span>
+                                <span className="text-[10px] font-mono text-gray-400">({child.id})</span>
                               </div>
                               <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{child.description}</p>
                             </div>
                           </div>
 
-                          {/* Override Mode Control Buttons */}
-                          {isOverrideMode && (
+                          {!isOverrideMode ? (
+                            <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                              {!childIsExplicit && (
+                                <span className="text-[10px] text-gray-400 italic hidden sm:inline">
+                                  (Inherited from parent)
+                                </span>
+                              )}
+                              <select
+                                value={featureAccess[child.id] || "INHERIT"}
+                                onChange={(e) =>
+                                  handleSetNodeAccess(child.id, e.target.value as FeatureAccessMode | "INHERIT")
+                                }
+                                className={cn(
+                                  "px-2 py-1 text-[11px] font-bold rounded-lg border focus:outline-none transition-colors",
+                                  childMode === "FULL_ACCESS"
+                                    ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-400 dark:border-emerald-800"
+                                    : childMode === "SHOWCASE"
+                                    ? "bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/60 dark:text-amber-400 dark:border-amber-800"
+                                    : "bg-gray-100 text-gray-600 border-gray-300 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700"
+                                )}
+                              >
+                                <option value="INHERIT">
+                                  ⚡ Inherit ({moduleMode === "FULL_ACCESS" ? "FULL" : moduleMode === "SHOWCASE" ? "LOCK" : "HIDE"})
+                                </option>
+                                <option value="FULL_ACCESS">✓ FULL ACCESS</option>
+                                <option value="SHOWCASE">🔒 SHOWCASE</option>
+                                <option value="HIDDEN">— HIDDEN</option>
+                              </select>
+                            </div>
+                          ) : (
                             <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
                               <span className="text-[10px] text-gray-400 hidden sm:inline">
                                 {currentOverride === "INHERIT"
