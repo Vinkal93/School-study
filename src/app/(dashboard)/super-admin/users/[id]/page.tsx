@@ -120,7 +120,10 @@ export default function UserProfileInspectorPage() {
     try {
       const [data, schoolsData] = await Promise.all([
         fetchFullUserProfileDetails(userId),
-        getAllSchools(),
+        getAllSchools().catch((e) => {
+          console.warn("getAllSchools non-fatal fallback:", e);
+          return [];
+        }),
       ]);
 
       setUser(data.user);
@@ -133,18 +136,21 @@ export default function UserProfileInspectorPage() {
       setActivityLogs(data.activityLogs || []);
 
       setEditForm({
-        name: data.user.name || "",
-        email: data.user.email || "",
-        phone: data.academicProfile?.phone || (data.user as any).phone || "",
-        address: data.academicProfile?.address || (data.user as any).address || "",
-        gender: (data.user as any).gender || "",
-        dob: (data.user as any).dob || "",
-        className: data.academicProfile?.className || (data.user as any).className || "",
-        sectionName: data.academicProfile?.sectionName || (data.user as any).sectionName || "",
+        name: data.user?.name || "",
+        email: data.user?.email || "",
+        phone: data.academicProfile?.phone || (data.user as any)?.phone || "",
+        address: data.academicProfile?.address || (data.user as any)?.address || "",
+        gender: (data.user as any)?.gender || "",
+        dob: (data.user as any)?.dob || "",
+        className: data.academicProfile?.className || (data.user as any)?.className || "",
+        sectionName: data.academicProfile?.sectionName || (data.user as any)?.sectionName || "",
       });
     } catch (err: any) {
+      console.error("User profile load failed:", err);
       toast.error(err?.message || "Could not load user profile");
-      router.push("/super-admin/users");
+      if (err?.message === "User not found") {
+        router.push("/super-admin/users");
+      }
     } finally {
       setLoading(false);
     }

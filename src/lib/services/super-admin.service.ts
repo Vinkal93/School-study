@@ -406,74 +406,114 @@ export async function fetchFullUserProfileDetails(userId: string) {
   let schoolStats: any = null;
 
   if (user.schoolId) {
-    const schoolRef = doc(db, COLLECTIONS.SCHOOLS, user.schoolId);
-    const schoolSnap = await getDoc(schoolRef);
-    if (schoolSnap.exists()) {
-      school = { id: schoolSnap.id, ...schoolSnap.data() } as School;
+    try {
+      const schoolRef = doc(db, COLLECTIONS.SCHOOLS, user.schoolId);
+      const schoolSnap = await getDoc(schoolRef);
+      if (schoolSnap.exists()) {
+        school = { id: schoolSnap.id, ...schoolSnap.data() } as School;
+      }
+    } catch (e) {
+      console.warn("Could not fetch school details:", e);
     }
 
-    if (user.role === "teacher") {
-      const q = query(
-        collection(db, `${COLLECTIONS.SCHOOLS}/${user.schoolId}/${COLLECTIONS.TEACHERS}`),
-        where("userId", "==", user.uid)
-      );
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        academicProfile = { id: snap.docs[0].id, ...snap.docs[0].data() };
+    try {
+      if (user.role === "teacher") {
+        const q = query(
+          collection(db, `${COLLECTIONS.SCHOOLS}/${user.schoolId}/${COLLECTIONS.TEACHERS}`),
+          where("userId", "==", user.uid)
+        );
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          academicProfile = { id: snap.docs[0].id, ...snap.docs[0].data() };
+        }
+      } else if (user.role === "student") {
+        const q = query(
+          collection(db, `${COLLECTIONS.SCHOOLS}/${user.schoolId}/${COLLECTIONS.STUDENTS}`),
+          where("userId", "==", user.uid)
+        );
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          academicProfile = { id: snap.docs[0].id, ...snap.docs[0].data() };
+        }
+      } else if (user.role === "school_admin") {
+        const [teachersSnap, studentsSnap, classesSnap] = await Promise.all([
+          getDocs(collection(db, `${COLLECTIONS.SCHOOLS}/${user.schoolId}/${COLLECTIONS.TEACHERS}`)).catch(() => ({ size: 0 })),
+          getDocs(collection(db, `${COLLECTIONS.SCHOOLS}/${user.schoolId}/${COLLECTIONS.STUDENTS}`)).catch(() => ({ size: 0 })),
+          getDocs(collection(db, `${COLLECTIONS.SCHOOLS}/${user.schoolId}/${COLLECTIONS.CLASSES}`)).catch(() => ({ size: 0 })),
+        ]);
+        schoolStats = {
+          teachersCount: teachersSnap.size,
+          studentsCount: studentsSnap.size,
+          classesCount: classesSnap.size,
+        };
       }
-    } else if (user.role === "student") {
-      const q = query(
-        collection(db, `${COLLECTIONS.SCHOOLS}/${user.schoolId}/${COLLECTIONS.STUDENTS}`),
-        where("userId", "==", user.uid)
-      );
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        academicProfile = { id: snap.docs[0].id, ...snap.docs[0].data() };
-      }
-    } else if (user.role === "school_admin") {
-      const [teachersSnap, studentsSnap, classesSnap] = await Promise.all([
-        getDocs(collection(db, `${COLLECTIONS.SCHOOLS}/${user.schoolId}/${COLLECTIONS.TEACHERS}`)),
-        getDocs(collection(db, `${COLLECTIONS.SCHOOLS}/${user.schoolId}/${COLLECTIONS.STUDENTS}`)),
-        getDocs(collection(db, `${COLLECTIONS.SCHOOLS}/${user.schoolId}/${COLLECTIONS.CLASSES}`)),
-      ]);
-      schoolStats = {
-        teachersCount: teachersSnap.size,
-        studentsCount: studentsSnap.size,
-        classesCount: classesSnap.size,
-      };
+    } catch (e) {
+      console.warn("Could not fetch academic profile or school stats:", e);
     }
   }
 
-  const [loginLogsSnap, auditLogsSnap, activityLogsSnap] = await Promise.all([
-    getDocs(
-      query(
-        collection(db, AUDIT_COLLECTIONS.LOGIN_LOGS),
-        where("uid", "==", user.uid),
+  // Resilient query helper that doesn't crash on missing composite indexes
+  const fetchSafeLogs = async (collName: string, field: string, value: string, count: number) => {
+    try {
+      const q = query(
+        collection(db, collName),
+        where(field, "==", value),
         orderBy("timestamp", "desc"),
-        firestoreLimit(15)
-      )
-    ),
-    getDocs(
-      query(
-        collection(db, AUDIT_COLLECTIONS.AUDIT_LOGS),
-        where("targetUserId", "==", user.uid),
-        orderBy("timestamp", "desc"),
-        firestoreLimit(15)
-      )
-    ),
-    getDocs(
-      query(
-        collection(db, AUDIT_COLLECTIONS.ACTIVITY_LOGS),
-        where("userId", "==", user.uid),
-        orderBy("timestamp", "desc"),
-        firestoreLimit(20)
-      )
-    ),
-  ]);
+        firestoreLimit(count)
+      );
+      return await getDocs(q);
+    } catch (err) {
+      // Fallback: Query by field filter without orderBy, sort in JavaScript memory
+      try {
+        const fallbackQ = query(
+          collection(db, collName),
+          where(field, "==", value),
+          firestoreLimit(count * 2)
+        );
+        return await getDocs(fallbackQ);
+      } catch (fallbackErr) {
+        console.warn(`Safe log fetch notice for ${collName}:`, fallbackErr);
+        return { docs: [] } as any;
+      }
+    }
+  };
 
-  const loginLogs = loginLogsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as LoginLogEntry[];
-  const auditLogs = auditLogsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as AuditLogEntry[];
-  const activityLogs = activityLogsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as ActivityLogEntry[];
+  let loginLogsSnap: any = { docs: [] };
+  let auditLogsSnap: any = { docs: [] };
+  let activityLogsSnap: any = { docs: [] };
+
+  try {
+    [loginLogsSnap, auditLogsSnap, activityLogsSnap] = await Promise.all([
+      fetchSafeLogs(AUDIT_COLLECTIONS.LOGIN_LOGS, "uid", user.uid, 15),
+      fetchSafeLogs(AUDIT_COLLECTIONS.AUDIT_LOGS, "targetUserId", user.uid, 15),
+      fetchSafeLogs(AUDIT_COLLECTIONS.ACTIVITY_LOGS, "userId", user.uid, 20),
+    ]);
+  } catch (e) {
+    console.warn("Could not fetch telemetry logs:", e);
+  }
+
+  const parseLogTime = (log: any): number => {
+    const ts = log?.timestamp;
+    if (!ts) return 0;
+    if (typeof ts === "number") return ts;
+    if (ts.toMillis) return ts.toMillis();
+    if (ts.toDate) return ts.toDate().getTime();
+    if (typeof ts === "string") {
+      const parsed = Date.parse(ts);
+      return isNaN(parsed) ? 0 : parsed;
+    }
+    return 0;
+  };
+
+  const loginLogs = (loginLogsSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })) as LoginLogEntry[])
+    .sort((a, b) => parseLogTime(b) - parseLogTime(a));
+
+  const auditLogs = (auditLogsSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })) as AuditLogEntry[])
+    .sort((a, b) => parseLogTime(b) - parseLogTime(a));
+
+  const activityLogs = (activityLogsSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })) as ActivityLogEntry[])
+    .sort((a, b) => parseLogTime(b) - parseLogTime(a));
+
   const lastLogin = loginLogs.length > 0 ? (loginLogs[0] as any).timestamp : (user as any).lastLogin || null;
 
   return {
