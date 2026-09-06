@@ -151,6 +151,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       icon: <LayoutDashboard className="h-5 w-5" />,
     },
     {
+      label: "Inquiries",
+      href: "/admin/inquiries",
+      icon: <MessageSquare className="h-5 w-5 text-sky-500" />,
+    },
+    {
       label: "Teachers",
       href: "/admin/teachers",
       featureKey: "teacher_management",

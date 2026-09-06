@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAppQuery, appQueryClient } from "@/lib/cache";
 import { useDebounce } from "@/hooks/use-debounce";
 import { TableSkeleton } from "@/components/common/skeletons";
@@ -25,14 +25,27 @@ import {
   UserCheck,
   Eye,
   Archive,
+  Sparkles,
+  RotateCcw,
 } from "lucide-react";
 import { Inquiry, InquiryStatus, InquiryPriority } from "@/lib/inquiries";
 import { InquiryDetailDrawer } from "@/components/super-admin/InquiryDetailDrawer";
+import { ModernInquiryPortal2_0 } from "@/components/inquiries/ModernInquiryPortal2_0";
+import { usePortalUI } from "@/context/portal-ui-context";
 import { toast } from "sonner";
 
 export default function SuperAdminInquiriesPage() {
   const { firebaseUser, profile, loading: authLoading } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const { getPortalVersion } = usePortalUI();
+
+  const urlView = searchParams?.get("v") || searchParams?.get("view");
+  const [viewVersion, setViewVersion] = useState<"classic" | "new">(() => {
+    if (urlView === "classic" || urlView === "1") return "classic";
+    if (urlView === "new" || urlView === "2" || urlView === "2.0") return "new";
+    return getPortalVersion("superAdmin") === "classic" ? "new" : "new";
+  });
 
   // Filter & Search states
   const [search, setSearch] = useState("");
@@ -245,28 +258,52 @@ export default function SuperAdminInquiriesPage() {
 
   if (profile?.role !== "super_admin") return null;
 
+  if (viewVersion === "new") {
+    return (
+      <ModernInquiryPortal2_0
+        portalType="superAdmin"
+        onSwitchToClassic={() => setViewVersion("classic")}
+        currentVersion="new"
+      />
+    );
+  }
+
   return (
     <div className="p-4 sm:p-8 max-w-7xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white flex items-center gap-3">
-            <MessageSquare className="h-8 w-8 text-blue-600 dark:text-blue-500" />
-            Contact Inquiries & CRM
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white flex items-center gap-3">
+              <MessageSquare className="h-8 w-8 text-blue-600 dark:text-blue-500" />
+              Contact Inquiries & CRM
+            </h1>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+              Classic View
+            </span>
+          </div>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
             Manage, respond to, and track school onboarding requests and inquiries in real-time.
           </p>
         </div>
 
-        <button
-          onClick={loadInquiries}
-          disabled={loading}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 text-xs font-bold shadow-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin text-blue-600" : ""}`} />
-          <span>Refresh Data</span>
-        </button>
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => setViewVersion("new")}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+            <span>Switch to Modern 2.0 UI</span>
+          </button>
+          <button
+            onClick={loadInquiries}
+            disabled={loading}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 text-xs font-bold shadow-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin text-blue-600" : ""}`} />
+            <span>Refresh Data</span>
+          </button>
+        </div>
       </div>
 
       {/* Error Alert */}
