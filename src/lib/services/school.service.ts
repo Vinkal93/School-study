@@ -101,16 +101,34 @@ export async function createSchoolWithAdmin(
       adminUid = userCredential.user.uid;
       await signOut(secondaryAuth);
     } catch (authError: any) {
-      if (getApps().some((app) => app.name === secondaryAppName)) {
-        await deleteApp(secondaryApp);
+      if (authError.code === "auth/network-request-failed") {
+        try {
+          await new Promise((r) => setTimeout(r, 1200));
+          const retryCred = await createUserWithEmailAndPassword(
+            secondaryAuth,
+            input.adminEmail.trim().toLowerCase(),
+            input.adminPassword
+          );
+          adminUid = retryCred.user.uid;
+          await signOut(secondaryAuth);
+        } catch (retryErr: any) {
+          if (getApps().some((app) => app.name === secondaryAppName)) {
+            await deleteApp(secondaryApp);
+          }
+          throw new Error("Network connection issue with Firebase authentication. Please verify your internet connection and try again.");
+        }
+      } else {
+        if (getApps().some((app) => app.name === secondaryAppName)) {
+          await deleteApp(secondaryApp);
+        }
+        if (authError.code === "auth/email-already-in-use") {
+          throw new Error(`Email "${input.adminEmail}" is already registered.`);
+        }
+        if (authError.code === "auth/weak-password") {
+          throw new Error("Password should be at least 6 characters.");
+        }
+        throw new Error(authError.message || "Failed to create admin user account.");
       }
-      if (authError.code === "auth/email-already-in-use") {
-        throw new Error(`Email "${input.adminEmail}" is already registered.`);
-      }
-      if (authError.code === "auth/weak-password") {
-        throw new Error("Password should be at least 6 characters.");
-      }
-      throw new Error(authError.message || "Failed to create admin user account.");
     } finally {
       if (getApps().some((app) => app.name === secondaryAppName)) {
         await deleteApp(secondaryApp);
@@ -132,7 +150,19 @@ export async function createSchoolWithAdmin(
       );
       adminUid = userCredential.user.uid;
     } catch (authError: any) {
-      if (authError.code === "auth/email-already-in-use") {
+      if (authError.code === "auth/network-request-failed") {
+        try {
+          await new Promise((r) => setTimeout(r, 1200));
+          const retryCred = await createUserWithEmailAndPassword(
+            primaryAuth,
+            input.adminEmail.trim().toLowerCase(),
+            input.adminPassword
+          );
+          adminUid = retryCred.user.uid;
+        } catch (retryErr: any) {
+          throw new Error("Network connection issue with Firebase authentication. Please verify your internet connection and try again.");
+        }
+      } else if (authError.code === "auth/email-already-in-use") {
         try {
           const cred = await signInWithEmailAndPassword(
             primaryAuth,
