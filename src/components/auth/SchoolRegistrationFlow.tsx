@@ -113,7 +113,13 @@ export function SchoolRegistrationFlow() {
       router.push(redirectUrl);
     } catch (err: any) {
       console.error("Registration failed:", err);
-      toast.error(err?.message || "Failed to register school. Please try again.");
+      let errorMsg = err?.message || "Failed to register school. Please try again.";
+      if (errorMsg.includes("already registered")) {
+        errorMsg = "This email is already registered. Please sign in or use a different email.";
+      } else if (errorMsg.includes("Missing or insufficient permissions") || errorMsg.includes("permission-denied")) {
+        errorMsg = "Account setup permission error. If this email was used in a previous attempt, please choose a different email or sign in.";
+      }
+      toast.error(errorMsg);
     } finally {
       setIsLoading(false);
     }

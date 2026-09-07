@@ -41,45 +41,31 @@ export async function uploadSchoolLogo(
 export async function createSchoolWithAdmin(
   input: CreateSchoolInput
 ): Promise<{ schoolId: string; adminUid: string }> {
-  // 1. Attempt Server-Authoritative Registration
-  try {
-    const res = await fetch("/api/school/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (res.ok && data.success && data.schoolId && data.adminUid) {
-      return { schoolId: data.schoolId, adminUid: data.adminUid };
-    }
-    if (!res.ok && data.error && !data.fallbackToClient) {
-      throw new Error(data.error);
-    }
-  } catch (apiErr: any) {
-    if (apiErr?.message && !apiErr.message.includes("fetch")) {
-      throw apiErr;
+  // 1. Attempt Server-Authoritative Registration (in browser)
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/school/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success && data.schoolId && data.adminUid) {
+        return { schoolId: data.schoolId, adminUid: data.adminUid };
+      }
+      if (!res.ok && data.error && !data.fallbackToClient) {
+        throw new Error(data.error);
+      }
+    } catch (apiErr: any) {
+      if (apiErr?.message && !apiErr.message.includes("fetch") && !apiErr.message.includes("URL")) {
+        throw apiErr;
+      }
     }
   }
 
   // 2. Client-Side Resilient Fallback
   const db = getFirebaseDb();
   const upperCode = input.code.trim().toUpperCase();
-
-  // Verify school code is unique
-  try {
-    const codeQuery = query(
-      collection(db, COLLECTIONS.SCHOOLS),
-      where("code", "==", upperCode)
-    );
-    const codeSnapshot = await getDocs(codeQuery);
-    if (!codeSnapshot.empty) {
-      throw new Error(`School code "${upperCode}" is already in use.`);
-    }
-  } catch (codeErr: any) {
-    if (codeErr?.message?.includes("already in use")) {
-      throw codeErr;
-    }
-  }
 
   const primaryAuth = getFirebaseAuth();
   const currentLoggedInUser = primaryAuth?.currentUser;
@@ -170,7 +156,19 @@ export async function createSchoolWithAdmin(
             input.adminPassword
           );
           adminUid = cred.user.uid;
+
+          // Check if this account is already registered with a school in Firestore
+          const existingUserSnap = await getDoc(doc(db, COLLECTIONS.USERS, adminUid));
+          if (existingUserSnap.exists()) {
+            const existingData = existingUserSnap.data();
+            if (existingData?.schoolId) {
+              throw new Error(`Email "${input.adminEmail}" is already registered to a school. Please log in at the login page.`);
+            }
+          }
         } catch (signInErr: any) {
+          if (signInErr?.message?.includes("already registered to a school")) {
+            throw signInErr;
+          }
           throw new Error(`Email "${input.adminEmail}" is already registered. Please sign in or use a different email.`);
         }
       } else if (authError.code === "auth/weak-password") {
@@ -181,10 +179,42 @@ export async function createSchoolWithAdmin(
     }
   }
 
-  // 3. Create School document in Firestore
+  // 3. Verify school code uniqueness with authenticated session
+  try {
+    const codeQuery = query(
+      collection(db, COLLECTIONS.SCHOOLS),
+      where("code", "==", upperCode)
+    );
+    const codeSnapshot = await getDocs(codeQuery);
+    if (!codeSnapshot.empty) {
+      throw new Error(`School code "${upperCode}" is already in use.`);
+    }
+  } catch (codeErr: any) {
+    if (codeErr?.message?.includes("already in use")) {
+      throw codeErr;
+    }
+  }
+
+  // 4. Generate school ID
   const schoolDocRef = doc(collection(db, COLLECTIONS.SCHOOLS));
   const schoolId = schoolDocRef.id;
 
+  // 4. Create User document FIRST in users/{adminUid}
+  // Writing users/{adminUid} FIRST gives this user the school_admin role and schoolId in Firestore.
+  // This satisfies the isSchoolAdmin(schoolId) security rule check when writing the school document next.
+  const userDocRef = doc(db, COLLECTIONS.USERS, adminUid);
+  await setDoc(userDocRef, {
+    uid: adminUid,
+    name: input.adminName.trim(),
+    email: input.adminEmail.trim().toLowerCase(),
+    role: "school_admin",
+    schoolId,
+    status: "active",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  // 5. Create School document in Firestore
   const schoolData = {
     id: schoolId,
     name: input.name.trim(),
@@ -206,19 +236,6 @@ export async function createSchoolWithAdmin(
   };
 
   await setDoc(schoolDocRef, schoolData);
-
-  // 4. Create User document for Admin in users/{adminUid}
-  const userDocRef = doc(db, COLLECTIONS.USERS, adminUid);
-  await setDoc(userDocRef, {
-    uid: adminUid,
-    name: input.adminName.trim(),
-    email: input.adminEmail.trim().toLowerCase(),
-    role: "school_admin",
-    schoolId,
-    status: "active",
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
 
   // 5. Authoritative default subscription document
   const now = new Date();
