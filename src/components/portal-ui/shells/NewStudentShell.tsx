@@ -6,6 +6,7 @@ import { DashboardHeader } from "@/components/student/header/DashboardHeader";
 import { MobileBottomNavigation } from "@/components/student/navigation/MobileBottomNavigation";
 import { StudentHeaderProvider } from "@/context/student-header-context";
 import { StudentHeaderData, StudentNotificationData } from "@/components/student/header/types";
+import { StudentNavDrawer } from "@/components/student/navigation/StudentNavDrawer";
 import { Sparkles } from "lucide-react";
 
 /**
@@ -67,7 +68,7 @@ export function NewStudentShell({ children }: { children: React.ReactNode }) {
           />
 
           {/* MAIN SCROLLABLE CONTENT */}
-          <main className="flex-1 w-full px-3.5 sm:px-5 py-4 overflow-y-auto overflow-x-hidden space-y-5 pb-24 sm:pb-28 focus:outline-none">
+          <main className="flex-1 w-full px-4 sm:px-6 py-4 overflow-y-auto overflow-x-hidden space-y-5 pb-28 sm:pb-32 focus:outline-none">
             {children}
           </main>
 
@@ -75,6 +76,9 @@ export function NewStudentShell({ children }: { children: React.ReactNode }) {
           <MobileBottomNavigation
             unreadNotificationCount={notificationsData.unreadCount}
           />
+
+          {/* ACCESSIBLE SLIDE-OVER NAVIGATION DRAWER */}
+          <StudentNavDrawer />
         </div>
       </div>
     </StudentHeaderProvider>

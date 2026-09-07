@@ -9,7 +9,7 @@ import { PortalKey, PortalUIVersion } from "@/types/portal-ui";
 import { createBillingAuditLog } from "@/lib/billing/audit";
 
 const VALID_PORTAL_KEYS: PortalKey[] = ["schoolAdmin", "teacher", "student", "superAdmin", "landingPage"];
-const VALID_VERSIONS: PortalUIVersion[] = ["classic", "new"];
+const VALID_VERSIONS: PortalUIVersion[] = ["classic", "new", "liquid_glass"];
 
 export async function GET(request: Request) {
   const auth = await requireSuperAdmin(request);
@@ -71,7 +71,11 @@ export async function POST(request: Request) {
     }
 
     const normalizedVersion: PortalUIVersion =
-      version === "modern" || version === "new" ? "new" : "classic";
+      version === "liquid_glass" || version === "liquid"
+        ? "liquid_glass"
+        : version === "modern" || version === "new"
+        ? "new"
+        : "classic";
 
     if (!VALID_VERSIONS.includes(normalizedVersion)) {
       return NextResponse.json(
@@ -106,9 +110,16 @@ export async function POST(request: Request) {
 
     const updatedSettings = await getPortalUISettings();
 
+    const versionDisplayName =
+      normalizedVersion === "liquid_glass"
+        ? "Liquid Glass UI"
+        : normalizedVersion === "new"
+        ? "Modern UI 2.0"
+        : "Classic";
+
     return NextResponse.json({
       success: true,
-      message: `Successfully switched ${portal} to ${normalizedVersion === "new" ? "Modern UI 2.0" : "Classic"}.`,
+      message: `Successfully switched ${portal} to ${versionDisplayName}.`,
       settings: updatedSettings,
     });
   } catch (error: any) {

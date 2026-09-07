@@ -21,6 +21,12 @@ const PORTAL_UI_DOC = "portalUI";
  * Subscribes to real-time Portal UI/UX settings from Firestore.
  * If document does not exist, automatically falls back to default ("classic").
  */
+function normalizePortalVersion(val: any): PortalUIVersion {
+  if (val === "liquid_glass" || val === "liquid") return "liquid_glass";
+  if (val === "new" || val === "modern") return "new";
+  return "classic";
+}
+
 export function subscribeToPortalUISettings(
   callback: (settings: PortalUISettings) => void
 ): () => void {
@@ -39,11 +45,11 @@ export function subscribeToPortalUISettings(
         if (snapshot.exists()) {
           const data = snapshot.data();
           const settings: PortalUISettings = {
-            schoolAdmin: data.schoolAdmin === "new" ? "new" : "classic",
-            teacher: data.teacher === "new" ? "new" : "classic",
-            student: data.student === "new" ? "new" : "classic",
-            superAdmin: data.superAdmin === "new" ? "new" : "classic",
-            landingPage: data.landingPage === "new" ? "new" : "classic",
+            schoolAdmin: normalizePortalVersion(data.schoolAdmin),
+            teacher: normalizePortalVersion(data.teacher),
+            student: normalizePortalVersion(data.student),
+            superAdmin: normalizePortalVersion(data.superAdmin),
+            landingPage: normalizePortalVersion(data.landingPage),
             updatedAt: data.updatedAt || null,
             updatedByUid: data.updatedByUid || "",
             updatedByName: data.updatedByName || "",
@@ -81,11 +87,11 @@ export async function getPortalUISettings(): Promise<PortalUISettings> {
     if (snap.exists()) {
       const data = snap.data();
       return {
-        schoolAdmin: data.schoolAdmin === "new" ? "new" : "classic",
-        teacher: data.teacher === "new" ? "new" : "classic",
-        student: data.student === "new" ? "new" : "classic",
-        superAdmin: data.superAdmin === "new" ? "new" : "classic",
-        landingPage: data.landingPage === "new" ? "new" : "classic",
+        schoolAdmin: normalizePortalVersion(data.schoolAdmin),
+        teacher: normalizePortalVersion(data.teacher),
+        student: normalizePortalVersion(data.student),
+        superAdmin: normalizePortalVersion(data.superAdmin),
+        landingPage: normalizePortalVersion(data.landingPage),
         updatedAt: data.updatedAt || null,
         updatedByUid: data.updatedByUid || "",
         updatedByName: data.updatedByName || "",

@@ -5,7 +5,7 @@
  * and "new" (Modern UI 2.0) across all 4 portal tiers.
  */
 
-export type PortalUIVersion = "classic" | "new";
+export type PortalUIVersion = "classic" | "new" | "liquid_glass";
 
 export type PortalKey = "schoolAdmin" | "teacher" | "student" | "superAdmin" | "landingPage";
 

@@ -75,7 +75,7 @@ export interface BrandingSettings {
 }
 
 export interface LandingSettings {
-  landingVersion: "classic" | "modern";
+  landingVersion: "classic" | "modern" | "liquid_glass";
   heroBadge: string;
   heroHeadline: string;
   heroSubheadline: string;

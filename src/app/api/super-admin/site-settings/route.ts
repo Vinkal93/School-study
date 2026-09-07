@@ -106,7 +106,12 @@ export async function POST(request: Request) {
     // Synchronize Landing Page version if provided
     if (sanitizedSettings.landing?.landingVersion) {
       try {
-        const portalVersion = sanitizedSettings.landing.landingVersion === "modern" ? "new" : "classic";
+        const portalVersion =
+          sanitizedSettings.landing.landingVersion === "liquid_glass"
+            ? "liquid_glass"
+            : sanitizedSettings.landing.landingVersion === "modern"
+            ? "new"
+            : "classic";
         await updatePortalUIVersion(
           "landingPage",
           portalVersion,

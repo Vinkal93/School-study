@@ -6,6 +6,7 @@ import { DashboardHeader } from "./header/DashboardHeader";
 import { MobileBottomNavigation } from "./navigation/MobileBottomNavigation";
 import { StudentHeaderProvider } from "@/context/student-header-context";
 import { StudentHeaderData, StudentNotificationData } from "./header/types";
+import { StudentNavDrawer } from "./navigation/StudentNavDrawer";
 
 export function StudentShell({ children }: { children: React.ReactNode }) {
   const { profile, firebaseUser } = useAuth();
@@ -45,7 +46,7 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
           />
 
           {/* MAIN CONTENT AREA */}
-          <main className="flex-1 w-full px-3.5 sm:px-5 py-4 overflow-y-auto overflow-x-hidden space-y-5 pb-24 sm:pb-28 focus:outline-none">
+          <main className="flex-1 w-full px-4 sm:px-6 py-4 overflow-y-auto overflow-x-hidden space-y-5 pb-28 sm:pb-32 focus:outline-none">
             {children}
           </main>
 
@@ -53,6 +54,9 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
           <MobileBottomNavigation
             unreadNotificationCount={notificationsData.unreadCount}
           />
+
+          {/* ACCESSIBLE SLIDE-OVER NAVIGATION DRAWER */}
+          <StudentNavDrawer />
         </div>
       </div>
     </StudentHeaderProvider>

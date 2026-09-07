@@ -110,10 +110,17 @@ export async function POST(
       }
     }
 
-    if (!performer || performer.role !== "super_admin" || performer.status !== "active") {
-      // Final resilience check: if performerUid matches known super admin session
+    if (!performer) {
+      return NextResponse.json(
+        { error: "Unauthorized. Active Super Admin permission required." },
+        { status: 403 }
+      );
+    }
+
+    if (performer.role !== "super_admin" || performer.status !== "active") {
+      // Final resilience check: if performer matches known super admin session
       const { isSuperAdminEmail } = await import("@/lib/services/user.service");
-      if (!isSuperAdminEmail(performer?.email)) {
+      if (!isSuperAdminEmail(performer.email)) {
         return NextResponse.json(
           { error: "Unauthorized. Active Super Admin permission required." },
           { status: 403 }

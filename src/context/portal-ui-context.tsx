@@ -28,6 +28,8 @@ interface PortalUIContextType {
   activePortal: PortalKey;
   currentVersion: PortalUIVersion;
   isNewUI: boolean;
+  isLiquidGlassUI: boolean;
+  isClassicUI: boolean;
   loading: boolean;
   getPortalVersion: (portal: PortalKey) => PortalUIVersion;
   setPortalVersion: (portal: PortalKey, version: PortalUIVersion) => Promise<void>;
@@ -72,6 +74,8 @@ export function PortalUIProvider({ children }: { children: ReactNode }) {
   }, [settings, activePortal]);
 
   const isNewUI = currentVersion === "new";
+  const isLiquidGlassUI = currentVersion === "liquid_glass";
+  const isClassicUI = currentVersion === "classic";
 
   const getPortalVersion = useCallback(
     (portal: PortalKey): PortalUIVersion => {
@@ -152,6 +156,8 @@ export function PortalUIProvider({ children }: { children: ReactNode }) {
         activePortal,
         currentVersion,
         isNewUI,
+        isLiquidGlassUI,
+        isClassicUI,
         loading,
         getPortalVersion,
         setPortalVersion,
@@ -175,6 +181,8 @@ export function usePortalUI() {
       activePortal: "schoolAdmin" as PortalKey,
       currentVersion: "classic" as PortalUIVersion,
       isNewUI: false,
+      isLiquidGlassUI: false,
+      isClassicUI: true,
       loading: false,
       getPortalVersion: () => "classic" as PortalUIVersion,
       setPortalVersion: async () => {},

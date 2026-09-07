@@ -6,6 +6,7 @@ import { EntitlementProvider } from "@/context/EntitlementContext";
 import { PortalUIProvider, usePortalUI } from "@/context/portal-ui-context";
 import { ClassicDashboardShell } from "@/components/portal-ui/shells/ClassicDashboardShell";
 import { NewDashboardShell } from "@/components/portal-ui/shells/NewDashboardShell";
+import { LiquidGlassDashboardShell } from "@/components/portal-ui/shells/LiquidGlassDashboardShell";
 import { PortalUIErrorBoundary } from "@/components/portal-ui/PortalUIErrorBoundary";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -13,7 +14,18 @@ import { getRedirectByRole, isRoleAllowedForPath } from "@/lib/utils/redirect-by
 import { Spinner } from "@/components/common/Spinner";
 
 function DashboardShellSwitch({ children }: { children: React.ReactNode }) {
-  const { isNewUI, activePortal } = usePortalUI();
+  const { isNewUI, isLiquidGlassUI, activePortal } = usePortalUI();
+
+  if (isLiquidGlassUI) {
+    return (
+      <PortalUIErrorBoundary
+        fallback={<ClassicDashboardShell>{children}</ClassicDashboardShell>}
+        portalName={`${activePortal} (Liquid Glass)`}
+      >
+        <LiquidGlassDashboardShell>{children}</LiquidGlassDashboardShell>
+      </PortalUIErrorBoundary>
+    );
+  }
 
   if (isNewUI) {
     return (

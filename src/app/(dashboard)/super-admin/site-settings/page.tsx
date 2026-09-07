@@ -691,7 +691,7 @@ export default function SuperAdminSiteSettingsPage() {
               Select which landing design version is served at root domain (<code className="font-mono font-bold">/</code>). The Classic Footer remains authoritative.
             </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
               <div
                 onClick={() =>
                   setSettings({
@@ -706,7 +706,7 @@ export default function SuperAdminSiteSettingsPage() {
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-extrabold text-sm">Classic Landing (Authoritative)</span>
+                  <span className="font-extrabold text-sm">Classic Landing</span>
                   {settings.landing?.landingVersion === "classic" && <Check className="h-4 w-4 text-blue-600" />}
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
@@ -733,6 +733,31 @@ export default function SuperAdminSiteSettingsPage() {
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                   Modern design presentation with Bento cards and quick lead registration modal.
+                </p>
+              </div>
+
+              <div
+                onClick={() =>
+                  setSettings({
+                    ...settings,
+                    landing: { ...settings.landing, landingVersion: "liquid_glass" },
+                  })
+                }
+                className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${
+                  settings.landing?.landingVersion === "liquid_glass"
+                    ? "border-cyan-500 bg-cyan-50/70 dark:bg-cyan-950/40 text-cyan-950 dark:text-cyan-100 ring-1 ring-cyan-400"
+                    : "border-slate-200 dark:border-slate-800 hover:border-slate-300 bg-white dark:bg-slate-900"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-sm flex items-center gap-1.5">
+                    <span>Liquid Glass</span>
+                    <span className="text-xs">💧</span>
+                  </span>
+                  {settings.landing?.landingVersion === "liquid_glass" && <Check className="h-4 w-4 text-cyan-600" />}
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Ultra-sleek liquid glassmorphism, glowing orbs, frosted translucent cards and Apple iOS styling.
                 </p>
               </div>
             </div>

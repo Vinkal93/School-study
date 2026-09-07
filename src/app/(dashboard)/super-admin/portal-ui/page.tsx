@@ -24,6 +24,7 @@ import {
   ArrowRight,
   ExternalLink,
   Globe,
+  Droplets,
 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -71,15 +72,19 @@ export default function PortalUIVersionPage() {
     });
   };
 
+  const getVersionLabel = (v: PortalUIVersion) => {
+    if (v === "liquid_glass") return "Liquid Glass UI";
+    if (v === "new") return "Modern UI 2.0";
+    return "Classic";
+  };
+
   const handleConfirmSwitch = async () => {
     if (!confirmModal) return;
     setSaving(true);
     try {
       await setPortalVersion(confirmModal.portalKey, confirmModal.toVersion);
       toast.success(
-        `Successfully switched ${confirmModal.portalLabel} to ${
-          confirmModal.toVersion === "new" ? "Modern UI 2.0" : "Classic"
-        } in real-time!`
+        `Successfully switched ${confirmModal.portalLabel} to ${getVersionLabel(confirmModal.toVersion)} in real-time!`
       );
       setConfirmModal(null);
     } catch (err: any) {
@@ -153,12 +158,16 @@ export default function PortalUIVersionPage() {
         {PORTAL_LIST.map((portal) => {
           const currentVer = settings[portal.key];
           const isNew = currentVer === "new";
+          const isLiquid = currentVer === "liquid_glass";
+          const isClassic = currentVer === "classic" || (!isNew && !isLiquid);
 
           return (
             <div
               key={portal.key}
-              className={`rounded-3xl border transition-all duration-200 p-6 flex flex-col justify-between gap-5 relative overflow-hidden bg-white dark:bg-slate-900 shadow-sm ${
-                isNew
+              className={`rounded-3xl border transition-all duration-300 p-6 flex flex-col justify-between gap-5 relative overflow-hidden bg-white dark:bg-slate-900 shadow-sm ${
+                isLiquid
+                  ? "border-cyan-400/80 dark:border-cyan-600/60 ring-2 ring-cyan-500/20 bg-gradient-to-br from-cyan-50/40 via-white to-blue-50/30 dark:from-cyan-950/20 dark:via-slate-900 dark:to-blue-950/20 backdrop-blur-md"
+                  : isNew
                   ? "border-indigo-300 dark:border-indigo-800 ring-1 ring-indigo-500/20"
                   : "border-slate-200 dark:border-slate-800"
               }`}
@@ -182,7 +191,12 @@ export default function PortalUIVersionPage() {
 
                   {/* Active Status Badge */}
                   <div>
-                    {isNew ? (
+                    {isLiquid ? (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-gradient-to-r from-cyan-500 via-sky-500 to-indigo-600 text-white shadow-xs">
+                        <Droplets className="h-3 w-3 animate-pulse text-cyan-200" />
+                        Liquid Glass
+                      </span>
+                    ) : isNew ? (
                       <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-xs">
                         <Sparkles className="h-3 w-3" />
                         Modern UI 2.0
@@ -201,36 +215,49 @@ export default function PortalUIVersionPage() {
                 </p>
               </div>
 
-              {/* Version Selector Buttons */}
+              {/* Version Selector Buttons - 3 Options: Classic, Modern 2.0, Liquid Glass */}
               <div className="space-y-3 pt-2">
                 <label className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider block">
                   Select Active Presentation Shell
                 </label>
-                <div className="grid grid-cols-2 gap-2.5 p-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
+                <div className="grid grid-cols-3 gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
                   <button
                     type="button"
                     onClick={() => handleSelectVersion(portal, "classic")}
-                    className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
-                      !isNew
+                    className={`py-2 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 text-center ${
+                      isClassic
                         ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm font-black"
                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                     }`}
                   >
-                    {!isNew && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />}
-                    <span>Classic UI</span>
+                    {isClassic && <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />}
+                    <span className="truncate">Classic</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleSelectVersion(portal, "new")}
-                    className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                    className={`py-2 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 text-center ${
                       isNew
                         ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm font-black"
                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                     }`}
                   >
-                    {isNew && <Sparkles className="h-3.5 w-3.5 text-amber-300" />}
-                    <span>Modern UI 2.0</span>
+                    {isNew && <Sparkles className="h-3 w-3 text-amber-300 shrink-0" />}
+                    <span className="truncate">Modern 2.0</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSelectVersion(portal, "liquid_glass")}
+                    className={`py-2 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 text-center ${
+                      isLiquid
+                        ? "bg-gradient-to-r from-cyan-500 via-sky-500 to-indigo-600 text-white shadow-sm font-black shadow-cyan-500/20"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                    }`}
+                  >
+                    {isLiquid && <Droplets className="h-3 w-3 text-cyan-200 shrink-0" />}
+                    <span className="truncate">Liquid Glass</span>
                   </button>
                 </div>
               </div>
@@ -293,10 +320,16 @@ export default function PortalUIVersionPage() {
                     </td>
                     <td className="py-3 px-3">
                       <span className="inline-flex items-center gap-1 font-semibold">
-                        <span className="capitalize">{item.from}</span>
+                        <span className="capitalize">{getVersionLabel(item.from)}</span>
                         <ArrowRight className="h-3 w-3 text-slate-400" />
-                        <span className={`capitalize font-bold ${item.to === "new" ? "text-indigo-600 dark:text-indigo-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                          {item.to === "new" ? "Modern 2.0" : "Classic"}
+                        <span className={`capitalize font-bold ${
+                          item.to === "liquid_glass"
+                            ? "text-cyan-600 dark:text-cyan-400"
+                            : item.to === "new"
+                            ? "text-indigo-600 dark:text-indigo-400"
+                            : "text-emerald-600 dark:text-emerald-400"
+                        }`}>
+                          {getVersionLabel(item.to)}
                         </span>
                       </span>
                     </td>
@@ -331,9 +364,9 @@ export default function PortalUIVersionPage() {
 
             <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
               Are you sure you want to switch the <strong className="text-slate-900 dark:text-white">{confirmModal.portalLabel}</strong> from{" "}
-              <strong className="capitalize">{confirmModal.fromVersion === "new" ? "Modern UI 2.0" : "Classic"}</strong> to{" "}
-              <strong className="text-indigo-600 dark:text-indigo-400 capitalize">
-                {confirmModal.toVersion === "new" ? "Modern UI 2.0" : "Classic"}
+              <strong>{getVersionLabel(confirmModal.fromVersion)}</strong> to{" "}
+              <strong className="text-cyan-600 dark:text-cyan-400">
+                {getVersionLabel(confirmModal.toVersion)}
               </strong>?
             </p>
 
