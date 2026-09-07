@@ -37,6 +37,7 @@ const testSuites = [
   { name: "Portal UI/UX Version Control & Switching", file: "scripts/test-portal-ui-version-control.mjs" },
   { name: "Platform Settings & Security Policies", file: "scripts/test-platform-settings-security.mjs" },
   { name: "Strict Auth Pipeline, Complaints & Help Center", file: "scripts/test-auth-pipeline-complaint-help.mjs" },
+  { name: "Security Command Center (Red + Blue Team)", file: "scripts/test-security-command-center.ts" },
 ];
 
 console.log("==================================================");

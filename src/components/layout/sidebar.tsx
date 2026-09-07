@@ -139,6 +139,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       icon: <ShieldAlert className="h-5 w-5 text-red-500" />,
     },
     {
+      label: "Security Command",
+      href: "/super-admin/security-center",
+      icon: <ShieldCheck className="h-5 w-5 text-rose-500" />,
+    },
+    {
       label: "Settings",
       href: "/super-admin/settings",
       icon: <Settings className="h-5 w-5" />,
