@@ -16,6 +16,7 @@ export function useRealtimeSecurityListener() {
   const userId = profile?.uid || "";
   const initialSecurityVersionRef = useRef<number | null>(null);
   const initialGlobalVersionRef = useRef<number | null>(null);
+  const mountTimeRef = useRef<number>(Date.now());
 
   useEffect(() => {
     if (!userId) return;
@@ -23,41 +24,78 @@ export function useRealtimeSecurityListener() {
     if (!db) return;
 
     // 1. Listen to User Security Control document
-    const unsubUser = onSnapshot(
+    const unsubUserSecurity = onSnapshot(
       doc(db, "userSecurityControl", userId),
       (snapshot) => {
         if (!snapshot.exists()) return;
         const data = snapshot.data();
-
-        if (initialSecurityVersionRef.current === null) {
-          initialSecurityVersionRef.current = data.securityVersion || 1;
-        } else if (
-          typeof data.securityVersion === "number" &&
-          data.securityVersion > initialSecurityVersionRef.current
-        ) {
-          console.warn("[RealtimeSecurity] Session security version updated. Triggering forced logout...");
-          toast.error("Your session has been invalidated by security administration. Redirecting to login...");
-
-          const auth = getFirebaseAuth();
-          if (auth) auth.signOut();
-
-          setTimeout(() => {
-            window.location.href = "/login?reason=session_revoked";
-          }, 1000);
-        }
+        const storedLoginTime = typeof window !== "undefined" ? localStorage.getItem("school_study_session_login_time") : null;
+        const loginTime = storedLoginTime ? parseInt(storedLoginTime, 10) : mountTimeRef.current;
+        const updateTime = data.updatedAt ? new Date(data.updatedAt).getTime() : 0;
 
         if (data.status === "SUSPENDED" || data.status === "BLOCKED") {
-          toast.error("Your account has been suspended by administration.");
+          toast.error("Your account has been suspended or blocked by administration.");
           const auth = getFirebaseAuth();
           if (auth) auth.signOut();
           setTimeout(() => {
             window.location.href = "/login?reason=account_suspended";
-          }, 1000);
+          }, 800);
+          return;
+        }
+
+        if (initialSecurityVersionRef.current === null) {
+          // If document was updated AFTER current login with requireReLogin = true
+          if (data.requireReLogin === true && updateTime >= loginTime) {
+            console.warn("[RealtimeSecurity] requireReLogin active on login state. Forcing logout...");
+            toast.error("Your session has been terminated by administrator. Redirecting to login...");
+            const auth = getFirebaseAuth();
+            if (auth) auth.signOut();
+            setTimeout(() => {
+              window.location.href = "/login?reason=session_revoked";
+            }, 800);
+            return;
+          }
+          initialSecurityVersionRef.current = data.securityVersion || 1;
+        } else {
+          const versionBumped = typeof data.securityVersion === "number" && data.securityVersion > initialSecurityVersionRef.current;
+          const reLoginRequired = data.requireReLogin === true && updateTime >= mountTimeRef.current;
+
+          if (versionBumped || reLoginRequired) {
+            console.warn("[RealtimeSecurity] Security version bumped or re-login required. Forcing logout...");
+            toast.error("Your session has been terminated by administrator. Redirecting to login...");
+            const auth = getFirebaseAuth();
+            if (auth) auth.signOut();
+            setTimeout(() => {
+              window.location.href = "/login?reason=session_revoked";
+            }, 800);
+          }
         }
       },
       (err) => {
         if (err.code !== "permission-denied") {
           console.warn("Realtime user security listener notice:", err);
+        }
+      }
+    );
+
+    // 1b. Listen to User document directly for instant status change detection
+    const unsubUserDoc = onSnapshot(
+      doc(db, "users", userId),
+      (snapshot) => {
+        if (!snapshot.exists()) return;
+        const uData = snapshot.data();
+        if (uData.status === "suspended" || uData.status === "blocked" || uData.status === "disabled") {
+          toast.error("Your account has been deactivated by administration.");
+          const auth = getFirebaseAuth();
+          if (auth) auth.signOut();
+          setTimeout(() => {
+            window.location.href = "/login?reason=account_suspended";
+          }, 800);
+        }
+      },
+      (err) => {
+        if (err.code !== "permission-denied") {
+          console.warn("Realtime user document listener notice:", err);
         }
       }
     );
@@ -94,7 +132,8 @@ export function useRealtimeSecurityListener() {
     );
 
     return () => {
-      unsubUser();
+      unsubUserSecurity();
+      unsubUserDoc();
       unsubGlobal();
     };
   }, [userId, profile?.role]);

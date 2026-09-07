@@ -217,6 +217,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           );
         }
 
+        // Multi-Account Device Detection (Check if another student logged in on this browser/device)
+        let deviceFingerprint = "";
+        let isMultiAccountDevice = false;
+        let previousStudentEmail: string | undefined = undefined;
+        let previousStudentUid: string | undefined = undefined;
+
+        try {
+          if (typeof window !== "undefined") {
+            deviceFingerprint = localStorage.getItem("ss_device_fingerprint") || "";
+            if (!deviceFingerprint) {
+              deviceFingerprint = `dev_${Math.random().toString(36).substring(2, 9)}_${Date.now().toString(36)}`;
+              localStorage.setItem("ss_device_fingerprint", deviceFingerprint);
+            }
+
+            const lastStudentUid = localStorage.getItem("ss_last_student_uid");
+            const lastStudentEmail = localStorage.getItem("ss_last_student_email");
+
+            // If current user is a student, or last user was a student, check for cross-account switch
+            if (userProfile.role === "student" && lastStudentUid && lastStudentUid !== fbUser.uid) {
+              isMultiAccountDevice = true;
+              previousStudentUid = lastStudentUid;
+              previousStudentEmail = lastStudentEmail || undefined;
+            }
+
+            // Update stored student on this device
+            if (userProfile.role === "student") {
+              localStorage.setItem("ss_last_student_uid", fbUser.uid);
+              localStorage.setItem("ss_last_student_email", userProfile.email);
+            }
+          }
+        } catch (storageErr) {
+          console.warn("Device fingerprint storage notice:", storageErr);
+        }
+
         // Record successful login event
         logLoginAttempt({
           uid: fbUser.uid,
@@ -227,6 +261,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           browser,
           platform,
           deviceType,
+          deviceFingerprint,
+          isMultiAccountDevice,
+          previousStudentEmail,
+          previousStudentUid,
           status: "success",
         }).catch((e) => console.warn("Notice: Login logging notice:", e));
 

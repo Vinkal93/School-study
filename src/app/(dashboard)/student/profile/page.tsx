@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
+import { toast } from "sonner";
 import {
   User,
   GraduationCap,
@@ -15,18 +17,35 @@ import {
   ShieldCheck,
   Award,
   HeartHandshake,
+  LogOut,
 } from "lucide-react";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
 import type { StudentProfile, School } from "@/types";
 
 export default function StudentProfilePage() {
-  const { profile } = useAuth();
+  const { profile, signOut } = useAuth();
+  const router = useRouter();
+  const [loggingOut, setLoggingOut] = useState(false);
   const schoolId = profile?.schoolId || "";
 
   const [student, setStudent] = useState<StudentProfile | null>(null);
   const [school, setSchool] = useState<School | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const handleSignOut = async () => {
+    setLoggingOut(true);
+    try {
+      await signOut();
+      toast.success("Logged out successfully");
+      router.push("/student/login");
+    } catch (err) {
+      console.error("Profile logout error:", err);
+      toast.error("Failed to log out. Please try again.");
+    } finally {
+      setLoggingOut(false);
+    }
+  };
 
   useEffect(() => {
     async function loadProfile() {
@@ -284,6 +303,23 @@ export default function StudentProfilePage() {
               </a>
             </div>
           </div>
+        </div>
+
+        {/* Section 4: Account Actions & Sign Out */}
+        <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80">
+          <button
+            type="button"
+            onClick={handleSignOut}
+            disabled={loggingOut}
+            className="w-full flex items-center justify-center gap-2.5 py-3.5 px-4 rounded-2xl bg-red-50 hover:bg-red-100/80 dark:bg-red-950/40 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 font-bold text-sm transition-all active:scale-[0.99] cursor-pointer disabled:opacity-50 border border-red-200/50 dark:border-red-900/40 shadow-sm"
+          >
+            {loggingOut ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <LogOut className="h-4 w-4" />
+            )}
+            <span>{loggingOut ? "Signing Out of Account..." : "Log Out of Student Account"}</span>
+          </button>
         </div>
       </div>
     </div>

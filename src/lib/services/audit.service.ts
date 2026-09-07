@@ -111,6 +111,10 @@ export async function logLoginAttempt(
         browser: entry.browser || "Unknown",
         platform: entry.platform || "Unknown",
         deviceType: entry.deviceType || "desktop",
+        deviceFingerprint: entry.deviceFingerprint || null,
+        isMultiAccountDevice: Boolean(entry.isMultiAccountDevice),
+        previousStudentEmail: entry.previousStudentEmail || null,
+        previousStudentUid: entry.previousStudentUid || null,
         status: "active",
         startedAt: serverTimestamp(),
         lastActiveAt: serverTimestamp(),
@@ -119,6 +123,35 @@ export async function logLoginAttempt(
           console.warn("Notice: Active session creation notice:", e);
         }
       });
+
+      // 1b. If multi-account device sharing is detected, record high-priority Security Alert in audit_logs
+      if (entry.isMultiAccountDevice) {
+        await addDoc(collection(db, AUDIT_COLLECTIONS.AUDIT_LOGS), {
+          action: "MULTI_ACCOUNT_DEVICE_LOGIN",
+          targetId: entry.uid,
+          targetType: "user",
+          targetName: entry.email,
+          targetEmail: entry.email,
+          schoolId: entry.schoolId || null,
+          performedBy: {
+            uid: entry.uid,
+            name: entry.email,
+            email: entry.email,
+            role: entry.role || "student",
+          },
+          reason: `Multi-Account Device Sharing: Account "${entry.email}" logged in on the same device where "${entry.previousStudentEmail || 'another student'}" was previously logged in.`,
+          ipAddress: entry.ipAddress || "unknown",
+          userAgent: entry.userAgent || "unknown",
+          timestamp: serverTimestamp(),
+          metadata: {
+            deviceFingerprint: entry.deviceFingerprint,
+            previousStudentEmail: entry.previousStudentEmail,
+            previousStudentUid: entry.previousStudentUid,
+            browser: entry.browser,
+            platform: entry.platform,
+          },
+        }).catch((e) => console.warn("Notice: Multi-device audit alert notice:", e));
+      }
     }
 
     // 2. If login failed, automatically record a Security Event in audit_logs

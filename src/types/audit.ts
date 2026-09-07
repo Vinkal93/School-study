@@ -91,6 +91,10 @@ export interface LoginLogEntry {
   browser?: string;
   platform?: string;
   deviceType?: "desktop" | "mobile" | "tablet" | "unknown";
+  deviceFingerprint?: string;
+  isMultiAccountDevice?: boolean;
+  previousStudentEmail?: string;
+  previousStudentUid?: string;
   timestamp: Timestamp | any;
 }
 
@@ -108,6 +112,10 @@ export interface ActiveSessionEntry {
   browser?: string;
   platform?: string;
   deviceType?: "desktop" | "mobile" | "tablet" | "unknown";
+  deviceFingerprint?: string;
+  isMultiAccountDevice?: boolean;
+  previousStudentEmail?: string;
+  previousStudentUid?: string;
   status: "active" | "revoked" | "expired";
   startedAt: Timestamp | any;
   lastActiveAt: Timestamp | any;

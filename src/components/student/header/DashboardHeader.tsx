@@ -136,6 +136,9 @@ export function DashboardHeader({
         <StudentAvatar
           fullName={studentData.fullName}
           photoUrl={studentData.photoUrl}
+          email={(studentData as any).email}
+          className={(studentData as any).className}
+          sectionName={(studentData as any).sectionName}
           onClick={onProfileClick}
         />
       </div>
