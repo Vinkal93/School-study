@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { useMobileNav } from "@/context/mobile-nav-context";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/context/theme-context";
 import {
   X,
   Home,
@@ -43,7 +43,15 @@ export function StudentNavDrawer() {
   const { profile, firebaseUser, signOut } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
-  const { theme, setTheme } = useTheme();
+  let theme = "light";
+  let setTheme: (t: "light" | "dark") => void = () => {};
+  try {
+    const themeCtx = useTheme();
+    theme = themeCtx.theme;
+    setTheme = themeCtx.setTheme;
+  } catch {
+    // Graceful fallback
+  }
 
   // Close on Escape key press
   useEffect(() => {
