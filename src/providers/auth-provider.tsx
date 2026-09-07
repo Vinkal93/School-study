@@ -131,6 +131,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setImpersonatedUser(null);
         sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
         try {
+          sessionStorage.removeItem("ss_super_admin_verified");
+          sessionStorage.removeItem("ss_super_admin_auth");
+          localStorage.removeItem("ss_super_admin_auth");
           localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
         } catch (e) {
           // ignore
@@ -307,6 +310,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
       sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
+      sessionStorage.removeItem("ss_super_admin_verified");
       sessionStorage.removeItem("ss_super_admin_auth");
       localStorage.removeItem("ss_super_admin_auth");
     } catch (e) {

@@ -20,7 +20,6 @@ import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthInput } from "@/components/auth/AuthInput";
 import { PasswordInput } from "@/components/auth/PasswordInput";
 import { AuthButton } from "@/components/auth/AuthButton";
-import { ensureSuperAdminProfile } from "@/lib/services/user.service";
 import { verifySuperAdminPin } from "@/lib/services/security-pin.service";
 import { toast } from "sonner";
 
@@ -32,26 +31,24 @@ export default function SuperAdminLoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authenticatedUid, setAuthenticatedUid] = useState<string | null>(null);
 
-  const { signIn, signOut, refreshProfile, firebaseUser } = useAuth();
+  const { signIn, signOut, firebaseUser } = useAuth();
   const router = useRouter();
 
-  // Step 1: Verify Email & Password, and auto-provision Super Admin profile
+  // Step 1: Verify Email & Password. Only existing users manually assigned super_admin in Firestore are permitted.
   const handleCredentialsSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
 
     try {
-      const profile = await signIn(email, password);
+      const profile = await signIn(email.trim().toLowerCase(), password);
 
-      // Auto-provision/ensure user has Super Admin role for manual Firebase Auth accounts
-      try {
-        sessionStorage.setItem("ss_super_admin_auth", profile.uid);
-        localStorage.setItem("ss_super_admin_auth", profile.uid);
-      } catch (e) {
-        // ignore
+      // Strict check: User MUST have role === "super_admin"
+      if (!profile || profile.role !== "super_admin") {
+        await signOut();
+        toast.error("Access denied: You do not have Super Administrator privileges.");
+        setIsSubmitting(false);
+        return;
       }
-      await ensureSuperAdminProfile(profile.uid, email);
-      await refreshProfile();
 
       setAuthenticatedUid(profile.uid);
       setStep("pin");
@@ -120,14 +117,13 @@ export default function SuperAdminLoginPage() {
       }
 
       try {
-        sessionStorage.setItem("ss_super_admin_auth", uid);
-        localStorage.setItem("ss_super_admin_auth", uid);
+        sessionStorage.setItem("ss_super_admin_verified", "true");
+        sessionStorage.removeItem("ss_super_admin_auth");
+        localStorage.removeItem("ss_super_admin_auth");
       } catch (e) {
         // ignore
       }
 
-      await ensureSuperAdminProfile(uid, userEmail);
-      await refreshProfile();
       toast.success("Security PIN verified! Welcome Super Admin!");
       window.location.href = "/super-admin";
     } catch (error: any) {
@@ -285,23 +281,14 @@ export default function SuperAdminLoginPage() {
           </>
         )}
 
-        {/* Navigation & Setup link */}
-        <div className="pt-4 border-t border-gray-100 dark:border-gray-800 text-center space-y-2">
+        {/* Navigation link */}
+        <div className="pt-4 border-t border-gray-100 dark:border-gray-800 text-center">
           <Link
-            href="/setup-super-admin"
-            className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 transition-colors"
+            href="/login"
+            className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
           >
-            <Sparkles className="h-3 w-3" />
-            First time setup? Initialize Super Admin account →
+            Back to portal selection
           </Link>
-          <div>
-            <Link
-              href="/login"
-              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-            >
-              Back to portal selection
-            </Link>
-          </div>
         </div>
       </div>
     </AuthLayout>

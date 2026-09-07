@@ -73,6 +73,13 @@ export function SchoolRegistrationFlow() {
     setIsLoading(true);
 
     try {
+      // Purge any stale super admin flags from previous sessions
+      try {
+        sessionStorage.removeItem("ss_super_admin_verified");
+        sessionStorage.removeItem("ss_super_admin_auth");
+        localStorage.removeItem("ss_super_admin_auth");
+      } catch (e) {}
+
       const code = generateSchoolCode(schoolName);
 
       // 1. Create School and Admin account in Firestore/Auth

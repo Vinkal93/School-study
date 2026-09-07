@@ -5,37 +5,16 @@ import type { AppUser, UserRole } from "@/types";
 
 export const KNOWN_SUPER_ADMIN_EMAILS = [
   "vinkal93041@gmail.com",
-  "vinkal93@gmail.com",
-  "sbci224234@gmail.com",
   "superadmin@schoolstudy.com",
-  "admin@schoolstudy.com",
 ];
 
 export function isSuperAdminEmail(email?: string | null): boolean {
   if (!email) return false;
   const normalized = email.trim().toLowerCase();
-  return (
-    KNOWN_SUPER_ADMIN_EMAILS.includes(normalized) ||
-    normalized.includes("vinkal") ||
-    normalized.includes("sbci") ||
-    normalized.includes("superadmin") ||
-    normalized.includes("super_admin") ||
-    normalized.startsWith("super.") ||
-    normalized.startsWith("super_") ||
-    normalized.startsWith("super-")
-  );
+  return KNOWN_SUPER_ADMIN_EMAILS.includes(normalized);
 }
 
-export function isSuperAdminSession(uid?: string | null): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const stored = sessionStorage.getItem("ss_super_admin_auth") || localStorage.getItem("ss_super_admin_auth");
-    if (stored && (!uid || stored === uid || stored === "true")) {
-      return true;
-    }
-  } catch (e) {
-    // ignore
-  }
+export function isSuperAdminSession(_uid?: string | null): boolean {
   return false;
 }
 
@@ -46,16 +25,12 @@ export function inferRoleFromEmail(email?: string | null): {
 } {
   const normalized = (email || "").trim().toLowerCase();
   
-  if (isSuperAdminEmail(normalized)) {
-    return { role: "super_admin", name: "Super Administrator", schoolId: "system" };
-  }
   if (normalized.includes("teacher") || normalized.includes("faculty") || normalized.includes("staff")) {
     return { role: "teacher", name: "Faculty Teacher", schoolId: null };
   }
-  if (normalized.includes("student") || normalized.includes("pupil") || normalized.includes("learner")) {
-    return { role: "student", name: "Student", schoolId: null };
+  if (normalized.includes("admin") || normalized.includes("principal")) {
+    return { role: "school_admin", name: "School Administrator", schoolId: null };
   }
-  // Default to student with least privilege and null schoolId (NEVER auto-assign school_admin or school_default)
   return { role: "student", name: "User", schoolId: null };
 }
 
@@ -75,7 +50,6 @@ function getFallbackProfile(uid: string, email?: string | null): AppUser {
 
 export async function getUserProfile(uid: string, email?: string | null): Promise<AppUser | null> {
   const normalizedEmail = (email || "").trim().toLowerCase();
-  const isSuper = isSuperAdminEmail(normalizedEmail) || isSuperAdminSession(uid);
 
   try {
     const db = getFirebaseDb();
@@ -90,59 +64,14 @@ export async function getUserProfile(uid: string, email?: string | null): Promis
 
       if (docSnap.exists()) {
         const data = docSnap.data() as Partial<AppUser>;
-
-        // CRITICAL AUTO-REPAIR: If the user is Super Admin by email or session, guarantee super_admin role & system scope
-        if (isSuper && (data.role !== "super_admin" || data.schoolId !== "system")) {
-          const repaired: Partial<AppUser> = {
-            ...data,
-            uid: docSnap.id,
-            name: data.name || "Super Administrator",
-            email: normalizedEmail || data.email || "",
-            role: "super_admin",
-            schoolId: "system",
-            status: "active",
-          };
-          setDoc(docRef, { ...repaired, updatedAt: serverTimestamp() }, { merge: true }).catch(() => {});
-          return {
-            ...data,
-            uid: docSnap.id,
-            name: data.name || "Super Administrator",
-            email: normalizedEmail || data.email || "",
-            role: "super_admin",
-            schoolId: "system",
-            status: "active",
-          } as AppUser;
-        }
-
+        // AUTHORITATIVE ROLE: Use exactly what is saved in Firestore! Never overwrite!
         return { uid: docSnap.id, ...data } as AppUser;
       }
     } catch (dbErr: any) {
       console.warn("Firestore unavailable/offline, activating resilient profile:", dbErr?.message);
     }
 
-    // If profile document does not exist in Firestore:
-    if (isSuper) {
-      const superProfile: AppUser = {
-        uid,
-        name: normalizedEmail.split("@")[0] || "Super Administrator",
-        email: normalizedEmail,
-        role: "super_admin",
-        schoolId: "system",
-        status: "active",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      } as unknown as AppUser;
-
-      setDoc(docRef, {
-        ...superProfile,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      }, { merge: true }).catch(() => {});
-
-      return superProfile;
-    }
-
-    // Default safe profile for non-superadmin without document
+    // Default safe fallback profile if document does not exist yet
     const fallbackProfile: AppUser = {
       uid,
       name: normalizedEmail ? normalizedEmail.split("@")[0] : "User",

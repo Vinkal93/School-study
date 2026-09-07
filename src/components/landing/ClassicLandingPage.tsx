@@ -841,7 +841,7 @@ export function ClassicLandingPage() {
                   School Provisioning
                 </h3>
                 <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
-                  Super Admins register verified school tenants with unique institutional codes and dedicated admin accounts.
+                  School administrators register verified school tenants with unique institutional codes and dedicated admin accounts.
                 </p>
               </div>
 

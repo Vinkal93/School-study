@@ -7,7 +7,6 @@ import {
   GraduationCap,
   School,
   Users,
-  Shield,
   ArrowRight,
   Sparkles,
   UserPlus,
@@ -148,8 +147,8 @@ function PortalSelectionContent() {
           ))}
         </div>
 
-        {/* Register & Super Admin Options */}
-        <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 text-xs text-gray-500 dark:text-gray-400">
+        {/* Register Option */}
+        <div className="pt-4 flex items-center justify-center text-xs text-gray-500 dark:text-gray-400">
           <p>
             Don&apos;t have a school registered yet?{" "}
             <Link
@@ -158,17 +157,6 @@ function PortalSelectionContent() {
             >
               <UserPlus className="h-3.5 w-3.5" />
               <span>Register New School</span>
-            </Link>
-          </p>
-          <span className="hidden sm:inline text-gray-300 dark:text-gray-700">•</span>
-          <p>
-            Platform Administrator?{" "}
-            <Link
-              href={`/super-admin/login${queryString}`}
-              className="inline-flex items-center gap-1 font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 underline underline-offset-4"
-            >
-              <Shield className="h-3.5 w-3.5" />
-              <span>Super Admin Sign In</span>
             </Link>
           </p>
         </div>

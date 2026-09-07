@@ -40,13 +40,6 @@ function AdminLoginForm() {
     try {
       const profile = await signIn(email, password);
 
-      // If user is a Super Administrator, seamlessly route to Super Admin Portal
-      if (profile.role === "super_admin") {
-        toast.success(`Welcome Super Admin, ${profile.name}! Redirecting to Super Admin Portal.`);
-        router.push("/super-admin");
-        return;
-      }
-
       // Verify that this user is a School Administrator
       if (profile.role !== "school_admin") {
         await signOut();

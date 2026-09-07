@@ -15,9 +15,9 @@ const ROLE_INFO_MAP: Record<
   { name: string; loginRoute: string; buttonText: string }
 > = {
   super_admin: {
-    name: "Super Administrator",
-    loginRoute: "/super-admin/login",
-    buttonText: "Go to Super Admin Login",
+    name: "Platform Administrator",
+    loginRoute: "/login",
+    buttonText: "Return to Home",
   },
   school_admin: {
     name: "School Administrator",

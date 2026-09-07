@@ -57,6 +57,19 @@ export default function DashboardLayout({
         return;
       }
 
+      if (pathname.startsWith("/super-admin")) {
+        if (profile?.role !== "super_admin") {
+          const correctRoute = getRedirectByRole(profile?.role || "school_admin");
+          router.replace(correctRoute);
+          return;
+        }
+        const isPinVerified = sessionStorage.getItem("ss_super_admin_verified") === "true";
+        if (!isPinVerified) {
+          router.replace("/super-admin/login");
+          return;
+        }
+      }
+
       if (profile && !isRoleAllowedForPath(profile.role, pathname)) {
         // User is trying to access a route not meant for their role
         const correctRoute = getRedirectByRole(profile.role);
@@ -75,6 +88,21 @@ export default function DashboardLayout({
 
   if (!firebaseUser) {
     return null;
+  }
+
+  // Super Admin security gate: Require both super_admin role and active 2FA PIN session
+  const isSuperAdminRoute = pathname.startsWith("/super-admin");
+  const isSuperAdminVerified =
+    typeof window !== "undefined"
+      ? sessionStorage.getItem("ss_super_admin_verified") === "true"
+      : false;
+
+  if (isSuperAdminRoute && (!profile || profile.role !== "super_admin" || !isSuperAdminVerified)) {
+    return (
+      <div className="flex min-h-screen min-h-[100dvh] items-center justify-center">
+        <Spinner size="lg" />
+      </div>
+    );
   }
 
   // If profile is loaded but user is on wrong route, prevent flash before redirect
