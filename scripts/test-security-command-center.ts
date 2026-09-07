@@ -28,7 +28,7 @@ import {
   updateSecurityIncident,
   getSecurityReportData,
   scanFrontendPatterns,
-} from "../src/lib/services/security-center.service.ts";
+} from "../src/lib/services/security-center.service";
 
 console.log("===============================================================================");
 console.log("🚀 STARTING SUPER ADMIN SECURITY COMMAND CENTER (RED + BLUE TEAM) AUDIT");
@@ -37,14 +37,14 @@ console.log("===================================================================
 let passed = 0;
 let total = 0;
 
-async function test(name, fn) {
+async function test(name: string, fn: () => Promise<void> | void) {
   total++;
   try {
     await fn();
     console.log(`✓ [PASS] ${name}`);
     passed++;
-  } catch (err) {
-    console.error(`✗ [FAIL] ${name}:`, err.message);
+  } catch (err: any) {
+    console.error(`✗ [FAIL] ${name}:`, err?.message || err);
   }
 }
 
@@ -53,8 +53,8 @@ async function runAllTests() {
   // 1. RBAC & SUPER ADMIN ACCESS CONTROL
   // ----------------------------------------------------------------------------
   await test("1.1 RBAC: Unauthenticated requests without token must be rejected with 401", () => {
-    const authHeader = null;
-    const isAuthed = Boolean(authHeader && authHeader.startsWith("Bearer "));
+    const authHeader: string | null = null;
+    const isAuthed = Boolean(authHeader && (authHeader as string).startsWith("Bearer "));
     assert.equal(isAuthed, false);
   });
 
@@ -110,7 +110,7 @@ async function runAllTests() {
       status: "OPEN",
       retestStatus: "REQUIRED",
     };
-    const score = calculateSecurityScore(20, 20, 0, [testFinding]);
+    const score = calculateSecurityScore(20, 20, 0, [testFinding as any]);
     // 75 base - 25 critical = 50
     assert.equal(score.score, 50);
     assert.equal(score.health, "CRITICAL");
@@ -126,7 +126,7 @@ async function runAllTests() {
       status: "VERIFIED",
       retestStatus: "PASSED",
     };
-    const score = calculateSecurityScore(20, 20, 0, [verifiedFinding]);
+    const score = calculateSecurityScore(20, 20, 0, [verifiedFinding as any]);
     // 75 base + 4 verified fix = 79
     assert.equal(score.score, 79);
     assert.equal(score.verifiedFixes, 1);
@@ -144,7 +144,7 @@ async function runAllTests() {
 
     const catalogCategories = new Set(DEFAULT_TEST_CATALOG.map((t) => t.category));
     for (const cat of requiredCategories) {
-      assert.ok(catalogCategories.has(cat), `Catalog missing category: ${cat}`);
+      assert.ok(catalogCategories.has(cat as any), `Catalog missing category: ${cat}`);
     }
   });
 

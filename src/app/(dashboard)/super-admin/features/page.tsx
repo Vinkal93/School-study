@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
+import { toast } from "sonner";
 import {
   Sliders,
   Shield,
@@ -33,6 +34,9 @@ import {
   Radio,
   ExternalLink,
   Sparkles,
+  Loader2,
+  Copy,
+  Check,
 } from "lucide-react";
 import {
   FeatureDefinition,
@@ -53,7 +57,7 @@ interface SchoolSimple {
 }
 
 export default function SuperAdminFeatureControlPage() {
-  const { profile } = useAuth();
+  const { profile, firebaseUser } = useAuth();
   const [activeTab, setActiveTab] = useState<
     "modules" | "features" | "actions" | "rollout" | "overrides" | "audit"
   >("modules");
@@ -75,7 +79,11 @@ export default function SuperAdminFeatureControlPage() {
   const [selectedFeature, setSelectedFeature] = useState<FeatureDefinition | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isOverrideModalOpen, setIsOverrideModalOpen] = useState(false);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [togglingIds, setTogglingIds] = useState<Record<string, boolean>>({});
+  const [rolloutSaving, setRolloutSaving] = useState(false);
+  const [overrideSaving, setOverrideSaving] = useState(false);
+  const [deletingOverrideId, setDeletingOverrideId] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   // New Override form state
   const [newOverrideSchoolId, setNewOverrideSchoolId] = useState("");
@@ -90,22 +98,51 @@ export default function SuperAdminFeatureControlPage() {
   const [selectedSchoolsForRollout, setSelectedSchoolsForRollout] = useState<string[]>([]);
   const [rolloutReason, setRolloutReason] = useState("");
 
-  const authHeaders = useMemo(() => ({
-    "x-user-id": profile?.uid || "",
-    "x-user-role": profile?.role || "super_admin",
-    "x-user-email": profile?.email || "",
-  }), [profile]);
+  const getAuthHeaders = useCallback(async () => {
+    let token = "";
+    try {
+      if (firebaseUser) {
+        token = await firebaseUser.getIdToken();
+      }
+    } catch (e) {
+      console.warn("Notice: ID token fetch notice:", e);
+    }
+    return {
+      "x-user-id": profile?.uid || "",
+      "x-user-role": profile?.role || "super_admin",
+      "x-user-email": profile?.email || "",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+  }, [profile, firebaseUser]);
+
+  // Silent refresh in background
+  const silentRefresh = useCallback(async () => {
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch(`/api/super-admin/features?performerUid=${profile?.uid || ""}`, {
+        headers,
+      });
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      if (data && data.success) {
+        setGlobalStates((prev) => ({ ...prev, ...(data.globalStates || {}) }));
+        if (data.overrides) setOverrides(data.overrides);
+        if (data.schools?.length) setSchools(data.schools);
+        if (data.auditLogs) setAuditLogs(data.auditLogs);
+        if (data.overview) setOverview(data.overview);
+      }
+    } catch {
+      // silent background sync
+    }
+  }, [getAuthHeaders, profile?.uid]);
 
   // 1. Initial Data Fetch
   const fetchData = useCallback(async () => {
     try {
       setRefreshing(true);
+      const headers = await getAuthHeaders();
       const res = await fetch(`/api/super-admin/features?performerUid=${profile?.uid || ""}`, {
-        headers: {
-          "x-user-id": profile?.uid || "",
-          "x-user-role": profile?.role || "super_admin",
-          "x-user-email": profile?.email || "",
-        },
+        headers,
       });
       if (!res.ok) {
         console.warn("Feature control endpoint returned status:", res.status);
@@ -125,7 +162,7 @@ export default function SuperAdminFeatureControlPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [profile]);
+  }, [getAuthHeaders, profile?.uid]);
 
   useEffect(() => {
     fetchData();
@@ -138,8 +175,18 @@ export default function SuperAdminFeatureControlPage() {
       doc(db, "siteSettings", "feature_controls"),
       (snap) => {
         if (snap.exists()) {
-          const states = snap.data()?.states || {};
-          setGlobalStates(states);
+          const data = snap.data();
+          let states: Record<string, GlobalFeatureState> = {};
+          if (Array.isArray(data?.statesList)) {
+            data.statesList.forEach((s: GlobalFeatureState) => {
+              if (s && s.featureId) states[s.featureId] = s;
+            });
+          } else if (data?.states) {
+            states = data.states;
+          }
+          if (Object.keys(states).length > 0) {
+            setGlobalStates((prev) => ({ ...prev, ...states }));
+          }
         }
       },
       (err) => console.warn("Feature controls real-time listener notice:", err)
@@ -148,20 +195,50 @@ export default function SuperAdminFeatureControlPage() {
     return () => unsubControls();
   }, [fetchData]);
 
-  // Handle instant toggle for a feature/module/action
+  // Copy helper
+  const handleCopyKey = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(text);
+    toast.success(`Copied: ${text}`);
+    setTimeout(() => setCopiedKey(null), 2000);
+  };
+
+  // Handle instant toggle for a feature/module/action (Optimistic UI)
   const handleToggleState = async (
     feature: FeatureDefinition,
     currentEnabled: boolean,
     customReason?: string
   ) => {
+    const fId = feature.id;
+    if (togglingIds[fId]) return;
+
+    const newEnabled = !currentEnabled;
+    const prevEntry = globalStates[fId];
+
+    // Optimistic state
+    const optimisticState: GlobalFeatureState = {
+      featureId: fId,
+      enabled: newEnabled,
+      rolloutMode: newEnabled ? "ON_FOR_ALL" : "OFF",
+      selectedSchoolIds: prevEntry?.selectedSchoolIds || [],
+      updatedAt: new Date().toISOString(),
+      updatedBy: profile?.email || "super_admin",
+      reason: customReason || `Toggled via Feature Control Dashboard to ${newEnabled ? "ON" : "OFF"}`,
+    };
+
+    setGlobalStates((prev) => ({
+      ...prev,
+      [fId]: optimisticState,
+    }));
+    setTogglingIds((prev) => ({ ...prev, [fId]: true }));
+
     try {
-      setActionLoading(true);
-      const newEnabled = !currentEnabled;
+      const headers = await getAuthHeaders();
       const res = await fetch("/api/super-admin/features", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders },
+        headers: { "Content-Type": "application/json", ...headers },
         body: JSON.stringify({
-          featureId: feature.id,
+          featureId: fId,
           enabled: newEnabled,
           rolloutMode: newEnabled ? "ON_FOR_ALL" : "OFF",
           reason: customReason || `Toggled via Feature Control Dashboard to ${newEnabled ? "ON" : "OFF"}`,
@@ -170,34 +247,46 @@ export default function SuperAdminFeatureControlPage() {
 
       const data = await res.json().catch(() => ({}));
       if (data.success) {
-        setGlobalStates((prev) => ({
-          ...prev,
-          [feature.id]: data.state,
-        }));
-        // Update local overview
-        fetchData();
+        toast.success(
+          `${feature.name} is now ${newEnabled ? "ENABLED" : "DISABLED"} globally.`
+        );
+        if (data.state) {
+          setGlobalStates((prev) => ({
+            ...prev,
+            [fId]: data.state,
+          }));
+        }
+        silentRefresh();
       } else {
-        alert(data.error || "Failed to update feature state");
+        // Rollback on server error
+        if (prevEntry) {
+          setGlobalStates((prev) => ({ ...prev, [fId]: prevEntry }));
+        }
+        toast.error(data.error || "Failed to update feature state");
       }
     } catch (err: any) {
-      alert(err.message || "Failed to toggle feature");
+      if (prevEntry) {
+        setGlobalStates((prev) => ({ ...prev, [fId]: prevEntry }));
+      }
+      toast.error(err.message || "Network error while toggling feature");
     } finally {
-      setActionLoading(false);
+      setTogglingIds((prev) => ({ ...prev, [fId]: false }));
     }
   };
 
   // Handle Save Rollout Settings
   const handleSaveRollout = async () => {
     if (!rolloutFeatureId) {
-      alert("Please select a target feature.");
+      toast.error("Please select a target feature or module first.");
       return;
     }
 
     try {
-      setActionLoading(true);
+      setRolloutSaving(true);
+      const headers = await getAuthHeaders();
       const res = await fetch("/api/super-admin/features", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders },
+        headers: { "Content-Type": "application/json", ...headers },
         body: JSON.stringify({
           featureId: rolloutFeatureId,
           rolloutMode,
@@ -209,20 +298,22 @@ export default function SuperAdminFeatureControlPage() {
 
       const data = await res.json().catch(() => ({}));
       if (data.success) {
-        setGlobalStates((prev) => ({
-          ...prev,
-          [rolloutFeatureId]: data.state,
-        }));
-        alert("Rollout settings saved successfully.");
+        if (data.state) {
+          setGlobalStates((prev) => ({
+            ...prev,
+            [rolloutFeatureId]: data.state,
+          }));
+        }
+        toast.success("Rollout policy saved successfully.");
         setRolloutReason("");
-        fetchData();
+        silentRefresh();
       } else {
-        alert(data.error || "Failed to save rollout");
+        toast.error(data.error || "Failed to save rollout");
       }
     } catch (err: any) {
-      alert(err.message || "Failed to save rollout");
+      toast.error(err.message || "Failed to save rollout");
     } finally {
-      setActionLoading(false);
+      setRolloutSaving(false);
     }
   };
 
@@ -230,15 +321,16 @@ export default function SuperAdminFeatureControlPage() {
   const handleSubmitOverride = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newOverrideSchoolId || !newOverrideFeatureId) {
-      alert("Please select both a school and a feature.");
+      toast.error("Please select both a school and a feature.");
       return;
     }
 
     try {
-      setActionLoading(true);
+      setOverrideSaving(true);
+      const headers = await getAuthHeaders();
       const res = await fetch("/api/super-admin/features/overrides", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders },
+        headers: { "Content-Type": "application/json", ...headers },
         body: JSON.stringify({
           schoolId: newOverrideSchoolId,
           featureId: newOverrideFeatureId,
@@ -250,6 +342,7 @@ export default function SuperAdminFeatureControlPage() {
 
       const data = await res.json().catch(() => ({}));
       if (data.success) {
+        toast.success("School override created successfully.");
         setIsOverrideModalOpen(false);
         setNewOverrideSchoolId("");
         setNewOverrideFeatureId("");
@@ -258,12 +351,12 @@ export default function SuperAdminFeatureControlPage() {
         setNewOverrideReason("");
         fetchData();
       } else {
-        alert(data.error || "Failed to set school override");
+        toast.error(data.error || "Failed to set school override");
       }
     } catch (err: any) {
-      alert(err.message || "Failed to set school override");
+      toast.error(err.message || "Failed to set school override");
     } finally {
-      setActionLoading(false);
+      setOverrideSaving(false);
     }
   };
 
@@ -273,23 +366,28 @@ export default function SuperAdminFeatureControlPage() {
       return;
     }
 
+    const key = id || `${schoolId}_${featureId}`;
     try {
-      setActionLoading(true);
+      setDeletingOverrideId(key);
+      const headers = await getAuthHeaders();
       const url = id
         ? `/api/super-admin/features/overrides?id=${id}`
         : `/api/super-admin/features/overrides?schoolId=${schoolId}&featureId=${featureId}`;
-      const res = await fetch(url, { method: "DELETE", headers: authHeaders });
+      const res = await fetch(url, { method: "DELETE", headers });
       const data = await res.json().catch(() => ({}));
       if (data.success) {
-        setOverrides((prev) => prev.filter((o) => o.id !== id));
-        fetchData();
+        toast.success("Override removed. Default rules restored.");
+        setOverrides((prev) =>
+          prev.filter((o) => (id ? o.id !== id : !(o.schoolId === schoolId && o.featureId === featureId)))
+        );
+        silentRefresh();
       } else {
-        alert(data.error || "Failed to remove override");
+        toast.error(data.error || "Failed to remove override");
       }
     } catch (err: any) {
-      alert(err.message || "Failed to delete override");
+      toast.error(err.message || "Failed to delete override");
     } finally {
-      setActionLoading(false);
+      setDeletingOverrideId(null);
     }
   };
 
@@ -651,11 +749,15 @@ export default function SuperAdminFeatureControlPage() {
                         <input
                           type="checkbox"
                           checked={enabled}
-                          disabled={actionLoading}
+                          disabled={Boolean(togglingIds[mod.id])}
                           onChange={() => handleToggleState(mod, enabled)}
                           className="sr-only peer"
                         />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-emerald-600"></div>
+                        <div
+                          className={`w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-emerald-600 ${
+                            togglingIds[mod.id] ? "opacity-60 animate-pulse" : ""
+                          }`}
+                        ></div>
                       </label>
                     </div>
 
@@ -741,7 +843,19 @@ export default function SuperAdminFeatureControlPage() {
                         </span>
                       </td>
                       <td className="py-3 px-4 font-mono text-[11px] text-gray-500">
-                        {feat.key}
+                        <button
+                          type="button"
+                          onClick={() => handleCopyKey(feat.key)}
+                          className="hover:text-indigo-600 dark:hover:text-indigo-400 inline-flex items-center gap-1 cursor-pointer transition-colors"
+                          title="Click to copy key"
+                        >
+                          <span>{feat.key}</span>
+                          {copiedKey === feat.key ? (
+                            <Check className="h-3 w-3 text-emerald-500" />
+                          ) : (
+                            <Copy className="h-3 w-3 opacity-40 hover:opacity-100" />
+                          )}
+                        </button>
                       </td>
                       <td className="py-3 px-4">{getStatusBadge(feat)}</td>
                       <td className="py-3 px-4 font-mono text-[11px] text-gray-500">
@@ -758,11 +872,15 @@ export default function SuperAdminFeatureControlPage() {
                           <input
                             type="checkbox"
                             checked={enabled}
-                            disabled={actionLoading}
+                            disabled={Boolean(togglingIds[feat.id])}
                             onChange={() => handleToggleState(feat, enabled)}
                             className="sr-only peer"
                           />
-                          <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-emerald-600"></div>
+                          <div
+                            className={`w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-emerald-600 ${
+                              togglingIds[feat.id] ? "opacity-60 animate-pulse" : ""
+                            }`}
+                          ></div>
                         </label>
                       </td>
                       <td className="py-3 px-4 text-right">
@@ -856,14 +974,19 @@ export default function SuperAdminFeatureControlPage() {
 
                     <button
                       onClick={() => handleToggleState(action, enabled)}
-                      disabled={actionLoading}
+                      disabled={Boolean(togglingIds[action.id])}
                       className={`px-3 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer shadow-sm ${
                         isKilled
                           ? "bg-emerald-600 hover:bg-emerald-700 text-white"
                           : "bg-red-600 hover:bg-red-700 text-white"
-                      }`}
+                      } ${togglingIds[action.id] ? "opacity-60 cursor-wait" : ""}`}
                     >
-                      {isKilled ? (
+                      {togglingIds[action.id] ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>SYNCING...</span>
+                        </>
+                      ) : isKilled ? (
                         <>
                           <Unlock className="h-4 w-4" />
                           <span>RESTORE</span>
@@ -981,10 +1104,17 @@ export default function SuperAdminFeatureControlPage() {
 
               <button
                 onClick={handleSaveRollout}
-                disabled={actionLoading || !rolloutFeatureId}
-                className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+                disabled={rolloutSaving || !rolloutFeatureId}
+                className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
               >
-                {actionLoading ? "Saving..." : "Apply Rollout Configuration"}
+                {rolloutSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Applying Rollout...</span>
+                  </>
+                ) : (
+                  <span>Apply Rollout Configuration</span>
+                )}
               </button>
             </div>
 
@@ -1146,10 +1276,15 @@ export default function SuperAdminFeatureControlPage() {
                               onClick={() =>
                                 handleDeleteOverride(ovr.id, ovr.schoolId, ovr.featureId)
                               }
-                              className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
+                              disabled={deletingOverrideId === (ovr.id || `${ovr.schoolId}_${ovr.featureId}`)}
+                              className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer disabled:opacity-40"
                               title="Delete Override"
                             >
-                              <Trash2 className="h-4 w-4" />
+                              {deletingOverrideId === (ovr.id || `${ovr.schoolId}_${ovr.featureId}`) ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
                             </button>
                           </td>
                         </tr>
@@ -1325,14 +1460,19 @@ export default function SuperAdminFeatureControlPage() {
                             isItemEnabled(selectedFeature)
                           )
                         }
-                        disabled={actionLoading}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold text-white transition-all cursor-pointer ${
+                        disabled={Boolean(togglingIds[selectedFeature.id])}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold text-white transition-all cursor-pointer flex items-center gap-1.5 ${
                           isItemEnabled(selectedFeature)
                             ? "bg-red-600 hover:bg-red-700"
                             : "bg-emerald-600 hover:bg-emerald-700"
-                        }`}
+                        } ${togglingIds[selectedFeature.id] ? "opacity-60 cursor-wait" : ""}`}
                       >
-                        {isItemEnabled(selectedFeature) ? "Disable" : "Enable"}
+                        {togglingIds[selectedFeature.id] && (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        )}
+                        <span>
+                          {isItemEnabled(selectedFeature) ? "Disable" : "Enable"}
+                        </span>
                       </button>
                     </div>
                   </div>
@@ -1492,10 +1632,17 @@ export default function SuperAdminFeatureControlPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={actionLoading}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold transition-all disabled:opacity-50 cursor-pointer"
+                  disabled={overrideSaving}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
                 >
-                  {actionLoading ? "Saving..." : "Save Override"}
+                  {overrideSaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <span>Save Override</span>
+                  )}
                 </button>
               </div>
             </form>
