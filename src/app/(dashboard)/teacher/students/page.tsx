@@ -20,12 +20,14 @@ import {
   Clock,
   ClipboardList,
   Save,
+  ShieldAlert,
 } from "lucide-react";
 import {
   getTeacherDashboardContext,
   type AssignedClassInfo,
 } from "@/lib/services/teacher-portal.service";
 import { getStudentsByClassAndSection } from "@/lib/services/student.service";
+import { RegisterComplaintModal } from "@/components/complaints/RegisterComplaintModal";
 import type { TeacherProfile, StudentProfile } from "@/types";
 import { toast } from "sonner";
 
@@ -44,6 +46,7 @@ export default function TeacherStudentsPage() {
   // Student Profile Drawer / Modal
   const [selectedStudent, setSelectedStudent] = useState<StudentProfile | null>(null);
   const [teacherRemark, setTeacherRemark] = useState("");
+  const [isComplaintModalOpen, setIsComplaintModalOpen] = useState(false);
 
   // 1. Initial Load: Teacher Profile & Classes
   useEffect(() => {
@@ -335,6 +338,18 @@ export default function TeacherStudentsPage() {
                     </span>
                   </div>
                 </div>
+
+                {/* Register Complaint / Disciplinary Report */}
+                <div className="pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsComplaintModalOpen(true)}
+                    className="w-full py-2.5 px-3 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/80 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 shadow-xs cursor-pointer"
+                  >
+                    <ShieldAlert className="h-4 w-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                    <span>Register Student Complaint</span>
+                  </button>
+                </div>
               </div>
 
               {/* Private Teacher Remarks */}
@@ -352,7 +367,7 @@ export default function TeacherStudentsPage() {
                 />
                 <button
                   onClick={handleSaveRemark}
-                  className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
+                  className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <Save className="h-3.5 w-3.5" />
                   Save Note
@@ -363,12 +378,29 @@ export default function TeacherStudentsPage() {
             {/* Close Button */}
             <button
               onClick={() => setSelectedStudent(null)}
-              className="w-full py-2 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              className="w-full py-2 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
             >
               Close
             </button>
           </div>
         </div>
+      )}
+
+      {/* Register Complaint Modal */}
+      {selectedStudent && (
+        <RegisterComplaintModal
+          isOpen={isComplaintModalOpen}
+          onClose={() => setIsComplaintModalOpen(false)}
+          student={{
+            id: selectedStudent.id,
+            studentId: selectedStudent.studentId || selectedStudent.admissionNumber,
+            uid: (selectedStudent as any).uid || (selectedStudent as any).userId || selectedStudent.id,
+            name: selectedStudent.name,
+            className: selectedStudent.className,
+            sectionName: selectedStudent.sectionName,
+            rollNumber: selectedStudent.rollNumber,
+          }}
+        />
       )}
     </div>
   );

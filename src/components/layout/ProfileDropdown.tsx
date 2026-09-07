@@ -15,10 +15,12 @@ import {
   CheckCircle2,
   Lock,
   ExternalLink,
+  Video,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 import type { School } from "@/types";
+import { HelpCenterModal } from "@/components/help/HelpCenterModal";
 
 interface ProfileDropdownProps {
   school?: School | null;
@@ -27,6 +29,7 @@ interface ProfileDropdownProps {
 export function ProfileDropdown({ school }: ProfileDropdownProps) {
   const { profile, firebaseUser, signOut } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -253,6 +256,22 @@ export function ProfileDropdown({ school }: ProfileDropdownProps) {
               <HelpCircle className="h-4 w-4 text-slate-500 dark:text-slate-400" />
               <span>Help & Documentation</span>
             </Link>
+
+            {/* Help / How To Video Center Trigger */}
+            <button
+              type="button"
+              onClick={() => {
+                setIsOpen(false);
+                setShowHelpModal(true);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-950/40 text-blue-600 dark:text-blue-400 transition-colors text-left cursor-pointer"
+            >
+              <Video className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              <span className="flex-1 font-bold">Help &amp; Video Tutorials</span>
+              <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300">
+                VIDEO
+              </span>
+            </button>
           </div>
 
           {/* Sign Out Button */}
@@ -272,6 +291,12 @@ export function ProfileDropdown({ school }: ProfileDropdownProps) {
           </div>
         </div>
       )}
+
+      {/* Help / How To Video Modal */}
+      <HelpCenterModal
+        isOpen={showHelpModal}
+        onClose={() => setShowHelpModal(false)}
+      />
     </div>
   );
 }

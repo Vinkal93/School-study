@@ -9,6 +9,7 @@ export type NotificationEventType =
   | "timetable"
   | "event"
   | "fine_reward"
+  | "complaint"
   | "general";
 
 export type NotificationAudience =

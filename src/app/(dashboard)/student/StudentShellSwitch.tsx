@@ -7,30 +7,31 @@ import { NewStudentShell } from "@/components/portal-ui/shells/NewStudentShell";
 import { LiquidGlassStudentShell } from "@/components/portal-ui/shells/LiquidGlassStudentShell";
 import { PortalUIErrorBoundary } from "@/components/portal-ui/PortalUIErrorBoundary";
 
+import { StudentComplaintPopup } from "@/components/student/StudentComplaintPopup";
+
 export function StudentShellSwitch({ children }: { children: React.ReactNode }) {
   const { isNewUI, isLiquidGlassUI } = usePortalUI();
 
-  if (isLiquidGlassUI) {
-    return (
-      <PortalUIErrorBoundary
-        fallback={<ClassicStudentShell>{children}</ClassicStudentShell>}
-        portalName="Student Portal (Liquid Glass)"
-      >
-        <LiquidGlassStudentShell>{children}</LiquidGlassStudentShell>
-      </PortalUIErrorBoundary>
-    );
-  }
-
-  if (isNewUI) {
-    return (
-      <PortalUIErrorBoundary
-        fallback={<ClassicStudentShell>{children}</ClassicStudentShell>}
-        portalName="Student Portal"
-      >
-        <NewStudentShell>{children}</NewStudentShell>
-      </PortalUIErrorBoundary>
-    );
-  }
-
-  return <ClassicStudentShell>{children}</ClassicStudentShell>;
+  return (
+    <>
+      <StudentComplaintPopup />
+      {isLiquidGlassUI ? (
+        <PortalUIErrorBoundary
+          fallback={<ClassicStudentShell>{children}</ClassicStudentShell>}
+          portalName="Student Portal (Liquid Glass)"
+        >
+          <LiquidGlassStudentShell>{children}</LiquidGlassStudentShell>
+        </PortalUIErrorBoundary>
+      ) : isNewUI ? (
+        <PortalUIErrorBoundary
+          fallback={<ClassicStudentShell>{children}</ClassicStudentShell>}
+          portalName="Student Portal"
+        >
+          <NewStudentShell>{children}</NewStudentShell>
+        </PortalUIErrorBoundary>
+      ) : (
+        <ClassicStudentShell>{children}</ClassicStudentShell>
+      )}
+    </>
+  );
 }

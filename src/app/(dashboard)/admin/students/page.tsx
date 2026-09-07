@@ -30,8 +30,10 @@ import {
   RotateCcw,
   ArrowRightLeft,
   Crop,
+  ShieldAlert,
 } from "lucide-react";
 import { ImageCropModal } from "@/components/common/ImageCropModal";
+import { RegisterComplaintModal } from "@/components/complaints/RegisterComplaintModal";
 import {
   getStudents,
   createStudentWithAuth,
@@ -98,6 +100,9 @@ export default function AdminStudentsPage() {
   const [targetClassId, setTargetClassId] = useState("");
   const [targetSectionId, setTargetSectionId] = useState("");
   const [isTransferring, setIsTransferring] = useState(false);
+
+  // Student Complaint Modal State
+  const [complaintStudent, setComplaintStudent] = useState<StudentProfile | null>(null);
 
   // Enroll Student Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -748,41 +753,52 @@ export default function AdminStudentsPage() {
                         Restore Student
                       </button>
                     ) : (
-                      <div className="grid grid-cols-3 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setTransferringStudent(s);
-                            setTargetClassId("");
-                            setTargetSectionId("");
-                          }}
-                          className="w-full text-xs font-bold py-2 rounded-xl border border-purple-200 text-purple-700 bg-purple-50/80 hover:bg-purple-100 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800 flex items-center justify-center gap-1 active:scale-95 transition-all cursor-pointer"
-                        >
-                          <ArrowRightLeft className="h-3.5 w-3.5 shrink-0" />
-                          <span>Transfer</span>
-                        </button>
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTransferringStudent(s);
+                              setTargetClassId("");
+                              setTargetSectionId("");
+                            }}
+                            className="w-full text-xs font-bold py-2 rounded-xl border border-purple-200 text-purple-700 bg-purple-50/80 hover:bg-purple-100 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800 flex items-center justify-center gap-1 active:scale-95 transition-all cursor-pointer"
+                          >
+                            <ArrowRightLeft className="h-3.5 w-3.5 shrink-0" />
+                            <span>Transfer</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleToggleStatus(s)}
+                            disabled={togglingId === s.id}
+                            className={`w-full text-xs font-bold py-2 rounded-xl border flex items-center justify-center gap-1 active:scale-95 transition-all cursor-pointer ${
+                              s.status === "active"
+                                ? "border-amber-200 text-amber-700 bg-amber-50/80 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
+                                : "border-emerald-200 text-emerald-700 bg-emerald-50/80 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                            }`}
+                          >
+                            <Power className="h-3.5 w-3.5 shrink-0" />
+                            <span>{s.status === "active" ? "Deactivate" : "Activate"}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteStudent(s)}
+                            className="w-full text-xs font-bold py-2 rounded-xl border border-rose-200 text-rose-600 bg-rose-50/80 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800 flex items-center justify-center gap-1 active:scale-95 transition-all cursor-pointer"
+                          >
+                            <Trash2 className="h-3.5 w-3.5 shrink-0" />
+                            <span>Delete</span>
+                          </button>
+                        </div>
 
                         <button
                           type="button"
-                          onClick={() => handleToggleStatus(s)}
-                          disabled={togglingId === s.id}
-                          className={`w-full text-xs font-bold py-2 rounded-xl border flex items-center justify-center gap-1 active:scale-95 transition-all cursor-pointer ${
-                            s.status === "active"
-                              ? "border-amber-200 text-amber-700 bg-amber-50/80 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
-                              : "border-emerald-200 text-emerald-700 bg-emerald-50/80 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
-                          }`}
+                          onClick={() => setComplaintStudent(s)}
+                          className="w-full text-xs font-bold py-1.5 rounded-xl border border-rose-200 text-rose-700 bg-rose-50/70 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900/50 flex items-center justify-center gap-1 active:scale-95 transition-all cursor-pointer"
                         >
-                          <Power className="h-3.5 w-3.5 shrink-0" />
-                          <span>{s.status === "active" ? "Deactivate" : "Activate"}</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteStudent(s)}
-                          className="w-full text-xs font-bold py-2 rounded-xl border border-rose-200 text-rose-600 bg-rose-50/80 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800 flex items-center justify-center gap-1 active:scale-95 transition-all cursor-pointer"
-                        >
-                          <Trash2 className="h-3.5 w-3.5 shrink-0" />
-                          <span>Delete</span>
+                          <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-rose-600" />
+                          <span>Report / Complaint</span>
                         </button>
                       </div>
                     )}
@@ -927,6 +943,14 @@ export default function AdminStudentsPage() {
                               >
                                 <Camera className="h-3 w-3" />
                                 Photo
+                              </button>
+                              <button
+                                onClick={() => setComplaintStudent(s)}
+                                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 cursor-pointer"
+                                title="Register Student Complaint"
+                              >
+                                <ShieldAlert className="h-3 w-3 text-rose-600" />
+                                Report
                               </button>
                               <button
                                 onClick={() => handleToggleStatus(s)}
@@ -1510,6 +1534,23 @@ export default function AdminStudentsPage() {
           onCancel={() => {
             setRawImageForCrop(null);
             setCropTarget(null);
+          }}
+        />
+      )}
+
+      {/* Register Complaint Modal */}
+      {complaintStudent && (
+        <RegisterComplaintModal
+          isOpen={Boolean(complaintStudent)}
+          onClose={() => setComplaintStudent(null)}
+          student={{
+            id: complaintStudent.id,
+            studentId: complaintStudent.studentId || complaintStudent.admissionNumber,
+            uid: (complaintStudent as any).uid || (complaintStudent as any).userId || complaintStudent.id,
+            name: complaintStudent.name,
+            className: complaintStudent.className,
+            sectionName: complaintStudent.sectionName,
+            rollNumber: complaintStudent.rollNumber,
           }}
         />
       )}

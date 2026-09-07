@@ -28,6 +28,7 @@ import {
   Info,
   Layers,
   Sparkles,
+  Video,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { updateSuperAdminPin } from "@/lib/services/security-pin.service";
@@ -41,9 +42,11 @@ import {
   DEFAULT_PLATFORM_SETTINGS,
 } from "@/lib/settings/platformSettings";
 import { toast } from "sonner";
+import { HelpCenterModal } from "@/components/help/HelpCenterModal";
 
 export default function PlatformSettingsPage() {
   const { profile } = useAuth();
+  const [showHelpModal, setShowHelpModal] = useState(false);
 
   // Active Tab State
   const [activeTab, setActiveTab] = useState<
@@ -247,14 +250,25 @@ export default function PlatformSettingsPage() {
           </p>
         </div>
 
-        <button
-          onClick={handleSavePlatformSettings}
-          disabled={savingSettings}
-          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition shadow-sm disabled:opacity-50"
-        >
-          {savingSettings ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          Save Changes
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowHelpModal(true)}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-border bg-card text-foreground text-sm font-semibold hover:bg-muted/80 transition shadow-xs"
+          >
+            <Video className="w-4 h-4 text-primary" />
+            Help &amp; Video Tutorials
+          </button>
+
+          <button
+            onClick={handleSavePlatformSettings}
+            disabled={savingSettings}
+            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition shadow-sm disabled:opacity-50"
+          >
+            {savingSettings ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Save Changes
+          </button>
+        </div>
       </div>
 
       {/* Tabs Navigation */}
@@ -1195,6 +1209,12 @@ export default function PlatformSettingsPage() {
           </form>
         </div>
       )}
+
+      {/* Help & Video Tutorials Modal */}
+      <HelpCenterModal
+        isOpen={showHelpModal}
+        onClose={() => setShowHelpModal(false)}
+      />
     </div>
   );
 }

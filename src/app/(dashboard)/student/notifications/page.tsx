@@ -21,6 +21,8 @@ import {
   ArrowRight,
   Info,
   Radio,
+  ShieldAlert,
+  X,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -50,8 +52,9 @@ export default function StudentNotificationsPage() {
   const [loading, setLoading] = useState(true);
 
   // Filters
-  const [activeTab, setActiveTab] = useState<"all" | "unread" | "homework" | "notice" | "rule">("all");
+  const [activeTab, setActiveTab] = useState<"all" | "unread" | "homework" | "notice" | "rule" | "complaint">("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedComplaint, setSelectedComplaint] = useState<UserNotificationView | null>(null);
 
   // 1. Subscribe in real time
   useEffect(() => {
@@ -80,6 +83,7 @@ export default function StudentNotificationsPage() {
       if (activeTab === "homework" && n.type !== "homework") return false;
       if (activeTab === "notice" && n.type !== "notice") return false;
       if (activeTab === "rule" && n.type !== "rule") return false;
+      if (activeTab === "complaint" && n.type !== "complaint") return false;
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -101,10 +105,14 @@ export default function StudentNotificationsPage() {
     }
   };
 
-  // 4. Mark single as read & navigate
+  // 4. Mark single as read & navigate or open complaint modal
   const handleNotificationClick = async (item: UserNotificationView) => {
     if (!item.isRead && schoolId && user.uid) {
       await markNotificationAsRead(schoolId, item.id, user.uid);
+    }
+    if (item.type === "complaint" || (item as any).complaintId) {
+      setSelectedComplaint(item);
+      return;
     }
     if (item.link) {
       router.push(item.link);
@@ -145,6 +153,8 @@ export default function StudentNotificationsPage() {
         return <BookOpen className="h-5 w-5 text-purple-500" />;
       case "rule":
         return <ShieldCheck className="h-5 w-5 text-amber-500" />;
+      case "complaint":
+        return <ShieldAlert className="h-5 w-5 text-rose-600" />;
       case "timetable":
         return <Clock className="h-5 w-5 text-cyan-500" />;
       case "fine_reward":
@@ -195,6 +205,7 @@ export default function StudentNotificationsPage() {
             { id: "homework", label: "Homework" },
             { id: "notice", label: "Notices" },
             { id: "rule", label: "Policies" },
+            { id: "complaint", label: "Complaints" },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -310,6 +321,67 @@ export default function StudentNotificationsPage() {
           ))
         )}
       </div>
+
+      {/* Read-Only Complaint Details Modal */}
+      {selectedComplaint && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="p-6 bg-gradient-to-r from-rose-600 to-amber-600 text-white flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-white/20 backdrop-blur-md">
+                  <ShieldAlert className="h-6 w-6 text-white" />
+                </div>
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-wider text-rose-100">
+                    Official Administrative Notice
+                  </div>
+                  <h3 className="text-lg font-black tracking-tight mt-0.5">
+                    {selectedComplaint.title}
+                  </h3>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedComplaint(null)}
+                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-4 text-xs text-slate-700 dark:text-slate-300">
+              <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 space-y-2">
+                <div className="text-xs font-semibold text-rose-900 dark:text-rose-200">
+                  {selectedComplaint.message}
+                </div>
+                <div className="flex items-center gap-3 text-[11px] text-rose-700 dark:text-rose-400">
+                  <span>Logged by: <strong className="font-bold">{selectedComplaint.senderName}</strong></span>
+                  <span>•</span>
+                  <span>Role: {selectedComplaint.senderRole}</span>
+                  <span>•</span>
+                  <span>{formatTime(selectedComplaint.createdAt)}</span>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                ℹ️ <strong>Read-Only Administrative Record:</strong> This report was filed in accordance with school conduct policy. Students cannot edit or dismiss official records. For questions or clarification, please reach out to your class teacher or school administration.
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedComplaint(null)}
+                  className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 text-xs font-bold transition-all"
+                >
+                  Close Notice
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

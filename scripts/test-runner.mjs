@@ -36,6 +36,7 @@ const testSuites = [
   { name: "Super Admin Site Settings & CMS Module", file: "scripts/test-site-settings-cms.mjs" },
   { name: "Portal UI/UX Version Control & Switching", file: "scripts/test-portal-ui-version-control.mjs" },
   { name: "Platform Settings & Security Policies", file: "scripts/test-platform-settings-security.mjs" },
+  { name: "Strict Auth Pipeline, Complaints & Help Center", file: "scripts/test-auth-pipeline-complaint-help.mjs" },
 ];
 
 console.log("==================================================");

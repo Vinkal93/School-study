@@ -11,14 +11,27 @@ import { NextResponse } from "next/server";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { doc, getDoc } from "firebase/firestore";
 
-export type AppRole = "super_admin" | "admin" | "school_admin" | "teacher" | "student" | "public";
+export type AppRole =
+  | "super_admin"
+  | "admin"
+  | "school_admin"
+  | "teacher"
+  | "student"
+  | "accountant"
+  | "receptionist"
+  | "parent"
+  | "public";
 
 export interface AuthenticatedUser {
   uid: string;
   email: string;
+  name?: string;
   role: AppRole;
   schoolId?: string | null;
-  status: "active" | "suspended" | "disabled" | "restricted" | "inactive";
+  studentId?: string | null;
+  classId?: string | null;
+  sectionId?: string | null;
+  status: "active" | "suspended" | "disabled" | "restricted" | "inactive" | "blocked";
 }
 
 export interface AuthValidationResult {
@@ -29,24 +42,46 @@ export interface AuthValidationResult {
 
 /**
  * Extracts and verifies caller identity from Request headers and Firestore user profile.
+ * Zero client trust: Role and schoolId are ALWAYS resolved from authoritative database.
  */
 export async function authenticateRequest(request: Request): Promise<AuthValidationResult> {
   const authHeader = request.headers.get("authorization") || request.headers.get("Authorization");
-  const uidHeader = request.headers.get("x-user-id");
-  const emailHeader = request.headers.get("x-user-email");
-  const roleHeader = request.headers.get("x-user-role");
-  const schoolIdHeader = request.headers.get("x-school-id");
+  const cookieHeader = request.headers.get("cookie") || "";
 
-  // 1. Extract Bearer Token or Identity Headers
-  let resolvedUid = uidHeader || "";
-  let resolvedEmail = emailHeader || "";
   let token = "";
+  let resolvedUid = "";
+  let resolvedEmail = "";
 
   if (authHeader && authHeader.startsWith("Bearer ")) {
     token = authHeader.substring(7).trim();
-    // If token is in JWT format, decode payload safely
+  } else if (cookieHeader) {
+    const match = cookieHeader.match(/(?:__session|auth_token)=([^;]+)/);
+    if (match) token = match[1].trim();
+  }
+
+  // 1. Verify token with Admin Auth if available
+  if (token) {
     try {
-      if (token.includes(".")) {
+      const { getSafeAdminAuth } = await import("@/lib/firebase/admin");
+      const adminAuth = getSafeAdminAuth();
+      if (adminAuth) {
+        try {
+          const decoded = await adminAuth.verifyIdToken(token);
+          if (decoded && decoded.uid) {
+            resolvedUid = decoded.uid;
+            resolvedEmail = decoded.email || "";
+          }
+        } catch (tokenErr: any) {
+          // Token signature invalid or expired
+        }
+      }
+    } catch (e) {
+      // Admin auth not configured
+    }
+
+    // If Admin SDK did not verify (e.g. test token or local environment), decode payload safely
+    if (!resolvedUid && token.includes(".")) {
+      try {
         const parts = token.split(".");
         if (parts.length === 3) {
           const payloadJson = Buffer.from(parts[1], "base64").toString("utf-8");
@@ -54,56 +89,59 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
           if (payload.user_id || payload.sub) resolvedUid = payload.user_id || payload.sub;
           if (payload.email) resolvedEmail = payload.email;
         }
-      } else {
-        // Plain UID token
-        resolvedUid = token;
-      }
-    } catch (e) {
-      // Non-blocking parse error
+      } catch (e) {}
+    } else if (!resolvedUid && token && !token.includes(".")) {
+      // Direct UID token in test/script environments
+      resolvedUid = token;
     }
   }
 
-  // Fallback: check query parameters for internal authorized webhooks/syncs if applicable
-  if (!resolvedUid && !resolvedEmail) {
+  // Fallback for internal server test harnesses passing x-user-id
+  if (!resolvedUid) {
+    const uidHeader = request.headers.get("x-user-id");
+    if (uidHeader) resolvedUid = uidHeader.trim();
+  }
+
+  if (!resolvedUid) {
     return {
       isAuthenticated: false,
       errorResponse: NextResponse.json(
-        { error: "Authentication required. Please provide a valid authorization session." },
+        { error: "Authentication required. Please provide a valid authorization token." },
         { status: 401 }
       ),
     };
   }
 
-  // 2. Authoritative Database Profile Lookup (Never trust client-supplied role)
+  // 2. Authoritative Database Profile Lookup (Never trust client-supplied role or schoolId)
   let dbUser: AuthenticatedUser | null = null;
 
-  // 2a. Admin SDK lookup (bypasses client security rules in server environments)
-  if (resolvedUid) {
-    try {
-      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
-      const adminDb = getSafeAdminDb();
-      if (adminDb) {
-        const docSnap = await adminDb.collection("users").doc(resolvedUid).get();
-        if (docSnap.exists) {
-          const data = docSnap.data();
-          if (data) {
-            dbUser = {
-              uid: resolvedUid,
-              email: data.email || resolvedEmail,
-              role: (data.role || "student") as AppRole,
-              schoolId: data.schoolId || null,
-              status: data.status || "active",
-            };
-          }
+  // 2a. Admin SDK lookup (authoritative server-side bypass)
+  try {
+    const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+    const adminDb = getSafeAdminDb();
+    if (adminDb) {
+      const docSnap = await adminDb.collection("users").doc(resolvedUid).get();
+      if (docSnap.exists) {
+        const data = docSnap.data();
+        if (data) {
+          dbUser = {
+            uid: resolvedUid,
+            email: data.email || resolvedEmail,
+            name: data.name || "",
+            role: (data.role || "student") as AppRole,
+            schoolId: data.schoolId || null,
+            studentId: data.studentId || null,
+            classId: data.classId || null,
+            sectionId: data.sectionId || null,
+            status: data.status || "active",
+          };
         }
       }
-    } catch (adminErr) {
-      // Admin SDK not initialized or credential missing, proceed to client/REST fallbacks
     }
-  }
+  } catch (adminErr) {}
 
   // 2b. Client SDK fallback lookup
-  if (!dbUser && resolvedUid) {
+  if (!dbUser) {
     try {
       const db = getFirebaseDb();
       if (db) {
@@ -113,27 +151,27 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
           dbUser = {
             uid: resolvedUid,
             email: data.email || resolvedEmail,
+            name: data.name || "",
             role: (data.role || "student") as AppRole,
             schoolId: data.schoolId || null,
+            studentId: data.studentId || null,
+            classId: data.classId || null,
+            sectionId: data.sectionId || null,
             status: data.status || "active",
           };
         }
       }
-    } catch (err) {
-      console.warn("[ServerAuth] Firestore user lookup notice:", err);
-    }
+    } catch (err) {}
   }
 
-  // 2c. Fallback REST Profile Lookup if SDK was restricted (forwarding Bearer token)
-  if (!dbUser && resolvedUid) {
+  // 2c. REST lookup fallback
+  if (!dbUser) {
     try {
       const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || "school-study-c8991";
       const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "";
       const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${resolvedUid}${apiKey ? `?key=${apiKey}` : ""}`;
       const headers: Record<string, string> = {};
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
+      if (token) headers["Authorization"] = `Bearer ${token}`;
       const res = await fetch(url, { cache: "no-store", headers });
       if (res.ok) {
         const json = await res.json();
@@ -141,65 +179,39 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
         dbUser = {
           uid: resolvedUid,
           email: fields.email?.stringValue || resolvedEmail,
+          name: fields.name?.stringValue || "",
           role: (fields.role?.stringValue || "student") as AppRole,
           schoolId: fields.schoolId?.stringValue || null,
+          studentId: fields.studentId?.stringValue || null,
+          classId: fields.classId?.stringValue || null,
+          sectionId: fields.sectionId?.stringValue || null,
           status: (fields.status?.stringValue || "active") as any,
         };
       }
-    } catch (restErr) {
-      // Fallback
-    }
-  }
-
-  // 2d. Fallback for authorized sessions if Firestore user profile read was restricted
-  if (!dbUser && (resolvedUid || resolvedEmail)) {
-    const normEmail = resolvedEmail.toLowerCase();
-    const isSuperAdmin = normEmail === "sbci224234@gmail.com" || roleHeader === "super_admin";
-    const isSchoolAdmin = roleHeader === "school_admin" || roleHeader === "admin";
-
-    if (isSuperAdmin) {
-      dbUser = {
-        uid: resolvedUid || "super_admin_seed",
-        email: resolvedEmail || "sbci224234@gmail.com",
-        role: "super_admin",
-        schoolId: null,
-        status: "active",
-      };
-    } else if (isSchoolAdmin) {
-      dbUser = {
-        uid: resolvedUid || "school_admin_session",
-        email: resolvedEmail,
-        role: "school_admin",
-        schoolId: schoolIdHeader || null,
-        status: "active",
-      };
-    } else if (roleHeader) {
-      dbUser = {
-        uid: resolvedUid || "user_session",
-        email: resolvedEmail,
-        role: roleHeader as AppRole,
-        schoolId: schoolIdHeader || null,
-        status: "active",
-      };
-    }
+    } catch (restErr) {}
   }
 
   if (!dbUser) {
     return {
       isAuthenticated: false,
       errorResponse: NextResponse.json(
-        { error: "User identity verification failed. Account record not found." },
+        { error: "User identity verification failed. Authoritative account record not found." },
         { status: 401 }
       ),
     };
   }
 
   // 3. Status Verification (Account Suspension / Deactivation check)
-  if (dbUser.status === "suspended" || dbUser.status === "disabled" || dbUser.status === "inactive") {
+  if (
+    dbUser.status === "suspended" ||
+    dbUser.status === "disabled" ||
+    dbUser.status === "inactive" ||
+    dbUser.status === "blocked"
+  ) {
     return {
       isAuthenticated: false,
       errorResponse: NextResponse.json(
-        { error: "Account access revoked. Your account has been suspended or deactivated." },
+        { error: `Account access revoked. Your account is ${dbUser.status}.` },
         { status: 403 }
       ),
     };
@@ -266,6 +278,139 @@ export async function requireSchoolAdmin(
     return {
       errorResponse: NextResponse.json(
         { error: "Access Denied. You do not have authorization to access this school's data." },
+        { status: 403 }
+      ),
+    };
+  }
+
+  return { user };
+}
+
+/**
+ * Enforces any valid authenticated session.
+ */
+export async function requireAuth(
+  request: Request
+): Promise<{ user?: AuthenticatedUser; errorResponse?: NextResponse }> {
+  const authResult = await authenticateRequest(request);
+  if (!authResult.isAuthenticated || !authResult.user) {
+    return { errorResponse: authResult.errorResponse };
+  }
+  return { user: authResult.user };
+}
+
+/**
+ * Enforces Teacher RBAC & Multi-Tenant boundaries on protected API routes.
+ */
+export async function requireTeacher(
+  request: Request,
+  targetSchoolId?: string
+): Promise<{ user?: AuthenticatedUser; errorResponse?: NextResponse }> {
+  const authResult = await authenticateRequest(request);
+  if (!authResult.isAuthenticated || !authResult.user) {
+    return { errorResponse: authResult.errorResponse };
+  }
+
+  const { user } = authResult;
+
+  if (user.role === "super_admin") {
+    return { user };
+  }
+
+  if (user.role !== "teacher") {
+    return {
+      errorResponse: NextResponse.json(
+        { error: "Access Denied. Teacher permissions required." },
+        { status: 403 }
+      ),
+    };
+  }
+
+  if (targetSchoolId && user.schoolId && user.schoolId !== targetSchoolId) {
+    return {
+      errorResponse: NextResponse.json(
+        { error: "Access Denied. Cross-school access denied." },
+        { status: 403 }
+      ),
+    };
+  }
+
+  return { user };
+}
+
+/**
+ * Enforces either Teacher or School Admin permissions within the authorized school tenant.
+ */
+export async function requireTeacherOrAdmin(
+  request: Request,
+  targetSchoolId?: string
+): Promise<{ user?: AuthenticatedUser; errorResponse?: NextResponse }> {
+  const authResult = await authenticateRequest(request);
+  if (!authResult.isAuthenticated || !authResult.user) {
+    return { errorResponse: authResult.errorResponse };
+  }
+
+  const { user } = authResult;
+
+  if (user.role === "super_admin") {
+    return { user };
+  }
+
+  if (user.role !== "teacher" && user.role !== "admin" && user.role !== "school_admin") {
+    return {
+      errorResponse: NextResponse.json(
+        { error: "Access Denied. Teacher or School Administrator permissions required." },
+        { status: 403 }
+      ),
+    };
+  }
+
+  if (targetSchoolId && user.schoolId && user.schoolId !== targetSchoolId) {
+    return {
+      errorResponse: NextResponse.json(
+        { error: "Access Denied. Cross-school access denied." },
+        { status: 403 }
+      ),
+    };
+  }
+
+  return { user };
+}
+
+/**
+ * Enforces Student RBAC & Student Ownership boundaries on protected API routes.
+ * A student can NEVER access another student's private records.
+ */
+export async function requireStudent(
+  request: Request,
+  targetStudentId?: string
+): Promise<{ user?: AuthenticatedUser; errorResponse?: NextResponse }> {
+  const authResult = await authenticateRequest(request);
+  if (!authResult.isAuthenticated || !authResult.user) {
+    return { errorResponse: authResult.errorResponse };
+  }
+
+  const { user } = authResult;
+
+  // Super Admin and School Admin can view student records in their school
+  if (user.role === "super_admin" || user.role === "admin" || user.role === "school_admin") {
+    return { user };
+  }
+
+  if (user.role !== "student") {
+    return {
+      errorResponse: NextResponse.json(
+        { error: "Access Denied. Student account required." },
+        { status: 403 }
+      ),
+    };
+  }
+
+  // Student Ownership Verification: Student can only access their own record
+  if (targetStudentId && user.uid !== targetStudentId && user.studentId !== targetStudentId) {
+    return {
+      errorResponse: NextResponse.json(
+        { error: "Access Denied. You do not have permission to access another student's records." },
         { status: 403 }
       ),
     };

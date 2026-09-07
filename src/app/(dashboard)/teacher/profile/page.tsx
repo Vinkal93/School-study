@@ -19,6 +19,7 @@ import {
   Award,
   Clock,
   Briefcase,
+  Video,
 } from "lucide-react";
 import {
   getTeacherDashboardContext,
@@ -29,6 +30,7 @@ import { getFirebaseDb } from "@/lib/firebase/client";
 import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
 import type { TeacherProfile, TeacherFineReward } from "@/types";
 import { toast } from "sonner";
+import { HelpCenterModal } from "@/components/help/HelpCenterModal";
 
 type ProfileTab = "details" | "salary" | "fines_rewards" | "classes";
 
@@ -39,6 +41,7 @@ export default function TeacherProfilePage() {
   const teacherEmail = profile?.email || "";
 
   const [loading, setLoading] = useState(true);
+  const [showHelpModal, setShowHelpModal] = useState(false);
   const [teacher, setTeacher] = useState<TeacherProfile | null>(null);
   const [assignedClasses, setAssignedClasses] = useState<AssignedClassInfo[]>([]);
   const [finesRewards, setFinesRewards] = useState<TeacherFineReward[]>([]);
@@ -153,9 +156,20 @@ export default function TeacherProfilePage() {
           </div>
         </div>
 
-        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 self-start sm:self-center">
-          Active Faculty Member
-        </span>
+        <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-center">
+          <button
+            type="button"
+            onClick={() => setShowHelpModal(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold transition-all active:scale-95 shadow-2xs"
+          >
+            <Video className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+            <span>Help &amp; Video Tutorials</span>
+          </button>
+
+          <span className="px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400">
+            Active Faculty Member
+          </span>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -417,6 +431,12 @@ export default function TeacherProfilePage() {
           </div>
         </div>
       )}
+
+      {/* Help & Video Center Modal */}
+      <HelpCenterModal
+        isOpen={showHelpModal}
+        onClose={() => setShowHelpModal(false)}
+      />
     </div>
   );
 }
