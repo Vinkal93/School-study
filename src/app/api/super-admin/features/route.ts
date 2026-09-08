@@ -56,6 +56,8 @@ function cleanForFirestore(obj: any): any {
   return cleaned;
 }
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   try {
     const adminDb = getSafeAdminDb();
@@ -118,11 +120,36 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Tier 2: Try Client SDK fallback if schools list is still empty
-    if (schools.length === 0 && clientDb) {
+    // Tier 2: Try Client SDK fallback if adminDb unavailable
+    if (!adminDb && clientDb) {
       try {
+        const controlsSnap = await getDoc(doc(clientDb, "siteSettings", "feature_controls")).catch(() => null);
+        if (controlsSnap && controlsSnap.exists()) {
+          const data = controlsSnap.data() || {};
+          if (Array.isArray(data.statesList)) {
+            data.statesList.forEach((s: GlobalFeatureState) => {
+              if (s && s.featureId) {
+                globalStates[s.featureId] = s;
+              }
+            });
+          } else if (data.states && typeof data.states === "object") {
+            Object.entries(data.states).forEach(([key, val]) => {
+              if (val && typeof val === "object") {
+                globalStates[key] = val as GlobalFeatureState;
+              }
+            });
+          }
+          featureStore.states = globalStates;
+        }
+
+        const overridesSnap = await getDocs(collection(clientDb, "schoolFeatureOverrides")).catch(() => null);
+        if (overridesSnap && overridesSnap.docs?.length) {
+          overrides = overridesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+          featureStore.overrides = overrides;
+        }
+
         const schoolsSnap = await getDocs(collection(clientDb, "schools")).catch(() => null);
-        if (schoolsSnap && schoolsSnap.docs) {
+        if (schoolsSnap && schoolsSnap.docs?.length) {
           schools = schoolsSnap.docs.map((d) => {
             const data = d.data() || {};
             return {
@@ -134,7 +161,7 @@ export async function GET(req: NextRequest) {
           });
         }
       } catch (clientErr) {
-        console.warn("Notice: Client DB schools fetch notice:", clientErr);
+        console.warn("Notice: Client DB feature fetch notice:", clientErr);
       }
     }
 

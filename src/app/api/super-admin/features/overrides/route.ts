@@ -5,6 +5,8 @@ import { doc, getDoc, setDoc, deleteDoc, collection, getDocs } from "firebase/fi
 import { FEATURE_REGISTRY } from "@/lib/feature-control/featureRegistry";
 import { SchoolFeatureOverride } from "@/types/featureControl";
 
+export const dynamic = "force-dynamic";
+
 const defaultOverridesStore = {
   states: {},
   overrides: [] as SchoolFeatureOverride[],

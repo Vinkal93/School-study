@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSafeAdminDb } from "@/lib/firebase/admin";
+
+export const dynamic = "force-dynamic";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
 import {
