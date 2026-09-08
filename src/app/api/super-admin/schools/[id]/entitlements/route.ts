@@ -317,7 +317,7 @@ export async function POST(
       return NextResponse.json({ success: false, error: "School ID is required." }, { status: 400 });
     }
 
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
     const {
       controlMode = "PLAN_DEFAULT",
       featureOverrides,

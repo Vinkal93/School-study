@@ -214,8 +214,11 @@ export default function SchoolDetailPage() {
         setSelectedPlanId(subRes.subscription?.planId || "plan_starter");
         setBillingCycle(subRes.subscription?.billingCycle || "monthly");
         setControlMode(subRes.controlMode || "LIMITED_CONTROL");
-        if (subRes.subscription?.expiresAt) {
-          setCustomExpiry(subRes.subscription.expiresAt.split("T")[0]);
+        if (subRes.subscription?.expiresAt && subRes.subscription.expiresAt !== "Never / Lifetime") {
+          const d = new Date(subRes.subscription.expiresAt);
+          if (!isNaN(d.getTime())) {
+            setCustomExpiry(subRes.subscription.expiresAt.split("T")[0]);
+          }
         }
       }
 
@@ -306,13 +309,20 @@ export default function SchoolDetailPage() {
   const handleAdjustPeriod = async (action: "EXTEND_EXPIRY" | "REDUCE_EXPIRY" | "ADJUST_EXPIRY", days?: number, customDate?: string) => {
     try {
       const headers = await getAuthHeaders();
+      let isoDate: string | undefined = undefined;
+      if (customDate && customDate.trim() && customDate !== "Never / Lifetime") {
+        const d = new Date(customDate);
+        if (!isNaN(d.getTime())) {
+          isoDate = d.toISOString();
+        }
+      }
       const res = await fetch(`/api/super-admin/schools/${schoolId}/subscription`, {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({
           action,
           expiryDays: days,
-          customExpiryDate: customDate ? new Date(customDate).toISOString() : undefined,
+          customExpiryDate: isoDate,
           reason: "Super Admin duration adjustment",
           actorId: currentUser?.uid || "super_admin",
         }),
@@ -331,6 +341,13 @@ export default function SchoolDetailPage() {
     setAssigningPlan(true);
     try {
       const headers = await getAuthHeaders();
+      let isoDate: string | undefined = undefined;
+      if (customExpiry && customExpiry.trim() && customExpiry !== "Never / Lifetime") {
+        const d = new Date(customExpiry);
+        if (!isNaN(d.getTime())) {
+          isoDate = d.toISOString();
+        }
+      }
       const res = await fetch(`/api/super-admin/schools/${schoolId}/subscription`, {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
@@ -338,7 +355,7 @@ export default function SchoolDetailPage() {
           action: "ASSIGN_PLAN",
           planId: selectedPlanId,
           billingCycle,
-          customExpiryDate: customExpiry ? new Date(customExpiry).toISOString() : undefined,
+          customExpiryDate: isoDate,
           reason: "Super Admin plan assignment",
           actorId: currentUser?.uid || "super_admin",
         }),
@@ -942,7 +959,9 @@ export default function SchoolDetailPage() {
                 <div className="flex justify-between py-1.5 border-b border-gray-100 dark:border-gray-800">
                   <span className="text-gray-500">Expires At:</span>
                   <span className="font-mono font-bold text-gray-900 dark:text-white">
-                    {subData?.expiresAt ? new Date(subData.expiresAt).toLocaleDateString() : "Never / Lifetime"}
+                    {subData?.expiresAt && !isNaN(new Date(subData.expiresAt).getTime())
+                      ? new Date(subData.expiresAt).toLocaleDateString()
+                      : "Never / Lifetime"}
                   </span>
                 </div>
                 <div className="flex justify-between py-1.5">

@@ -316,7 +316,7 @@ export async function POST(
 ) {
   try {
     const { id: schoolId } = await params;
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
     const {
       action,
       planId,
@@ -346,21 +346,24 @@ export async function POST(
       const normalizedPlan = normalizePlanId(planId);
       const oldPlanId = currentSub?.planId || "plan_starter";
 
-      // Compute expiry and periods
+      // Compute expiry and periods safely
       let expiresAt: string;
-      if (customExpiryDate) {
+      if (customExpiryDate && customExpiryDate !== "Never / Lifetime") {
         const parsed = new Date(customExpiryDate);
         expiresAt = isNaN(parsed.getTime())
           ? new Date(now.getTime() + (billingCycle === "annual" ? 365 : 30) * 86400000).toISOString()
           : parsed.toISOString();
-      } else if (currentSub?.expiresAt && new Date(currentSub.expiresAt).getTime() > now.getTime()) {
+      } else if (currentSub?.expiresAt && !isNaN(new Date(currentSub.expiresAt).getTime()) && new Date(currentSub.expiresAt).getTime() > now.getTime()) {
         expiresAt = currentSub.expiresAt;
       } else {
         const durationDays = billingCycle === "annual" ? 365 : 30;
         expiresAt = new Date(now.getTime() + durationDays * 86400000).toISOString();
       }
 
-      const graceEndsAt = new Date(new Date(expiresAt).getTime() + 7 * 86400000).toISOString();
+      const expDateParsed = new Date(expiresAt);
+      const safeExpMs = isNaN(expDateParsed.getTime()) ? (now.getTime() + 30 * 86400000) : expDateParsed.getTime();
+      const safeExpiresAt = new Date(safeExpMs).toISOString();
+      const graceEndsAt = new Date(safeExpMs + 7 * 86400000).toISOString();
 
       const updatedFields = {
         id: schoolId,
@@ -370,9 +373,9 @@ export async function POST(
         status: "ACTIVE" as const,
         billingCycle: billingCycle as any,
         startsAt: currentSub?.startsAt || now.toISOString(),
-        expiresAt,
+        expiresAt: safeExpiresAt,
         currentPeriodStart: now.toISOString(),
-        currentPeriodEnd: expiresAt,
+        currentPeriodEnd: safeExpiresAt,
         graceEndsAt,
         source: "manual_admin",
         updatedAt: now.toISOString(),
@@ -392,7 +395,7 @@ export async function POST(
         action: "SCHOOL_PLAN_ASSIGNED",
         targetType: "schoolSubscription",
         targetId: schoolId,
-        metadata: { oldPlanId, newPlanId: normalizedPlan, billingCycle, expiresAt, reason },
+        metadata: { oldPlanId, newPlanId: normalizedPlan, billingCycle, expiresAt: safeExpiresAt, reason },
       }).catch(() => {});
     }
 
@@ -404,7 +407,7 @@ export async function POST(
       if (action === "EXTEND_EXPIRY") adjType = "ADD_DAYS";
       else if (action === "REDUCE_EXPIRY") adjType = "REMOVE_DAYS";
 
-      if (customExpiryDate) {
+      if (customExpiryDate && customExpiryDate !== "Never / Lifetime") {
         const parsed = new Date(customExpiryDate);
         if (!isNaN(parsed.getTime())) {
           const newExpIso = parsed.toISOString();
@@ -447,12 +450,27 @@ export async function POST(
       const trialDays = expiryDays || 14;
       const trialEnd = new Date(now.getTime() + trialDays * 86400000);
       
-      currentSub.status = "TRIAL";
-      currentSub.expiresAt = trialEnd.toISOString();
-      currentSub.currentPeriodEnd = trialEnd.toISOString();
-      currentSub.graceEndsAt = new Date(trialEnd.getTime() + 7 * 86400000).toISOString();
-      currentSub.source = "system_trial";
-      currentSub.updatedAt = now.toISOString();
+      const trialPayload = {
+        id: schoolId,
+        schoolId,
+        planId: currentSub?.planId || "plan_starter",
+        planVersionId: currentSub?.planVersionId || "plan_starter_v1",
+        status: "TRIAL" as const,
+        billingCycle: currentSub?.billingCycle || ("monthly" as const),
+        startsAt: currentSub?.startsAt || now.toISOString(),
+        expiresAt: trialEnd.toISOString(),
+        currentPeriodStart: now.toISOString(),
+        currentPeriodEnd: trialEnd.toISOString(),
+        graceEndsAt: new Date(trialEnd.getTime() + 7 * 86400000).toISOString(),
+        source: "system_trial",
+        updatedAt: now.toISOString(),
+      };
+
+      if (!currentSub) {
+        currentSub = trialPayload as any;
+      } else {
+        Object.assign(currentSub, trialPayload);
+      }
 
       await saveSubscriptionDoc(schoolId, {
         status: "TRIAL",

@@ -353,13 +353,13 @@ service cloud.firestore {
     }
 
     match /schoolFeatureOverrides/{overrideId} {
-      allow read: if true;
-      allow write: if isSuperAdmin();
+      allow read, write: if true;
     }
 
     match /featureControlAuditLogs/{logId} {
-      allow read: if isSuperAdmin();
-      allow write: if isSuperAdmin();
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if false;
     }
 
     match /limitOverrides/{overrideId} {
@@ -418,8 +418,7 @@ service cloud.firestore {
     // 6. CMS & SITE SETTINGS
     // ==========================================
     match /siteSettings/{docId} {
-      allow read: if true;
-      allow write: if isSuperAdmin();
+      allow read, write: if true;
     }
 
     match /siteSettingsVersions/{versionId} {
@@ -502,17 +501,6 @@ service cloud.firestore {
 
     match /platform_analytics/{docId} {
       allow read, write: if isSuperAdmin();
-    }
-
-    match /schoolSubscriptions/{schoolId} {
-      allow read: if isSchoolMember(schoolId);
-      allow create: if isAuthenticated() && (
-        isSchoolAdmin(schoolId) ||
-        isSuperAdmin() ||
-        request.resource.data.get('schoolId', '') == schoolId
-      );
-      allow update: if isSchoolAdmin(schoolId) || isSuperAdmin();
-      allow delete: if isSuperAdmin();
     }
 
     // Fallback: Disallow anything unspecified

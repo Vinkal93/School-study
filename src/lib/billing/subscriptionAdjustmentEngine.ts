@@ -98,7 +98,11 @@ export async function adjustSubscriptionPeriod(
   // In-memory fallback if DB unavailable (e.g. initial test run)
   if (!db) {
     const current = await getCurrentSubscription(schoolId);
-    const oldExpiresAt = new Date(current.expiresAt);
+    const rawOld = current.expiresAt || current.currentPeriodEnd;
+    let oldExpiresAt = rawOld ? new Date(rawOld) : new Date(now.getTime());
+    if (isNaN(oldExpiresAt.getTime())) {
+      oldExpiresAt = new Date(now.getTime());
+    }
     let newExpiresAt = new Date(oldExpiresAt.getTime());
 
     if (input.type === "ADD_DAYS" && input.value) {
@@ -110,7 +114,12 @@ export async function adjustSubscriptionPeriod(
     } else if (input.type === "REMOVE_MONTHS" && input.value) {
       newExpiresAt = removeMonths(oldExpiresAt, input.value);
     } else if (input.type === "CUSTOM_PERIOD_ADJUSTMENT" && input.customDate) {
-      newExpiresAt = new Date(input.customDate);
+      const parsedCustom = new Date(input.customDate);
+      newExpiresAt = isNaN(parsedCustom.getTime()) ? new Date(now.getTime() + 30 * 86400000) : parsedCustom;
+    }
+
+    if (isNaN(newExpiresAt.getTime())) {
+      newExpiresAt = new Date(now.getTime() + 30 * 86400000);
     }
 
     const adjustment: SubscriptionAdjustmentRecord = {
@@ -120,7 +129,7 @@ export async function adjustSubscriptionPeriod(
       type: input.type,
       value: input.value,
       unit: input.type.includes("MONTH") ? "months" : input.type.includes("DAY") ? "days" : "date",
-      previousEndAt: current.expiresAt,
+      previousEndAt: current.expiresAt || now.toISOString(),
       newEndAt: newExpiresAt.toISOString(),
       reason: input.reason,
       actorId: input.actorId,
@@ -180,7 +189,11 @@ export async function adjustSubscriptionPeriod(
       sub = { id: subSnap.id, ...subSnap.data() } as SchoolSubscription;
     }
 
-    const oldExpiresAt = new Date(sub.expiresAt || sub.currentPeriodEnd || now.toISOString());
+    const rawOld = sub.expiresAt || sub.currentPeriodEnd;
+    let oldExpiresAt = rawOld ? new Date(rawOld) : new Date(now.getTime());
+    if (isNaN(oldExpiresAt.getTime())) {
+      oldExpiresAt = new Date(now.getTime());
+    }
     let newExpiresAt: Date;
 
     switch (input.type) {
@@ -209,8 +222,15 @@ export async function adjustSubscriptionPeriod(
         throw new Error(`Unsupported adjustment type: ${input.type}`);
     }
 
+    if (isNaN(newExpiresAt.getTime())) {
+      newExpiresAt = new Date(now.getTime() + 30 * 86400000);
+    }
+
     // Validation: Expiry cannot be before subscription start
-    const startsAtMs = new Date(sub.startsAt || now.toISOString()).getTime();
+    const rawStartsAt = sub.startsAt;
+    const startsAtMs = rawStartsAt && !isNaN(new Date(rawStartsAt).getTime())
+      ? new Date(rawStartsAt).getTime()
+      : now.getTime() - 86400000;
     if (newExpiresAt.getTime() < startsAtMs) {
       throw new Error(
         `Invalid Adjustment: New expiration date (${newExpiresAt.toISOString().split("T")[0]}) cannot be earlier than subscription start date (${new Date(startsAtMs).toISOString().split("T")[0]}).`
@@ -218,7 +238,7 @@ export async function adjustSubscriptionPeriod(
     }
 
     const newGraceEndsAt = addDays(newExpiresAt, 7);
-    const prevExpiresAtStr = sub.expiresAt;
+    const prevExpiresAtStr = sub.expiresAt || now.toISOString();
     const newExpiresAtStr = newExpiresAt.toISOString();
 
     // Recalculate true status dynamically

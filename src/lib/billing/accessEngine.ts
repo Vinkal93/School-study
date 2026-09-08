@@ -11,6 +11,12 @@ import { BILLING_COLLECTIONS } from "./plans";
 import { getSchoolSubscription, computeSubscriptionStatus } from "./subscriptions";
 import { getGlobalAccessPolicy } from "./accessPolicy";
 
+function safeDateMs(dateStr: any, fallbackMs: number): number {
+  if (!dateStr || dateStr === "Never / Lifetime") return fallbackMs;
+  const t = new Date(dateStr).getTime();
+  return isNaN(t) ? fallbackMs : t;
+}
+
 /**
  * Calculates current AccessMode dynamically from subscription state, expiration dates, and global access policy.
  */
@@ -24,8 +30,8 @@ export function calculateAccessMode(
   }
 
   const now = nowMs || Date.now();
-  const expiresAtMs = new Date(subscription.expiresAt).getTime();
-  const graceEndsAtMs = new Date(subscription.graceEndsAt).getTime();
+  const expiresAtMs = safeDateMs(subscription.expiresAt, now + 365 * 86400000);
+  const graceEndsAtMs = safeDateMs(subscription.graceEndsAt, expiresAtMs + 7 * 86400000);
   const daysRemaining = Math.max(0, Math.ceil((expiresAtMs - now) / (1000 * 60 * 60 * 24)));
 
   const effectiveThreshold =
@@ -58,8 +64,8 @@ export function calculateSubscriptionState(
   nowMs?: number
 ) {
   const now = nowMs || Date.now();
-  const expiresAtMs = new Date(subscription.expiresAt).getTime();
-  const graceEndsAtMs = new Date(subscription.graceEndsAt).getTime();
+  const expiresAtMs = safeDateMs(subscription.expiresAt, now + 365 * 86400000);
+  const graceEndsAtMs = safeDateMs(subscription.graceEndsAt, expiresAtMs + 7 * 86400000);
 
   const daysRemaining = Math.max(
     0,
@@ -70,9 +76,12 @@ export function calculateSubscriptionState(
     Math.ceil((graceEndsAtMs - now) / (1000 * 60 * 60 * 24))
   );
 
+  const safeExpStr = new Date(expiresAtMs).toISOString();
+  const safeGraceStr = new Date(graceEndsAtMs).toISOString();
+
   const status = computeSubscriptionStatus(
-    subscription.expiresAt,
-    subscription.graceEndsAt,
+    safeExpStr,
+    safeGraceStr,
     subscription.status,
     now
   );
@@ -110,7 +119,7 @@ export async function getSchoolAccess(schoolId: string): Promise<SchoolAccessSum
   ]);
 
   const now = Date.now();
-  const expiresAtMs = new Date(sub.expiresAt).getTime();
+  const expiresAtMs = safeDateMs(sub.expiresAt, now + 365 * 86400000);
   const daysRemaining = Math.max(0, Math.ceil((expiresAtMs - now) / (1000 * 60 * 60 * 24)));
   const accessMode = calculateAccessMode(sub, policy, now);
 
