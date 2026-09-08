@@ -329,7 +329,11 @@ const roleNavItems: Record<string, NavItem[]> = {
   ],
 };
 
-export function Sidebar() {
+export interface SidebarProps {
+  variant?: "classic" | "modern" | "liquid";
+}
+
+export function Sidebar({ variant = "classic" }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -357,9 +361,23 @@ export function Sidebar() {
   const navContent = (
     <div className="flex flex-col h-full">
       {/* Brand Header */}
-      <div className="flex h-16 items-center justify-between border-b border-gray-200 px-4 dark:border-gray-800">
+      <div
+        className={cn(
+          "flex h-16 items-center justify-between px-4",
+          variant === "liquid"
+            ? "border-b border-white/40 dark:border-white/10"
+            : "border-b border-gray-200 dark:border-gray-800"
+        )}
+      >
         <div className="flex items-center gap-2.5 overflow-hidden">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600 text-white font-bold shadow-sm">
+          <div
+            className={cn(
+              "flex h-9 w-9 items-center justify-center rounded-lg text-white font-bold shadow-sm",
+              variant === "liquid"
+                ? "bg-gradient-to-tr from-cyan-600 to-blue-600 shadow-cyan-500/20"
+                : "bg-blue-600"
+            )}
+          >
             <Shield className="h-5 w-5" />
           </div>
           {(!collapsed || isOpen) && (
@@ -367,7 +385,12 @@ export function Sidebar() {
               <span className="text-sm font-bold text-gray-900 dark:text-white leading-tight">
                 SchoolStudy
               </span>
-              <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400">
+              <span
+                className={cn(
+                  "text-[10px] font-semibold",
+                  variant === "liquid" ? "text-cyan-600 dark:text-cyan-400" : "text-blue-600 dark:text-blue-400"
+                )}
+              >
                 SaaS Platform
               </span>
             </div>
@@ -428,7 +451,9 @@ export function Sidebar() {
                   className={cn(
                     "flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                     isParentActive
-                      ? "text-blue-600 dark:text-blue-400 font-semibold"
+                      ? variant === "liquid"
+                        ? "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 font-bold border border-cyan-500/30 shadow-xs backdrop-blur-md"
+                        : "text-blue-600 dark:text-blue-400 font-semibold"
                       : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
                   )}
                 >
@@ -446,7 +471,14 @@ export function Sidebar() {
 
                 {/* Submenu Links */}
                 {isExpanded && (
-                  <div className="ml-8 space-y-1 border-l-2 border-gray-100 pl-2.5 dark:border-gray-800">
+                  <div
+                    className={cn(
+                      "ml-8 space-y-1 border-l-2 pl-2.5",
+                      variant === "liquid"
+                        ? "border-cyan-500/30 dark:border-cyan-500/20"
+                        : "border-gray-100 dark:border-gray-800"
+                    )}
+                  >
                     {item.subItems!.map((sub) => {
                       const isSubActive = currentFullUrl === sub.href;
                       return (
@@ -458,7 +490,9 @@ export function Sidebar() {
                           className={cn(
                             "block rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
                             isSubActive
-                              ? "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 font-bold"
+                              ? variant === "liquid"
+                                ? "bg-cyan-500/20 text-cyan-800 dark:text-cyan-200 font-bold"
+                                : "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 font-bold"
                               : "text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
                           )}
                         >
@@ -481,7 +515,9 @@ export function Sidebar() {
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                 isParentActive
-                  ? "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 font-semibold"
+                  ? variant === "liquid"
+                    ? "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 font-bold border border-cyan-500/30 shadow-xs backdrop-blur-md"
+                    : "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 font-semibold"
                   : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
               )}
             >
@@ -504,8 +540,22 @@ export function Sidebar() {
 
       {/* Role Badge Footer */}
       {(!collapsed || isOpen) && profile && (
-        <div className="border-t border-gray-200 p-4 dark:border-gray-800">
-          <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-900 text-xs">
+        <div
+          className={cn(
+            "p-4",
+            variant === "liquid"
+              ? "border-t border-white/40 dark:border-white/10"
+              : "border-t border-gray-200 dark:border-gray-800"
+          )}
+        >
+          <div
+            className={cn(
+              "rounded-lg p-3 text-xs",
+              variant === "liquid"
+                ? "bg-white/50 dark:bg-slate-800/50 backdrop-blur-md border border-white/30 dark:border-white/10"
+                : "bg-gray-50 dark:bg-gray-900"
+            )}
+          >
             <span className="font-semibold text-gray-900 dark:text-white capitalize">
               {profile.role.replace("_", " ")}
             </span>
@@ -520,10 +570,15 @@ export function Sidebar() {
 
   return (
     <>
-      {/* 1. Desktop Fixed Sidebar */}
+      {/* 1. Desktop Fixed/Floating Sidebar */}
       <aside
         className={cn(
-          "hidden md:flex flex-col border-r border-gray-200 bg-white transition-all duration-300 dark:border-gray-800 dark:bg-gray-950",
+          "hidden md:flex flex-col transition-all duration-300 z-20 shrink-0",
+          variant === "liquid"
+            ? "m-3 mr-0 rounded-3xl overflow-hidden border border-white/60 dark:border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.06)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.4)] bg-white/75 dark:bg-slate-900/75 backdrop-blur-2xl"
+            : variant === "modern"
+            ? "m-2.5 mr-0 rounded-2xl overflow-hidden border border-slate-200/80 dark:border-slate-800/90 shadow-sm bg-white/95 dark:bg-slate-900/95 backdrop-blur-md"
+            : "border-r border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950",
           collapsed ? "w-16" : "w-64"
         )}
       >
@@ -541,7 +596,16 @@ export function Sidebar() {
           />
 
           {/* Drawer */}
-          <div className="relative flex-1 flex flex-col max-w-xs w-full bg-white dark:bg-gray-950 shadow-2xl z-10 animate-in slide-in-from-left duration-200">
+          <div
+            className={cn(
+              "relative flex-1 flex flex-col max-w-xs w-full shadow-2xl z-10 animate-in slide-in-from-left duration-200",
+              variant === "liquid"
+                ? "bg-white/85 dark:bg-slate-900/85 backdrop-blur-2xl border-r border-white/20"
+                : variant === "modern"
+                ? "bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-r border-slate-200 dark:border-slate-800"
+                : "bg-white dark:bg-gray-950"
+            )}
+          >
             {navContent}
           </div>
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
   Sliders,
   Plus,
@@ -29,6 +29,13 @@ import {
   Receipt,
   Calculator,
   PercentCircle,
+  Building,
+  School,
+  Calendar,
+  UserCheck,
+  LayoutGrid,
+  List,
+  Users,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -105,6 +112,25 @@ export default function SuperAdminPricingPage() {
   const [planVersionsHistory, setPlanVersionsHistory] = useState<PlanVersion[]>([]);
   const [saving, setSaving] = useState(false);
 
+  // Plan view mode and status filter
+  const [planViewMode, setPlanViewMode] = useState<"grid" | "table">("grid");
+  const [planFilterPill, setPlanFilterPill] = useState<"ALL" | "ACTIVE" | "INACTIVE" | "ARCHIVED">("ALL");
+  const [planSearch, setPlanSearch] = useState("");
+
+  // Assign Plan to School State
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [assigningPlan, setAssigningPlan] = useState(false);
+  const [schoolsList, setSchoolsList] = useState<{ id: string; name: string; email: string; planId: string }[]>([]);
+  const [loadingSchools, setLoadingSchools] = useState(false);
+  const [assignForm, setAssignForm] = useState({
+    schoolId: "",
+    planId: "",
+    billingCycle: "monthly" as "monthly" | "annual",
+    durationPreset: "30",
+    customDate: "",
+    reason: "Assigned via Super Admin Pricing Portal",
+  });
+
   // Initial default access modes
   const getDefaultFeatureAccess = (enabledKeys: string[]): Record<string, FeatureAccessMode> => {
     const map: Record<string, FeatureAccessMode> = {};
@@ -180,12 +206,26 @@ export default function SuperAdminPricingPage() {
   const [reminderDaysStr, setReminderDaysStr] = useState("30, 15, 7, 3, 1");
   const [savingPolicy, setSavingPolicy] = useState(false);
 
-  // OPTIMIZED PARALLEL DATA LOADER
+  // OPTIMIZED PARALLEL DATA LOADER WITH SERVER API PRIORITY
   const loadData = async () => {
     setLoading(true);
     try {
-      const [fetchedPlans, fetchedFeatures, fetchedPolicy, fetchedGst, fetchedCoupons] = await Promise.all([
-        getAllPlansAdmin(),
+      let fetchedPlans: Plan[] = [];
+      try {
+        const res = await fetch("/api/super-admin/pricing", { cache: "no-store" });
+        if (res.ok) {
+          const json = await res.json();
+          fetchedPlans = json.plans || [];
+        }
+      } catch (e) {
+        console.warn("Pricing API fetch notice, falling back to SDK:", e);
+      }
+
+      if (fetchedPlans.length === 0) {
+        fetchedPlans = await getAllPlansAdmin();
+      }
+
+      const [fetchedFeatures, fetchedPolicy, fetchedGst, fetchedCoupons] = await Promise.all([
         getAllFeatureDefinitions(),
         getGlobalAccessPolicy(),
         getGstSettings(),
@@ -202,12 +242,16 @@ export default function SuperAdminPricingPage() {
         setReminderDaysStr((fetchedPolicy.reminderDays || [30, 15, 7, 3, 1]).join(", "));
       }
 
-      // Parallel execution for active plan versions
+      // Populate active plan versions
       const versionsMap: Record<string, PlanVersion> = {};
       await Promise.all(
-        fetchedPlans.map(async (p) => {
-          const v = await getActivePlanVersion(p.id);
-          if (v) versionsMap[p.id] = v;
+        fetchedPlans.map(async (p: any) => {
+          if (p.activeVersion) {
+            versionsMap[p.id] = p.activeVersion;
+          } else {
+            const v = await getActivePlanVersion(p.id);
+            if (v) versionsMap[p.id] = v;
+          }
         })
       );
       setActiveVersions(versionsMap);
@@ -221,6 +265,107 @@ export default function SuperAdminPricingPage() {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Filter plans based on search and status pill
+  const filteredPlans = useMemo(() => {
+    return plans.filter((p) => {
+      if (planFilterPill !== "ALL") {
+        if (planFilterPill === "ACTIVE" && (p.status !== "ACTIVE" || p.isArchived)) return false;
+        if (planFilterPill === "INACTIVE" && (p.status !== "INACTIVE" || p.isArchived)) return false;
+        if (planFilterPill === "ARCHIVED" && !p.isArchived && p.status !== "ARCHIVED") return false;
+      }
+      if (planSearch.trim()) {
+        const q = planSearch.toLowerCase().trim();
+        const match =
+          p.name.toLowerCase().includes(q) ||
+          p.slug.toLowerCase().includes(q) ||
+          (p.description || "").toLowerCase().includes(q);
+        if (!match) return false;
+      }
+      return true;
+    });
+  }, [plans, planFilterPill, planSearch]);
+
+  // Open Assign Modal for school
+  const openAssignModal = async (plan?: Plan) => {
+    setAssignForm({
+      schoolId: "",
+      planId: plan ? plan.id : (plans[0]?.id || "plan_starter"),
+      billingCycle: "monthly",
+      durationPreset: "30",
+      customDate: "",
+      reason: `Assigned ${plan ? plan.name : "Plan"} via Super Admin Pricing Portal`,
+    });
+    setShowAssignModal(true);
+    setLoadingSchools(true);
+    try {
+      const res = await fetch("/api/super-admin/pricing/assign");
+      if (res.ok) {
+        const json = await res.json();
+        const list = json.schools || [];
+        setSchoolsList(list);
+        if (list.length > 0) {
+          setAssignForm((prev) => ({ ...prev, schoolId: list[0].id }));
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to load schools for assignment:", e);
+    } finally {
+      setLoadingSchools(false);
+    }
+  };
+
+  // Submit Plan Assignment to School
+  const handleAssignSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!assignForm.schoolId) {
+      toast.error("Please select a school.");
+      return;
+    }
+    if (!assignForm.planId) {
+      toast.error("Please select a plan.");
+      return;
+    }
+
+    setAssigningPlan(true);
+    try {
+      let durationDays = 30;
+      let customExpiryDate = "";
+      if (assignForm.durationPreset === "custom") {
+        customExpiryDate = assignForm.customDate;
+      } else if (assignForm.durationPreset === "unlimited") {
+        customExpiryDate = "Never / Lifetime";
+      } else {
+        durationDays = Number(assignForm.durationPreset) || 30;
+      }
+
+      const res = await fetch("/api/super-admin/pricing/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          schoolId: assignForm.schoolId,
+          planId: assignForm.planId,
+          billingCycle: assignForm.billingCycle,
+          durationDays,
+          customExpiryDate,
+          reason: assignForm.reason,
+          actorId: profile?.email || "super_admin",
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || json.error) {
+        throw new Error(json.error || "Failed to assign plan.");
+      }
+
+      toast.success(json.message || "Plan assigned to school successfully!");
+      setShowAssignModal(false);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to assign plan.");
+    } finally {
+      setAssigningPlan(false);
+    }
+  };
 
   // Handle Create Plan Submit
   const handleCreatePlan = async (e: React.FormEvent) => {
@@ -248,8 +393,27 @@ export default function SuperAdminPricingPage() {
         },
       };
 
-      await createPlan(input, profile?.email || "super_admin");
-      toast.success(`Plan "${createForm.name}" created successfully with Version 1!`);
+      try {
+        const apiRes = await fetch("/api/super-admin/pricing", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...input,
+            actorId: profile?.email || "super_admin",
+          }),
+        });
+        if (apiRes.ok) {
+          const json = await apiRes.json();
+          toast.success(json.message || `Plan "${createForm.name}" created successfully!`);
+        } else {
+          await createPlan(input, profile?.email || "super_admin");
+          toast.success(`Plan "${createForm.name}" created successfully with Version 1!`);
+        }
+      } catch (postErr) {
+        await createPlan(input, profile?.email || "super_admin");
+        toast.success(`Plan "${createForm.name}" created successfully with Version 1!`);
+      }
+
       setShowCreateModal(false);
       loadData();
     } catch (err: any) {
@@ -318,7 +482,7 @@ export default function SuperAdminPricingPage() {
     }
   };
 
-  // Execute Actual Plan Update
+  // Execute Actual Plan Update with Server API
   const executePlanUpdate = async () => {
     if (!selectedPlan) return;
 
@@ -344,11 +508,31 @@ export default function SuperAdminPricingPage() {
         changeNotes: editForm.changeNotes,
       };
 
-      const res = await updatePlan(selectedPlan.id, input, profile?.email || "super_admin");
-      if (res.newVersionCreated) {
-        toast.success(`Plan "${selectedPlan.name}" updated! Created new PlanVersion.`);
-      } else {
-        toast.success(`Plan "${selectedPlan.name}" metadata updated!`);
+      try {
+        const apiRes = await fetch("/api/super-admin/pricing", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            planId: selectedPlan.id,
+            ...input,
+            actorId: profile?.email || "super_admin",
+          }),
+        });
+
+        if (apiRes.ok) {
+          const json = await apiRes.json();
+          if (json.newVersionCreated) {
+            toast.success(`Plan "${selectedPlan.name}" updated! Created new PlanVersion.`);
+          } else {
+            toast.success(`Plan "${selectedPlan.name}" updated successfully.`);
+          }
+        } else {
+          await updatePlan(selectedPlan.id, input, profile?.email || "super_admin");
+          toast.success(`Plan "${selectedPlan.name}" updated!`);
+        }
+      } catch (putErr) {
+        await updatePlan(selectedPlan.id, input, profile?.email || "super_admin");
+        toast.success(`Plan "${selectedPlan.name}" updated!`);
       }
 
       setShowEditModal(false);
@@ -388,8 +572,30 @@ export default function SuperAdminPricingPage() {
 
     setSaving(true);
     try {
-      await duplicatePlan(selectedPlan.id, duplicateSlug, duplicateName, profile?.email || "super_admin");
-      toast.success(`Plan duplicated as "${duplicateName}" with Version 1!`);
+      try {
+        const apiRes = await fetch("/api/super-admin/pricing", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "duplicate",
+            sourcePlanId: selectedPlan.id,
+            newSlug: duplicateSlug,
+            newName: duplicateName,
+            actorId: profile?.email || "super_admin",
+          }),
+        });
+
+        if (apiRes.ok) {
+          toast.success(`Plan duplicated as "${duplicateName}" with Version 1!`);
+        } else {
+          await duplicatePlan(selectedPlan.id, duplicateSlug, duplicateName, profile?.email || "super_admin");
+          toast.success(`Plan duplicated as "${duplicateName}" with Version 1!`);
+        }
+      } catch (dupErr) {
+        await duplicatePlan(selectedPlan.id, duplicateSlug, duplicateName, profile?.email || "super_admin");
+        toast.success(`Plan duplicated as "${duplicateName}" with Version 1!`);
+      }
+
       setShowDuplicateModal(false);
       loadData();
     } catch (err: any) {
@@ -409,8 +615,23 @@ export default function SuperAdminPricingPage() {
     if (!planToDelete) return;
     setDeletingPlan(true);
     try {
-      await deletePlan(planToDelete.id, profile?.email || "super_admin");
-      toast.success(`Plan "${planToDelete.name}" deleted successfully.`);
+      try {
+        const apiRes = await fetch(`/api/super-admin/pricing?planId=${encodeURIComponent(planToDelete.id)}&actorId=${encodeURIComponent(profile?.email || "super_admin")}`, {
+          method: "DELETE",
+        });
+
+        if (apiRes.ok) {
+          const json = await apiRes.json();
+          toast.success(json.message || `Plan "${planToDelete.name}" deleted successfully.`);
+        } else {
+          await deletePlan(planToDelete.id, profile?.email || "super_admin");
+          toast.success(`Plan "${planToDelete.name}" deleted successfully.`);
+        }
+      } catch (delErr) {
+        await deletePlan(planToDelete.id, profile?.email || "super_admin");
+        toast.success(`Plan "${planToDelete.name}" deleted successfully.`);
+      }
+
       setShowDeletePlanModal(false);
       setPlanToDelete(null);
       loadData();
@@ -431,8 +652,29 @@ export default function SuperAdminPricingPage() {
     const newStatus = nextStatusMap[plan.status];
 
     try {
-      await togglePlanStatus(plan.id, newStatus, profile?.email || "super_admin");
-      toast.success(`Plan "${plan.name}" status updated to ${newStatus}`);
+      try {
+        const apiRes = await fetch("/api/super-admin/pricing", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            planId: plan.id,
+            action: "toggle_status",
+            status: newStatus,
+            actorId: profile?.email || "super_admin",
+          }),
+        });
+
+        if (apiRes.ok) {
+          toast.success(`Plan "${plan.name}" status updated to ${newStatus}`);
+        } else {
+          await togglePlanStatus(plan.id, newStatus, profile?.email || "super_admin");
+          toast.success(`Plan "${plan.name}" status updated to ${newStatus}`);
+        }
+      } catch (togErr) {
+        await togglePlanStatus(plan.id, newStatus, profile?.email || "super_admin");
+        toast.success(`Plan "${plan.name}" status updated to ${newStatus}`);
+      }
+
       loadData();
     } catch (err: any) {
       toast.error("Failed to toggle status.");
@@ -565,7 +807,7 @@ export default function SuperAdminPricingPage() {
             Database-driven SaaS subscription tiers, immutable plan versioning, GST tax engines & promo codes.
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           <button
             onClick={loadData}
             className="p-2.5 bg-slate-800/80 hover:bg-slate-800 text-slate-200 rounded-xl transition-all border border-slate-700"
@@ -574,13 +816,22 @@ export default function SuperAdminPricingPage() {
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </button>
           {activeTab === "plans" && (
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm rounded-xl shadow-md shadow-blue-500/20 active:scale-95 transition-all"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Create New Plan</span>
-            </button>
+            <>
+              <button
+                onClick={() => openAssignModal()}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm rounded-xl shadow-md shadow-emerald-500/20 active:scale-95 transition-all"
+              >
+                <School className="h-4 w-4" />
+                <span>Assign Plan to School</span>
+              </button>
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm rounded-xl shadow-md shadow-blue-500/20 active:scale-95 transition-all"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Create New Plan</span>
+              </button>
+            </>
           )}
           {activeTab === "coupons" && (
             <button
@@ -663,22 +914,303 @@ export default function SuperAdminPricingPage() {
           {/* TAB 1: PLANS CATALOG */}
           {activeTab === "plans" && (
             <div className="space-y-4">
-              {plans.length === 0 ? (
+              {/* Plans Filter & Controls Bar */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  {(["ALL", "ACTIVE", "INACTIVE", "ARCHIVED"] as const).map((status) => (
+                    <button
+                      key={status}
+                      onClick={() => setPlanFilterPill(status)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                        planFilterPill === status
+                          ? "bg-blue-600 text-white shadow-sm"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      {status === "ALL"
+                        ? `All Plans (${plans.length})`
+                        : status === "ACTIVE"
+                        ? `Active (${plans.filter((p) => p.status === "ACTIVE" && !p.isArchived).length})`
+                        : status === "INACTIVE"
+                        ? `Inactive (${plans.filter((p) => p.status === "INACTIVE" && !p.isArchived).length})`
+                        : `Archived (${plans.filter((p) => p.isArchived || p.status === "ARCHIVED").length})`}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-2.5">
+                  <div className="relative flex-1 sm:w-64">
+                    <input
+                      type="text"
+                      placeholder="Search plans by name, slug..."
+                      value={planSearch}
+                      onChange={(e) => setPlanSearch(e.target.value)}
+                      className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                    />
+                    <Sliders className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                  </div>
+
+                  {/* View Mode Toggle */}
+                  <div className="inline-flex p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                    <button
+                      onClick={() => setPlanViewMode("grid")}
+                      className={`p-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+                        planViewMode === "grid"
+                          ? "bg-white dark:bg-slate-900 text-blue-600 shadow-sm font-bold"
+                          : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                      }`}
+                      title="Cards Grid View"
+                    >
+                      <LayoutGrid className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Cards</span>
+                    </button>
+                    <button
+                      onClick={() => setPlanViewMode("table")}
+                      className={`p-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+                        planViewMode === "table"
+                          ? "bg-white dark:bg-slate-900 text-blue-600 shadow-sm font-bold"
+                          : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                      }`}
+                      title="Dense Table View"
+                    >
+                      <List className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Table</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {filteredPlans.length === 0 ? (
                 <div className="text-center p-12 bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 space-y-3">
                   <Sliders className="h-10 w-10 text-gray-400 mx-auto" />
-                  <p className="text-sm font-semibold text-gray-600 dark:text-gray-400">No plans defined in database yet.</p>
+                  <p className="text-sm font-semibold text-gray-600 dark:text-gray-400">
+                    No plans matching current filter criteria.
+                  </p>
                   <button
-                    onClick={() => setShowCreateModal(true)}
+                    onClick={() => {
+                      setPlanFilterPill("ALL");
+                      setPlanSearch("");
+                    }}
                     className="px-4 py-2 bg-blue-600 text-white font-semibold text-xs rounded-xl"
                   >
-                    Create First Plan
+                    Reset Filter
                   </button>
                 </div>
+              ) : planViewMode === "grid" ? (
+                /* 1. CARDS GRID VIEW */
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {filteredPlans.map((p) => {
+                    const ver = activeVersions[p.id];
+                    const monthlyRs = ver
+                      ? ver.monthlyPrice / 100
+                      : p.slug === "professional"
+                      ? 1999
+                      : p.slug === "enterprise"
+                      ? 9999
+                      : 999;
+                    const annualRs = ver
+                      ? ver.annualPrice / 100
+                      : p.slug === "professional"
+                      ? 1599
+                      : p.slug === "enterprise"
+                      ? 7999
+                      : 799;
+                    const savingsPercent =
+                      monthlyRs > 0 ? Math.round(((monthlyRs - annualRs) / monthlyRs) * 100) : 0;
+
+                    return (
+                      <div
+                        key={p.id}
+                        className={`relative rounded-3xl border bg-white dark:bg-slate-900 p-6 shadow-sm transition-all duration-200 flex flex-col justify-between ${
+                          p.isPopular
+                            ? "border-amber-400/80 dark:border-amber-500/60 ring-2 ring-amber-400/20 shadow-amber-500/5"
+                            : "border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-md"
+                        }`}
+                      >
+                        {/* Top Details */}
+                        <div>
+                          <div className="flex items-start justify-between gap-2 mb-3">
+                            <div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h3 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
+                                  {p.name}
+                                </h3>
+                                {p.isPopular && (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                                    <Sparkles className="w-3 h-3 text-amber-500" />
+                                    POPULAR
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-xs font-mono text-slate-400">slug: {p.slug}</span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                onClick={() => handleToggleStatus(p)}
+                                title="Click to toggle status"
+                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition ${
+                                  p.status === "ACTIVE"
+                                    ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-400 dark:border-emerald-800 hover:bg-emerald-100"
+                                    : p.status === "INACTIVE"
+                                    ? "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700 hover:bg-slate-200"
+                                    : "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/60 dark:text-rose-400 dark:border-rose-800"
+                                }`}
+                              >
+                                {p.status}
+                              </button>
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                  p.publicVisible === false
+                                    ? "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400"
+                                    : "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300"
+                                }`}
+                              >
+                                {p.publicVisible === false ? "Private" : "Public"}
+                              </span>
+                            </div>
+                          </div>
+
+                          <p className="text-xs text-slate-600 dark:text-slate-400 mb-5 min-h-[32px] line-clamp-2">
+                            {p.description || "No description provided."}
+                          </p>
+
+                          {/* Pricing Block */}
+                          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 mb-5">
+                            <div className="flex items-baseline justify-between">
+                              <div>
+                                <span className="text-xs font-semibold text-slate-400">Monthly</span>
+                                <div className="text-2xl font-black text-slate-900 dark:text-white flex items-baseline gap-1">
+                                  <span>₹{monthlyRs.toLocaleString("en-IN")}</span>
+                                  <span className="text-xs font-semibold text-slate-400">/ mo</span>
+                                </div>
+                              </div>
+
+                              <div className="text-right">
+                                <span className="text-xs font-semibold text-slate-400">Annual</span>
+                                <div className="text-xl font-extrabold text-blue-600 dark:text-blue-400 flex items-baseline justify-end gap-1">
+                                  <span>₹{annualRs.toLocaleString("en-IN")}</span>
+                                  <span className="text-xs font-semibold text-slate-400">/ mo</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {savingsPercent > 0 && (
+                              <div className="mt-2.5 pt-2 border-t border-slate-200/60 dark:border-slate-800 flex items-center justify-between text-[11px]">
+                                <span className="text-slate-500">Billed yearly</span>
+                                <span className="font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                                  Save {savingsPercent}% on Annual
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Capacity Limits Grid */}
+                          <div className="grid grid-cols-2 gap-2 mb-5 text-xs">
+                            <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-950/40 border border-slate-100 dark:border-slate-800">
+                              <span className="text-[10px] font-bold uppercase text-slate-400 block">Students</span>
+                              <span className="font-extrabold text-slate-900 dark:text-white">
+                                {p.limits?.maxStudents === -1
+                                  ? "Unlimited"
+                                  : (p.limits?.maxStudents || 500).toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-950/40 border border-slate-100 dark:border-slate-800">
+                              <span className="text-[10px] font-bold uppercase text-slate-400 block">Teachers</span>
+                              <span className="font-extrabold text-slate-900 dark:text-white">
+                                {p.limits?.maxTeachers === -1
+                                  ? "Unlimited"
+                                  : (p.limits?.maxTeachers || 20).toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-950/40 border border-slate-100 dark:border-slate-800">
+                              <span className="text-[10px] font-bold uppercase text-slate-400 block">Classes</span>
+                              <span className="font-extrabold text-slate-900 dark:text-white">
+                                {p.limits?.maxClasses === -1
+                                  ? "Unlimited"
+                                  : (p.limits?.maxClasses || 15).toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-950/40 border border-slate-100 dark:border-slate-800">
+                              <span className="text-[10px] font-bold uppercase text-slate-400 block">Staff</span>
+                              <span className="font-extrabold text-slate-900 dark:text-white">
+                                {p.limits?.maxStaffAccounts === -1
+                                  ? "Unlimited"
+                                  : (p.limits?.maxStaffAccounts || 2).toLocaleString()}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Feature Highlights */}
+                          <div className="space-y-1.5 mb-5 text-xs">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                              Features ({p.features?.length || 0})
+                            </span>
+                            {(p.features || []).slice(0, 4).map((f) => (
+                              <div key={f} className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                                <span className="truncate capitalize">{f.replace(/_/g, " ")}</span>
+                              </div>
+                            ))}
+                            {(p.features?.length || 0) > 4 && (
+                              <p className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 pt-1">
+                                +{(p.features?.length || 0) - 4} additional modules
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Bottom Actions Bar */}
+                        <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-2">
+                          <button
+                            onClick={() => openAssignModal(p)}
+                            className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs flex items-center justify-center gap-2 transition active:scale-98"
+                          >
+                            <School className="w-4 h-4" />
+                            <span>Assign to School</span>
+                          </button>
+
+                          <div className="flex items-center justify-between gap-1.5">
+                            <button
+                              onClick={() => openEditModal(p)}
+                              className="flex-1 py-2 px-2.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition"
+                            >
+                              <Edit className="w-3.5 h-3.5 text-blue-600" />
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              onClick={() => openDuplicateModal(p)}
+                              className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition"
+                              title="Duplicate Plan"
+                            >
+                              <Copy className="w-3.5 h-3.5 text-purple-600" />
+                            </button>
+                            <button
+                              onClick={() => openHistoryModal(p)}
+                              className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition"
+                              title="Version History"
+                            >
+                              <History className="w-3.5 h-3.5 text-amber-600" />
+                            </button>
+                            <button
+                              onClick={() => openDeletePlanModal(p)}
+                              className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 transition"
+                              title="Delete Plan Safely"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               ) : (
-                <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-950 overflow-hidden">
+                /* 2. DENSE TABLE VIEW */
+                <div className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950 overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm">
-                      <thead className="border-b border-gray-200 bg-gray-50/50 text-xs uppercase font-bold text-gray-500 dark:border-gray-800 dark:bg-gray-900/50">
+                      <thead className="border-b border-slate-200 bg-slate-50/70 text-xs uppercase font-bold text-slate-500 dark:border-slate-800 dark:bg-slate-900/60">
                         <tr>
                           <th className="px-6 py-4">Plan Name / Slug</th>
                           <th className="px-4 py-4">Status</th>
@@ -690,24 +1222,24 @@ export default function SuperAdminPricingPage() {
                           <th className="px-6 py-4 text-right">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                        {plans.map((p) => {
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {filteredPlans.map((p) => {
                           const ver = activeVersions[p.id];
                           const monthlyRs = ver ? (ver.monthlyPrice / 100).toLocaleString("en-IN") : "0";
                           const annualRs = ver ? (ver.annualPrice / 100).toLocaleString("en-IN") : "0";
 
                           return (
-                            <tr key={p.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-900/30 transition-colors">
+                            <tr key={p.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/30 transition-colors">
                               <td className="px-6 py-4">
                                 <div className="flex items-center gap-2">
-                                  <span className="font-bold text-gray-900 dark:text-white text-base">{p.name}</span>
+                                  <span className="font-bold text-slate-900 dark:text-white text-base">{p.name}</span>
                                   {p.isPopular && (
                                     <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 rounded-full border border-amber-300 dark:border-amber-800">
                                       POPULAR
                                     </span>
                                   )}
                                   {p.publicVisible === false ? (
-                                    <span className="px-2 py-0.5 text-[10px] font-bold bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 rounded-full border border-gray-300 dark:border-gray-700">
+                                    <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 rounded-full border border-slate-300 dark:border-slate-700">
                                       PRIVATE
                                     </span>
                                   ) : (
@@ -716,7 +1248,7 @@ export default function SuperAdminPricingPage() {
                                     </span>
                                   )}
                                 </div>
-                                <div className="text-xs font-mono text-gray-400 mt-0.5">slug: {p.slug}</div>
+                                <div className="text-xs font-mono text-slate-400 mt-0.5">slug: {p.slug}</div>
                               </td>
                               <td className="px-4 py-4">
                                 <button
@@ -725,19 +1257,25 @@ export default function SuperAdminPricingPage() {
                                     p.status === "ACTIVE"
                                       ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-400 dark:border-emerald-800 hover:bg-emerald-100"
                                       : p.status === "INACTIVE"
-                                      ? "bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700 hover:bg-gray-200"
+                                      ? "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700 hover:bg-slate-200"
                                       : "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/60 dark:text-amber-400 dark:border-amber-800"
                                   }`}
                                 >
-                                  {p.status === "ACTIVE" ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> : <Archive className="h-3.5 w-3.5" />}
+                                  {p.status === "ACTIVE" ? (
+                                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                                  ) : (
+                                    <Archive className="h-3.5 w-3.5" />
+                                  )}
                                   <span>{p.status}</span>
                                 </button>
                               </td>
-                              <td className="px-4 py-4 font-semibold text-gray-900 dark:text-white">
-                                ₹{monthlyRs}<span className="text-xs font-normal text-gray-500">/mo</span>
+                              <td className="px-4 py-4 font-semibold text-slate-900 dark:text-white">
+                                ₹{monthlyRs}
+                                <span className="text-xs font-normal text-slate-500">/mo</span>
                               </td>
-                              <td className="px-4 py-4 font-semibold text-gray-900 dark:text-white">
-                                ₹{annualRs}<span className="text-xs font-normal text-gray-500">/mo</span>
+                              <td className="px-4 py-4 font-semibold text-slate-900 dark:text-white">
+                                ₹{annualRs}
+                                <span className="text-xs font-normal text-slate-500">/mo</span>
                               </td>
                               <td className="px-4 py-4">
                                 <button
@@ -748,41 +1286,50 @@ export default function SuperAdminPricingPage() {
                                   <span>v{ver ? ver.version : 1}</span>
                                 </button>
                               </td>
-                              <td className="px-4 py-4 text-xs text-gray-600 dark:text-gray-400">
-                                <span className="font-semibold text-gray-900 dark:text-white">
+                              <td className="px-4 py-4 text-xs text-slate-600 dark:text-slate-400">
+                                <span className="font-semibold text-slate-900 dark:text-white">
                                   {p.features?.length || 0} Features
                                 </span>
                               </td>
-                              <td className="px-4 py-4 text-xs font-mono text-gray-600 dark:text-gray-400">
+                              <td className="px-4 py-4 text-xs font-mono text-slate-600 dark:text-slate-400">
                                 <div>{p.limits?.maxStudents === -1 ? "Unlimited" : `${p.limits?.maxStudents || 500} Students`}</div>
-                                <div className="text-[11px] text-gray-400">{p.limits?.maxTeachers === -1 ? "Unlimited Teachers" : `${p.limits?.maxTeachers || 20} Teachers`}</div>
+                                <div className="text-[11px] text-slate-400">
+                                  {p.limits?.maxTeachers === -1 ? "Unlimited Teachers" : `${p.limits?.maxTeachers || 20} Teachers`}
+                                </div>
                               </td>
                               <td className="px-6 py-4 text-right">
                                 <div className="flex items-center justify-end gap-1.5">
                                   <button
+                                    onClick={() => openAssignModal(p)}
+                                    className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors"
+                                    title="Assign to School"
+                                  >
+                                    <School className="h-4 w-4" />
+                                  </button>
+                                  <button
                                     onClick={() => openEditModal(p)}
-                                    className="p-1.5 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                                    className="p-1.5 text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
                                     title="Edit Plan & Version"
                                   >
                                     <Edit className="h-4 w-4" />
                                   </button>
                                   <button
                                     onClick={() => openDuplicateModal(p)}
-                                    className="p-1.5 text-gray-600 dark:text-gray-300 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                                    className="p-1.5 text-slate-600 dark:text-slate-300 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
                                     title="Duplicate Plan"
                                   >
                                     <Copy className="h-4 w-4" />
                                   </button>
                                   <button
                                     onClick={() => openHistoryModal(p)}
-                                    className="p-1.5 text-gray-600 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                                    className="p-1.5 text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
                                     title="View Version History"
                                   >
                                     <History className="h-4 w-4" />
                                   </button>
                                   <button
                                     onClick={() => openDeletePlanModal(p)}
-                                    className="p-1.5 text-gray-600 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                                    className="p-1.5 text-slate-600 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
                                     title="Delete Plan Safely"
                                   >
                                     <Trash2 className="h-4 w-4" />
@@ -1684,6 +2231,181 @@ export default function SuperAdminPricingPage() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ASSIGN PLAN TO SCHOOL MODAL */}
+      {showAssignModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 w-full max-w-lg shadow-2xl space-y-4 my-auto">
+            <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400">
+                  <School className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900 dark:text-white">Assign Plan to School</h3>
+                  <p className="text-xs text-gray-500">Upgrade, downgrade, or extend a school's subscription plan</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowAssignModal(false)}
+                className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAssignSubmit} className="space-y-4 text-sm">
+              {/* School Select */}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                  Select School *
+                </label>
+                {loadingSchools ? (
+                  <div className="flex items-center gap-2 p-2.5 bg-gray-50 dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-gray-800 text-xs text-gray-400">
+                    <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+                    <span>Loading registered schools...</span>
+                  </div>
+                ) : schoolsList.length === 0 ? (
+                  <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl text-xs text-amber-700 dark:text-amber-300">
+                    No schools registered in system yet.
+                  </div>
+                ) : (
+                  <select
+                    required
+                    value={assignForm.schoolId}
+                    onChange={(e) => setAssignForm({ ...assignForm, schoolId: e.target.value })}
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-gray-800 rounded-xl text-sm font-medium text-gray-900 dark:text-white"
+                  >
+                    <option value="" disabled>-- Select School --</option>
+                    {schoolsList.map((sch) => (
+                      <option key={sch.id} value={sch.id}>
+                        {sch.name} ({sch.email || sch.id}) {sch.planId ? `[Current: ${sch.planId}]` : ""}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {/* Plan Select */}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                  Select Subscription Plan *
+                </label>
+                <select
+                  required
+                  value={assignForm.planId}
+                  onChange={(e) => setAssignForm({ ...assignForm, planId: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-gray-800 rounded-xl text-sm font-medium text-gray-900 dark:text-white"
+                >
+                  <option value="" disabled>-- Select Plan --</option>
+                  {plans.map((p) => {
+                    const ver = activeVersions[p.id];
+                    const price = ver ? ver.monthlyPrice / 100 : 999;
+                    return (
+                      <option key={p.id} value={p.id}>
+                        {p.name} — ₹{price}/mo ({p.status})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {/* Billing Cycle */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                    Billing Cycle
+                  </label>
+                  <select
+                    value={assignForm.billingCycle}
+                    onChange={(e) => setAssignForm({ ...assignForm, billingCycle: e.target.value as "monthly" | "annual" })}
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-gray-800 rounded-xl text-sm font-medium text-gray-900 dark:text-white"
+                  >
+                    <option value="monthly">Monthly</option>
+                    <option value="annual">Annual (Yearly)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                    Validity Duration
+                  </label>
+                  <select
+                    value={assignForm.durationPreset}
+                    onChange={(e) => setAssignForm({ ...assignForm, durationPreset: e.target.value })}
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-gray-800 rounded-xl text-sm font-medium text-gray-900 dark:text-white"
+                  >
+                    <option value="30">30 Days (1 Month)</option>
+                    <option value="90">90 Days (Quarterly)</option>
+                    <option value="180">180 Days (Half Year)</option>
+                    <option value="365">365 Days (1 Year)</option>
+                    <option value="lifetime">Lifetime (10 Years)</option>
+                    <option value="custom">Custom Date</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Custom Date Input */}
+              {assignForm.durationPreset === "custom" && (
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                    Custom Expiration Date *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={assignForm.customDate}
+                    onChange={(e) => setAssignForm({ ...assignForm, customDate: e.target.value })}
+                    min={new Date().toISOString().split("T")[0]}
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-gray-800 rounded-xl text-sm font-medium text-gray-900 dark:text-white"
+                  />
+                </div>
+              )}
+
+              {/* Reason / Admin Notes */}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                  Reason / Notes for Audit Log
+                </label>
+                <input
+                  type="text"
+                  value={assignForm.reason}
+                  onChange={(e) => setAssignForm({ ...assignForm, reason: e.target.value })}
+                  placeholder="e.g. Manual promotion, annual enterprise contract, payment received via NEFT"
+                  className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-gray-800 rounded-xl text-sm text-gray-900 dark:text-white"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+                <button
+                  type="button"
+                  onClick={() => setShowAssignModal(false)}
+                  className="px-4 py-2 text-xs font-bold text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={assigningPlan || !assignForm.schoolId || !assignForm.planId}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition-all"
+                >
+                  {assigningPlan ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Assigning...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="h-4 w-4" />
+                      <span>Confirm & Assign Plan</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

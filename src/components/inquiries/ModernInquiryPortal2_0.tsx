@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import {
   MessageSquare,
   Search,
@@ -36,6 +36,10 @@ import {
   Send,
   CalendarPlus,
   HelpCircle,
+  RefreshCw,
+  Loader2,
+  Trash2,
+  Eye,
 } from "lucide-react";
 import {
   Inquiry,
@@ -43,7 +47,6 @@ import {
   InquiryStatus2,
   InquiryInterestLevel,
   InquirySource,
-  SEED_INQUIRIES_2_0,
   mapStatusTo2_0,
 } from "@/lib/inquiries";
 import { toast } from "sonner";
@@ -66,24 +69,14 @@ export function ModernInquiryPortal2_0({
 }: ModernInquiryPortal2_0Props) {
   const { profile } = useAuth();
 
-  // Inquiries store
+  // Inquiries store - 100% Real Data, Zero Dummy Data
   const [inquiries, setInquiries] = useState<Inquiry[]>(() => {
     if (initialInquiries && initialInquiries.length > 0) return initialInquiries;
-    if (portalType === "schoolAdmin") {
-      // Modify seed data slightly to represent student/admission leads
-      return SEED_INQUIRIES_2_0.map((inq, idx) => ({
-        ...inq,
-        schoolId: schoolId || "school_demo",
-        subject: idx % 2 === 0 ? "Admission Inquiry for Class 6th" : "Kindergarten Campus Tour & Fee Structure",
-        category: "ADMISSION" as const,
-        schoolName: idx % 2 === 0 ? "Parent of Aarav Sharma" : "Parent of Ananya Mehta",
-        organization: idx % 2 === 0 ? "Parent of Aarav Sharma" : "Parent of Ananya Mehta",
-      }));
-    }
-    return SEED_INQUIRIES_2_0;
+    return [];
   });
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [isSubmittingInquiry, setIsSubmittingInquiry] = useState(false);
 
   // Selected Inquiry for Right Panel Drawer
   const [selectedInquiry, setSelectedInquiry] = useState<Inquiry | null>(() => {
@@ -102,7 +95,7 @@ export function ModernInquiryPortal2_0({
   const [sourceFilter, setSourceFilter] = useState("ALL");
   const [interestFilter, setInterestFilter] = useState("ALL");
   const [assignedFilter, setAssignedFilter] = useState("ALL");
-  const [dateRangeFilter, setDateRangeFilter] = useState("Nov 1, 2024 - Dec 1, 2024");
+  const [dateRangeFilter, setDateRangeFilter] = useState("All Time");
 
   // Multi-select Checkboxes
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -135,26 +128,37 @@ export function ModernInquiryPortal2_0({
   });
 
   // Fetch real inquiries from backend
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const endpoint = portalType === "superAdmin" ? "/api/super-admin/inquiries" : "/api/school/inquiries";
-        const res = await fetch(endpoint);
-        if (res.ok) {
-          const json = await res.json();
-          if (json.inquiries && json.inquiries.length > 0) {
-            setInquiries(json.inquiries);
-            if (!selectedInquiry) setSelectedInquiry(json.inquiries[0]);
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const endpoint =
+        portalType === "superAdmin"
+          ? "/api/super-admin/inquiries?pageSize=200"
+          : `/api/school/inquiries${schoolId ? `?schoolId=${encodeURIComponent(schoolId)}` : ""}`;
+      const res = await fetch(endpoint, { cache: "no-store" });
+      if (res.ok) {
+        const json = await res.json();
+        const list: Inquiry[] = json.inquiries || [];
+        setInquiries(list);
+        setSelectedInquiry((prev) => {
+          if (prev && list.some((i) => i.id === prev.id)) {
+            return list.find((i) => i.id === prev.id) || null;
           }
-        }
-      } catch (err) {
-        console.warn("Notice: Loaded demo fallback inquiries for 2.0 portal.");
+          return list[0] || null;
+        });
       }
+    } catch (err) {
+      console.error("Failed to load real inquiries:", err);
+    } finally {
+      setLoading(false);
     }
-    loadData();
   }, [portalType, schoolId]);
 
-  // Compute 6 KPI Stats
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Compute 6 KPI Stats based on real database records
   const stats = useMemo(() => {
     const total = inquiries.length;
     const newCount = inquiries.filter((i) => i.status2 === "New" || i.status === "NEW").length;
@@ -166,19 +170,19 @@ export function ModernInquiryPortal2_0({
     const rate = total > 0 ? ((convertedCount / total) * 100).toFixed(1) : "0.0";
 
     return {
-      total: total || 1248,
-      newThisWeek: newCount || 186,
-      pending: pendingCount || 72,
-      converted: convertedCount || 412,
-      closed: closedCount || 364,
+      total,
+      newThisWeek: newCount,
+      pending: pendingCount,
+      converted: convertedCount,
+      closed: closedCount,
       conversionRate: `${rate}%`,
       counts: {
-        all: total || 1248,
-        new: newCount || 186,
-        contacted: contactedCount || 320,
-        inDiscussion: inDiscussionCount || 226,
-        converted: convertedCount || 412,
-        closed: closedCount || 364,
+        all: total,
+        new: newCount,
+        contacted: contactedCount,
+        inDiscussion: inDiscussionCount,
+        converted: convertedCount,
+        closed: closedCount,
       },
     };
   }, [inquiries]);
@@ -265,23 +269,25 @@ export function ModernInquiryPortal2_0({
     setSelectedIds(next);
   };
 
-  // Quick Status Changer
-  const handleUpdateStatus = (inquiryId: string, newStatus2: InquiryStatus2) => {
+  // Quick Status Changer with API sync
+  const handleUpdateStatus = async (inquiryId: string, newStatus2: InquiryStatus2) => {
+    const mapped = (newStatus2 === "New"
+      ? "NEW"
+      : newStatus2 === "Contacted"
+      ? "CONTACTED"
+      : newStatus2 === "In Discussion"
+      ? "IN_DISCUSSION"
+      : newStatus2 === "Converted"
+      ? "CONVERTED"
+      : "CLOSED") as InquiryStatus;
+
     setInquiries((prev) =>
       prev.map((i) => {
         if (i.id === inquiryId) {
           const updated = {
             ...i,
             status2: newStatus2,
-            status: (newStatus2 === "New"
-              ? "NEW"
-              : newStatus2 === "Contacted"
-              ? "CONTACTED"
-              : newStatus2 === "In Discussion"
-              ? "IN_DISCUSSION"
-              : newStatus2 === "Converted"
-              ? "CONVERTED"
-              : "CLOSED") as InquiryStatus,
+            status: mapped,
             updatedAt: new Date().toISOString(),
           };
           if (selectedInquiry?.id === inquiryId) setSelectedInquiry(updated);
@@ -290,18 +296,38 @@ export function ModernInquiryPortal2_0({
         return i;
       })
     );
-    toast.success(`Inquiry marked as ${newStatus2}.`);
+
+    try {
+      const endpoint =
+        portalType === "superAdmin"
+          ? `/api/super-admin/inquiries/${inquiryId}`
+          : `/api/school/inquiries/${inquiryId}`;
+
+      await fetch(endpoint, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: mapped,
+          status2: newStatus2,
+          actionType: "STATUS_CHANGE",
+        }),
+      });
+      toast.success(`Inquiry marked as ${newStatus2}.`);
+    } catch (err) {
+      console.warn("Status update sync notice:", err);
+    }
   };
 
-  // Add Note
-  const handleAddNote = () => {
+  // Add Note with API sync
+  const handleAddNote = async () => {
     if (!newNoteText.trim() || !selectedInquiry) return;
+    const noteText = newNoteText.trim();
     const noteItem = {
       id: `note_${Date.now()}`,
       inquiryId: selectedInquiry.id,
       authorId: profile?.uid || "user_admin",
       authorName: profile?.name || "Admin",
-      note: newNoteText.trim(),
+      note: noteText,
       createdAt: new Date().toISOString(),
     };
 
@@ -317,11 +343,30 @@ export function ModernInquiryPortal2_0({
       })
     );
     setNewNoteText("");
-    toast.success("Note added successfully.");
+
+    try {
+      if (portalType === "superAdmin") {
+        await fetch(`/api/super-admin/inquiries/${selectedInquiry.id}/notes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ note: noteText }),
+        });
+      } else {
+        const existingNotes = selectedInquiry.notes || [];
+        await fetch(`/api/school/inquiries/${selectedInquiry.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ notes: [...existingNotes, noteItem] }),
+        });
+      }
+      toast.success("Note added successfully.");
+    } catch (e) {
+      toast.error("Failed to sync note to server.");
+    }
   };
 
-  // Add Follow-up
-  const handleAddFollowUp = () => {
+  // Add Follow-up with API sync
+  const handleAddFollowUp = async () => {
     if (!newFollowUpTitle.trim() || !newFollowUpDate || !selectedInquiry) {
       toast.error("Please provide both title and date.");
       return;
@@ -349,51 +394,124 @@ export function ModernInquiryPortal2_0({
     );
     setNewFollowUpTitle("");
     setNewFollowUpDate("");
-    toast.success("Follow-up scheduled.");
+
+    try {
+      const endpoint =
+        portalType === "superAdmin"
+          ? `/api/super-admin/inquiries/${selectedInquiry.id}`
+          : `/api/school/inquiries/${selectedInquiry.id}`;
+      const existing = selectedInquiry.followUps || [];
+      await fetch(endpoint, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ followUps: [...existing, followUpItem] }),
+      });
+      toast.success("Follow-up scheduled.");
+    } catch (e) {
+      toast.error("Failed to sync follow-up to server.");
+    }
+  };
+
+  // Delete Inquiry
+  const handleDeleteInquiry = async (inquiryId: string) => {
+    if (!confirm("Are you sure you want to delete this inquiry?")) return;
+    try {
+      const endpoint =
+        portalType === "superAdmin"
+          ? `/api/super-admin/inquiries/${inquiryId}`
+          : `/api/school/inquiries/${inquiryId}`;
+      await fetch(endpoint, { method: "DELETE" });
+      setInquiries((prev) => prev.filter((i) => i.id !== inquiryId));
+      if (selectedInquiry?.id === inquiryId) {
+        setSelectedInquiry(null);
+      }
+      toast.success("Inquiry deleted successfully.");
+    } catch (err) {
+      toast.error("Failed to delete inquiry.");
+    }
   };
 
   // Submit Add Inquiry Form
-  const handleAddSubmit = (e: React.FormEvent) => {
+  const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!addForm.name.trim()) {
       toast.error("Contact name is required.");
       return;
     }
 
-    const newId = `inq_${Date.now().toString().slice(-4)}`;
-    const newInquiry: Inquiry = {
-      id: newId,
-      inquiryNumber: Math.floor(1000 + Math.random() * 9000),
-      name: addForm.name.trim(),
-      organization: addForm.organization.trim() || (portalType === "schoolAdmin" ? "Parent Lead" : "New School"),
-      schoolName: addForm.organization.trim() || (portalType === "schoolAdmin" ? "Parent Lead" : "New School"),
-      email: addForm.email.trim() || "contact@school.in",
-      phone: addForm.phone.trim() || "+91 98765 00000",
-      location: addForm.location.trim(),
-      source: addForm.source,
-      interestLevel: addForm.interestLevel,
-      status: (addForm.status2 === "New" ? "NEW" : "CONTACTED") as InquiryStatus,
-      status2: addForm.status2,
-      priority: addForm.interestLevel === "High" ? "HIGH" : "NORMAL",
-      assignedTo: "user_ankit",
-      assignedToName: addForm.assignedToName,
-      assignedToAvatar: addForm.assignedToName.slice(0, 2).toUpperCase(),
-      preferredContact: addForm.preferredContact,
-      expectedTimeline: addForm.expectedTimeline,
-      subject: `Inquiry from ${addForm.name.trim()}`,
-      message: addForm.message.trim() || "Interested in learning more about the school offerings and fee structure.",
-      category: portalType === "schoolAdmin" ? "ADMISSION" : "SCHOOL_ONBOARDING",
-      schoolId: schoolId || null,
-      notesCount: 0,
-      isArchived: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    setIsSubmittingInquiry(true);
+    try {
+      const endpoint = portalType === "superAdmin" ? "/api/super-admin/inquiries" : "/api/school/inquiries";
+      const payload =
+        portalType === "superAdmin"
+          ? {
+              name: addForm.name.trim(),
+              email: addForm.email.trim(),
+              phone: addForm.phone.trim(),
+              organization: addForm.organization.trim() || "Website Lead",
+              schoolName: addForm.organization.trim() || "Website Lead",
+              location: addForm.location.trim(),
+              city: addForm.location.trim(),
+              source: addForm.source,
+              interestLevel: addForm.interestLevel,
+              status2: addForm.status2,
+              assignedToName: addForm.assignedToName,
+              preferredContact: addForm.preferredContact,
+              expectedTimeline: addForm.expectedTimeline,
+              message: addForm.message.trim() || "Inquiry submitted via portal.",
+              subject: `Inquiry from ${addForm.name.trim()}`,
+            }
+          : {
+              name: addForm.name.trim(),
+              schoolId: schoolId || profile?.schoolId || null,
+              email: addForm.email.trim(),
+              phone: addForm.phone.trim(),
+              location: addForm.location.trim(),
+              source: addForm.source,
+              interestLevel: addForm.interestLevel,
+              status2: addForm.status2,
+              assignedToName: addForm.assignedToName,
+              preferredContact: addForm.preferredContact,
+              expectedTimeline: addForm.expectedTimeline,
+              schoolName: addForm.organization.trim() || "Parent Lead",
+              organization: addForm.organization.trim() || "Parent Lead",
+              message: addForm.message.trim() || "Admission inquiry for school.",
+              subject: `Admission Inquiry from ${addForm.name.trim()}`,
+            };
 
-    setInquiries([newInquiry, ...inquiries]);
-    setSelectedInquiry(newInquiry);
-    setShowAddModal(false);
-    toast.success(`Inquiry #${newInquiry.inquiryNumber} created successfully!`);
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json();
+      if (!res.ok || json.error) {
+        throw new Error(json.error || "Failed to create inquiry.");
+      }
+
+      toast.success("Inquiry created successfully!");
+      setShowAddModal(false);
+      setAddForm({
+        name: "",
+        organization: "",
+        email: "",
+        phone: "",
+        location: "Delhi, India",
+        source: "Website",
+        interestLevel: "High",
+        status2: "New",
+        assignedToName: "Ankit Kumar",
+        preferredContact: "Phone",
+        expectedTimeline: "Within 1 month",
+        message: "",
+      });
+      await loadData();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to create inquiry");
+    } finally {
+      setIsSubmittingInquiry(false);
+    }
   };
 
   // Export CSV
@@ -529,6 +647,16 @@ export function ModernInquiryPortal2_0({
               <span>Switch to Classic UI</span>
             </button>
           )}
+
+          <button
+            onClick={() => loadData()}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 shadow-sm transition"
+            title="Refresh Inquiries"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${loading ? "animate-spin text-blue-600" : ""}`} />
+            <span>Refresh</span>
+          </button>
 
           <button
             onClick={handleExportCSV}
@@ -802,10 +930,47 @@ export function ModernInquiryPortal2_0({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
-                  {paginatedInquiries.length === 0 ? (
+                  {loading ? (
                     <tr>
-                      <td colSpan={10} className="text-center py-12 text-slate-400">
-                        No inquiries found matching current filters.
+                      <td colSpan={10} className="text-center py-16 text-slate-500">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                          <p className="font-semibold text-xs text-slate-700 dark:text-slate-300">
+                            Loading inquiries from database...
+                          </p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : paginatedInquiries.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="text-center py-16 text-slate-400">
+                        <div className="flex flex-col items-center justify-center max-w-sm mx-auto space-y-3">
+                          <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                            <MessageSquare className="w-6 h-6" />
+                          </div>
+                          <h4 className="font-bold text-slate-900 dark:text-white text-sm">No Inquiries Found</h4>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                            {searchQuery || statusFilter !== "ALL" || sourceFilter !== "ALL"
+                              ? "No inquiries matched your current filter criteria. Try resetting filters."
+                              : portalType === "superAdmin"
+                              ? "Real website contact form submissions and new school inquiries will appear here in real-time."
+                              : "New student admissions and parent leads created manually or submitted online will appear here."}
+                          </p>
+                          <div className="flex items-center gap-2 pt-1">
+                            <button
+                              onClick={() => setShowAddModal(true)}
+                              className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition"
+                            >
+                              + Add Inquiry
+                            </button>
+                            <button
+                              onClick={() => loadData()}
+                              className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 font-semibold text-xs hover:bg-slate-50"
+                            >
+                              Refresh
+                            </button>
+                          </div>
+                        </div>
                       </td>
                     </tr>
                   ) : (
@@ -916,14 +1081,24 @@ export function ModernInquiryPortal2_0({
                             </p>
                           </td>
 
-                          {/* Action dots */}
+                          {/* Actions */}
                           <td className="py-3 px-3 text-right" onClick={(e) => e.stopPropagation()}>
-                            <button
-                              onClick={() => setSelectedInquiry(inq)}
-                              className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
-                            >
-                              <MoreVertical className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                onClick={() => setSelectedInquiry(inq)}
+                                title="View Details"
+                                className="p-1 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteInquiry(inq.id)}
+                                title="Delete Inquiry"
+                                className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1293,14 +1468,13 @@ export function ModernInquiryPortal2_0({
                 <option value="Closed">Mark as Closed</option>
               </select>
 
-              {/* More Actions Dropdown */}
+              {/* Delete Inquiry Button */}
               <button
-                onClick={() => {
-                  toast.info("Inquiry assigned and priority updated.");
-                }}
-                className="px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-semibold hover:bg-slate-100 dark:hover:bg-slate-800"
+                onClick={() => handleDeleteInquiry(selectedInquiry.id)}
+                title="Delete Inquiry"
+                className="p-2.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 transition"
               >
-                More
+                <Trash2 className="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -1432,9 +1606,11 @@ export function ModernInquiryPortal2_0({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold"
+                  disabled={isSubmittingInquiry}
+                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold flex items-center gap-2"
                 >
-                  Add Inquiry
+                  {isSubmittingInquiry ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  <span>{isSubmittingInquiry ? "Saving..." : "Add Inquiry"}</span>
                 </button>
               </div>
             </form>

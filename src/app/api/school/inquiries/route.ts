@@ -19,6 +19,8 @@ import {
 } from "@/lib/inquiries";
 import { canAccessFeature } from "@/lib/billing/featureAccess";
 
+export const dynamic = "force-dynamic";
+
 /**
  * GET /api/school/inquiries
  * Returns tenant-isolated student admission inquiries & parent leads for school admin
@@ -63,18 +65,6 @@ export async function GET(request: Request) {
     }
 
     let inquiries: Inquiry[] = rawDocs.map((d) => normalizeInquiry(d.id, d.data));
-
-    // If no records found, return specialized school admission seed leads
-    if (inquiries.length === 0) {
-      inquiries = SEED_INQUIRIES_2_0.map((inq, idx) => ({
-        ...inq,
-        schoolId: schoolId || "school_demo",
-        subject: idx % 2 === 0 ? "Admission Inquiry for Class 6th" : "Kindergarten Campus Tour & Fee Structure",
-        category: "ADMISSION" as const,
-        schoolName: idx % 2 === 0 ? "Parent of Aarav Sharma" : "Parent of Ananya Mehta",
-        organization: idx % 2 === 0 ? "Parent of Aarav Sharma" : "Parent of Ananya Mehta",
-      }));
-    }
 
     return NextResponse.json({
       success: true,

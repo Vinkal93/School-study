@@ -21,6 +21,8 @@ import {
 } from "@/lib/inquiries";
 import { createBillingAuditLog } from "@/lib/billing";
 
+export const dynamic = "force-dynamic";
+
 /**
  * GET /api/super-admin/inquiries
  * Supports Search, Filters, Real Summary Counts, Pagination & Sorting
@@ -285,7 +287,29 @@ export async function POST(request: Request) {
 
     let writeSuccess = false;
 
-    if (db) {
+    const adminDb = getSafeAdminDb();
+    if (adminDb) {
+      try {
+        const docRef = await adminDb.collection(INQUIRY_COLLECTION).add({
+          ...newInquiryData,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+        createdDocId = docRef.id;
+        writeSuccess = true;
+        try {
+          await adminDb.collection(LEGACY_COLLECTION).doc(createdDocId).set({
+            ...newInquiryData,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          }, { merge: true });
+        } catch (e) {}
+      } catch (adminWriteErr) {
+        console.warn("adminDb add notice:", adminWriteErr);
+      }
+    }
+
+    if (!writeSuccess && db) {
       try {
         const docRef = await addDoc(collection(db, INQUIRY_COLLECTION), newInquiryData);
         createdDocId = docRef.id;

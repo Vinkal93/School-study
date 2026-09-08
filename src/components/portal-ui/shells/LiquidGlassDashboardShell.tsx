@@ -29,24 +29,21 @@ export function LiquidGlassDashboardShell({
   const isSchoolAdmin = profile?.role === "school_admin";
 
   return (
-    <div className="flex h-screen h-[100dvh] overflow-hidden bg-gradient-to-br from-[#F0F4FF] via-[#F6F8FC] to-[#EFF6FF] dark:from-[#060911] dark:via-[#090E1A] dark:to-[#0D1527] text-slate-900 dark:text-slate-100 font-sans antialiased transition-colors relative">
+    <div className="liquid-glass-portal flex h-screen h-[100dvh] overflow-hidden bg-gradient-to-br from-[#EEF2FF] via-[#F8FAFC] to-[#E0E7FF] dark:from-[#030712] dark:via-[#090E1A] dark:to-[#0B1329] text-slate-900 dark:text-slate-100 font-sans antialiased transition-colors relative">
       
-      {/* Iridescent Ambient Background Glows */}
-      <div className="fixed top-[-10%] left-[10%] w-[40vw] h-[40vw] max-w-[600px] max-h-[600px] rounded-full bg-gradient-to-tr from-cyan-400/15 via-sky-400/10 to-indigo-500/15 dark:from-cyan-500/10 dark:via-sky-500/5 dark:to-indigo-600/10 blur-[120px] pointer-events-none -z-10" />
-      <div className="fixed bottom-[-10%] right-[10%] w-[40vw] h-[40vw] max-w-[600px] max-h-[600px] rounded-full bg-gradient-to-bl from-purple-400/15 via-pink-400/10 to-blue-500/15 dark:from-purple-600/10 dark:via-indigo-600/5 dark:to-blue-600/10 blur-[120px] pointer-events-none -z-10" />
+      {/* Iridescent Ambient Background Glowing Orbs */}
+      <div className="fixed top-[-15%] left-[5%] w-[45vw] h-[45vw] max-w-[700px] max-h-[700px] rounded-full bg-gradient-to-tr from-cyan-400/25 via-sky-400/20 to-indigo-500/25 dark:from-cyan-500/20 dark:via-sky-500/15 dark:to-indigo-600/20 blur-[140px] pointer-events-none -z-10" />
+      <div className="fixed bottom-[-15%] right-[5%] w-[45vw] h-[45vw] max-w-[700px] max-h-[700px] rounded-full bg-gradient-to-bl from-purple-500/25 via-pink-400/20 to-blue-600/25 dark:from-purple-600/20 dark:via-pink-600/15 dark:to-blue-600/20 blur-[140px] pointer-events-none -z-10" />
+      <div className="fixed top-[40%] right-[30%] w-[30vw] h-[30vw] max-w-[500px] max-h-[500px] rounded-full bg-gradient-to-r from-emerald-400/15 to-teal-500/15 dark:from-emerald-600/10 dark:to-teal-600/10 blur-[130px] pointer-events-none -z-10" />
 
-      {/* Floating Liquid Glass Sidebar */}
-      <div className="hidden md:flex h-full p-3 pr-0 z-20">
-        <div className="h-full rounded-3xl overflow-hidden border border-white/60 dark:border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.06)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.4)] bg-white/75 dark:bg-slate-900/75 backdrop-blur-2xl flex flex-col transition-all">
-          <Sidebar />
-        </div>
-      </div>
+      {/* Floating Liquid Glass Sidebar (renders desktop aside + mobile drawer at root) */}
+      <Sidebar variant="liquid" />
 
       {/* Main Column */}
       <div className="flex flex-1 flex-col overflow-hidden min-w-0 z-10">
         {/* Floating Liquid Glass Topbar */}
         <div className="relative z-30">
-          <div className="backdrop-blur-2xl bg-white/75 dark:bg-slate-900/75 border-b border-white/50 dark:border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+          <div className="border-b border-white/50 dark:border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
             {/* Version indicator banner chip */}
             <div className="w-full px-4 sm:px-6 py-1 bg-gradient-to-r from-cyan-500/15 via-sky-500/15 to-indigo-500/15 dark:from-cyan-500/20 dark:via-sky-500/20 dark:to-indigo-500/20 border-b border-cyan-500/20 flex items-center justify-between text-[11px] font-bold">
               <div className="flex items-center gap-1.5 text-cyan-800 dark:text-cyan-300">
@@ -64,7 +61,7 @@ export function LiquidGlassDashboardShell({
               </div>
             </div>
 
-            <Topbar />
+            <Topbar variant="liquid" />
           </div>
         </div>
 

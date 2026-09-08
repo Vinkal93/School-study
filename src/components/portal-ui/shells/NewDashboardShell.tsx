@@ -28,18 +28,14 @@ export function NewDashboardShell({
   const isSchoolAdmin = profile?.role === "school_admin";
   return (
     <div className="flex h-screen h-[100dvh] overflow-hidden bg-[#F6F8FC] dark:bg-[#090D16] text-slate-900 dark:text-slate-100 font-sans antialiased transition-colors">
-      {/* Modern Floating Sidebar Wrapper */}
-      <div className="hidden md:flex h-full p-2.5 pr-0">
-        <div className="h-full rounded-2xl overflow-hidden border border-slate-200/80 dark:border-slate-800/90 shadow-sm bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex flex-col">
-          <Sidebar />
-        </div>
-      </div>
+      {/* Modern Floating Sidebar (renders desktop aside + mobile drawer at root) */}
+      <Sidebar variant="modern" />
 
       {/* Main Column */}
       <div className="flex flex-1 flex-col overflow-hidden min-w-0">
         {/* Modern Frosted Topbar with 2.0 Pill */}
         <div className="relative z-30">
-          <div className="backdrop-blur-xl bg-white/80 dark:bg-slate-900/80 border-b border-slate-200/70 dark:border-slate-800/80 shadow-xs">
+          <div className="border-b border-slate-200/70 dark:border-slate-800/80 shadow-xs">
             {/* Version indicator banner chip */}
             <div className="w-full px-4 sm:px-6 py-1 bg-gradient-to-r from-blue-600/10 via-indigo-600/10 to-purple-600/10 dark:from-blue-500/15 dark:via-indigo-500/15 dark:to-purple-500/15 border-b border-blue-500/15 flex items-center justify-between text-[11px] font-bold">
               <div className="flex items-center gap-1.5 text-blue-700 dark:text-blue-300">
@@ -54,7 +50,7 @@ export function NewDashboardShell({
               </span>
             </div>
 
-            <Topbar />
+            <Topbar variant="modern" />
           </div>
         </div>
 

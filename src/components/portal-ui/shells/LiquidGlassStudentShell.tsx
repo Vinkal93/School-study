@@ -47,7 +47,7 @@ export function LiquidGlassStudentShell({ children }: { children: React.ReactNod
 
   return (
     <StudentHeaderProvider>
-      <div className="w-full min-h-screen min-h-[100dvh] bg-gradient-to-br from-[#EEF2FF] via-[#F0FDF4]/50 to-[#F8FAFC] dark:from-[#080B14] dark:via-[#091322] dark:to-[#0A0718] text-slate-900 dark:text-slate-100 font-sans antialiased flex justify-center selection:bg-cyan-500 selection:text-white overflow-x-hidden relative transition-colors">
+      <div className="liquid-glass-portal w-full min-h-screen min-h-[100dvh] bg-gradient-to-br from-[#EEF2FF] via-[#F0FDF4]/50 to-[#F8FAFC] dark:from-[#080B14] dark:via-[#091322] dark:to-[#0A0718] text-slate-900 dark:text-slate-100 font-sans antialiased flex justify-center selection:bg-cyan-500 selection:text-white overflow-x-hidden relative transition-colors">
         
         {/* Ambient Liquid Glowing Orbs in Background */}
         <div className="fixed top-[-10%] left-[-10%] w-[50vw] h-[50vw] max-w-[500px] max-h-[500px] rounded-full bg-gradient-to-tr from-cyan-400/20 to-blue-500/20 dark:from-cyan-500/10 dark:to-blue-600/10 blur-[100px] pointer-events-none -z-10" />

@@ -11,8 +11,13 @@ import { VerifyBadge } from "@/components/common/VerifyBadge";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { ProfileDropdown } from "@/components/layout/ProfileDropdown";
 import type { School } from "@/types";
+import { cn } from "@/lib/utils/cn";
 
-export function Topbar() {
+export interface TopbarProps {
+  variant?: "classic" | "modern" | "liquid";
+}
+
+export function Topbar({ variant = "classic" }: TopbarProps) {
   const { profile } = useAuth();
   const { toggleMobileNav } = useMobileNav();
   const [searchModalOpen, setSearchModalOpen] = useState(false);
@@ -50,7 +55,16 @@ export function Topbar() {
 
   return (
     <>
-      <header className="flex h-16 items-center justify-between border-b border-gray-200 bg-white px-4 sm:px-6 dark:border-gray-800 dark:bg-gray-950">
+      <header
+        className={cn(
+          "flex h-16 items-center justify-between px-4 sm:px-6 transition-colors",
+          variant === "liquid"
+            ? "bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border-b border-white/40 dark:border-white/10"
+            : variant === "modern"
+            ? "bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/70 dark:border-slate-800/80"
+            : "border-b border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950"
+        )}
+      >
         <div className="flex items-center gap-3">
           {/* Mobile Hamburger Button */}
           <button
