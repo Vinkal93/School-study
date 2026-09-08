@@ -262,6 +262,55 @@ textarea {
   }
 }
 
+/* Accessibility: Apple Liquid Glass Dynamic Adaptation for Reduced Transparency & High Contrast */
+@media (prefers-reduced-transparency: reduce) {
+  .lg-glass,
+  .liquid-glass-portal .bg-white,
+  .liquid-glass-portal .bg-gray-50,
+  .liquid-glass-portal .bg-slate-50,
+  .liquid-glass-portal .bg-slate-100,
+  .liquid-glass-portal aside,
+  .liquid-glass-portal header,
+  .liquid-glass-portal [role="menu"] {
+    background: #ffffff !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .dark .lg-glass,
+  .dark .liquid-glass-portal .bg-white,
+  .dark .liquid-glass-portal .bg-gray-950,
+  .dark .liquid-glass-portal .bg-slate-900,
+  .dark .liquid-glass-portal .bg-gray-900,
+  .dark .liquid-glass-portal aside,
+  .dark .liquid-glass-portal header,
+  .dark .liquid-glass-portal [role="menu"] {
+    background: #0f172a !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .lg-glass:before,
+  .dark .lg-glass:before {
+    display: none !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .lg-glass,
+  .liquid-glass-portal .bg-white,
+  .liquid-glass-portal aside,
+  .liquid-glass-portal header {
+    border-width: 2px !important;
+    border-color: #0f172a !important;
+  }
+  .dark .lg-glass,
+  .dark .liquid-glass-portal .bg-white,
+  .dark .liquid-glass-portal aside,
+  .dark .liquid-glass-portal header {
+    border-width: 2px !important;
+    border-color: #f8fafc !important;
+  }
+}
+
 /* ==========================================================================
    LIQUID GLASS UI SYSTEM (Apple VisionOS / iOS Liquid Glass Specification)
    ========================================================================== */
