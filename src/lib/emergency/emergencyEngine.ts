@@ -65,6 +65,7 @@ export interface SchoolEmergencyControl {
   disableFees: boolean;
   disableReports: boolean;
   forceLogoutAll?: boolean;
+  forceLogoutBefore?: string | number;
   securityVersion?: number;
   reason?: string;
   updatedAt: string;
@@ -169,9 +170,7 @@ export async function getGlobalEmergencyControls(): Promise<GlobalEmergencyContr
           return res;
         }
       }
-    }
-
-    if (typeof window !== "undefined") {
+    } else {
       const db = getFirebaseDb();
       if (db) {
         const snap = await getDoc(doc(db, "siteSettings", EMERGENCY_CONTROLS_DOC));
@@ -233,7 +232,7 @@ export async function updateGlobalEmergencyControls(
     const adminDb = await getAdminDbServerOnly();
     if (adminDb) {
       await adminDb.collection("siteSettings").doc(EMERGENCY_CONTROLS_DOC).set(updated, { merge: true });
-    } else if (typeof window !== "undefined") {
+    } else {
       const db = getFirebaseDb();
       if (db) {
         await setDoc(doc(db, "siteSettings", EMERGENCY_CONTROLS_DOC), updated, { merge: true });
@@ -275,9 +274,7 @@ export async function getSchoolEmergencyControl(schoolId: string): Promise<Schoo
           return res;
         }
       }
-    }
-
-    if (typeof window !== "undefined") {
+    } else {
       const db = getFirebaseDb();
       if (db) {
         const snap = await getDoc(doc(db, SCHOOL_EMERGENCY_COLLECTION, schoolId));
@@ -330,7 +327,7 @@ export async function updateSchoolEmergencyControl(
     const adminDb = await getAdminDbServerOnly();
     if (adminDb) {
       await adminDb.collection(SCHOOL_EMERGENCY_COLLECTION).doc(schoolId).set(updated, { merge: true });
-    } else if (typeof window !== "undefined") {
+    } else {
       const db = getFirebaseDb();
       if (db) {
         await setDoc(doc(db, SCHOOL_EMERGENCY_COLLECTION, schoolId), updated, { merge: true });
@@ -373,9 +370,7 @@ export async function getUserSecurityControl(userId: string): Promise<UserSecuri
           return res;
         }
       }
-    }
-
-    if (typeof window !== "undefined") {
+    } else {
       const db = getFirebaseDb();
       if (db) {
         const snap = await getDoc(doc(db, USER_SECURITY_COLLECTION, userId));
@@ -438,7 +433,7 @@ export async function updateUserSecurityControl(
         },
         { merge: true }
       );
-    } else if (typeof window !== "undefined") {
+    } else {
       const db = getFirebaseDb();
       if (db) {
         await setDoc(doc(db, USER_SECURITY_COLLECTION, userId), updated, { merge: true });
@@ -496,7 +491,7 @@ export async function getEmergencySystemMetrics(): Promise<EmergencySystemMetric
         }).length;
       }
       if (usersSnap) suspendedUsers = usersSnap.docs.length;
-    } else if (typeof window !== "undefined") {
+    } else {
       const db = getFirebaseDb();
       if (db) {
         const [schoolsSnap, emSchoolsSnap, usersSnap] = await Promise.all([

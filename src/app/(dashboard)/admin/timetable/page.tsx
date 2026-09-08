@@ -516,7 +516,7 @@ export default function AdminTimetablePage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
                   {bells.map((b) => {
-                    const status = calculateBellStatus(b.startTime, b.endTime);
+                    const status = calculateBellStatus(b?.startTime, b?.endTime);
                     return (
                       <tr
                         key={b.id}
@@ -543,7 +543,7 @@ export default function AdminTimetablePage() {
                           )}
                         </td>
                         <td className="py-3.5 px-4 font-mono font-bold text-slate-700 dark:text-slate-300">
-                          {b.startTime} – {b.endTime}
+                          {b?.startTime || "--:--"} – {b?.endTime || "--:--"}
                           <span className="text-[10px] text-slate-400 block font-normal">
                             {b.durationMinutes || 40} mins
                           </span>
@@ -630,7 +630,7 @@ export default function AdminTimetablePage() {
             {/* Mobile / Tablet Cards */}
             <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
               {bells.map((b) => {
-                const status = calculateBellStatus(b.startTime, b.endTime);
+                const status = calculateBellStatus(b?.startTime, b?.endTime);
                 return (
                   <div key={b.id} className="p-4 space-y-2.5">
                     <div className="flex items-center justify-between">
@@ -661,7 +661,7 @@ export default function AdminTimetablePage() {
 
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
-                        🕒 {b.startTime} – {b.endTime} ({b.durationMinutes || 40}m)
+                        🕒 {b?.startTime || "--:--"} – {b?.endTime || "--:--"} ({b?.durationMinutes || 40}m)
                       </span>
                       {b.isBreak ? (
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">

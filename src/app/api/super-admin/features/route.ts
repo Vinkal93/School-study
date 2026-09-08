@@ -319,16 +319,30 @@ export async function POST(req: NextRequest) {
     featureStore.auditLogs.unshift(auditEntry);
 
     // Prepare safe payload for Firestore persistence:
-    // We store statesList as an array of objects to avoid dot notation parsing bugs in Firestore map keys.
+    // We store statesList as an array of objects to avoid dot notation parsing bugs in Firestore map keys,
+    // plus a states map for direct key lookups.
     const statesList = Object.values(featureStore.states);
+    const statesMap: Record<string, any> = {};
+    statesList.forEach((s) => {
+      if (s && s.featureId) {
+        // Store under featureId (with colon replaced) and also direct key if clean
+        statesMap[s.featureId.replace(/:/g, "_")] = s;
+        const def = FEATURE_REGISTRY.find((f) => f.id === s.featureId || f.key === s.featureId);
+        if (def?.key && !def.key.includes(".")) {
+          statesMap[def.key] = s;
+        }
+      }
+    });
+
     const payload = cleanForFirestore({
       statesList,
+      states: statesMap,
       lastUpdated: new Date().toISOString(),
     });
 
-    // Try persisting asynchronously without blocking client response
+    // Try persisting synchronously to ensure real-time propagation
     if (adminDb) {
-      adminDb
+      await adminDb
         .collection("siteSettings")
         .doc("feature_controls")
         .set(payload, { merge: true })
@@ -339,7 +353,7 @@ export async function POST(req: NextRequest) {
         .add(auditEntry)
         .catch((e: any) => console.warn("Notice: Admin DB audit write notice:", e));
     } else if (clientDb) {
-      setDoc(doc(clientDb, "siteSettings", "feature_controls"), payload, { merge: true })
+      await setDoc(doc(clientDb, "siteSettings", "feature_controls"), payload, { merge: true })
         .catch((e) => console.warn("Notice: Client DB features write notice:", e));
     }
 

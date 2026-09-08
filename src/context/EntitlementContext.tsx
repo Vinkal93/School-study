@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/use-auth";
 import type { EffectiveEntitlement, FeatureAccessMode } from "@/types";
 import { getEffectiveEntitlement } from "@/lib/billing/entitlement";
 import { resolveEffectiveFeatureAccess } from "@/lib/feature-control/resolver";
+import { getFeatureDefinition } from "@/lib/feature-control/featureRegistry";
 import type { GlobalFeatureState, SchoolFeatureOverride } from "@/types/featureControl";
 import { canonicalizeCapabilityKey, getParentFeatureKey, getParentCapabilityKey } from "@/lib/billing/permissions";
 
@@ -78,7 +79,36 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       featureControlsRef,
       (snap) => {
         if (snap.exists()) {
-          const states = snap.data()?.states || {};
+          const data = snap.data() || {};
+          const states: Record<string, GlobalFeatureState> = {};
+
+          if (Array.isArray(data.statesList)) {
+            data.statesList.forEach((s: any) => {
+              if (s && s.featureId) {
+                states[s.featureId] = s;
+                const def = getFeatureDefinition(s.featureId);
+                if (def?.key) states[def.key] = s;
+                if (def?.moduleKey) {
+                  states[def.moduleKey] = s;
+                  states[`module:${def.moduleKey}`] = s;
+                }
+              }
+            });
+          } else if (data.states && typeof data.states === "object") {
+            Object.entries(data.states).forEach(([key, val]) => {
+              if (val && typeof val === "object") {
+                const s = val as GlobalFeatureState;
+                states[key] = s;
+                const def = getFeatureDefinition(key);
+                if (def?.key) states[def.key] = s;
+                if (def?.moduleKey) {
+                  states[def.moduleKey] = s;
+                  states[`module:${def.moduleKey}`] = s;
+                }
+              }
+            });
+          }
+
           setGlobalFeatureStates(states);
         }
       },

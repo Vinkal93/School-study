@@ -278,7 +278,7 @@ export async function fetchPlatformIntelligence(
     else if (u.role === "teacher") totalTeachers++;
 
     const lastActiveMs = getTimestampMs(
-      (u as any).lastActive || (u as any).lastLoginAt || u.updatedAt || u.createdAt
+      (u as any).lastActiveAt || (u as any).lastActive || (u as any).lastLoginAt || u.updatedAt || u.createdAt
     );
     if (lastActiveMs >= ms15mAgo) onlineUsers++;
     if (lastActiveMs >= ms24hAgo) dauSet.add(u.uid);

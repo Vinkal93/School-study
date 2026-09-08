@@ -585,8 +585,57 @@ export const FEATURE_REGISTRY: FeatureDefinition[] = [
   },
 ];
 
+export const CAPABILITY_TO_FEATURE_KEY: Record<string, string> = {
+  // Modules
+  student_management: "students",
+  teacher_management: "teachers",
+  basic_attendance: "attendance",
+  attendance_management: "attendance",
+  timetable_bells: "timetable",
+  timetable_management: "timetable",
+  fee_management: "fees",
+  notices_announcements: "notices",
+  advanced_reports: "reports",
+  report_management: "reports",
+  exam_management: "exams",
+  homework_assignments: "homework",
+  class_management: "students",
+  rules_policies: "students",
+  inquiries_portal: "students",
+
+  // Granular Actions
+  student_action_add: "students.create",
+  student_action_edit: "students.edit",
+  student_action_delete: "students.delete",
+  student_export: "students.export",
+  teacher_action_add: "teachers.create",
+  teacher_action_edit: "teachers.edit",
+  teacher_action_delete: "teachers.delete",
+  attendance_mark: "attendance.mark",
+  attendance_edit: "attendance.edit",
+  attendance_export: "attendance.export",
+  fee_collection: "fees.collect",
+  fee_receipt_edit: "fees.edit",
+  fee_refund: "fees.refund",
+  fee_structure_delete: "fees.delete",
+  report_export: "reports.export",
+};
+
 export function getFeatureDefinition(idOrKey: string): FeatureDefinition | undefined {
-  return FEATURE_REGISTRY.find((f) => f.id === idOrKey || f.key === idOrKey);
+  if (!idOrKey) return undefined;
+  const direct = FEATURE_REGISTRY.find((f) => f.id === idOrKey || f.key === idOrKey);
+  if (direct) return direct;
+
+  // Check capability alias
+  const mapped = CAPABILITY_TO_FEATURE_KEY[idOrKey];
+  if (mapped) {
+    const fromMapped = FEATURE_REGISTRY.find((f) => f.id === mapped || f.key === mapped || f.id === `module:${mapped}`);
+    if (fromMapped) return fromMapped;
+  }
+
+  // Check prefix or moduleKey match
+  const stripped = idOrKey.replace(/^module:/, "").replace(/^feature:/, "");
+  return FEATURE_REGISTRY.find((f) => f.key === stripped || f.moduleKey === stripped);
 }
 
 export function getFeaturesByModule(moduleKey: string): FeatureDefinition[] {
@@ -600,3 +649,4 @@ export function getAllModules(): FeatureDefinition[] {
 export function getAllActions(): FeatureDefinition[] {
   return FEATURE_REGISTRY.filter((f) => f.category === "action");
 }
+

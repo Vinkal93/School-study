@@ -108,6 +108,25 @@ export function useRealtimeSecurityListener() {
         const data = snapshot.data();
 
         if (profile?.role !== "super_admin") {
+          const storedLoginTime = typeof window !== "undefined" ? localStorage.getItem("school_study_session_login_time") : null;
+          const loginTime = storedLoginTime ? parseInt(storedLoginTime, 10) : mountTimeRef.current;
+          const updateTime = data.updatedAt ? new Date(data.updatedAt).getTime() : 0;
+
+          if (data.forceReLogin === true && updateTime >= loginTime) {
+            console.warn("[RealtimeSecurity] Global forceReLogin active. Logging out...");
+            toast.error("System security update initiated. All sessions reset. Please log in again.");
+            const auth = getFirebaseAuth();
+            if (auth) auth.signOut();
+            if (typeof window !== "undefined") {
+              localStorage.removeItem("school_study_session_login_time");
+              sessionStorage.removeItem("school_study_impersonation_user");
+            }
+            setTimeout(() => {
+              window.location.href = "/login?reason=global_security_reset";
+            }, 800);
+            return;
+          }
+
           if (initialGlobalVersionRef.current === null) {
             initialGlobalVersionRef.current = data.globalSecurityVersion || 1;
           } else if (
@@ -118,9 +137,13 @@ export function useRealtimeSecurityListener() {
             toast.error("System security update initiated. Please log in again.");
             const auth = getFirebaseAuth();
             if (auth) auth.signOut();
+            if (typeof window !== "undefined") {
+              localStorage.removeItem("school_study_session_login_time");
+              sessionStorage.removeItem("school_study_impersonation_user");
+            }
             setTimeout(() => {
               window.location.href = "/login?reason=global_security_reset";
-            }, 1000);
+            }, 800);
           }
         }
       },
@@ -131,10 +154,49 @@ export function useRealtimeSecurityListener() {
       }
     );
 
+    // 3. Listen to School Emergency Controls document
+    let unsubSchool: (() => void) | undefined;
+    if (profile?.schoolId && profile?.role !== "super_admin") {
+      unsubSchool = onSnapshot(
+        doc(db, "schoolEmergency", profile.schoolId),
+        (snapshot) => {
+          if (!snapshot.exists()) return;
+          const sData = snapshot.data();
+          const storedLoginTime = typeof window !== "undefined" ? localStorage.getItem("school_study_session_login_time") : null;
+          const loginTime = storedLoginTime ? parseInt(storedLoginTime, 10) : mountTimeRef.current;
+          const forceBefore = sData.forceLogoutBefore
+            ? typeof sData.forceLogoutBefore === "number"
+              ? sData.forceLogoutBefore
+              : new Date(sData.forceLogoutBefore).getTime()
+            : 0;
+
+          if (sData.forceLogoutAll === true || (forceBefore > 0 && forceBefore >= loginTime)) {
+            console.warn("[RealtimeSecurity] School force logout active. Forcing logout...");
+            toast.error("School session security reset by administrator. Please log in again.");
+            const auth = getFirebaseAuth();
+            if (auth) auth.signOut();
+            if (typeof window !== "undefined") {
+              localStorage.removeItem("school_study_session_login_time");
+              sessionStorage.removeItem("school_study_impersonation_user");
+            }
+            setTimeout(() => {
+              window.location.href = "/login?reason=school_force_logout";
+            }, 800);
+          }
+        },
+        (err) => {
+          if (err.code !== "permission-denied") {
+            console.warn("Realtime school emergency listener notice:", err);
+          }
+        }
+      );
+    }
+
     return () => {
       unsubUserSecurity();
       unsubUserDoc();
       unsubGlobal();
+      if (unsubSchool) unsubSchool();
     };
-  }, [userId, profile?.role]);
+  }, [userId, profile?.role, profile?.schoolId]);
 }

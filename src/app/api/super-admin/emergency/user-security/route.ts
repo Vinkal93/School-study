@@ -110,23 +110,49 @@ export async function POST(request: Request) {
 
       let userCount = 0;
       if (adminDb) {
-        const usersSnap = await adminDb.collection("users").where("schoolId", "==", schoolId).get();
-        userCount = usersSnap.docs.length;
-
-        for (const userDoc of usersSnap.docs) {
-          const uid = userDoc.id;
-          if (adminAuth) {
-            await adminAuth.revokeRefreshTokens(uid).catch(() => {});
+        const usersSnap = await adminDb.collection("users").where("schoolId", "==", schoolId).get().catch(() => null);
+        if (usersSnap) {
+          userCount = usersSnap.docs.length;
+          for (const userDoc of usersSnap.docs) {
+            const uid = userDoc.id;
+            if (adminAuth) {
+              await adminAuth.revokeRefreshTokens(uid).catch(() => {});
+            }
+            await updateUserSecurityControl(uid, { securityVersion: Date.now(), requireReLogin: true }, actorId, reason);
           }
-          await updateUserSecurityControl(uid, { securityVersion: Date.now(), requireReLogin: true }, actorId, reason);
+        }
+      } else {
+        const clientModule = await import("@/lib/firebase/client");
+        const clientDb = clientModule.getFirebaseDb ? clientModule.getFirebaseDb() : null;
+        if (clientDb) {
+          const { collection, getDocs, query, where } = await import("firebase/firestore");
+          const q = query(collection(clientDb, "users"), where("schoolId", "==", schoolId));
+          const usersSnap = await getDocs(q).catch(() => null);
+          if (usersSnap) {
+            userCount = usersSnap.docs.length;
+            for (const userDoc of usersSnap.docs) {
+              await updateUserSecurityControl(userDoc.id, { securityVersion: Date.now(), requireReLogin: true }, actorId, reason);
+            }
+          }
         }
       }
 
-      await updateSchoolEmergencyControl(schoolId, { forceLogoutAll: true }, actorId, reason);
+      await updateSchoolEmergencyControl(
+        schoolId,
+        {
+          forceLogoutAll: true,
+          forceLogoutBefore: Date.now(),
+          securityVersion: Date.now(),
+          updatedAt: new Date().toISOString(),
+        },
+        actorId,
+        reason
+      );
 
       return NextResponse.json({
         success: true,
-        message: `Successfully force-logged out all ${userCount} users for school "${schoolId}".`,
+        message: `Successfully force-logged out users for school "${schoolId}" and reset school session security.`,
+        affectedCount: userCount,
       });
     }
 
@@ -139,6 +165,7 @@ export async function POST(request: Request) {
         {
           globalSecurityVersion: newGlobalVersion,
           forceReLogin: true,
+          updatedAt: new Date().toISOString(),
         },
         actorId,
         reason

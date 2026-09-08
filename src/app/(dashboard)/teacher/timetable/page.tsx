@@ -120,9 +120,9 @@ function TeacherTimetableContent() {
         });
 
         const sorted = Array.from(bellMap.values()).sort((a, b) => {
-          const startDiff = (a.startTime || "").localeCompare(b.startTime || "");
+          const startDiff = (a?.startTime || "").localeCompare(b?.startTime || "");
           if (startDiff !== 0) return startDiff;
-          return (a.bellNumber || 0) - (b.bellNumber || 0);
+          return (a?.bellNumber || 0) - (b?.bellNumber || 0);
         });
 
         setDayBells(sorted);
@@ -298,7 +298,7 @@ function TeacherTimetableContent() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {dayBells.map((bell) => {
-              const status = calculateBellStatus(bell.startTime, bell.endTime);
+              const status = calculateBellStatus(bell?.startTime, bell?.endTime);
               const isRunning = status === "Running";
 
               return (
@@ -397,7 +397,7 @@ function TeacherTimetableContent() {
                     <span className="text-[10px] uppercase font-black tracking-wider bg-indigo-100 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-300 px-2 py-0.5 rounded-md">
                       Bell {selectedBell.bellNumber}
                     </span>
-                    {getStatusBadge(calculateBellStatus(selectedBell.startTime, selectedBell.endTime))}
+                    {getStatusBadge(calculateBellStatus(selectedBell?.startTime, selectedBell?.endTime))}
                   </div>
                   <h3 className="text-base font-black text-slate-900 dark:text-white mt-1">
                     {selectedBell.className}
@@ -426,7 +426,7 @@ function TeacherTimetableContent() {
                 <div>
                   <span className="text-[10px] font-bold uppercase text-slate-400 block">Timing</span>
                   <span className="text-xs font-mono font-extrabold text-slate-900 dark:text-white">
-                    {selectedBell.startTime} – {selectedBell.endTime} ({selectedBell.durationMinutes || 40}m)
+                    {selectedBell?.startTime || "--:--"} – {selectedBell?.endTime || "--:--"} ({selectedBell?.durationMinutes || 40}m)
                   </span>
                 </div>
 

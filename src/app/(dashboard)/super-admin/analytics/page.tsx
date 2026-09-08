@@ -132,8 +132,19 @@ export default function PlatformAnalyticsPage() {
       let online = 0;
       snap.docs.forEach((d) => {
         const u = d.data();
-        const lastActive = u.lastActive?.toMillis ? u.lastActive.toMillis() : u.lastActive || 0;
-        if (now - lastActive <= ms15m) online++;
+        let lastActive = 0;
+        if (u.lastActiveAt) {
+          lastActive = new Date(u.lastActiveAt).getTime();
+        } else if (u.lastActive?.toMillis) {
+          lastActive = u.lastActive.toMillis();
+        } else if (typeof u.lastActive === "number") {
+          lastActive = u.lastActive;
+        } else if (u.lastLoginAt) {
+          lastActive = new Date(u.lastLoginAt).getTime();
+        } else if (u.updatedAt) {
+          lastActive = new Date(u.updatedAt).getTime();
+        }
+        if (lastActive > 0 && now - lastActive <= ms15m) online++;
       });
       setLiveOnlineCount(online);
     });
@@ -460,7 +471,7 @@ export default function PlatformAnalyticsPage() {
                 <Building2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
               </div>
               <div className="mt-2 text-2xl font-bold text-gray-900 dark:text-white">
-                {overview.totalSchools}
+                {liveSchoolsCount !== null ? liveSchoolsCount : overview.totalSchools}
               </div>
               <p className="mt-1 text-[10px] text-gray-500">Registered campus tenants</p>
             </div>
@@ -535,7 +546,7 @@ export default function PlatformAnalyticsPage() {
                 </span>
               </div>
               <div className="mt-2 text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                {overview.onlineUsers}
+                {liveOnlineCount !== null ? liveOnlineCount : overview.onlineUsers}
               </div>
               <p className="mt-1 text-[10px] text-gray-500">Telemetry &lt; 15 min</p>
             </div>

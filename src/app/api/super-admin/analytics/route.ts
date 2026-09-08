@@ -249,7 +249,9 @@ export async function GET(req: NextRequest) {
       if (u.role === "student") totalStudents++;
       else if (u.role === "teacher") totalTeachers++;
 
-      const lastActiveMs = getTimestampMs((u as any).lastActive || (u as any).lastLoginAt);
+      const lastActiveMs = getTimestampMs(
+        (u as any).lastActiveAt || (u as any).lastActive || (u as any).lastLoginAt || u.updatedAt
+      );
       if (lastActiveMs >= ms15mAgo) onlineUsers++;
       if (lastActiveMs >= ms24hAgo) dauSet.add(u.uid);
       if (lastActiveMs >= ms30dAgo) mauSet.add(u.uid);

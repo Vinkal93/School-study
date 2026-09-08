@@ -94,9 +94,9 @@ export async function GET(request: Request) {
 
     // Order by startTime then bellNumber
     bells.sort((a, b) => {
-      const startDiff = (a.startTime || "").localeCompare(b.startTime || "");
+      const startDiff = (a?.startTime || "").localeCompare(b?.startTime || "");
       if (startDiff !== 0) return startDiff;
-      return (a.bellNumber || 0) - (b.bellNumber || 0);
+      return (a?.bellNumber || 0) - (b?.bellNumber || 0);
     });
 
     return NextResponse.json({ success: true, bells, total: bells.length });

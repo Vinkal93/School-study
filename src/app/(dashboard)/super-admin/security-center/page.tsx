@@ -768,7 +768,7 @@ export default function SecurityCommandCenterPage() {
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                          {new Date(run.startTime).toLocaleTimeString()} • Operator: {run.operator}
+                          {run?.startTime ? new Date(run.startTime).toLocaleTimeString() : "Recent"} • Operator: {run?.operator || "System"}
                         </p>
                       </div>
 

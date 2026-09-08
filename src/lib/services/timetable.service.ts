@@ -40,8 +40,10 @@ export function getCurrentDayOfWeek(): DayOfWeek {
 /**
  * Calculates live period status based on current local time.
  */
-export function calculateBellStatus(startTime: string, endTime: string): BellLiveStatus {
-  if (!startTime || !endTime) return "Upcoming";
+export function calculateBellStatus(startTime?: string | null, endTime?: string | null): BellLiveStatus {
+  if (!startTime || !endTime || typeof startTime !== "string" || typeof endTime !== "string") {
+    return "Upcoming";
+  }
   const now = new Date();
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
@@ -94,9 +96,9 @@ export async function getClassBells(
   }
 
   return bells.sort((a, b) => {
-    const startDiff = (a.startTime || "").localeCompare(b.startTime || "");
+    const startDiff = (a?.startTime || "").localeCompare(b?.startTime || "");
     if (startDiff !== 0) return startDiff;
-    return (a.bellNumber || 0) - (b.bellNumber || 0);
+    return (a?.bellNumber || 0) - (b?.bellNumber || 0);
   });
 }
 
@@ -127,9 +129,9 @@ export async function getTeacherBells(
   }
 
   return bells.sort((a, b) => {
-    const startDiff = (a.startTime || "").localeCompare(b.startTime || "");
+    const startDiff = (a?.startTime || "").localeCompare(b?.startTime || "");
     if (startDiff !== 0) return startDiff;
-    return (a.bellNumber || 0) - (b.bellNumber || 0);
+    return (a?.bellNumber || 0) - (b?.bellNumber || 0);
   });
 }
 
@@ -171,9 +173,9 @@ export function subscribeToClassBells(
       }
 
       bells.sort((a, b) => {
-        const startDiff = (a.startTime || "").localeCompare(b.startTime || "");
+        const startDiff = (a?.startTime || "").localeCompare(b?.startTime || "");
         if (startDiff !== 0) return startDiff;
-        return (a.bellNumber || 0) - (b.bellNumber || 0);
+        return (a?.bellNumber || 0) - (b?.bellNumber || 0);
       });
 
       callback(bells);
@@ -217,9 +219,9 @@ export function subscribeToTeacherBells(
       }
 
       bells.sort((a, b) => {
-        const startDiff = (a.startTime || "").localeCompare(b.startTime || "");
+        const startDiff = (a?.startTime || "").localeCompare(b?.startTime || "");
         if (startDiff !== 0) return startDiff;
-        return (a.bellNumber || 0) - (b.bellNumber || 0);
+        return (a?.bellNumber || 0) - (b?.bellNumber || 0);
       });
 
       callback(bells);
@@ -241,9 +243,9 @@ export async function saveClassBell(
 ): Promise<string> {
   // Compute duration
   let durationMinutes = 40;
-  if (input.startTime && input.endTime) {
-    const [sh, sm] = input.startTime.split(":").map((v) => parseInt(v, 10));
-    const [eh, em] = input.endTime.split(":").map((v) => parseInt(v, 10));
+  if (input?.startTime && input?.endTime) {
+    const [sh, sm] = String(input.startTime).split(":").map((v) => parseInt(v, 10));
+    const [eh, em] = String(input.endTime).split(":").map((v) => parseInt(v, 10));
     if (!isNaN(sh) && !isNaN(sm) && !isNaN(eh) && !isNaN(em)) {
       durationMinutes = Math.max(0, eh * 60 + em - (sh * 60 + sm));
     }

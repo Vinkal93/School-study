@@ -116,13 +116,17 @@ export function resolveEffectiveFeatureAccess({
   // -------------------------------------------------------------------------
   // Check if parent module is globally disabled first
   const parentModuleId = `module:${moduleKey}`;
-  const parentModuleState = globalStates[parentModuleId] || globalStates[moduleKey];
+  const parentModuleState =
+    globalStates[parentModuleId] ||
+    globalStates[moduleKey] ||
+    (def?.moduleKey ? globalStates[`module:${def.moduleKey}`] || globalStates[def.moduleKey] : undefined);
+
   if (parentModuleState) {
     if (parentModuleState.rolloutMode === "OFF" || parentModuleState.enabled === false) {
       if (role !== "super_admin") {
         return {
           allowed: false,
-          reason: `Module '${moduleKey}' has been disabled by platform administration.`,
+          reason: `Module '${def?.moduleKey || moduleKey}' has been disabled by platform administration.`,
           status: 503,
           featureKey,
           featureName: name,
@@ -138,7 +142,7 @@ export function resolveEffectiveFeatureAccess({
       if (!isSchoolIncluded && role !== "super_admin") {
         return {
           allowed: false,
-          reason: `Module '${moduleKey}' is currently in limited rollout / beta.`,
+          reason: `Module '${def?.moduleKey || moduleKey}' is currently in limited rollout / beta.`,
           status: 403,
           featureKey,
           featureName: name,
@@ -150,7 +154,11 @@ export function resolveEffectiveFeatureAccess({
 
   // Check specific feature/action state
   const stateId = def?.id || featureKey;
-  const featureState = globalStates[stateId] || globalStates[featureKey];
+  const featureState =
+    globalStates[stateId] ||
+    globalStates[featureKey] ||
+    (def?.key ? globalStates[def.key] : undefined);
+
   if (featureState) {
     if (featureState.rolloutMode === "OFF" || featureState.enabled === false) {
       if (role !== "super_admin") {
@@ -194,7 +202,9 @@ export function resolveEffectiveFeatureAccess({
         (o.featureId === stateId ||
           o.featureId === featureKey ||
           o.featureId === parentModuleId ||
-          o.featureId === moduleKey)
+          o.featureId === moduleKey ||
+          (def?.key && o.featureId === def.key) ||
+          (def?.moduleKey && (o.featureId === def.moduleKey || o.featureId === `module:${def.moduleKey}`)))
     );
 
     if (override) {

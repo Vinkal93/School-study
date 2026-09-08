@@ -14,7 +14,8 @@ import {
   signOutUser,
 } from "@/lib/services/auth.service";
 import { getUserProfile } from "@/lib/services/user.service";
-import { getFirebaseAuth } from "@/lib/firebase/client";
+import { getFirebaseAuth, getFirebaseDb } from "@/lib/firebase/client";
+import { doc, updateDoc } from "firebase/firestore";
 import type { AppUser } from "@/types";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -167,6 +168,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => unsubscribe();
   }, [router]);
+
+  // Real-time presence heartbeat to keep "Online Now" accurate across devices
+  useEffect(() => {
+    if (!firebaseUser?.uid || !originalProfile) return;
+
+    const uid = firebaseUser.uid;
+    const sendHeartbeat = async () => {
+      try {
+        const db = getFirebaseDb();
+        if (db) {
+          const nowIso = new Date().toISOString();
+          await updateDoc(doc(db, "users", uid), {
+            lastActiveAt: nowIso,
+            lastActive: Date.now(),
+          }).catch(() => {});
+        }
+      } catch {
+        // silent heartbeat
+      }
+    };
+
+    // Send immediate heartbeat on mount/login
+    sendHeartbeat();
+
+    // Pulse every 60 seconds
+    const interval = setInterval(sendHeartbeat, 60000);
+
+    // Also pulse when user switches back to tab or focuses
+    const handleFocus = () => sendHeartbeat();
+    window.addEventListener("focus", handleFocus);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") sendHeartbeat();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [firebaseUser?.uid, originalProfile]);
 
   const signIn = useCallback(
     async (identifier: string, password: string): Promise<AppUser> => {

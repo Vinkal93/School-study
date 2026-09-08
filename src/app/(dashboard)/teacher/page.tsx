@@ -116,9 +116,9 @@ export default function TeacherDashboardPage() {
         });
 
         const sortedBells = Array.from(bellMap.values()).sort((a, b) => {
-          const startDiff = (a.startTime || "").localeCompare(b.startTime || "");
+          const startDiff = (a?.startTime || "").localeCompare(b?.startTime || "");
           if (startDiff !== 0) return startDiff;
-          return (a.bellNumber || 0) - (b.bellNumber || 0);
+          return (a?.bellNumber || 0) - (b?.bellNumber || 0);
         });
 
         if (isMounted) setTodayBells(sortedBells);
@@ -927,7 +927,7 @@ export default function TeacherDashboardPage() {
                 </div>
               ) : (
                 displayBells.map((bell: ClassBell) => {
-                  const status = calculateBellStatus(bell.startTime, bell.endTime);
+                  const status = calculateBellStatus(bell?.startTime, bell?.endTime);
                   const isRunning = status === "Running";
 
                   return (
@@ -948,7 +948,7 @@ export default function TeacherDashboardPage() {
                         </div>
                         <div className="min-w-0">
                           <p className="text-[11px] text-slate-400 font-mono font-medium">
-                            {bell.startTime} - {bell.endTime}
+                            {bell?.startTime || "--:--"} - {bell?.endTime || "--:--"}
                           </p>
                           <p className="text-xs font-bold text-slate-800 dark:text-white truncate">
                             {bell.className} • {bell.subject}
