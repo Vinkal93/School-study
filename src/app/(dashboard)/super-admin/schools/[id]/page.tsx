@@ -268,7 +268,8 @@ export default function SchoolDetailPage() {
 
   const loadEmergency = async () => {
     try {
-      const res = await fetch(`/api/super-admin/schools/${schoolId}/emergency`);
+      const headers = await getAuthHeaders();
+      const res = await fetch(`/api/super-admin/schools/${schoolId}/emergency`, { headers });
       if (res.ok) {
         const json = await res.json();
         if (json.emergencyControl) {
@@ -387,9 +388,10 @@ export default function SchoolDetailPage() {
     }
     setSavingEmergency(true);
     try {
+      const headers = await getAuthHeaders();
       const res = await fetch(`/api/super-admin/schools/${schoolId}/emergency`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({
           status: emergencyStatus,
           disablePayments: killPayments,
@@ -397,7 +399,7 @@ export default function SchoolDetailPage() {
           disableReports: killReports,
           forceLogoutAll: forceLogoutConfirm,
           reason: emergencyReason,
-          actorId: "super_admin",
+          actorId: currentUser?.uid || "super_admin",
         }),
       });
       const json = await res.json();
@@ -418,14 +420,15 @@ export default function SchoolDetailPage() {
     e.preventDefault();
     setSavingAdmin(true);
     try {
+      const headers = await getAuthHeaders();
       const res = await fetch(`/api/super-admin/schools/${schoolId}/manage-admin`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({
           adminName: adminNameInput.trim(),
           adminEmail: adminEmailInput.trim(),
           newPassword: newAdminPassword.trim() || undefined,
-          actorUid: "super_admin",
+          actorUid: currentUser?.uid || "super_admin",
         }),
       });
       const json = await res.json();
