@@ -67,6 +67,26 @@ export async function createSchoolWithAdmin(
   const db = getFirebaseDb();
   const upperCode = input.code.trim().toUpperCase();
 
+  // Pre-generate school doc and ID before creating Auth credentials
+  const schoolDocRef = doc(collection(db, COLLECTIONS.SCHOOLS));
+  const schoolId = schoolDocRef.id;
+
+  // Verify school code uniqueness before creating user account
+  try {
+    const codeQuery = query(
+      collection(db, COLLECTIONS.SCHOOLS),
+      where("code", "==", upperCode)
+    );
+    const codeSnapshot = await getDocs(codeQuery);
+    if (!codeSnapshot.empty) {
+      throw new Error(`School code "${upperCode}" is already in use.`);
+    }
+  } catch (codeErr: any) {
+    if (codeErr?.message?.includes("already in use")) {
+      throw codeErr;
+    }
+  }
+
   const primaryAuth = getFirebaseAuth();
   const currentLoggedInUser = primaryAuth?.currentUser;
   const isSuperAdminSessionActive = Boolean(currentLoggedInUser && isSuperAdminEmail(currentLoggedInUser.email));
@@ -121,7 +141,13 @@ export async function createSchoolWithAdmin(
       }
     }
   } else {
-    // Public Registration: Clean stale session and authenticate immediately on primary auth
+    // Public Registration: Signal pending registration and clean stale session
+    if (typeof window !== "undefined") {
+      try {
+        sessionStorage.setItem("ss_pending_registration", "true");
+      } catch (e) {}
+    }
+
     if (primaryAuth.currentUser) {
       try {
         await signOut(primaryAuth);
@@ -179,29 +205,25 @@ export async function createSchoolWithAdmin(
     }
   }
 
-  // 3. Verify school code uniqueness with authenticated session
-  try {
-    const codeQuery = query(
-      collection(db, COLLECTIONS.SCHOOLS),
-      where("code", "==", upperCode)
-    );
-    const codeSnapshot = await getDocs(codeQuery);
-    if (!codeSnapshot.empty) {
-      throw new Error(`School code "${upperCode}" is already in use.`);
-    }
-  } catch (codeErr: any) {
-    if (codeErr?.message?.includes("already in use")) {
-      throw codeErr;
-    }
+  // 3. Cache admin profile immediately in session to prevent any race condition
+  const adminProfilePayload = {
+    uid: adminUid,
+    name: input.adminName.trim(),
+    email: input.adminEmail.trim().toLowerCase(),
+    role: "school_admin",
+    schoolId,
+    status: "active",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  if (typeof window !== "undefined") {
+    try {
+      sessionStorage.setItem(`pending_school_admin_${adminUid}`, JSON.stringify(adminProfilePayload));
+    } catch (e) {}
   }
-
-  // 4. Generate school ID
-  const schoolDocRef = doc(collection(db, COLLECTIONS.SCHOOLS));
-  const schoolId = schoolDocRef.id;
 
   // 4. Create User document FIRST in users/{adminUid}
   // Writing users/{adminUid} FIRST gives this user the school_admin role and schoolId in Firestore.
-  // This satisfies the isSchoolAdmin(schoolId) security rule check when writing the school document next.
   const userDocRef = doc(db, COLLECTIONS.USERS, adminUid);
   await setDoc(userDocRef, {
     uid: adminUid,
@@ -237,7 +259,7 @@ export async function createSchoolWithAdmin(
 
   await setDoc(schoolDocRef, schoolData);
 
-  // 5. Authoritative default subscription document
+  // 6. Authoritative default subscription document
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
   const graceEndsAt = new Date(expiresAt.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -256,7 +278,15 @@ export async function createSchoolWithAdmin(
     source: "registration_trial",
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
-  }).catch(() => {});
+  }).catch((subErr) => {
+    console.warn("schoolSubscriptions write notice:", subErr?.message);
+  });
+
+  if (typeof window !== "undefined") {
+    try {
+      sessionStorage.removeItem("ss_pending_registration");
+    } catch (e) {}
+  }
 
   return { schoolId, adminUid };
 }

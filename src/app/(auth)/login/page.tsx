@@ -148,15 +148,15 @@ function PortalSelectionContent() {
         </div>
 
         {/* Register Option */}
-        <div className="pt-4 flex items-center justify-center text-xs text-gray-500 dark:text-gray-400">
+        <div className="pt-4 flex items-center justify-center text-xs sm:text-sm text-gray-500 dark:text-gray-400">
           <p>
-            Don&apos;t have a school registered yet?{" "}
+            Want to set up your school on School Study?{" "}
             <Link
               href={`/register${queryString}`}
               className="inline-flex items-center gap-1 font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400 underline underline-offset-4"
             >
-              <UserPlus className="h-3.5 w-3.5" />
-              <span>Register New School</span>
+              <UserPlus className="h-4 w-4" />
+              <span>Create New School Account (Free)</span>
             </Link>
           </p>
         </div>

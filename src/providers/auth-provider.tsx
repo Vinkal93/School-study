@@ -14,6 +14,7 @@ import {
   signOutUser,
 } from "@/lib/services/auth.service";
 import { getUserProfile } from "@/lib/services/user.service";
+import { getFirebaseAuth } from "@/lib/firebase/client";
 import type { AppUser } from "@/types";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -27,6 +28,7 @@ interface AuthContextType {
   signIn: (identifier: string, password: string) => Promise<AppUser>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<AppUser | null>;
+  setProfileDirectly: (profile: AppUser) => void;
   impersonateUser: (targetUser: AppUser) => void;
   stopImpersonating: () => void;
 }
@@ -101,6 +103,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const userProfile = await getUserProfile(user.uid, user.email);
 
           if (!userProfile) {
+            const isPendingReg = typeof window !== "undefined" && (
+              sessionStorage.getItem("ss_pending_registration") === "true" ||
+              window.location.pathname === "/register"
+            );
+            if (isPendingReg) {
+              return;
+            }
             toast.error("Account not found. Please contact admin.");
             await signOutUser();
             setFirebaseUser(null);
@@ -409,9 +418,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [router]);
 
   const refreshProfile = useCallback(async (): Promise<AppUser | null> => {
-    if (firebaseUser) {
+    const auth = getFirebaseAuth();
+    const currentUser = firebaseUser || auth?.currentUser;
+    if (currentUser) {
       try {
-        const updated = await getUserProfile(firebaseUser.uid, firebaseUser.email);
+        const updated = await getUserProfile(currentUser.uid, currentUser.email);
         if (updated) {
           setOriginalProfile(updated);
           return updated;
@@ -422,6 +433,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     return null;
   }, [firebaseUser]);
+
+  const setProfileDirectly = useCallback((directProfile: AppUser) => {
+    setOriginalProfile(directProfile);
+  }, []);
 
   const effectiveProfile = impersonatedUser || originalProfile;
 
@@ -436,6 +451,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signIn,
         signOut,
         refreshProfile,
+        setProfileDirectly,
         impersonateUser,
         stopImpersonating,
       }}

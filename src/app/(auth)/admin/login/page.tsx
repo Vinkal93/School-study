@@ -156,6 +156,15 @@ function AdminLoginForm() {
         {/* Bottom Navigation Links */}
         <div className="pt-4 border-t border-gray-100 dark:border-gray-800 text-center space-y-2">
           <p className="text-xs text-gray-500 dark:text-gray-400">
+            Don&apos;t have a school account yet?{" "}
+            <Link
+              href="/register"
+              className="font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:underline"
+            >
+              Create new school account
+            </Link>
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
             Not a school administrator?{" "}
             <Link
               href="/login"

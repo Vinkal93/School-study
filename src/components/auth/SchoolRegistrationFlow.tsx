@@ -23,9 +23,11 @@ import { getFirebaseAuth } from "@/lib/firebase/client";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { toast } from "sonner";
 import { Spinner } from "@/components/common/Spinner";
+import { useAuth } from "@/hooks/use-auth";
 
 export function SchoolRegistrationFlow() {
   const router = useRouter();
+  const { setProfileDirectly, refreshProfile } = useAuth();
 
   const [step, setStep] = useState<number>(1);
   const [showPassword, setShowPassword] = useState<boolean>(false);
@@ -83,7 +85,7 @@ export function SchoolRegistrationFlow() {
       const code = generateSchoolCode(schoolName);
 
       // 1. Create School and Admin account in Firestore/Auth
-      await createSchoolWithAdmin({
+      const regResult = await createSchoolWithAdmin({
         name: schoolName.trim(),
         code,
         city: schoolCity.trim() || "India",
@@ -92,13 +94,32 @@ export function SchoolRegistrationFlow() {
         adminPassword,
       });
 
+      const schoolId = regResult.schoolId;
+      const adminUid = regResult.adminUid;
+
       // 2. Sign in the new Admin account if not already signed in
       const auth = getFirebaseAuth();
       if (!auth.currentUser) {
         await signInWithEmailAndPassword(auth, adminEmail.trim().toLowerCase(), adminPassword);
       }
 
-      toast.success("School registered successfully! Welcome to School Study.");
+      // 3. Immediately hydrate authoritative school_admin profile in React auth state
+      const adminProfile: any = {
+        uid: adminUid,
+        name: adminName.trim(),
+        email: adminEmail.trim().toLowerCase(),
+        role: "school_admin",
+        schoolId,
+        status: "active",
+      };
+      setProfileDirectly(adminProfile);
+
+      // 4. Force background profile refresh to confirm Firestore synchronization
+      try {
+        await refreshProfile();
+      } catch (e) {}
+
+      toast.success("School registered successfully! Welcome to your School Admin Portal.");
       
       let redirectUrl = "/admin";
       try {
@@ -110,7 +131,8 @@ export function SchoolRegistrationFlow() {
         }
       } catch (e) {}
 
-      router.push(redirectUrl);
+      // Clean redirect directly to School Admin Portal
+      window.location.href = redirectUrl;
     } catch (err: any) {
       console.error("Registration failed:", err);
       let errorMsg = err?.message || "Failed to register school. Please try again.";

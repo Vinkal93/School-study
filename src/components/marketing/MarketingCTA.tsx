@@ -30,7 +30,7 @@ export function MarketingCTA({
 
           <div className="flex flex-col items-center gap-2 flex-shrink-0">
             <Link
-              href="/login"
+              href="/register"
               className="inline-flex items-center gap-2 px-8 py-4 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-lg shadow-blue-500/30 hover:shadow-blue-500/40 active:scale-95 transition-all"
             >
               <span>Get Started for Free</span>

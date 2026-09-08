@@ -154,7 +154,7 @@ export default function FeaturesPage() {
 
             <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
               <Link
-                href="/login"
+                href="/register"
                 className="inline-flex items-center gap-2 px-7 py-3.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md shadow-blue-500/25 transition-all"
               >
                 Get Started

@@ -185,6 +185,14 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
             </Link>
           )}
 
+          {/* Register School / Get Started Free Button */}
+          <Link
+            href="/register"
+            className="hidden sm:inline-flex items-center justify-center px-4 sm:px-5 py-2 text-xs sm:text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-full transition-all min-h-[38px] sm:min-h-[42px] shadow-md shadow-blue-500/25 hover:scale-105 active:scale-95"
+          >
+            Get Started Free
+          </Link>
+
           {/* Mobile Hamburger Toggle Button */}
           <button
             type="button"
@@ -483,19 +491,18 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
 
             <div className="mt-6 pt-5 border-t border-slate-100 dark:border-white/10 flex flex-col gap-3">
               <Link
-                href="/student/login"
+                href="/register"
                 onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center justify-center gap-2 w-full py-3 text-sm font-bold text-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border dark:border-emerald-800/50 rounded-xl border border-emerald-200 min-h-[48px]"
+                className="flex items-center justify-center gap-2 w-full py-3 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md shadow-blue-500/25 min-h-[48px]"
               >
-                <GraduationCap className="h-4 w-4" />
-                <span>Student Portal</span>
+                <span>Register School (Get Started Free)</span>
               </Link>
               <Link
                 href="/login"
                 onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center justify-center gap-2 w-full py-3 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md shadow-blue-500/25 min-h-[48px]"
+                className="flex items-center justify-center gap-2 w-full py-3 text-sm font-bold text-slate-800 dark:text-slate-100 bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 rounded-xl min-h-[48px]"
               >
-                <span>Access Management System</span>
+                <span>Login to Portals</span>
               </Link>
             </div>
           </div>

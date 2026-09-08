@@ -51,6 +51,15 @@ function getFallbackProfile(uid: string, email?: string | null): AppUser {
 export async function getUserProfile(uid: string, email?: string | null): Promise<AppUser | null> {
   const normalizedEmail = (email || "").trim().toLowerCase();
 
+  // Super Admin priority check
+  if (normalizedEmail && isSuperAdminEmail(normalizedEmail)) {
+    try {
+      return await ensureSuperAdminProfile(uid, normalizedEmail);
+    } catch (e) {
+      console.warn("Could not ensure super admin profile, continuing:", e);
+    }
+  }
+
   try {
     const db = getFirebaseDb();
     if (!db) {
@@ -60,7 +69,16 @@ export async function getUserProfile(uid: string, email?: string | null): Promis
     const docRef = doc(db, COLLECTIONS.USERS, uid);
     
     try {
-      const docSnap = await getDoc(docRef);
+      let docSnap = await getDoc(docRef);
+
+      // If document not found, retry up to 3 times (allowing in-flight registration writes to finish)
+      if (!docSnap.exists()) {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+          docSnap = await getDoc(docRef);
+          if (docSnap.exists()) break;
+        }
+      }
 
       if (docSnap.exists()) {
         const data = docSnap.data() as Partial<AppUser>;
@@ -69,21 +87,23 @@ export async function getUserProfile(uid: string, email?: string | null): Promis
       }
     } catch (dbErr: any) {
       console.warn("Firestore unavailable/offline, activating resilient profile:", dbErr?.message);
+      return getFallbackProfile(uid, email);
     }
 
-    // Default safe fallback profile if document does not exist yet
-    const fallbackProfile: AppUser = {
-      uid,
-      name: normalizedEmail ? normalizedEmail.split("@")[0] : "User",
-      email: normalizedEmail,
-      role: "student",
-      schoolId: null,
-      status: "active",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    } as unknown as AppUser;
+    // Check if an active registration is in flight with cached admin profile
+    if (typeof window !== "undefined") {
+      try {
+        const cachedAdmin = sessionStorage.getItem(`pending_school_admin_${uid}`);
+        if (cachedAdmin) {
+          const parsed = JSON.parse(cachedAdmin);
+          if (parsed && parsed.role === "school_admin") {
+            return parsed as AppUser;
+          }
+        }
+      } catch (e) {}
+    }
 
-    return fallbackProfile;
+    return null;
   } catch (error: any) {
     return getFallbackProfile(uid, email);
   }

@@ -504,6 +504,17 @@ service cloud.firestore {
       allow read, write: if isSuperAdmin();
     }
 
+    match /schoolSubscriptions/{schoolId} {
+      allow read: if isSchoolMember(schoolId);
+      allow create: if isAuthenticated() && (
+        isSchoolAdmin(schoolId) ||
+        isSuperAdmin() ||
+        request.resource.data.get('schoolId', '') == schoolId
+      );
+      allow update: if isSchoolAdmin(schoolId) || isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
     // Fallback: Disallow anything unspecified
     match /{document=**} {
       allow read, write: if isSuperAdmin();
