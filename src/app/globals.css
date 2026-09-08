@@ -263,32 +263,54 @@ textarea {
 }
 
 /* ==========================================================================
-   LIQUID GLASS UI PORTAL STYLING (Apple VisionOS / iOS Liquid Glass)
+   LIQUID GLASS UI SYSTEM (Apple VisionOS / iOS Liquid Glass Specification)
    ========================================================================== */
 
-.liquid-glass-portal {
-  --glass-bg-light: rgba(255, 255, 255, 0.7);
-  --glass-border-light: rgba(255, 255, 255, 0.65);
-  --glass-shadow-light: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
-  
-  --glass-bg-dark: rgba(15, 23, 42, 0.7);
-  --glass-border-dark: rgba(255, 255, 255, 0.1);
-  --glass-shadow-dark: 0 8px 32px 0 rgba(0, 0, 0, 0.35);
+/* The Core Liquid Glass Utility Class */
+.lg-glass {
+  position: relative;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.54), rgba(255, 255, 255, 0.20)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.72) !important;
+  box-shadow: 0 20px 55px rgba(35, 61, 105, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.92), inset 0 -1px 0 rgba(255, 255, 255, 0.2) !important;
+  backdrop-filter: blur(26px) saturate(155%) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(155%) !important;
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.28s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
-/* Light Mode Glass Transformation for Cards & Panels */
+.lg-glass:before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(125deg, rgba(255, 255, 255, 0.48), transparent 34%, transparent 70%, rgba(255, 255, 255, 0.16));
+}
+
+.dark .lg-glass {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 rgba(0, 0, 0, 0.3) !important;
+  color: #f1f5f9 !important;
+}
+
+.dark .lg-glass:before {
+  background: linear-gradient(125deg, rgba(255, 255, 255, 0.16), transparent 34%, transparent 70%, rgba(255, 255, 255, 0.04));
+}
+
+/* 1. CARDS & STAT WIDGETS */
 .liquid-glass-portal .bg-white,
 .liquid-glass-portal .bg-gray-50,
 .liquid-glass-portal .bg-slate-50,
 .liquid-glass-portal .bg-slate-100 {
-  background-color: var(--glass-bg-light) !important;
-  backdrop-filter: blur(20px) saturate(190%) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(190%) !important;
-  border-color: var(--glass-border-light) !important;
-  box-shadow: var(--glass-shadow-light), inset 0 1px 0 0 rgba(255, 255, 255, 0.7) !important;
+  position: relative;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.54), rgba(255, 255, 255, 0.22)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.72) !important;
+  box-shadow: 0 20px 55px rgba(35, 61, 105, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.92), inset 0 -1px 0 rgba(255, 255, 255, 0.2) !important;
+  backdrop-filter: blur(26px) saturate(155%) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(155%) !important;
+  color: #10203a;
 }
 
-/* Dark Mode Glass Transformation for Cards & Panels */
 .dark .liquid-glass-portal .bg-white,
 .dark .liquid-glass-portal .bg-gray-50,
 .dark .liquid-glass-portal .bg-slate-50,
@@ -301,75 +323,216 @@ textarea {
 .liquid-glass-portal .dark\:bg-slate-900,
 .liquid-glass-portal .dark\:bg-gray-900,
 .liquid-glass-portal .dark\:bg-slate-950 {
-  background-color: var(--glass-bg-dark) !important;
-  backdrop-filter: blur(20px) saturate(190%) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(190%) !important;
-  border-color: var(--glass-border-dark) !important;
-  box-shadow: var(--glass-shadow-dark), inset 0 1px 0 0 rgba(255, 255, 255, 0.08) !important;
+  position: relative;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 rgba(0, 0, 0, 0.3) !important;
+  backdrop-filter: blur(26px) saturate(155%) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(155%) !important;
+  color: #f1f5f9 !important;
 }
 
-/* Glass Tables, Lists, and Interactive Rows */
+/* Card Hover Elevation */
+.liquid-glass-portal .lg-card:hover,
+.liquid-glass-portal [class*="rounded-2xl"]:hover,
+.liquid-glass-portal [class*="rounded-3xl"]:hover {
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 2. NAVBAR & SIDEBAR */
+.liquid-glass-portal aside {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0.30)) !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.75) !important;
+  box-shadow: 0 20px 55px rgba(35, 61, 105, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(30px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(30px) saturate(160%) !important;
+}
+
+.dark .liquid-glass-portal aside {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.75), rgba(9, 14, 26, 0.65)) !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.14) !important;
+  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
+  backdrop-filter: blur(30px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(30px) saturate(160%) !important;
+}
+
+.liquid-glass-portal header {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.60), rgba(255, 255, 255, 0.25)) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.75) !important;
+  box-shadow: 0 10px 30px rgba(35, 61, 105, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(28px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(160%) !important;
+}
+
+.dark .liquid-glass-portal header {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.75), rgba(9, 14, 26, 0.60)) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14) !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
+  backdrop-filter: blur(28px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(160%) !important;
+}
+
+/* 3. DROPDOWNS & NOTIFICATION PANELS */
+.liquid-glass-portal [role="menu"],
+.liquid-glass-portal .sm\:w-72,
+.liquid-glass-portal .sm\:w-96,
+.liquid-glass-portal div[class*="shadow-2xl"][class*="rounded-2xl"],
+.liquid-glass-portal div[class*="shadow-2xl"][class*="rounded-3xl"] {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.55)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.85) !important;
+  box-shadow: 0 25px 70px rgba(35, 61, 105, 0.20), inset 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+  backdrop-filter: blur(34px) saturate(175%) !important;
+  -webkit-backdrop-filter: blur(34px) saturate(175%) !important;
+}
+
+.dark .liquid-glass-portal [role="menu"],
+.dark .liquid-glass-portal .sm\:w-72,
+.dark .liquid-glass-portal .sm\:w-96,
+.dark .liquid-glass-portal div[class*="shadow-2xl"][class*="rounded-2xl"],
+.dark .liquid-glass-portal div[class*="shadow-2xl"][class*="rounded-3xl"] {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.88), rgba(9, 14, 26, 0.78)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.60), inset 0 1px 0 rgba(255, 255, 255, 0.22) !important;
+  backdrop-filter: blur(34px) saturate(175%) !important;
+  -webkit-backdrop-filter: blur(34px) saturate(175%) !important;
+}
+
+/* 4. MODALS, DIALOGS & COMMAND PALETTE */
+.liquid-glass-portal .fixed.inset-0 {
+  backdrop-filter: blur(20px) saturate(150%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(150%) !important;
+}
+
+.liquid-glass-portal .fixed.inset-0 .bg-white {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.90), rgba(255, 255, 255, 0.70)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.85) !important;
+  box-shadow: 0 35px 85px rgba(35, 61, 105, 0.25), inset 0 1px 0 rgba(255, 255, 255, 1) !important;
+  backdrop-filter: blur(36px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(36px) saturate(180%) !important;
+}
+
+.dark .liquid-glass-portal .fixed.inset-0 .bg-white,
+.dark .liquid-glass-portal .fixed.inset-0 .bg-gray-950,
+.dark .liquid-glass-portal .fixed.inset-0 .bg-slate-900 {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(9, 14, 26, 0.82)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.20) !important;
+  box-shadow: 0 35px 85px rgba(0, 0, 0, 0.70), inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
+  backdrop-filter: blur(36px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(36px) saturate(180%) !important;
+}
+
+/* 5. TABLES & TOOLBARS */
 .liquid-glass-portal table {
   background-color: transparent !important;
 }
 
 .liquid-glass-portal thead tr,
 .liquid-glass-portal th {
-  background-color: rgba(241, 245, 249, 0.5) !important;
+  background: rgba(255, 255, 255, 0.45) !important;
   backdrop-filter: blur(16px) !important;
   -webkit-backdrop-filter: blur(16px) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.65) !important;
 }
 
 .dark .liquid-glass-portal thead tr,
 .dark .liquid-glass-portal th {
-  background-color: rgba(30, 41, 59, 0.5) !important;
+  background: rgba(15, 23, 42, 0.55) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12) !important;
 }
 
 .liquid-glass-portal tbody tr {
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, transform 0.2s ease;
 }
 
 .liquid-glass-portal tbody tr:hover {
-  background-color: rgba(255, 255, 255, 0.8) !important;
+  background-color: rgba(255, 255, 255, 0.65) !important;
 }
 
 .dark .liquid-glass-portal tbody tr:hover {
-  background-color: rgba(30, 41, 59, 0.7) !important;
+  background-color: rgba(255, 255, 255, 0.06) !important;
 }
 
-/* Inputs, Selects, and Textareas in Liquid Glass */
+/* 6. FORM CONTAINERS, INPUTS & CONTROLS */
 .liquid-glass-portal input,
 .liquid-glass-portal select,
 .liquid-glass-portal textarea {
-  background-color: rgba(255, 255, 255, 0.75) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
-  border-color: rgba(203, 213, 225, 0.6) !important;
+  background: rgba(255, 255, 255, 0.65) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.75) !important;
+  box-shadow: inset 0 1px 2px rgba(35, 61, 105, 0.04) !important;
   transition: all 0.2s ease;
 }
 
 .liquid-glass-portal input:focus,
 .liquid-glass-portal select:focus,
 .liquid-glass-portal textarea:focus {
-  background-color: rgba(255, 255, 255, 0.95) !important;
-  border-color: #06b6d4 !important;
-  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.2) !important;
+  background: rgba(255, 255, 255, 0.90) !important;
+  border-color: #0284c7 !important;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.25) !important;
 }
 
 .dark .liquid-glass-portal input,
 .dark .liquid-glass-portal select,
 .dark .liquid-glass-portal textarea {
-  background-color: rgba(15, 23, 42, 0.7) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
-  border-color: rgba(71, 85, 105, 0.4) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  color: #f8fafc !important;
 }
 
 .dark .liquid-glass-portal input:focus,
 .dark .liquid-glass-portal select:focus,
 .dark .liquid-glass-portal textarea:focus {
-  background-color: rgba(15, 23, 42, 0.95) !important;
+  background: rgba(15, 23, 42, 0.85) !important;
   border-color: #38bdf8 !important;
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2) !important;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.3) !important;
 }
+
+/* 7. BUTTONS WHERE APPROPRIATE */
+.liquid-glass-portal button.bg-slate-800\/80,
+.liquid-glass-portal button.bg-slate-100,
+.liquid-glass-portal .lg-setup {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.30)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.75) !important;
+  box-shadow: 0 8px 24px rgba(35, 61, 105, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  transition: all 0.2s ease;
+}
+
+.dark .liquid-glass-portal button.bg-slate-800\/80,
+.dark .liquid-glass-portal button.bg-slate-100,
+.dark .liquid-glass-portal .lg-setup {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.03)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.16) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
+}
+
+.liquid-glass-portal button.bg-blue-600,
+.liquid-glass-portal button.bg-emerald-600,
+.liquid-glass-portal button.bg-purple-600 {
+  box-shadow: 0 12px 30px rgba(37, 99, 235, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  backdrop-filter: blur(16px) !important;
+}
+
+/* 8. MOBILE BOTTOM NAVIGATION */
+.liquid-glass-portal nav.fixed.bottom-0 {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.45)) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.85) !important;
+  box-shadow: 0 -15px 45px rgba(35, 61, 105, 0.15), inset 0 1px 0 rgba(255, 255, 255, 1) !important;
+  backdrop-filter: blur(30px) saturate(165%) !important;
+  -webkit-backdrop-filter: blur(30px) saturate(165%) !important;
+}
+
+.dark .liquid-glass-portal nav.fixed.bottom-0 {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.85), rgba(9, 14, 26, 0.75)) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.18) !important;
+  box-shadow: 0 -15px 45px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.20) !important;
+  backdrop-filter: blur(30px) saturate(165%) !important;
+  -webkit-backdrop-filter: blur(30px) saturate(165%) !important;
+}
+
 

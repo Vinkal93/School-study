@@ -10,6 +10,7 @@ import { useEntitlement } from "@/context/EntitlementContext";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
 import { ClassicSchoolAdminDashboard } from "@/components/admin/ClassicSchoolAdminDashboard";
 import { ModernSchoolAdminDashboard } from "@/components/admin/ModernSchoolAdminDashboard";
+import { LiquidGlassSchoolAdminDashboard } from "@/components/admin/LiquidGlassSchoolAdminDashboard";
 
 export default function SchoolAdminPage() {
   const { profile } = useAuth();
@@ -19,6 +20,7 @@ export default function SchoolAdminPage() {
   const isAllowed = profile?.role === "super_admin" || canAccess("school_dashboard");
 
   // Determine active UI presentation version
+  const isLiquidGlass = !portalLoading && settings.schoolAdmin === "liquid_glass";
   const isModern = !portalLoading && settings.schoolAdmin === "new";
 
   // Data queries used for modern overview
@@ -41,7 +43,24 @@ export default function SchoolAdminPage() {
     academicYears: setupData?.academicYears?.length || 0,
   };
 
-  // 1. When Modern UI 2.0 is selected by Super Admin
+  // 1. When Liquid Glass UI is selected by Super Admin
+  if (isLiquidGlass) {
+    return (
+      <EntitlementGate
+        feature="school_dashboard"
+        title="School Admin Dashboard"
+        description="Real-time school metrics, faculty counts, student enrollments, and operational status."
+        requiredPlan="Starter Plan"
+      >
+        <LiquidGlassSchoolAdminDashboard
+          school={school ?? null}
+          counts={counts}
+        />
+      </EntitlementGate>
+    );
+  }
+
+  // 2. When Modern UI 2.0 is selected by Super Admin
   if (isModern) {
     return (
       <EntitlementGate
@@ -58,6 +77,6 @@ export default function SchoolAdminPage() {
     );
   }
 
-  // 2. Default to Classic UI
+  // 3. Default to Classic UI
   return <ClassicSchoolAdminDashboard />;
 }

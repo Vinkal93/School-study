@@ -29,12 +29,31 @@ export function LiquidGlassDashboardShell({
   const isSchoolAdmin = profile?.role === "school_admin";
 
   return (
-    <div className="liquid-glass-portal flex h-screen h-[100dvh] overflow-hidden bg-gradient-to-br from-[#EEF2FF] via-[#F8FAFC] to-[#E0E7FF] dark:from-[#030712] dark:via-[#090E1A] dark:to-[#0B1329] text-slate-900 dark:text-slate-100 font-sans antialiased transition-colors relative">
+    <div className="liquid-glass-portal flex h-screen h-[100dvh] overflow-hidden text-slate-900 dark:text-slate-100 font-sans antialiased transition-colors relative bg-[#F8FBFF] dark:bg-[#070C18]">
       
-      {/* Iridescent Ambient Background Glowing Orbs */}
-      <div className="fixed top-[-15%] left-[5%] w-[45vw] h-[45vw] max-w-[700px] max-h-[700px] rounded-full bg-gradient-to-tr from-cyan-400/25 via-sky-400/20 to-indigo-500/25 dark:from-cyan-500/20 dark:via-sky-500/15 dark:to-indigo-600/20 blur-[140px] pointer-events-none -z-10" />
-      <div className="fixed bottom-[-15%] right-[5%] w-[45vw] h-[45vw] max-w-[700px] max-h-[700px] rounded-full bg-gradient-to-bl from-purple-500/25 via-pink-400/20 to-blue-600/25 dark:from-purple-600/20 dark:via-pink-600/15 dark:to-blue-600/20 blur-[140px] pointer-events-none -z-10" />
-      <div className="fixed top-[40%] right-[30%] w-[30vw] h-[30vw] max-w-[500px] max-h-[500px] rounded-full bg-gradient-to-r from-emerald-400/15 to-teal-500/15 dark:from-emerald-600/10 dark:to-teal-600/10 blur-[130px] pointer-events-none -z-10" />
+      {/* Precision Multi-radial Ambient Gradient Mesh */}
+      <div
+        className="fixed inset-0 pointer-events-none -z-10 dark:hidden"
+        style={{
+          background: `
+            radial-gradient(circle at 8% 8%, rgba(92,150,255,.28), transparent 28%),
+            radial-gradient(circle at 92% 12%, rgba(185,132,255,.24), transparent 26%),
+            radial-gradient(circle at 50% 100%, rgba(83,196,255,.18), transparent 35%),
+            linear-gradient(135deg, #edf4ff, #f8fbff 48%, #eef1ff)
+          `,
+        }}
+      />
+      <div
+        className="fixed inset-0 pointer-events-none -z-10 hidden dark:block"
+        style={{
+          background: `
+            radial-gradient(circle at 8% 8%, rgba(56,189,248,.22), transparent 28%),
+            radial-gradient(circle at 92% 12%, rgba(168,85,247,.20), transparent 26%),
+            radial-gradient(circle at 50% 100%, rgba(99,102,241,.18), transparent 35%),
+            linear-gradient(135deg, #070c18, #0a1124 48%, #060a14)
+          `,
+        }}
+      />
 
       {/* Floating Liquid Glass Sidebar (renders desktop aside + mobile drawer at root) */}
       <Sidebar variant="liquid" />
