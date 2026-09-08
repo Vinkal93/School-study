@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   ShieldAlert,
   ShieldCheck,
@@ -48,7 +48,26 @@ import type {
 } from "@/types/security-center";
 
 export default function SecurityCommandCenterPage() {
-  const { profile } = useAuth();
+  const { profile, firebaseUser, loading: authLoading } = useAuth();
+
+  const getAuthToken = useCallback(async () => {
+    if (firebaseUser) {
+      return await firebaseUser.getIdToken().catch(() => "");
+    }
+    return "";
+  }, [firebaseUser]);
+
+  const authFetch = useCallback(
+    async (url: string, options: RequestInit = {}) => {
+      const token = await getAuthToken();
+      const headers = new Headers(options.headers || {});
+      if (token && !headers.has("Authorization")) {
+        headers.set("Authorization", `Bearer ${token}`);
+      }
+      return fetch(url, { ...options, headers });
+    },
+    [getAuthToken]
+  );
 
   // Primary Data States
   const [loading, setLoading] = useState(true);
@@ -100,10 +119,10 @@ export default function SecurityCommandCenterPage() {
   });
 
   // Fetch initial data
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/super-admin/security-center");
+      const res = await authFetch("/api/super-admin/security-center");
       const json = await res.json();
       if (!res.ok || !json.success) {
         throw new Error(json.error || "Failed to load security center data");
@@ -119,18 +138,20 @@ export default function SecurityCommandCenterPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [authFetch]);
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (!authLoading) {
+      fetchData();
+    }
+  }, [authLoading, firebaseUser, fetchData]);
 
   // Run Test Suite
   const handleRunTests = async (category: SecurityCategory | "ALL" = "ALL") => {
     setRunningTests(true);
     toast.info(`Running defensive security suite (${category})...`);
     try {
-      const res = await fetch("/api/super-admin/security-center", {
+      const res = await authFetch("/api/super-admin/security-center", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ category, environment: targetEnv }),
@@ -157,7 +178,7 @@ export default function SecurityCommandCenterPage() {
   const handleRetestFinding = async (findingId: string) => {
     setRetestingFindingId(findingId);
     try {
-      const res = await fetch("/api/super-admin/security-center/retest", {
+      const res = await authFetch("/api/super-admin/security-center/retest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ findingId }),
@@ -190,7 +211,7 @@ export default function SecurityCommandCenterPage() {
   ) => {
     setUpdatingFinding(true);
     try {
-      const res = await fetch(`/api/super-admin/security-center/findings/${findingId}`, {
+      const res = await authFetch(`/api/super-admin/security-center/findings/${findingId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -217,7 +238,7 @@ export default function SecurityCommandCenterPage() {
   const handleCreateFinding = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch("/api/super-admin/security-center/findings", {
+      const res = await authFetch("/api/super-admin/security-center/findings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newFindingForm),
@@ -249,7 +270,7 @@ export default function SecurityCommandCenterPage() {
   const handleCreateIncident = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch("/api/super-admin/security-center/incidents", {
+      const res = await authFetch("/api/super-admin/security-center/incidents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newIncidentForm),

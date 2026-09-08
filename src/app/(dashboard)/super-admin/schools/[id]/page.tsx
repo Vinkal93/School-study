@@ -75,7 +75,14 @@ export default function SchoolDetailPage() {
   const params = useParams();
   const router = useRouter();
   const schoolId = params.id as string;
-  const { profile: currentUser } = useAuth();
+  const { profile: currentUser, firebaseUser } = useAuth();
+
+  const getAuthHeaders = async () => {
+    const token = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    return headers;
+  };
 
   const [school, setSchool] = useState<School | null>(null);
   const [teachers, setTeachers] = useState<TeacherProfile[]>([]);
@@ -196,9 +203,10 @@ export default function SchoolDetailPage() {
   const loadSubscriptionAndEntitlements = async () => {
     setLoadingSub(true);
     try {
+      const headers = await getAuthHeaders();
       const [subRes, matrixRes] = await Promise.all([
-        fetch(`/api/super-admin/schools/${schoolId}/subscription`).then((r) => r.json()).catch(() => null),
-        fetch(`/api/super-admin/schools/${schoolId}/entitlements`).then((r) => r.json()).catch(() => null),
+        fetch(`/api/super-admin/schools/${schoolId}/subscription`, { headers }).then((r) => r.json()).catch(() => null),
+        fetch(`/api/super-admin/schools/${schoolId}/entitlements`, { headers }).then((r) => r.json()).catch(() => null),
       ]);
 
       if (subRes?.success) {
@@ -296,15 +304,16 @@ export default function SchoolDetailPage() {
   // Adjust subscription period (extend / reduce / custom date)
   const handleAdjustPeriod = async (action: "EXTEND_EXPIRY" | "REDUCE_EXPIRY" | "ADJUST_EXPIRY", days?: number, customDate?: string) => {
     try {
+      const headers = await getAuthHeaders();
       const res = await fetch(`/api/super-admin/schools/${schoolId}/subscription`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({
           action,
           expiryDays: days,
-          customExpiryDate: customDate,
+          customExpiryDate: customDate ? new Date(customDate).toISOString() : undefined,
           reason: "Super Admin duration adjustment",
-          actorId: "super_admin",
+          actorId: currentUser?.uid || "super_admin",
         }),
       });
       const json = await res.json();
@@ -320,15 +329,17 @@ export default function SchoolDetailPage() {
   const handleAssignPlan = async () => {
     setAssigningPlan(true);
     try {
+      const headers = await getAuthHeaders();
       const res = await fetch(`/api/super-admin/schools/${schoolId}/subscription`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "ASSIGN_PLAN",
           planId: selectedPlanId,
           billingCycle,
+          customExpiryDate: customExpiry ? new Date(customExpiry).toISOString() : undefined,
           reason: "Super Admin plan assignment",
-          actorId: "super_admin",
+          actorId: currentUser?.uid || "super_admin",
         }),
       });
       const json = await res.json();
@@ -346,14 +357,15 @@ export default function SchoolDetailPage() {
   const handleSaveEntitlements = async () => {
     setSavingEntitlements(true);
     try {
+      const headers = await getAuthHeaders();
       const res = await fetch(`/api/super-admin/schools/${schoolId}/entitlements`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({
           controlMode,
           featureOverrides: featureOverridesMap,
           reason: "Super Admin entitlement matrix update",
-          actorId: "super_admin",
+          actorId: currentUser?.uid || "super_admin",
         }),
       });
       const json = await res.json();
@@ -1007,6 +1019,7 @@ export default function SchoolDetailPage() {
                     <option value="plan_free">Free Trial</option>
                     <option value="plan_starter">Starter Tier</option>
                     <option value="plan_growth">Growth Tier</option>
+                    <option value="plan_professional">Professional Tier</option>
                     <option value="plan_enterprise">Enterprise Tier</option>
                     <option value="plan_custom">Custom Plan</option>
                   </select>

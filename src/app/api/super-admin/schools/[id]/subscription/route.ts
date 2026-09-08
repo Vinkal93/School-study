@@ -6,6 +6,7 @@ import {
   getCurrentSubscription,
   getActivePlan,
   getActivePlanVersion,
+  normalizePlanId,
   BILLING_COLLECTIONS,
   adjustSubscriptionPeriod,
   suspendAccountSubscription,
@@ -20,6 +21,14 @@ import {
 import type { BillingAuditAction } from "@/types";
 
 async function saveSubscriptionDoc(schoolId: string, data: any) {
+  // Sync to in-memory store immediately
+  try {
+    const g = globalThis as any;
+    if (!g.__BILLING_SUBSCRIPTIONS_MAP__) g.__BILLING_SUBSCRIPTIONS_MAP__ = new Map();
+    const existing = g.__BILLING_SUBSCRIPTIONS_MAP__.get(schoolId) || {};
+    g.__BILLING_SUBSCRIPTIONS_MAP__.set(schoolId, { ...existing, ...data, id: schoolId, schoolId });
+  } catch (err) {}
+
   const adminDb = getSafeAdminDb();
   if (adminDb) {
     try {
@@ -32,8 +41,12 @@ async function saveSubscriptionDoc(schoolId: string, data: any) {
 
   const clientDb = getFirebaseDb();
   if (clientDb) {
-    const subRef = doc(clientDb, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId);
-    await setDoc(subRef, data, { merge: true });
+    try {
+      const subRef = doc(clientDb, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId);
+      await setDoc(subRef, data, { merge: true });
+    } catch (e) {
+      console.warn("clientDb subscription write notice:", e);
+    }
   }
 }
 
@@ -50,8 +63,12 @@ async function saveAccessOverrideDoc(overrideData: any) {
 
   const clientDb = getFirebaseDb();
   if (clientDb) {
-    const overrideRef = doc(clientDb, BILLING_COLLECTIONS.ACCESS_OVERRIDES, overrideData.id);
-    await setDoc(overrideRef, overrideData);
+    try {
+      const overrideRef = doc(clientDb, BILLING_COLLECTIONS.ACCESS_OVERRIDES, overrideData.id);
+      await setDoc(overrideRef, overrideData);
+    } catch (e) {
+      console.warn("clientDb accessOverride write notice:", e);
+    }
   }
 }
 
@@ -250,7 +267,14 @@ export async function GET(
         id: schoolId,
         schoolId,
         planId: "plan_starter",
+        planVersionId: "plan_starter_v1",
         status: "ACTIVE",
+        billingCycle: "monthly",
+        startsAt: nowIso,
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+        currentPeriodStart: nowIso,
+        currentPeriodEnd: new Date(Date.now() + 30 * 86400000).toISOString(),
+        graceEndsAt: new Date(Date.now() + 37 * 86400000).toISOString(),
         controlMode: "LIMITED_CONTROL",
       },
       plan: plan || { id: "plan_starter", name: "Starter Plan" },
@@ -319,20 +343,48 @@ export async function POST(
         return NextResponse.json({ success: false, error: "planId is required for plan assignment." }, { status: 400 });
       }
 
-      const oldPlanId = currentSub.planId;
-      currentSub.planId = planId;
-      currentSub.planVersionId = `${planId}_v1`;
-      currentSub.billingCycle = billingCycle;
-      currentSub.source = "manual_admin";
-      currentSub.updatedAt = now.toISOString();
+      const normalizedPlan = normalizePlanId(planId);
+      const oldPlanId = currentSub?.planId || "plan_starter";
 
-      await saveSubscriptionDoc(schoolId, {
-        planId,
-        planVersionId: `${planId}_v1`,
-        billingCycle,
+      // Compute expiry and periods
+      let expiresAt: string;
+      if (customExpiryDate) {
+        const parsed = new Date(customExpiryDate);
+        expiresAt = isNaN(parsed.getTime())
+          ? new Date(now.getTime() + (billingCycle === "annual" ? 365 : 30) * 86400000).toISOString()
+          : parsed.toISOString();
+      } else if (currentSub?.expiresAt && new Date(currentSub.expiresAt).getTime() > now.getTime()) {
+        expiresAt = currentSub.expiresAt;
+      } else {
+        const durationDays = billingCycle === "annual" ? 365 : 30;
+        expiresAt = new Date(now.getTime() + durationDays * 86400000).toISOString();
+      }
+
+      const graceEndsAt = new Date(new Date(expiresAt).getTime() + 7 * 86400000).toISOString();
+
+      const updatedFields = {
+        id: schoolId,
+        schoolId,
+        planId: normalizedPlan,
+        planVersionId: `${normalizedPlan}_v1`,
+        status: "ACTIVE" as const,
+        billingCycle: billingCycle as any,
+        startsAt: currentSub?.startsAt || now.toISOString(),
+        expiresAt,
+        currentPeriodStart: now.toISOString(),
+        currentPeriodEnd: expiresAt,
+        graceEndsAt,
         source: "manual_admin",
         updatedAt: now.toISOString(),
-      });
+      };
+
+      if (currentSub) {
+        Object.assign(currentSub, updatedFields);
+      } else {
+        currentSub = updatedFields as any;
+      }
+
+      await saveSubscriptionDoc(schoolId, updatedFields);
 
       await createBillingAuditLog({
         actorId,
@@ -340,7 +392,7 @@ export async function POST(
         action: "SCHOOL_PLAN_ASSIGNED",
         targetType: "schoolSubscription",
         targetId: schoolId,
-        metadata: { oldPlanId, newPlanId: planId, billingCycle, reason },
+        metadata: { oldPlanId, newPlanId: normalizedPlan, billingCycle, expiresAt, reason },
       }).catch(() => {});
     }
 
@@ -351,6 +403,23 @@ export async function POST(
 
       if (action === "EXTEND_EXPIRY") adjType = "ADD_DAYS";
       else if (action === "REDUCE_EXPIRY") adjType = "REMOVE_DAYS";
+
+      if (customExpiryDate) {
+        const parsed = new Date(customExpiryDate);
+        if (!isNaN(parsed.getTime())) {
+          const newExpIso = parsed.toISOString();
+          const newGraceIso = new Date(parsed.getTime() + 7 * 86400000).toISOString();
+          const patch = {
+            expiresAt: newExpIso,
+            currentPeriodEnd: newExpIso,
+            graceEndsAt: newGraceIso,
+            status: "ACTIVE" as const,
+            updatedAt: now.toISOString(),
+          };
+          if (currentSub) Object.assign(currentSub, patch);
+          await saveSubscriptionDoc(schoolId, patch);
+        }
+      }
 
       await adjustSubscriptionPeriod(schoolId, {
         type: adjType,

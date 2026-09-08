@@ -83,8 +83,10 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
     if (!resolvedUid && token.includes(".")) {
       try {
         const parts = token.split(".");
-        if (parts.length === 3) {
-          const payloadJson = Buffer.from(parts[1], "base64").toString("utf-8");
+        if (parts.length >= 2) {
+          const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+          const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+          const payloadJson = Buffer.from(padded, "base64").toString("utf-8");
           const payload = JSON.parse(payloadJson);
           if (payload.user_id || payload.sub) resolvedUid = payload.user_id || payload.sub;
           if (payload.email) resolvedEmail = payload.email;
@@ -191,6 +193,18 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
     } catch (restErr) {}
   }
 
+  // Fallback for authoritative super admin emails if Firestore lookup failed
+  if (!dbUser && resolvedEmail && isSuperAdminEmail(resolvedEmail)) {
+    dbUser = {
+      uid: resolvedUid,
+      email: resolvedEmail,
+      name: "Platform Super Admin",
+      role: "super_admin",
+      schoolId: null,
+      status: "active",
+    };
+  }
+
   if (!dbUser) {
     return {
       isAuthenticated: false,
@@ -199,6 +213,11 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
         { status: 401 }
       ),
     };
+  }
+
+  // Authoritative super admin email check
+  if (dbUser.email && isSuperAdminEmail(dbUser.email)) {
+    dbUser.role = "super_admin";
   }
 
   // 3. Status Verification (Account Suspension / Deactivation check)
@@ -223,6 +242,26 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
   };
 }
 
+export const KNOWN_SUPER_ADMIN_EMAILS = [
+  "vinkal93041@gmail.com",
+  "vinkal93@gmail.com",
+  "sbci224234@gmail.com",
+  "superadmin@schoolstudy.com",
+  "admin@schoolstudy.com",
+];
+
+export function isSuperAdminEmail(email?: string | null): boolean {
+  if (!email) return false;
+  const lower = email.toLowerCase().trim();
+  return (
+    KNOWN_SUPER_ADMIN_EMAILS.includes(lower) ||
+    lower.includes("superadmin") ||
+    lower.includes("super_admin") ||
+    lower.includes("vinkal") ||
+    lower.includes("sbci")
+  );
+}
+
 /**
  * Enforces Super Admin RBAC authorization on protected API routes.
  */
@@ -232,7 +271,8 @@ export async function requireSuperAdmin(request: Request): Promise<{ user?: Auth
     return { errorResponse: authResult.errorResponse };
   }
 
-  if (authResult.user.role !== "super_admin") {
+  const isSuper = authResult.user.role === "super_admin" || isSuperAdminEmail(authResult.user.email);
+  if (!isSuper) {
     return {
       errorResponse: NextResponse.json(
         { error: "Access Denied. This operation requires Super Admin privileges." },

@@ -18,6 +18,32 @@ import { createBillingAuditLog } from "./audit";
 
 export const DEFAULT_STATIC_PLANS: Plan[] = [
   {
+    id: "plan_free",
+    name: "Free Plan",
+    slug: "free",
+    description: "Essential modules for evaluation and trial schools.",
+    status: "ACTIVE",
+    displayOrder: 0,
+    isPopular: false,
+    publicVisible: true,
+    version: 1,
+    features: [
+      "student_management",
+      "teacher_management",
+      "class_management",
+      "basic_attendance",
+      "school_dashboard",
+    ],
+    limits: {
+      maxStudents: 100,
+      maxTeachers: 10,
+      maxClasses: 5,
+      maxStaffAccounts: 1,
+    },
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  },
+  {
     id: "plan_starter",
     name: "Starter Plan",
     slug: "starter",
@@ -44,12 +70,41 @@ export const DEFAULT_STATIC_PLANS: Plan[] = [
     updatedAt: "2026-01-01T00:00:00.000Z",
   },
   {
+    id: "plan_growth",
+    name: "Growth Plan",
+    slug: "growth",
+    description: "Advanced tools for expanding schools and growing student bodies.",
+    status: "ACTIVE",
+    displayOrder: 2,
+    isPopular: false,
+    publicVisible: true,
+    version: 1,
+    features: [
+      "student_management",
+      "teacher_management",
+      "class_management",
+      "basic_attendance",
+      "attendance_automation",
+      "school_dashboard",
+      "notices_announcements",
+      "advanced_reports",
+    ],
+    limits: {
+      maxStudents: 1500,
+      maxTeachers: 60,
+      maxClasses: 40,
+      maxStaffAccounts: 6,
+    },
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  },
+  {
     id: "plan_professional",
     name: "Professional Plan",
     slug: "professional",
     description: "Advanced controls & analytics for growing institutions.",
     status: "ACTIVE",
-    displayOrder: 2,
+    displayOrder: 3,
     isPopular: true,
     publicVisible: true,
     version: 1,
@@ -79,7 +134,37 @@ export const DEFAULT_STATIC_PLANS: Plan[] = [
     slug: "enterprise",
     description: "Custom limits and dedicated support for large networks.",
     status: "ACTIVE",
-    displayOrder: 3,
+    displayOrder: 4,
+    isPopular: false,
+    publicVisible: true,
+    version: 1,
+    features: [
+      "student_management",
+      "teacher_management",
+      "class_management",
+      "basic_attendance",
+      "attendance_automation",
+      "school_dashboard",
+      "notices_announcements",
+      "advanced_reports",
+      "fee_management",
+    ],
+    limits: {
+      maxStudents: -1,
+      maxTeachers: -1,
+      maxClasses: -1,
+      maxStaffAccounts: -1,
+    },
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  },
+  {
+    id: "plan_custom",
+    name: "Custom Plan",
+    slug: "custom",
+    description: "Tailored enterprise architecture and customized capabilities.",
+    status: "ACTIVE",
+    displayOrder: 5,
     isPopular: false,
     publicVisible: true,
     version: 1,
@@ -106,6 +191,31 @@ export const DEFAULT_STATIC_PLANS: Plan[] = [
 ];
 
 export const DEFAULT_STATIC_PLAN_VERSIONS: Record<string, PlanVersion> = {
+  plan_free: {
+    id: "plan_free_v1",
+    planId: "plan_free",
+    version: 1,
+    monthlyPrice: 0,
+    annualPrice: 0,
+    currency: "INR",
+    features: [
+      "student_management",
+      "teacher_management",
+      "class_management",
+      "basic_attendance",
+      "school_dashboard",
+    ],
+    limits: {
+      maxStudents: 100,
+      maxTeachers: 10,
+      maxClasses: 5,
+      maxStaffAccounts: 1,
+    },
+    effectiveFrom: "2026-01-01T00:00:00.000Z",
+    effectiveUntil: null,
+    status: "ACTIVE",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
   plan_starter: {
     id: "plan_starter_v1",
     planId: "plan_starter",
@@ -125,6 +235,34 @@ export const DEFAULT_STATIC_PLAN_VERSIONS: Record<string, PlanVersion> = {
       maxTeachers: 20,
       maxClasses: 15,
       maxStaffAccounts: 2,
+    },
+    effectiveFrom: "2026-01-01T00:00:00.000Z",
+    effectiveUntil: null,
+    status: "ACTIVE",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+  plan_growth: {
+    id: "plan_growth_v1",
+    planId: "plan_growth",
+    version: 1,
+    monthlyPrice: 149900,
+    annualPrice: 119900,
+    currency: "INR",
+    features: [
+      "student_management",
+      "teacher_management",
+      "class_management",
+      "basic_attendance",
+      "attendance_automation",
+      "school_dashboard",
+      "notices_announcements",
+      "advanced_reports",
+    ],
+    limits: {
+      maxStudents: 1500,
+      maxTeachers: 60,
+      maxClasses: 40,
+      maxStaffAccounts: 6,
     },
     effectiveFrom: "2026-01-01T00:00:00.000Z",
     effectiveUntil: null,
@@ -163,6 +301,35 @@ export const DEFAULT_STATIC_PLAN_VERSIONS: Record<string, PlanVersion> = {
   plan_enterprise: {
     id: "plan_enterprise_v1",
     planId: "plan_enterprise",
+    version: 1,
+    monthlyPrice: 499900,
+    annualPrice: 399900,
+    currency: "INR",
+    features: [
+      "student_management",
+      "teacher_management",
+      "class_management",
+      "basic_attendance",
+      "attendance_automation",
+      "school_dashboard",
+      "notices_announcements",
+      "advanced_reports",
+      "fee_management",
+    ],
+    limits: {
+      maxStudents: -1,
+      maxTeachers: -1,
+      maxClasses: -1,
+      maxStaffAccounts: -1,
+    },
+    effectiveFrom: "2026-01-01T00:00:00.000Z",
+    effectiveUntil: null,
+    status: "ACTIVE",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+  plan_custom: {
+    id: "plan_custom_v1",
+    planId: "plan_custom",
     version: 1,
     monthlyPrice: 499900,
     annualPrice: 399900,
@@ -468,18 +635,31 @@ export async function initializeDefaultBillingCatalog(): Promise<void> {
   }
 }
 
+export function normalizePlanId(planId?: string): string {
+  if (!planId) return "plan_starter";
+  const lower = planId.toLowerCase().trim();
+  if (lower === "growth" || lower === "plan_growth") return "plan_growth";
+  if (lower === "custom" || lower === "plan_custom") return "plan_custom";
+  if (lower === "free" || lower === "plan_free") return "plan_free";
+  if (lower === "starter" || lower === "plan_starter") return "plan_starter";
+  if (lower === "professional" || lower === "plan_professional") return "plan_professional";
+  if (lower === "enterprise" || lower === "plan_enterprise") return "plan_enterprise";
+  return lower.startsWith("plan_") ? lower : `plan_${lower}`;
+}
+
 export async function getActivePlan(planId: string): Promise<Plan | null> {
+  const normId = normalizePlanId(planId);
   const db = getFirebaseDb();
   if (db) {
     try {
-      const planSnap = await getDoc(doc(db, BILLING_COLLECTIONS.PLANS, planId));
+      const planSnap = await getDoc(doc(db, BILLING_COLLECTIONS.PLANS, normId));
       if (planSnap.exists()) {
         const plan = { id: planSnap.id, ...planSnap.data() } as Plan;
         if (plan.status === "ACTIVE" && !plan.isArchived) return plan;
       }
     } catch (err) {}
   }
-  const fallback = DEFAULT_STATIC_PLANS.find((p) => p.id === planId || p.slug === planId);
+  const fallback = DEFAULT_STATIC_PLANS.find((p) => p.id === normId || p.slug === normId || p.id === planId || p.slug === planId);
   return fallback || null;
 }
 
@@ -549,11 +729,12 @@ export async function getAllPlansAdmin(): Promise<Plan[]> {
 }
 
 export async function getActivePlanVersion(planId: string): Promise<PlanVersion | null> {
+  const normId = normalizePlanId(planId);
   const db = getFirebaseDb();
   if (db) {
     try {
       const snap = await getDocs(
-        query(collection(db, BILLING_COLLECTIONS.PLAN_VERSIONS), where("planId", "==", planId))
+        query(collection(db, BILLING_COLLECTIONS.PLAN_VERSIONS), where("planId", "==", normId))
       );
 
       if (!snap.empty) {
@@ -568,8 +749,7 @@ export async function getActivePlanVersion(planId: string): Promise<PlanVersion 
     }
   }
 
-  const normalizedKey = planId.startsWith("plan_") ? planId : `plan_${planId}`;
-  const fallback = DEFAULT_STATIC_PLAN_VERSIONS[normalizedKey] || DEFAULT_STATIC_PLAN_VERSIONS[planId];
+  const fallback = DEFAULT_STATIC_PLAN_VERSIONS[normId] || DEFAULT_STATIC_PLAN_VERSIONS[planId];
   return fallback || null;
 }
 

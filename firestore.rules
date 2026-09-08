@@ -382,6 +382,30 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /schoolSubscriptions/{schoolId} {
+      allow read, write: if true;
+    }
+
+    match /schoolUsage/{schoolId} {
+      allow read, write: if true;
+    }
+
+    match /payments/{paymentId} {
+      allow read, write: if true;
+    }
+
+    match /invoices/{invoiceId} {
+      allow read, write: if true;
+    }
+
+    match /orders/{orderId} {
+      allow read, write: if true;
+    }
+
+    match /subscriptionNotifications/{id} {
+      allow read, write: if true;
+    }
+
     // ==========================================
     // 5. PAYMENT SETTINGS & CONFIGURATION
     // ==========================================

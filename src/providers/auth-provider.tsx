@@ -87,6 +87,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.warn("Storage check error:", storageErr);
         }
 
+        // Sync session cookie for serverless API authorization
+        try {
+          const token = await user.getIdToken();
+          if (typeof document !== "undefined") {
+            document.cookie = `__session=${token}; path=/; max-age=604800; SameSite=Lax;`;
+          }
+        } catch (cookieErr) {
+          console.warn("Could not sync session cookie:", cookieErr);
+        }
+
         try {
           const userProfile = await getUserProfile(user.uid, user.email);
 
@@ -135,6 +145,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           sessionStorage.removeItem("ss_super_admin_auth");
           localStorage.removeItem("ss_super_admin_auth");
           localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
+          if (typeof document !== "undefined") {
+            document.cookie = "__session=; path=/; max-age=0; SameSite=Lax;";
+          }
         } catch (e) {
           // ignore
         }
@@ -313,6 +326,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sessionStorage.removeItem("ss_super_admin_verified");
       sessionStorage.removeItem("ss_super_admin_auth");
       localStorage.removeItem("ss_super_admin_auth");
+      if (typeof document !== "undefined") {
+        document.cookie = "__session=; path=/; max-age=0; SameSite=Lax;";
+      }
     } catch (e) {
       // ignore
     }

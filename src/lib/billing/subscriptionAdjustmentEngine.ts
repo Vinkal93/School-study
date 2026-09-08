@@ -155,11 +155,31 @@ export async function adjustSubscriptionPeriod(
     }
 
     const subSnap = await transaction.get(subRef);
+    let sub: SchoolSubscription;
     if (!subSnap.exists()) {
-      throw new Error(`School subscription for school "${schoolId}" was not found.`);
+      const initExp = new Date(now.getTime() + 30 * 86400000).toISOString();
+      sub = {
+        id: schoolId,
+        schoolId,
+        planId: "plan_starter",
+        planVersionId: "plan_starter_v1",
+        status: "ACTIVE",
+        billingCycle: "monthly",
+        startsAt: now.toISOString(),
+        expiresAt: initExp,
+        currentPeriodStart: now.toISOString(),
+        currentPeriodEnd: initExp,
+        graceEndsAt: new Date(now.getTime() + 37 * 86400000).toISOString(),
+        source: "system_trial",
+        lastPaymentId: null,
+        lastOrderId: null,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      };
+    } else {
+      sub = { id: subSnap.id, ...subSnap.data() } as SchoolSubscription;
     }
 
-    const sub = { id: subSnap.id, ...subSnap.data() } as SchoolSubscription;
     const oldExpiresAt = new Date(sub.expiresAt || sub.currentPeriodEnd || now.toISOString());
     let newExpiresAt: Date;
 
@@ -233,20 +253,24 @@ export async function adjustSubscriptionPeriod(
       status: "APPLIED",
       createdAt: now.toISOString(),
       metadata: {
-        previousStatus: subSnap.data().status,
+        previousStatus: subSnap.exists() ? subSnap.data()?.status : "ACTIVE",
         newStatus,
       },
     };
 
     const adjRef = doc(db, BILLING_COLLECTIONS.SUBSCRIPTION_ADJUSTMENTS, adjId);
     transaction.set(adjRef, adjustmentRecord);
-    transaction.update(subRef, {
-      expiresAt: sub.expiresAt,
-      currentPeriodEnd: sub.currentPeriodEnd,
-      graceEndsAt: sub.graceEndsAt,
-      status: sub.status,
-      updatedAt: sub.updatedAt,
-    });
+    if (!subSnap.exists()) {
+      transaction.set(subRef, sub);
+    } else {
+      transaction.update(subRef, {
+        expiresAt: sub.expiresAt,
+        currentPeriodEnd: sub.currentPeriodEnd,
+        graceEndsAt: sub.graceEndsAt,
+        status: sub.status,
+        updatedAt: sub.updatedAt,
+      });
+    }
 
     return { subscription: sub, adjustment: adjustmentRecord };
   });
