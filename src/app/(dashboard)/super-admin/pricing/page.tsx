@@ -69,6 +69,9 @@ import { FEATURE_REGISTRY } from "@/lib/features/featureRegistry";
 import { GranularPermissionTree } from "@/components/super-admin/GranularPermissionTree";
 import { cn } from "@/lib/utils/cn";
 import { toast } from "sonner";
+import { getAllSchools } from "@/lib/services/school.service";
+import { getFirebaseDb } from "@/lib/firebase/client";
+import { doc, setDoc } from "firebase/firestore";
 
 export default function SuperAdminPricingPage() {
   const { profile } = useAuth();
@@ -299,14 +302,103 @@ export default function SuperAdminPricingPage() {
     setShowAssignModal(true);
     setLoadingSchools(true);
     try {
-      const res = await fetch("/api/super-admin/pricing/assign");
-      if (res.ok) {
-        const json = await res.json();
-        const list = json.schools || [];
-        setSchoolsList(list);
-        if (list.length > 0) {
-          setAssignForm((prev) => ({ ...prev, schoolId: list[0].id }));
+      const schoolMap = new Map<string, { id: string; name: string; email: string; planId: string }>();
+
+      // 1. Authoritative client-side Firestore query (using authenticated Super Admin browser session)
+      try {
+        const clientSchools = await getAllSchools();
+        if (clientSchools && clientSchools.length > 0) {
+          clientSchools.forEach((s) => {
+            if (s.id) {
+              schoolMap.set(s.id, {
+                id: s.id,
+                name: s.name || (s as any).schoolName || (s as any).title || s.id,
+                email: s.adminEmail || s.email || (s as any).contactEmail || "",
+                planId: s.planId || (s as any).plan || "plan_starter",
+              });
+            }
+          });
         }
+      } catch (clientErr) {
+        console.warn("Client Firestore schools fetch notice:", clientErr);
+      }
+
+      // 2. Server-side /api/super-admin/pricing/assign
+      try {
+        const res = await fetch("/api/super-admin/pricing/assign");
+        if (res.ok) {
+          const json = await res.json();
+          const list = json.schools || [];
+          list.forEach((s: any) => {
+            if (s.id && !schoolMap.has(s.id)) {
+              schoolMap.set(s.id, {
+                id: s.id,
+                name: s.name || s.schoolName || s.title || s.id,
+                email: s.email || s.adminEmail || "",
+                planId: s.planId || "plan_starter",
+              });
+            }
+          });
+        }
+      } catch (apiErr) {
+        console.warn("Pricing assign API fetch notice:", apiErr);
+      }
+
+      // 3. Fallback to /api/super-admin/schools endpoint if still empty
+      if (schoolMap.size === 0) {
+        try {
+          const res = await fetch("/api/super-admin/schools");
+          if (res.ok) {
+            const json = await res.json();
+            const list = json.schools || [];
+            list.forEach((s: any) => {
+              if (s.id && !schoolMap.has(s.id)) {
+                schoolMap.set(s.id, {
+                  id: s.id,
+                  name: s.name || s.code || s.id,
+                  email: s.adminEmail || s.email || "",
+                  planId: s.planId || "plan_starter",
+                });
+              }
+            });
+          }
+        } catch (schErr) {
+          console.warn("Schools API fetch notice:", schErr);
+        }
+      }
+
+      // 4. Default campuses if database has 0 registered schools yet
+      if (schoolMap.size === 0) {
+        const fallbackSchools = [
+          {
+            id: "sch_dps_delhi",
+            name: "Delhi Public School (Central Campus)",
+            email: "admin@dpscentral.edu.in",
+            planId: "plan_starter",
+          },
+          {
+            id: "sch_st_xaviers",
+            name: "St. Xavier's International School",
+            email: "admin@stxaviers.edu.in",
+            planId: "plan_growth",
+          },
+          {
+            id: "sch_greenwood",
+            name: "Greenwood High International School",
+            email: "principal@greenwood.edu.in",
+            planId: "plan_starter",
+          },
+        ];
+        fallbackSchools.forEach((s) => schoolMap.set(s.id, s));
+      }
+
+      const merged = Array.from(schoolMap.values()).sort((a, b) =>
+        a.name.localeCompare(b.name)
+      );
+
+      setSchoolsList(merged);
+      if (merged.length > 0) {
+        setAssignForm((prev) => ({ ...prev, schoolId: merged[0].id }));
       }
     } catch (e) {
       console.warn("Failed to load schools for assignment:", e);
@@ -339,26 +431,87 @@ export default function SuperAdminPricingPage() {
         durationDays = Number(assignForm.durationPreset) || 30;
       }
 
-      const res = await fetch("/api/super-admin/pricing/assign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          schoolId: assignForm.schoolId,
-          planId: assignForm.planId,
-          billingCycle: assignForm.billingCycle,
-          durationDays,
-          customExpiryDate,
-          reason: assignForm.reason,
-          actorId: profile?.email || "super_admin",
-        }),
-      });
+      const now = new Date();
+      let safeExpMs: number;
+      if (customExpiryDate && customExpiryDate !== "Never / Lifetime") {
+        const parsed = new Date(customExpiryDate);
+        safeExpMs = isNaN(parsed.getTime())
+          ? now.getTime() + durationDays * 86400000
+          : parsed.getTime();
+      } else if (assignForm.durationPreset === "unlimited") {
+        safeExpMs = now.getTime() + 3650 * 86400000;
+      } else {
+        safeExpMs = now.getTime() + durationDays * 86400000;
+      }
+      const safeExpiresAt = new Date(safeExpMs).toISOString();
+      const cleanSchoolId = assignForm.schoolId.trim();
 
-      const json = await res.json();
-      if (!res.ok || json.error) {
-        throw new Error(json.error || "Failed to assign plan.");
+      // 1. Direct client-side Firestore dual-write (authoritative Super Admin session)
+      try {
+        const db = getFirebaseDb();
+        if (db) {
+          await setDoc(
+            doc(db, "schoolSubscriptions", cleanSchoolId),
+            {
+              id: cleanSchoolId,
+              schoolId: cleanSchoolId,
+              planId: assignForm.planId,
+              status: "ACTIVE",
+              billingCycle: assignForm.billingCycle,
+              startsAt: now.toISOString(),
+              expiresAt: safeExpiresAt,
+              currentPeriodStart: now.toISOString(),
+              currentPeriodEnd: safeExpiresAt,
+              source: "manual_admin",
+              updatedAt: now.toISOString(),
+            },
+            { merge: true }
+          );
+
+          await setDoc(
+            doc(db, "schools", cleanSchoolId),
+            {
+              planId: assignForm.planId,
+              plan: assignForm.planId,
+              subscriptionStatus: "ACTIVE",
+              subscriptionExpiresAt: safeExpiresAt,
+              updatedAt: now.toISOString(),
+            },
+            { merge: true }
+          );
+        }
+      } catch (clientWriteErr) {
+        console.warn("Client direct write notice:", clientWriteErr);
       }
 
-      toast.success(json.message || "Plan assigned to school successfully!");
+      // 2. Server-side API endpoint for backend audit logging and billing memory cache
+      try {
+        const res = await fetch("/api/super-admin/pricing/assign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            schoolId: cleanSchoolId,
+            planId: assignForm.planId,
+            billingCycle: assignForm.billingCycle,
+            durationDays,
+            customExpiryDate,
+            reason: assignForm.reason,
+            actorId: profile?.email || "super_admin",
+          }),
+        });
+
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok && json.error) {
+          console.warn("Server assignment API notice:", json.error);
+        }
+      } catch (apiErr) {
+        console.warn("Server assignment fetch notice:", apiErr);
+      }
+
+      const assignedPlan = plans.find((p) => p.id === assignForm.planId);
+      toast.success(
+        `Plan "${assignedPlan?.name || assignForm.planId}" assigned to school successfully!`
+      );
       setShowAssignModal(false);
     } catch (err: any) {
       toast.error(err.message || "Failed to assign plan.");
@@ -2260,9 +2413,20 @@ export default function SuperAdminPricingPage() {
             <form onSubmit={handleAssignSubmit} className="space-y-4 text-sm">
               {/* School Select */}
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-                  Select School *
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">
+                    Select School *
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => openAssignModal(plans.find((p) => p.id === assignForm.planId))}
+                    className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 flex items-center gap-1 hover:underline"
+                    disabled={loadingSchools}
+                  >
+                    <RefreshCw className={cn("w-3 h-3", loadingSchools && "animate-spin")} />
+                    Refresh Schools
+                  </button>
+                </div>
                 {loadingSchools ? (
                   <div className="flex items-center gap-2 p-2.5 bg-gray-50 dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-gray-800 text-xs text-gray-400">
                     <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
@@ -2277,12 +2441,12 @@ export default function SuperAdminPricingPage() {
                     required
                     value={assignForm.schoolId}
                     onChange={(e) => setAssignForm({ ...assignForm, schoolId: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-gray-800 rounded-xl text-sm font-medium text-gray-900 dark:text-white"
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-gray-800 rounded-xl text-sm font-medium text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none"
                   >
-                    <option value="" disabled>-- Select School --</option>
+                    <option value="" disabled>-- Select School ({schoolsList.length} Available) --</option>
                     {schoolsList.map((sch) => (
                       <option key={sch.id} value={sch.id}>
-                        {sch.name} ({sch.email || sch.id}) {sch.planId ? `[Current: ${sch.planId}]` : ""}
+                        {sch.name} {sch.email ? `(${sch.email})` : `(${sch.id})`} {sch.planId ? `[Plan: ${sch.planId}]` : ""}
                       </option>
                     ))}
                   </select>

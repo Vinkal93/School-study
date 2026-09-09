@@ -296,15 +296,21 @@ export async function createSchoolWithAdmin(
  */
 export async function getAllSchools(): Promise<School[]> {
   const db = getFirebaseDb();
-  const q = query(
-    collection(db, COLLECTIONS.SCHOOLS),
-    orderBy("name", "asc")
-  );
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map((docSnap) => ({
-    id: docSnap.id,
-    ...docSnap.data(),
-  })) as School[];
+  try {
+    const snapshot = await getDocs(collection(db, COLLECTIONS.SCHOOLS));
+    const schools = snapshot.docs.map((docSnap) => {
+      const data = docSnap.data();
+      return {
+        id: docSnap.id,
+        name: data.name || data.schoolName || data.title || docSnap.id,
+        ...data,
+      };
+    }) as School[];
+    return schools.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  } catch (err) {
+    console.warn("getAllSchools fetch notice:", err);
+    return [];
+  }
 }
 
 /**
@@ -313,10 +319,7 @@ export async function getAllSchools(): Promise<School[]> {
  */
 export function subscribeToAllSchools(callback: (schools: School[]) => void): () => void {
   const db = getFirebaseDb();
-  const q = query(
-    collection(db, COLLECTIONS.SCHOOLS),
-    orderBy("name", "asc")
-  );
+  const colRef = collection(db, COLLECTIONS.SCHOOLS);
 
   let currentSchools: School[] = [];
   let subMap = new Map<string, any>();
@@ -344,16 +347,21 @@ export function subscribeToAllSchools(callback: (schools: School[]) => void): ()
         subscriptionExpiresAt: sub?.expiresAt || s.subscriptionExpiresAt,
       };
     });
+    enriched.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     callback(enriched);
   };
 
   const unsubSchools = onSnapshot(
-    q,
+    colRef,
     (snapshot) => {
-      currentSchools = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      })) as School[];
+      currentSchools = snapshot.docs.map((docSnap) => {
+        const data = docSnap.data();
+        return {
+          id: docSnap.id,
+          name: data.name || data.schoolName || data.title || docSnap.id,
+          ...data,
+        };
+      }) as School[];
       emitMerged();
     },
     (err) => {

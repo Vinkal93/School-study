@@ -20,6 +20,7 @@ export type AppRole =
   | "accountant"
   | "receptionist"
   | "parent"
+  | "partner"
   | "public";
 
 export interface AuthenticatedUser {
