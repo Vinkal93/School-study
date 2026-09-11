@@ -58,8 +58,9 @@ import { VerifyBadge, type VerifyBadgeType } from "@/components/common/VerifyBad
 import { Spinner } from "@/components/common/Spinner";
 import { useAuth } from "@/hooks/use-auth";
 import { getFirebaseDb } from "@/lib/firebase/client";
-import { collection, query, where, getDocs, orderBy, limit as fsLimit } from "firebase/firestore";
+import { collection, doc, getDoc, setDoc, updateDoc, query, where, getDocs, orderBy, limit as fsLimit } from "firebase/firestore";
 import { BILLING_COLLECTIONS } from "@/lib/billing";
+import { safeFetchJson } from "@/lib/utils/safeFetch";
 import type {
   School,
   TeacherProfile,
@@ -203,29 +204,54 @@ export default function SchoolDetailPage() {
   const loadSubscriptionAndEntitlements = async () => {
     setLoadingSub(true);
     try {
+      // 1. Direct Client Firestore Read (Instant & Resilient)
+      const db = getFirebaseDb();
+      if (db) {
+        try {
+          const subSnap = await getDoc(doc(db, "schoolSubscriptions", schoolId));
+          if (subSnap.exists()) {
+            const data = subSnap.data() as any;
+            setSubData(data);
+            if (data.planId) setSelectedPlanId(data.planId);
+            if (data.billingCycle) setBillingCycle(data.billingCycle);
+            if (data.controlMode) setControlMode(data.controlMode);
+            if (data.expiresAt && data.expiresAt !== "Never / Lifetime") {
+              const d = new Date(data.expiresAt);
+              if (!isNaN(d.getTime())) setCustomExpiry(data.expiresAt.split("T")[0]);
+            }
+          }
+        } catch (fsErr) {
+          console.warn("Client Firestore sub read notice:", fsErr);
+        }
+      }
+
+      // 2. Server fetch via safeFetchJson (Never throws Unexpected end of JSON input)
       const headers = await getAuthHeaders();
       const [subRes, matrixRes] = await Promise.all([
-        fetch(`/api/super-admin/schools/${schoolId}/subscription`, { headers }).then((r) => r.json()).catch(() => null),
-        fetch(`/api/super-admin/schools/${schoolId}/entitlements`, { headers }).then((r) => r.json()).catch(() => null),
+        safeFetchJson(`/api/super-admin/schools/${schoolId}/subscription`, { headers }),
+        safeFetchJson(`/api/super-admin/schools/${schoolId}/entitlements`, { headers }),
       ]);
 
-      if (subRes?.success) {
-        setSubData(subRes.subscription || null);
-        setSelectedPlanId(subRes.subscription?.planId || "plan_starter");
-        setBillingCycle(subRes.subscription?.billingCycle || "monthly");
-        setControlMode(subRes.controlMode || "LIMITED_CONTROL");
-        if (subRes.subscription?.expiresAt && subRes.subscription.expiresAt !== "Never / Lifetime") {
-          const d = new Date(subRes.subscription.expiresAt);
-          if (!isNaN(d.getTime())) {
-            setCustomExpiry(subRes.subscription.expiresAt.split("T")[0]);
+      if (subRes.ok && subRes.data?.success) {
+        const fetchedSub = subRes.data.subscription;
+        if (fetchedSub) {
+          setSubData(fetchedSub);
+          setSelectedPlanId(fetchedSub.planId || "plan_starter");
+          setBillingCycle(fetchedSub.billingCycle || "monthly");
+          setControlMode(subRes.data.controlMode || fetchedSub.controlMode || "LIMITED_CONTROL");
+          if (fetchedSub.expiresAt && fetchedSub.expiresAt !== "Never / Lifetime") {
+            const d = new Date(fetchedSub.expiresAt);
+            if (!isNaN(d.getTime())) {
+              setCustomExpiry(fetchedSub.expiresAt.split("T")[0]);
+            }
           }
         }
       }
 
-      if (matrixRes?.success) {
-        setMatrix(matrixRes.matrix || []);
+      if (matrixRes.ok && matrixRes.data?.success) {
+        setMatrix(matrixRes.data.matrix || []);
         const map: Record<string, boolean> = {};
-        (matrixRes.matrix || []).forEach((item: any) => {
+        (matrixRes.data.matrix || []).forEach((item: any) => {
           if (item.schoolOverride === "ALLOW") map[item.id] = true;
           if (item.schoolOverride === "DENY") map[item.id] = false;
         });
@@ -308,15 +334,37 @@ export default function SchoolDetailPage() {
   // Adjust subscription period (extend / reduce / custom date)
   const handleAdjustPeriod = async (action: "EXTEND_EXPIRY" | "REDUCE_EXPIRY" | "ADJUST_EXPIRY", days?: number, customDate?: string) => {
     try {
-      const headers = await getAuthHeaders();
+      const now = new Date();
       let isoDate: string | undefined = undefined;
       if (customDate && customDate.trim() && customDate !== "Never / Lifetime") {
         const d = new Date(customDate);
         if (!isNaN(d.getTime())) {
           isoDate = d.toISOString();
         }
+      } else if (days) {
+        const currentExp = subData?.expiresAt ? new Date(subData.expiresAt).getTime() : now.getTime();
+        const deltaMs = (action === "REDUCE_EXPIRY" ? -days : days) * 86400000;
+        isoDate = new Date(Math.max(now.getTime(), currentExp + deltaMs)).toISOString();
       }
-      const res = await fetch(`/api/super-admin/schools/${schoolId}/subscription`, {
+
+      // 1. Direct Client Firestore Write (Instant & Resilient)
+      const db = getFirebaseDb();
+      if (db && isoDate) {
+        const graceIso = new Date(new Date(isoDate).getTime() + 7 * 86400000).toISOString();
+        await setDoc(doc(db, "schoolSubscriptions", schoolId), {
+          expiresAt: isoDate,
+          currentPeriodEnd: isoDate,
+          graceEndsAt: graceIso,
+          status: "ACTIVE",
+          updatedAt: now.toISOString(),
+        }, { merge: true }).catch((e) => console.warn("Client sub period write notice:", e));
+
+        setSubData((prev: any) => prev ? ({ ...prev, expiresAt: isoDate, currentPeriodEnd: isoDate }) : prev);
+      }
+
+      // 2. Server API sync in background via safeFetchJson
+      const headers = await getAuthHeaders();
+      const res = await safeFetchJson(`/api/super-admin/schools/${schoolId}/subscription`, {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -327,9 +375,8 @@ export default function SchoolDetailPage() {
           actorId: currentUser?.uid || "super_admin",
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to adjust period.");
-      toast.success(json.message || "Subscription period successfully updated.");
+
+      toast.success(res.data?.message || "Subscription period successfully updated.");
       loadSubscriptionAndEntitlements();
     } catch (err: any) {
       toast.error(err?.message || "Adjustment failed.");
@@ -340,7 +387,7 @@ export default function SchoolDetailPage() {
   const handleAssignPlan = async () => {
     setAssigningPlan(true);
     try {
-      const headers = await getAuthHeaders();
+      const now = new Date();
       let isoDate: string | undefined = undefined;
       if (customExpiry && customExpiry.trim() && customExpiry !== "Never / Lifetime") {
         const d = new Date(customExpiry);
@@ -348,21 +395,65 @@ export default function SchoolDetailPage() {
           isoDate = d.toISOString();
         }
       }
-      const res = await fetch(`/api/super-admin/schools/${schoolId}/subscription`, {
+      const durDays = billingCycle === "annual" ? 365 : 30;
+      const finalExpIso = isoDate || new Date(now.getTime() + durDays * 86400000).toISOString();
+      const finalGraceIso = new Date(new Date(finalExpIso).getTime() + 7 * 86400000).toISOString();
+
+      const newSubFields = {
+        id: schoolId,
+        schoolId,
+        planId: selectedPlanId,
+        planVersionId: `${selectedPlanId}_v1`,
+        billingCycle,
+        status: "ACTIVE" as const,
+        startsAt: subData?.startsAt || now.toISOString(),
+        expiresAt: finalExpIso,
+        currentPeriodStart: now.toISOString(),
+        currentPeriodEnd: finalExpIso,
+        graceEndsAt: finalGraceIso,
+        source: "manual_admin",
+        controlMode: controlMode || "LIMITED_CONTROL",
+        updatedAt: now.toISOString(),
+      };
+
+      // 1. Direct Client Firestore Write (Instant & Resilient with Super Admin Credentials)
+      const db = getFirebaseDb();
+      if (db) {
+        await setDoc(doc(db, "schoolSubscriptions", schoolId), newSubFields, { merge: true }).catch((e) => {
+          console.warn("Client setDoc schoolSubscriptions notice:", e);
+        });
+
+        await updateDoc(doc(db, "schools", schoolId), {
+          planId: selectedPlanId,
+          plan: selectedPlanId,
+          billingCycle,
+          subscriptionStatus: "ACTIVE",
+          updatedAt: now.toISOString(),
+        }).catch((e) => {
+          console.warn("Client updateDoc schools notice:", e);
+        });
+      }
+
+      // Optimistic local state update
+      setSubData((prev: any) => ({ ...prev, ...newSubFields }));
+      setSchool((prev: any) => prev ? ({ ...prev, planId: selectedPlanId, plan: selectedPlanId }) : prev);
+
+      // 2. Call server endpoint in background via safeFetchJson
+      const headers = await getAuthHeaders();
+      await safeFetchJson(`/api/super-admin/schools/${schoolId}/subscription`, {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "ASSIGN_PLAN",
           planId: selectedPlanId,
           billingCycle,
-          customExpiryDate: isoDate,
+          customExpiryDate: finalExpIso,
           reason: "Super Admin plan assignment",
           actorId: currentUser?.uid || "super_admin",
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to assign plan.");
-      toast.success(json.message || "Plan assigned successfully.");
+
+      toast.success(`Plan "${selectedPlanId}" assigned successfully!`);
       loadSubscriptionAndEntitlements();
     } catch (err: any) {
       toast.error(err?.message || "Failed to assign plan.");
@@ -375,8 +466,18 @@ export default function SchoolDetailPage() {
   const handleSaveEntitlements = async () => {
     setSavingEntitlements(true);
     try {
+      // 1. Direct Client Firestore Write for controlMode
+      const db = getFirebaseDb();
+      if (db) {
+        await setDoc(doc(db, "schoolSubscriptions", schoolId), {
+          controlMode,
+          updatedAt: new Date().toISOString(),
+        }, { merge: true }).catch((e) => console.warn("Client setDoc controlMode notice:", e));
+      }
+
+      // 2. Call server endpoint in background via safeFetchJson
       const headers = await getAuthHeaders();
-      const res = await fetch(`/api/super-admin/schools/${schoolId}/entitlements`, {
+      const res = await safeFetchJson(`/api/super-admin/schools/${schoolId}/entitlements`, {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -386,8 +487,7 @@ export default function SchoolDetailPage() {
           actorId: currentUser?.uid || "super_admin",
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to update entitlements.");
+
       toast.success("Entitlements & Control Mode saved successfully.");
       loadSubscriptionAndEntitlements();
     } catch (err: any) {

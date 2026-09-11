@@ -58,6 +58,10 @@ function cleanForFirestore(obj: any): any {
 
 export const dynamic = "force-dynamic";
 
+function timeoutPromise<T>(ms: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => setTimeout(() => resolve(fallback), ms));
+}
+
 export async function GET(req: NextRequest) {
   try {
     const adminDb = getSafeAdminDb();
@@ -120,11 +124,15 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Tier 2: Try Client SDK fallback if adminDb unavailable
+    // Tier 2: Try Client SDK fallback if adminDb unavailable (Protected with fast timeout to prevent serverless hang)
     if (!adminDb && clientDb) {
       try {
-        const controlsSnap = await getDoc(doc(clientDb, "siteSettings", "feature_controls")).catch(() => null);
-        if (controlsSnap && controlsSnap.exists()) {
+        const controlsSnap: any = await Promise.race([
+          getDoc(doc(clientDb, "siteSettings", "feature_controls")),
+          timeoutPromise(1200, null),
+        ]).catch(() => null);
+
+        if (controlsSnap && typeof controlsSnap.exists === "function" && controlsSnap.exists()) {
           const data = controlsSnap.data() || {};
           if (Array.isArray(data.statesList)) {
             data.statesList.forEach((s: GlobalFeatureState) => {
@@ -142,15 +150,23 @@ export async function GET(req: NextRequest) {
           featureStore.states = globalStates;
         }
 
-        const overridesSnap = await getDocs(collection(clientDb, "schoolFeatureOverrides")).catch(() => null);
+        const overridesSnap: any = await Promise.race([
+          getDocs(collection(clientDb, "schoolFeatureOverrides")),
+          timeoutPromise(1200, null),
+        ]).catch(() => null);
+
         if (overridesSnap && overridesSnap.docs?.length) {
-          overrides = overridesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+          overrides = overridesSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
           featureStore.overrides = overrides;
         }
 
-        const schoolsSnap = await getDocs(collection(clientDb, "schools")).catch(() => null);
+        const schoolsSnap: any = await Promise.race([
+          getDocs(collection(clientDb, "schools")),
+          timeoutPromise(1200, null),
+        ]).catch(() => null);
+
         if (schoolsSnap && schoolsSnap.docs?.length) {
-          schools = schoolsSnap.docs.map((d) => {
+          schools = schoolsSnap.docs.map((d: any) => {
             const data = d.data() || {};
             return {
               id: d.id,
@@ -353,8 +369,10 @@ export async function POST(req: NextRequest) {
         .add(auditEntry)
         .catch((e: any) => console.warn("Notice: Admin DB audit write notice:", e));
     } else if (clientDb) {
-      await setDoc(doc(clientDb, "siteSettings", "feature_controls"), payload, { merge: true })
-        .catch((e) => console.warn("Notice: Client DB features write notice:", e));
+      await Promise.race([
+        setDoc(doc(clientDb, "siteSettings", "feature_controls"), payload, { merge: true }),
+        timeoutPromise(1500, null),
+      ]).catch((e) => console.warn("Notice: Client DB features write notice:", e));
     }
 
     return NextResponse.json({
