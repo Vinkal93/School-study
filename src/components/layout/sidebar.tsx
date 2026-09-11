@@ -329,12 +329,16 @@ const roleNavItems: Record<string, NavItem[]> = {
   ],
 };
 
+import { subscribeToExperienceSettings } from "@/lib/services/experienceControl.service";
+import { ExperienceSettings, DEFAULT_EXPERIENCE_SETTINGS } from "@/types/experienceControl";
+
 export interface SidebarProps {
   variant?: "classic" | "modern" | "liquid";
 }
 
 export function Sidebar({ variant = "classic" }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [expSettings, setExpSettings] = useState<ExperienceSettings>(DEFAULT_EXPERIENCE_SETTINGS);
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const currentFullUrl = pathname + (searchParams.toString() ? `?${searchParams.toString()}` : "");
@@ -342,6 +346,45 @@ export function Sidebar({ variant = "classic" }: SidebarProps) {
   const { profile } = useAuth();
   const { isOpen, closeMobileNav } = useMobileNav();
   const { canAccess, getFeatureAccessMode } = useEntitlement();
+
+  // Subscribe to real-time Experience & Accessibility Settings
+  useEffect(() => {
+    const unsub = subscribeToExperienceSettings((s) => {
+      setExpSettings(s);
+    });
+    return () => unsub();
+  }, []);
+
+  // Check if collapsible sidebar is enabled for this portal
+  const isCollapsibleAllowed = (() => {
+    if (expSettings.enableCollapsibleSidebar === false) return false;
+    const role = profile?.role;
+    if (role === "super_admin") return expSettings.collapsiblePortals?.superAdmin ?? true;
+    if (role === "school_admin" || (role as string) === "admin") return expSettings.collapsiblePortals?.schoolAdmin ?? true;
+    if (role === "teacher") return expSettings.collapsiblePortals?.teacher ?? true;
+    if (role === "student") return expSettings.collapsiblePortals?.student ?? false;
+    return true;
+  })();
+
+  // Restore collapsed state on mount from local preference
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("ss_sidebar_collapsed");
+      if (stored !== null && isCollapsibleAllowed) {
+        setCollapsed(stored === "true");
+      }
+    } catch {}
+  }, [isCollapsibleAllowed]);
+
+  const handleToggleCollapse = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("ss_sidebar_collapsed", String(next));
+      } catch {}
+      return next;
+    });
+  };
 
   // Expanded sections state
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
@@ -407,18 +450,21 @@ export function Sidebar({ variant = "classic" }: SidebarProps) {
           <X className="h-5 w-5" />
         </button>
 
-        {/* Desktop Collapse Toggle */}
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="hidden md:flex rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {collapsed ? (
-            <ChevronRight className="h-4 w-4" />
-          ) : (
-            <ChevronLeft className="h-4 w-4" />
-          )}
-        </button>
+        {/* Desktop Collapse Toggle (@reui/c-collapsible-9) */}
+        {isCollapsibleAllowed && (
+          <button
+            onClick={handleToggleCollapse}
+            className="hidden md:flex rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 transition cursor-pointer"
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? (
+              <ChevronRight className="h-4 w-4" />
+            ) : (
+              <ChevronLeft className="h-4 w-4" />
+            )}
+          </button>
+        )}
       </div>
 
       {/* Nav Links */}
