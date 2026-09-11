@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { SiteSettings, DEFAULT_SITE_SETTINGS, getPublicSiteSettings } from "@/lib/cms/siteSettings";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { doc, onSnapshot } from "firebase/firestore";
@@ -24,38 +24,52 @@ export function SiteSettingsProvider({
   children: React.ReactNode;
   initialSettings?: SiteSettings;
 }) {
-  const [settings, setSettings] = useState<SiteSettings>(initialSettings || DEFAULT_SITE_SETTINGS);
-  const [loading, setLoading] = useState(!initialSettings);
+  const [settings, setSettings] = useState<SiteSettings>(() => {
+    if (initialSettings) return initialSettings;
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem("site_settings_cache");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && typeof parsed === "object") {
+            return { ...DEFAULT_SITE_SETTINGS, ...parsed };
+          }
+        }
+      } catch {}
+    }
+    return DEFAULT_SITE_SETTINGS;
+  });
+  const [loading, setLoading] = useState(false);
 
-  const fetchSettings = async () => {
+  const fetchSettings = useCallback(async () => {
     try {
-      const res = await fetch("/api/site-settings", { cache: "no-store" });
+      const res = await fetch("/api/site-settings");
       if (res.ok) {
         const json = await res.json();
         if (json.settings) {
           setSettings(json.settings);
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem("site_settings_cache", JSON.stringify(json.settings));
+            } catch {}
+          }
         }
       }
-    } catch {
-      // Graceful fallback to default settings without console error spam
-    } finally {
-      setLoading(false);
-    }
-  };
+    } catch {}
+  }, []);
 
   useEffect(() => {
-    fetchSettings();
+    let unsub: (() => void) | null = null;
 
-    // Attach Realtime listener to siteSettings/global
     try {
       const db = getFirebaseDb();
       if (db) {
-        const unsubscribe = onSnapshot(
+        unsub = onSnapshot(
           doc(db, "siteSettings", "global"),
           (snapshot) => {
             if (snapshot.exists()) {
               const data = snapshot.data() as SiteSettings;
-              setSettings({
+              const merged: SiteSettings = {
                 ...DEFAULT_SITE_SETTINGS,
                 ...data,
                 header: {
@@ -68,18 +82,25 @@ export function SiteSettingsProvider({
                   ...(data.footer || {}),
                   columns: data.footer?.columns || DEFAULT_SITE_SETTINGS.footer.columns,
                 },
-              });
+              };
+              setSettings(merged);
+              if (typeof window !== "undefined") {
+                try {
+                  localStorage.setItem("site_settings_cache", JSON.stringify(merged));
+                } catch {}
+              }
             }
           },
-          (err) => {
-            console.warn("Notice: Realtime site settings listener notice:", err?.message);
+          () => {
+            // Non-blocking fallback
           }
         );
-        return () => unsubscribe();
       }
-    } catch (e) {
-      // Non-blocking fallback
-    }
+    } catch {}
+
+    return () => {
+      if (unsub) unsub();
+    };
   }, []);
 
   return (

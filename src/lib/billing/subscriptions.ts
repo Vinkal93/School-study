@@ -32,6 +32,15 @@ export function clearSubscriptionCache(schoolId?: string): void {
 }
 
 /**
+ * Updates in-memory subscription cache directly with authoritative data.
+ */
+export function updateInMemorySubscription(sub: Partial<SchoolSubscription> & { schoolId: string }): void {
+  const existing = memorySubscriptions.get(sub.schoolId) || {};
+  const merged = { ...existing, ...sub } as SchoolSubscription;
+  memorySubscriptions.set(sub.schoolId, merged);
+}
+
+/**
  * Server-side calculation of subscription status based on current time and expiration dates.
  */
 export function computeSubscriptionStatus(
@@ -137,9 +146,12 @@ export async function getSchoolSubscription(schoolId: string): Promise<SchoolSub
 
     const rawPlan = subData?.planId || schoolData?.planId || schoolData?.plan || schoolData?.subscriptionPlan || "plan_starter";
     let normalizedPlan = rawPlan.toLowerCase().trim();
-    if (!normalizedPlan.startsWith("plan_")) {
-      normalizedPlan = `plan_${normalizedPlan}`;
-    }
+    if (normalizedPlan === "growth" || normalizedPlan === "plan_growth") normalizedPlan = "plan_growth";
+    else if (normalizedPlan === "professional" || normalizedPlan === "plan_professional") normalizedPlan = "plan_professional";
+    else if (normalizedPlan === "enterprise" || normalizedPlan === "plan_enterprise") normalizedPlan = "plan_enterprise";
+    else if (normalizedPlan === "starter" || normalizedPlan === "plan_starter") normalizedPlan = "plan_starter";
+    else if (normalizedPlan === "free" || normalizedPlan === "plan_free") normalizedPlan = "plan_free";
+    else if (!normalizedPlan.startsWith("plan_")) normalizedPlan = `plan_${normalizedPlan}`;
 
     if (subData) {
       const sub = {

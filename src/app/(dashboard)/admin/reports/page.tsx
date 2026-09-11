@@ -35,6 +35,9 @@ import { getStudents } from "@/lib/services/student.service";
 import { getTeachers } from "@/lib/services/teacher.service";
 import { REPORT_CONFIGS } from "@/lib/reports/reportEngine";
 import { toast } from "sonner";
+import { ReportDateRangePicker } from "@/components/ui/calendar-picker";
+import type { DateRange } from "@/components/ui/calendar";
+import { cn } from "@/lib/utils/cn";
 
 interface ReportMetaCard {
   type: SchoolReportType;
@@ -132,6 +135,8 @@ export default function SchoolAdminReportsPage() {
   // Filters
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   const loadReport = async (report: ReportMetaCard, openModal = false, customSearch?: string, customStatus?: string) => {
     if (profile?.role !== "super_admin" && !canAccess("advanced_reports")) {
@@ -496,7 +501,7 @@ export default function SchoolAdminReportsPage() {
           )}
 
           {/* Search / Filter Toolbar */}
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <input
@@ -508,9 +513,57 @@ export default function SchoolAdminReportsPage() {
                 className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               />
             </div>
+
+            {/* Quick Presets Date Range Picker */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowDatePicker(!showDatePicker)}
+                className={cn(
+                  "inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-xs",
+                  dateRange?.from && dateRange?.to
+                    ? "bg-blue-600 text-white border-blue-600 hover:bg-blue-700 shadow-blue-500/25"
+                    : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                )}
+              >
+                <Calendar className={cn("h-4 w-4", dateRange?.from ? "text-white" : "text-slate-400")} />
+                <span>
+                  {dateRange?.from && dateRange?.to
+                    ? `${dateRange.from.toLocaleDateString("en-IN", { day: "numeric", month: "short" })} - ${dateRange.to.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}`
+                    : "Date Presets"}
+                </span>
+                {dateRange?.from && (
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDateRange(undefined);
+                      loadReport(selectedReport);
+                    }}
+                    className="p-0.5 hover:bg-blue-700 rounded-full"
+                    title="Clear date filter"
+                  >
+                    <X className="h-3 w-3" />
+                  </span>
+                )}
+              </button>
+
+              {showDatePicker && (
+                <div className="absolute right-0 top-full mt-2 z-50 shadow-2xl rounded-2xl animate-in zoom-in-95">
+                  <ReportDateRangePicker
+                    dateRange={dateRange}
+                    onChange={(range) => {
+                      setDateRange(range);
+                      setShowDatePicker(false);
+                      loadReport(selectedReport);
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+
             <button
               onClick={() => loadReport(selectedReport)}
-              className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 transition-colors"
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 transition-colors cursor-pointer"
             >
               Apply Filter
             </button>

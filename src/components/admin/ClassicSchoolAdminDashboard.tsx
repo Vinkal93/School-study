@@ -22,7 +22,6 @@ import { getSchoolSetupData } from "@/lib/services/setup.service";
 import type { School } from "@/types";
 
 import { useEntitlement } from "@/context/EntitlementContext";
-import { EntitlementGate } from "@/components/common/EntitlementGate";
 
 export function ClassicSchoolAdminDashboard() {
   const { profile } = useAuth();
@@ -60,13 +59,7 @@ export function ClassicSchoolAdminDashboard() {
   const isSetupIncomplete = !school?.setupCompleted && !school?.onboardingCompleted;
 
   return (
-    <EntitlementGate
-      feature="school_dashboard"
-      title="School Admin Dashboard"
-      description="Real-time school metrics, faculty counts, student enrollments, and operational status."
-      requiredPlan="Starter Plan"
-    >
-      <div className="space-y-8 max-w-7xl mx-auto">
+    <div className="space-y-8 max-w-7xl mx-auto">
         {/* Welcome Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -205,8 +198,7 @@ export function ClassicSchoolAdminDashboard() {
         />
       </div>
     </div>
-  </EntitlementGate>
-);
+  );
 }
 
 function StatCard({

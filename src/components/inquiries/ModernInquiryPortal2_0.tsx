@@ -54,6 +54,8 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { getFirebaseDb } from "@/lib/firebase/client";
+import { InquiryEventCalendar } from "@/components/ui/calendar-picker";
+import { cn } from "@/lib/utils/cn";
 import {
   collection,
   addDoc,
@@ -109,6 +111,8 @@ export function ModernInquiryPortal2_0({
   const [interestFilter, setInterestFilter] = useState("ALL");
   const [assignedFilter, setAssignedFilter] = useState("ALL");
   const [dateRangeFilter, setDateRangeFilter] = useState("All Time");
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<Date | undefined>(undefined);
+  const [showCalendarFilter, setShowCalendarFilter] = useState(false);
 
   // Multi-select Checkboxes
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -276,9 +280,33 @@ export function ModernInquiryPortal2_0({
         if (!match) return false;
       }
 
+      // 7. Interactive Calendar Date Filter
+      if (selectedCalendarDate) {
+        if (!inq.createdAt) return false;
+        const inqDate = new Date(inq.createdAt);
+        const isSameDay =
+          inqDate.getFullYear() === selectedCalendarDate.getFullYear() &&
+          inqDate.getMonth() === selectedCalendarDate.getMonth() &&
+          inqDate.getDate() === selectedCalendarDate.getDate();
+        if (!isSameDay) return false;
+      }
+
       return true;
     });
-  }, [inquiries, activeStatusPill, statusFilter, sourceFilter, interestFilter, assignedFilter, searchQuery]);
+  }, [inquiries, activeStatusPill, statusFilter, sourceFilter, interestFilter, assignedFilter, searchQuery, selectedCalendarDate]);
+
+  // Calendar Event Dots Map
+  const inquiryCountMap = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const inq of inquiries) {
+      if (inq.createdAt) {
+        const d = new Date(inq.createdAt);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        counts[key] = (counts[key] || 0) + 1;
+      }
+    }
+    return counts;
+  }, [inquiries]);
 
   // Paginated Inquiries
   const paginatedInquiries = useMemo(() => {
@@ -755,10 +783,51 @@ export function ModernInquiryPortal2_0({
             <span>+ Add Inquiry</span>
           </button>
 
-          {/* Date Range Selector */}
-          <div className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 shadow-sm">
-            <Calendar className="w-4 h-4 text-slate-400" />
-            <span>{dateRangeFilter}</span>
+          {/* Interactive Date-Filter Calendar */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowCalendarFilter(!showCalendarFilter)}
+              className={cn(
+                "inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl border transition-all cursor-pointer shadow-xs",
+                selectedCalendarDate
+                  ? "bg-blue-600 text-white border-blue-600 hover:bg-blue-700 shadow-blue-500/25"
+                  : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+              )}
+            >
+              <Calendar className={cn("w-4 h-4", selectedCalendarDate ? "text-white" : "text-slate-400")} />
+              <span>
+                {selectedCalendarDate
+                  ? selectedCalendarDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" })
+                  : "Calendar Filter"}
+              </span>
+              {selectedCalendarDate && (
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedCalendarDate(undefined);
+                  }}
+                  className="ml-1 p-0.5 hover:bg-blue-700 rounded-full cursor-pointer"
+                  title="Clear date filter"
+                >
+                  <X className="h-3 w-3" />
+                </span>
+              )}
+            </button>
+
+            {showCalendarFilter && (
+              <div className="absolute right-0 top-full mt-2 z-50 w-72 sm:w-80 shadow-2xl rounded-2xl animate-in zoom-in-95">
+                <InquiryEventCalendar
+                  selectedDate={selectedCalendarDate}
+                  onSelectDate={(d) => {
+                    setSelectedCalendarDate(d);
+                    setShowCalendarFilter(false);
+                    setCurrentPage(1);
+                  }}
+                  inquiryCountMap={inquiryCountMap}
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>

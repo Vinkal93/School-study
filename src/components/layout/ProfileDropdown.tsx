@@ -21,6 +21,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 import type { School } from "@/types";
 import { HelpCenterModal } from "@/components/help/HelpCenterModal";
+import { LogoutConfirmDialog } from "@/components/common/LogoutConfirmDialog";
+import { Avatar, AvatarFallback, AvatarBadge } from "@/components/ui/avatar";
 
 interface ProfileDropdownProps {
   school?: School | null;
@@ -140,10 +142,13 @@ export function ProfileDropdown({ school }: ProfileDropdownProps) {
         aria-label="User Profile Menu"
         className="flex items-center gap-2 p-1 sm:px-2.5 sm:py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-all outline-none focus-visible:ring-2 focus-visible:ring-blue-500 active:scale-95 group cursor-pointer"
       >
-        {/* Avatar Circle */}
-        <div className="flex h-8 w-8 sm:h-8 sm:w-8 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-black text-xs shadow-xs group-hover:ring-2 group-hover:ring-blue-400/40 transition-all">
-          {userInitial}
-        </div>
+        {/* Avatar Circle with Online Live Status Badge */}
+        <Avatar size="sm" className="ring-2 ring-blue-500/20 group-hover:ring-blue-500 transition-all">
+          <AvatarFallback className="bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-black text-xs">
+            {userInitial}
+          </AvatarFallback>
+          <AvatarBadge status="online" />
+        </Avatar>
 
         {/* Text Details (desktop only) */}
         <div className="hidden lg:flex flex-col text-left leading-tight max-w-[140px]">
@@ -274,20 +279,23 @@ export function ProfileDropdown({ school }: ProfileDropdownProps) {
             </button>
           </div>
 
-          {/* Sign Out Button */}
+          {/* Sign Out Button with Confirmation Modal */}
           <div className="p-1.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30">
-            <button
-              type="button"
-              onClick={handleSignOut}
-              disabled={loggingOut}
-              className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors disabled:opacity-50 cursor-pointer"
-            >
-              <div className="flex items-center gap-2.5">
-                <LogOut className="h-4 w-4" />
-                <span>{loggingOut ? "Signing out..." : "Sign Out"}</span>
-              </div>
-              <span className="text-[10px] text-rose-400 font-mono">ESC</span>
-            </button>
+            <LogoutConfirmDialog
+              onLogoutSuccess={() => setIsOpen(false)}
+              trigger={
+                <button
+                  type="button"
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <LogOut className="h-4 w-4" />
+                    <span>Sign Out</span>
+                  </div>
+                  <span className="text-[10px] text-rose-400 font-mono">ESC</span>
+                </button>
+              }
+            />
           </div>
         </div>
       )}

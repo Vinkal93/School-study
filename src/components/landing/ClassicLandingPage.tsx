@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import Image from "next/image";
 import {
   GraduationCap,
   Users,
@@ -173,13 +174,14 @@ export function ClassicLandingPage() {
 
                 {/* Person Cutout Image with Next.js optimization */}
                 <div className="relative z-10 w-full max-w-[320px] sm:max-w-[360px] lg:max-w-[400px]">
-                  <img
-                    src="/images/hero-person.png"
+                  <Image
+                    src="/images/hero-person.webp"
                     alt="School Study Management Representative"
                     width={400}
                     height={580}
+                    priority
+                    sizes="(max-width: 640px) 320px, (max-width: 1024px) 360px, 400px"
                     className="w-full h-auto object-contain drop-shadow-2xl select-none"
-                    loading="eager"
                   />
                 </div>
 

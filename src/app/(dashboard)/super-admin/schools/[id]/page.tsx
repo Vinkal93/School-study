@@ -59,7 +59,7 @@ import { Spinner } from "@/components/common/Spinner";
 import { useAuth } from "@/hooks/use-auth";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { collection, doc, getDoc, setDoc, updateDoc, query, where, getDocs, orderBy, limit as fsLimit } from "firebase/firestore";
-import { BILLING_COLLECTIONS } from "@/lib/billing";
+import { BILLING_COLLECTIONS, getAllPlansAdmin } from "@/lib/billing";
 import { safeFetchJson } from "@/lib/utils/safeFetch";
 import type {
   School,
@@ -109,6 +109,109 @@ export default function SchoolDetailPage() {
   const [selectedPlanId, setSelectedPlanId] = useState("plan_starter");
   const [billingCycle, setBillingCycle] = useState<"monthly" | "annual">("monthly");
   const [customExpiry, setCustomExpiry] = useState("");
+  const [availablePlans, setAvailablePlans] = useState<any[]>([]);
+
+  // Load dynamic plans from database/API so any newly created plan appears in the assign dropdown
+  const loadAvailablePlans = async () => {
+    try {
+      const res = await fetch("/api/super-admin/pricing");
+      if (res.ok) {
+        const json = await res.json();
+        if (json.plans && json.plans.length > 0) {
+          setAvailablePlans(json.plans);
+          return;
+        }
+      }
+      const sdkPlans = await getAllPlansAdmin().catch(() => []);
+      if (sdkPlans && sdkPlans.length > 0) {
+        setAvailablePlans(sdkPlans);
+      }
+    } catch (e) {
+      console.warn("Failed to load available dynamic plans:", e);
+    }
+  };
+
+  useEffect(() => {
+    loadSchoolData();
+    loadAvailablePlans();
+  }, [schoolId]);
+
+  // Robust Status toggle handler (updates schools, schoolSubscriptions, and broadcasts cross-tab)
+  const handleToggleSchoolStatus = async () => {
+    if (!school) return;
+    const isCurrentlyActive = school.status === "active" || (school as any).operationalStatus === "ACTIVE";
+    const nextStatus: SchoolStatus = isCurrentlyActive ? "suspended" : "active";
+    const nextSubStatus = isCurrentlyActive ? "SUSPENDED" : "ACTIVE";
+    const nextAccessMode = isCurrentlyActive ? "NO_ACCESS" : "FULL_ACCESS";
+
+    try {
+      const db = getFirebaseDb();
+      const nowIso = new Date().toISOString();
+
+      // 1. Authoritative client-side Firestore dual-write
+      if (db) {
+        await updateDoc(doc(db, "schools", school.id), {
+          status: nextStatus,
+          operationalStatus: nextSubStatus,
+          isSuspended: isCurrentlyActive,
+          subscriptionStatus: nextSubStatus,
+          updatedAt: nowIso,
+          statusReason: `Super Admin toggled status to ${nextStatus}`,
+        }).catch((err) => console.warn("Client update schools status notice:", err));
+
+        await setDoc(
+          doc(db, "schoolSubscriptions", school.id),
+          {
+            status: nextSubStatus,
+            accessMode: nextAccessMode,
+            updatedAt: nowIso,
+          },
+          { merge: true }
+        ).catch((err) => console.warn("Client update schoolSubscriptions notice:", err));
+      }
+
+      // 2. Service update
+      await updateSchoolOperationalStatus(school.id, nextStatus, `Super Admin toggled status to ${nextStatus}`).catch(() => {});
+
+      // 3. Multi-tab and cross-window real-time notification
+      if (typeof window !== "undefined") {
+        try {
+          const ch = new BroadcastChannel("school_study_realtime_sync");
+          ch.postMessage({
+            type: "school_status_updated",
+            schoolId: school.id,
+            status: nextStatus,
+            timestamp: Date.now(),
+          });
+          ch.close();
+        } catch {}
+
+        try {
+          localStorage.setItem(
+            "school_study_plan_updated",
+            JSON.stringify({
+              type: "school_status_updated",
+              schoolId: school.id,
+              status: nextStatus,
+              timestamp: Date.now(),
+            })
+          );
+        } catch {}
+      }
+
+      setSchool({
+        ...school,
+        status: nextStatus,
+        subscriptionStatus: nextSubStatus,
+      } as any);
+
+      toast.success(
+        `School has been successfully ${nextStatus === "suspended" ? "SUSPENDED (Access Frozen)" : "ACTIVATED"}.`
+      );
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to toggle school status.");
+    }
+  };
 
   // Entitlements & Overrides
   const [controlMode, setControlMode] = useState<"PLAN_DEFAULT" | "FULL_CONTROL" | "LIMITED_CONTROL" | "CUSTOM_ACCESS">("PLAN_DEFAULT");
@@ -314,23 +417,6 @@ export default function SchoolDetailPage() {
     }
   };
 
-  useEffect(() => {
-    loadSchoolData();
-  }, [schoolId]);
-
-  // Status toggle handler
-  const handleToggleSchoolStatus = async () => {
-    if (!school) return;
-    const nextStatus: SchoolStatus = school.status === "active" ? "suspended" : "active";
-    try {
-      await updateSchoolOperationalStatus(school.id, nextStatus, `Super Admin toggled status to ${nextStatus}`);
-      setSchool({ ...school, status: nextStatus });
-      toast.success(`School status updated to ${nextStatus.toUpperCase()}.`);
-    } catch {
-      toast.error("Failed to toggle school status.");
-    }
-  };
-
   // Adjust subscription period (extend / reduce / custom date)
   const handleAdjustPeriod = async (action: "EXTEND_EXPIRY" | "REDUCE_EXPIRY" | "ADJUST_EXPIRY", days?: number, customDate?: string) => {
     try {
@@ -432,11 +518,39 @@ export default function SchoolDetailPage() {
         }).catch((e) => {
           console.warn("Client updateDoc schools notice:", e);
         });
+
+        // Harmonize old restricting overrides so the new plan tier capabilities take effect immediately
+        try {
+          const snapOverrides = await getDocs(
+            query(collection(db, "accessOverrides"), where("schoolId", "==", schoolId))
+          );
+          for (const d of snapOverrides.docs) {
+            if (d.data().status === "ACTIVE") {
+              await updateDoc(doc(db, "accessOverrides", d.id), {
+                status: "REVOKED",
+                updatedAt: now.toISOString(),
+              }).catch(() => {});
+            }
+          }
+        } catch (ovErr) {
+          console.warn("Override harmonization notice:", ovErr);
+        }
       }
 
       // Optimistic local state update
       setSubData((prev: any) => ({ ...prev, ...newSubFields }));
       setSchool((prev: any) => prev ? ({ ...prev, planId: selectedPlanId, plan: selectedPlanId }) : prev);
+
+      // Instant cross-tab sync via BroadcastChannel and localStorage
+      try {
+        if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+          const bc = new BroadcastChannel("school_study_realtime_sync");
+          bc.postMessage({ type: "PLAN_UPDATED", schoolId, planId: selectedPlanId });
+          bc.close();
+        }
+        localStorage.setItem("school_study_plan_updated", JSON.stringify({ schoolId, planId: selectedPlanId, timestamp: Date.now() }));
+        localStorage.setItem("school_study_plan_updated_raw", `${schoolId}_${Date.now()}`);
+      } catch (bcErr) {}
 
       // 2. Call server endpoint in background via safeFetchJson
       const headers = await getAuthHeaders();
@@ -1136,14 +1250,24 @@ export default function SchoolDetailPage() {
                   <select
                     value={selectedPlanId}
                     onChange={(e) => setSelectedPlanId(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-900 dark:text-white font-medium"
                   >
-                    <option value="plan_free">Free Trial</option>
-                    <option value="plan_starter">Starter Tier</option>
-                    <option value="plan_growth">Growth Tier</option>
-                    <option value="plan_professional">Professional Tier</option>
-                    <option value="plan_enterprise">Enterprise Tier</option>
-                    <option value="plan_custom">Custom Plan</option>
+                    {availablePlans.length > 0 ? (
+                      availablePlans.map((p: any) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} ({p.slug?.toUpperCase() || p.id})
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="plan_free">Free Trial</option>
+                        <option value="plan_starter">Starter Tier</option>
+                        <option value="plan_growth">Growth Tier</option>
+                        <option value="plan_professional">Professional Tier</option>
+                        <option value="plan_enterprise">Enterprise Tier</option>
+                        <option value="plan_custom">Custom Plan</option>
+                      </>
+                    )}
                   </select>
                 </div>
                 <div>

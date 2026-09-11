@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   CreditCard,
   RefreshCw,
@@ -139,9 +139,78 @@ export default function SchoolAdminSubscriptionCommandCenter() {
       features: entitlement?.allowedFeatures || [],
     };
 
+  const computedDaysRemaining = effectiveSub?.expiresAt
+    ? Math.max(0, Math.ceil((new Date(effectiveSub.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+    : (subState?.daysRemaining ?? 30);
+
+  const fallbackPrices: Record<string, { monthly: number; annual: number; limits?: any }> = {
+    plan_starter: { monthly: 99900, annual: 89900, limits: { maxStudents: 500, maxTeachers: 25, maxClasses: 20 } },
+    plan_growth: { monthly: 149900, annual: 129900, limits: { maxStudents: 1000, maxTeachers: 50, maxClasses: 40 } },
+    plan_professional: { monthly: 199900, annual: 169900, limits: { maxStudents: 2500, maxTeachers: 100, maxClasses: 80 } },
+    plan_enterprise: { monthly: 999900, annual: 799900, limits: { maxStudents: 10000, maxTeachers: 500, maxClasses: 300 } },
+    plan_free: { monthly: 0, annual: 0, limits: { maxStudents: 100, maxTeachers: 10, maxClasses: 5 } },
+  };
+
+  const defaultPrice = fallbackPrices[effectivePlanId] || { monthly: 199900, annual: 169900 };
+
+  const effectivePlanVersion =
+    planVersion && (planVersion.planId === effectivePlanId || planVersion.id?.includes(effectivePlanId))
+      ? planVersion
+      : {
+          id: `version_${effectivePlanId}`,
+          planId: effectivePlanId,
+          versionNumber: 1,
+          monthlyPrice: plan?.pricing?.monthlyPrice || defaultPrice.monthly,
+          annualPrice: plan?.pricing?.annualPrice || defaultPrice.annual,
+          currency: "INR",
+          limits: plan?.limits || defaultPrice.limits || {},
+          features: effectivePlan?.features || [],
+          createdAt: new Date().toISOString(),
+        };
+
   const loading = isBundleLoading && !bundle && !liveSub;
 
-  // Real-time Firestore Sync with Super Admin updates
+  // Debounced listener refetch to eliminate screen jump and value flicker
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const triggerDebouncedRefetch = () => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      if (schoolId) {
+        appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
+      }
+      refetch(true);
+    }, 200);
+  };
+
+  // Cross-tab and window instant plan update notification
+  useEffect(() => {
+    if (typeof window === "undefined" || !schoolId) return;
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel("school_study_realtime_sync");
+      channel.onmessage = (event) => {
+        if (!event.data?.schoolId || event.data?.schoolId === schoolId) {
+          triggerDebouncedRefetch();
+        }
+      };
+    } catch {}
+
+    const handleStorage = (e: StorageEvent) => {
+      if ((e.key === "school_study_plan_updated" || e.key === "school_study_plan_updated_raw") && e.newValue) {
+        if (e.newValue.includes(schoolId)) {
+          triggerDebouncedRefetch();
+        }
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+
+    return () => {
+      if (channel) channel.close();
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [schoolId]);
+
+  // Real-time Firestore Sync with Super Admin updates (debounced to avoid flicker)
   useEffect(() => {
     if (!schoolId) return;
     const db = getFirebaseDb();
@@ -154,8 +223,7 @@ export default function SchoolAdminSubscriptionCommandCenter() {
         if (snap.exists()) {
           setLiveSub({ id: snap.id, ...snap.data() });
         }
-        appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
-        refetch(true);
+        triggerDebouncedRefetch();
       },
       (err) => console.warn("Live sub listener notice:", err)
     );
@@ -167,8 +235,7 @@ export default function SchoolAdminSubscriptionCommandCenter() {
         if (snap.exists()) {
           setLiveSchool({ id: snap.id, ...snap.data() });
         }
-        appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
-        refetch(true);
+        triggerDebouncedRefetch();
       },
       (err) => console.warn("Live school listener notice:", err)
     );
@@ -177,8 +244,7 @@ export default function SchoolAdminSubscriptionCommandCenter() {
     const unsubsOverrides = onSnapshot(
       overridesRef,
       () => {
-        appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
-        refetch(true);
+        triggerDebouncedRefetch();
       },
       (err) => console.warn("Live overrides listener notice:", err)
     );
@@ -187,8 +253,7 @@ export default function SchoolAdminSubscriptionCommandCenter() {
     const unsubsOffer = onSnapshot(
       offerRef,
       () => {
-        appQueryClient.invalidateCache(`activeSchoolOffer:${schoolId}`);
-        refetchOffers(true);
+        refetchOffers(false);
       },
       (err) => console.warn("Live offer listener notice:", err)
     );
@@ -197,20 +262,20 @@ export default function SchoolAdminSubscriptionCommandCenter() {
     const unsubsUsage = onSnapshot(
       usageRef,
       () => {
-        appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
-        refetch(true);
+        triggerDebouncedRefetch();
       },
       (err) => console.warn("Live usage listener notice:", err)
     );
 
     return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       unsubsSub();
       unsubsSchool();
       unsubsOverrides();
       unsubsOffer();
       unsubsUsage();
     };
-  }, [schoolId, refetch, refetchOffers]);
+  }, [schoolId, refetchOffers]);
 
   const openRecharge = (planId: string, cycle: "monthly" | "annual" = "monthly") => {
     setSelectedRechargePlan(planId);
@@ -324,7 +389,7 @@ export default function SchoolAdminSubscriptionCommandCenter() {
           {/* 2. Contextual Subscription Alert */}
           <SubscriptionAlertBanner
             subscription={effectiveSub}
-            daysRemaining={subState?.daysRemaining || 30}
+            daysRemaining={computedDaysRemaining}
             onRenew={() => openRecharge(effectivePlanId, effectiveSub?.billingCycle || "monthly")}
             onUpgrade={() => openRecharge(effectivePlanId === "plan_starter" ? "plan_professional" : "plan_enterprise")}
           />
@@ -333,8 +398,8 @@ export default function SchoolAdminSubscriptionCommandCenter() {
           <CurrentPlanHeroCard
             subscription={effectiveSub}
             plan={effectivePlan}
-            planVersion={planVersion}
-            daysRemaining={subState?.daysRemaining || 30}
+            planVersion={effectivePlanVersion}
+            daysRemaining={computedDaysRemaining}
             onRenew={() => openRecharge(effectivePlanId, effectiveSub?.billingCycle || "monthly")}
             onUpgrade={() => openRecharge(effectivePlanId === "plan_starter" ? "plan_professional" : "plan_enterprise")}
             onChangePlan={() => openRecharge(effectivePlanId)}

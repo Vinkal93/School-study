@@ -158,10 +158,10 @@ export function Topbar({ variant = "classic" }: TopbarProps) {
             >
               <div className="flex items-center gap-2">
                 <Search className="h-3.5 w-3.5 text-gray-400" />
-                <span>Search School Study...</span>
+                <span>Search phone, ID, name, email...</span>
               </div>
               <kbd className="font-mono text-[10px] bg-white dark:bg-gray-800 px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-700 font-semibold text-gray-400">
-                ⌘K / Ctrl+K
+                ⌘K
               </kbd>
             </button>
           </div>

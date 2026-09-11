@@ -1,24 +1,48 @@
 "use client";
 
 import React from "react";
+import dynamic from "next/dynamic";
 import { usePortalUI } from "@/context/portal-ui-context";
-import { ClassicLandingPage } from "./ClassicLandingPage";
-import { ModernLandingPage } from "./ModernLandingPage";
-import { LiquidGlassLandingPage } from "./LiquidGlassLandingPage";
+import type { PortalUIVersion } from "@/types/portal-ui";
 
-export function LandingPageSwitch() {
+// High-performance code-splitting: Only download the currently active landing page variant
+const ModernLandingPage = dynamic(
+  () => import("./ModernLandingPage").then((mod) => mod.ModernLandingPage),
+  { ssr: true }
+);
+
+const ClassicLandingPage = dynamic(
+  () => import("./ClassicLandingPage").then((mod) => mod.ClassicLandingPage),
+  { ssr: true }
+);
+
+const LiquidGlassLandingPage = dynamic(
+  () => import("./LiquidGlassLandingPage").then((mod) => mod.LiquidGlassLandingPage),
+  { ssr: true }
+);
+
+export interface LandingPageSwitchProps {
+  initialVersion?: PortalUIVersion;
+}
+
+export function LandingPageSwitch({ initialVersion }: LandingPageSwitchProps) {
   const { settings, loading } = usePortalUI();
 
-  // If liquid glass UI is selected for landing page, render Liquid Glass Landing Page
-  if (!loading && settings.landingPage === "liquid_glass") {
+  // Instant zero-flicker resolution:
+  // 1. If live settings loaded from Firestore or localStorage, use settings.landingPage
+  // 2. Otherwise fallback to SSR initialVersion (from cookie / server config)
+  // 3. Default to "new" (Modern UI 2.0)
+  const activeVersion: PortalUIVersion = !loading
+    ? settings.landingPage
+    : initialVersion || settings.landingPage || "new";
+
+  if (activeVersion === "liquid_glass") {
     return <LiquidGlassLandingPage />;
   }
 
-  // If new UI is selected for landing page, render Modern Landing Page
-  if (!loading && settings.landingPage === "new") {
-    return <ModernLandingPage />;
+  if (activeVersion === "classic") {
+    return <ClassicLandingPage />;
   }
 
-  // Otherwise default to Classic Landing Page
-  return <ClassicLandingPage />;
+  return <ModernLandingPage />;
 }

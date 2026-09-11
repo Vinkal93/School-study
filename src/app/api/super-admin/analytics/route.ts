@@ -532,6 +532,7 @@ export async function GET(req: NextRequest) {
 
     // Module usage counts from activity_logs
     const moduleUsage = {
+      students: 0,
       attendance: 0,
       homework: 0,
       fees: 0,
@@ -544,7 +545,8 @@ export async function GET(req: NextRequest) {
 
     rawActivities.forEach((a) => {
       const act = String(a.action || "").toLowerCase();
-      if (act.includes("attendance")) moduleUsage.attendance++;
+      if (act.includes("student") || act.includes("enroll") || act.includes("admission")) moduleUsage.students++;
+      else if (act.includes("attendance")) moduleUsage.attendance++;
       else if (act.includes("homework") || act.includes("assignment")) moduleUsage.homework++;
       else if (act.includes("fee") || act.includes("payment") || act.includes("invoice")) moduleUsage.fees++;
       else if (act.includes("notice") || act.includes("announcement")) moduleUsage.notices++;
@@ -703,16 +705,74 @@ export async function GET(req: NextRequest) {
       { key: "timetable", name: "Bell & Period Timetable", desc: "Class schedules, periods, bells, teacher alerts" },
     ];
 
+    const getFeatureKeywords = (key: string): string[] => {
+      switch (key) {
+        case "students": return ["student", "enroll", "admission", "roll", "profile"];
+        case "attendance": return ["attendance", "present", "absent", "leave", "clock"];
+        case "fees": return ["fee", "payment", "challan", "invoice", "receipt"];
+        case "homework": return ["homework", "assignment", "submission", "task"];
+        case "reports": return ["report", "export", "analytics", "download"];
+        case "exams": return ["exam", "grade", "marks", "test", "result", "timetable"];
+        case "notices": return ["notice", "broadcast", "announcement", "alert"];
+        case "timetable": return ["timetable", "period", "bell", "schedule"];
+        default: return [key];
+      }
+    };
+
     const features: FeatureAdoptionItem[] = standardFeatures.map((f) => {
-      const usageCount = moduleUsage[f.key as keyof typeof moduleUsage] || Math.round(totalSchools * 4);
+      const keywords = getFeatureKeywords(f.key);
       const schoolsUsing = new Set<string>();
+      let featureEventCount = 0;
+
+      // 1. Count actual activity events and track distinct schools
       rawActivities.forEach((a) => {
-        if (a.schoolId && String(a.action || "").toLowerCase().includes(f.key)) {
-          schoolsUsing.add(a.schoolId);
+        const act = String(a.action || "").toLowerCase();
+        const mod = String(a.module || "").toLowerCase();
+        const matches = keywords.some((kw) => act.includes(kw) || mod.includes(kw));
+        if (matches) {
+          featureEventCount++;
+          if (a.schoolId) schoolsUsing.add(a.schoolId);
         }
       });
-      const activeSchoolsCount = Math.max(schoolsUsing.size, totalSchools > 0 ? Math.min(totalSchools, Math.ceil(totalSchools * 0.75)) : 0);
+
+      // 2. Cross-reference school entity data for baseline adoption
+      rawSchools.forEach((s) => {
+        const studentCount = rawUsers.filter((u) => u.schoolId === s.id && u.role === "student").length;
+        const teacherCount = rawUsers.filter((u) => u.schoolId === s.id && u.role === "teacher").length;
+
+        if (f.key === "students" && studentCount > 0) {
+          schoolsUsing.add(s.id);
+        } else if (f.key === "fees" && (rawPayments.some((p) => p.schoolId === s.id) || (s as any).feeConfigured)) {
+          schoolsUsing.add(s.id);
+        } else if (f.key === "attendance" && (studentCount > 0 || teacherCount > 0)) {
+          const schoolLogs = schoolActivityMap.get(s.id)?.loginCount || 0;
+          if (schoolLogs > 0) schoolsUsing.add(s.id);
+        } else if (f.key === "notices" && (schoolActivityMap.get(s.id)?.activityCount || 0) > 2) {
+          schoolsUsing.add(s.id);
+        }
+      });
+
+      const activeSchoolsCount = schoolsUsing.size;
       const adoptionPercentage = totalSchools > 0 ? Math.min(100, Math.round((activeSchoolsCount / totalSchools) * 100)) : 0;
+      const countFromLogs = moduleUsage[f.key as keyof typeof moduleUsage] || 0;
+      const usageCount = Math.max(countFromLogs, featureEventCount);
+
+      // Dynamic plan breakdown based on the actual plans of the schools using this feature
+      const planCountMap = new Map<string, number>();
+      schoolsUsing.forEach((sId) => {
+        const s = schoolMap.get(sId);
+        const pId = String((s as any)?.plan || (s as any)?.planId || "starter").toLowerCase();
+        planCountMap.set(pId, (planCountMap.get(pId) || 0) + 1);
+      });
+
+      const planBreakdown = Array.from(planCountMap.entries()).map(([planId, count]) => ({
+        planId,
+        usage: count,
+      }));
+
+      if (planBreakdown.length === 0) {
+        planBreakdown.push({ planId: "starter", usage: 0 });
+      }
 
       return {
         featureKey: f.key,
@@ -721,12 +781,8 @@ export async function GET(req: NextRequest) {
         usageCount,
         activeSchoolsCount,
         adoptionPercentage,
-        trend: usageCount > 10 ? "up" : "stable",
-        planBreakdown: [
-          { planId: "starter", usage: Math.round(usageCount * 0.25) },
-          { planId: "pro", usage: Math.round(usageCount * 0.45) },
-          { planId: "enterprise", usage: Math.round(usageCount * 0.3) },
-        ],
+        trend: usageCount > 10 ? "up" : activeSchoolsCount > 0 ? "stable" : "down",
+        planBreakdown,
       };
     });
 

@@ -41,14 +41,39 @@ const PortalUIContext = createContext<PortalUIContextType | undefined>(undefined
 export function PortalUIProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { profile, firebaseUser } = useAuth();
-  const [settings, setSettings] = useState<PortalUISettings>(DEFAULT_PORTAL_UI_SETTINGS);
-  const [loading, setLoading] = useState(true);
+  const [settings, setSettings] = useState<PortalUISettings>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem("portal_ui_settings");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && typeof parsed === "object") {
+            return { ...DEFAULT_PORTAL_UI_SETTINGS, ...parsed };
+          }
+        }
+      } catch {}
+    }
+    return DEFAULT_PORTAL_UI_SETTINGS;
+  });
+
+  const [loading, setLoading] = useState(() => {
+    if (typeof window !== "undefined") {
+      return !localStorage.getItem("portal_ui_settings");
+    }
+    return true;
+  });
 
   // 1. Real-time Firestore subscription to central portal settings
   useEffect(() => {
     const unsub = subscribeToPortalUISettings((liveSettings) => {
       setSettings(liveSettings);
       setLoading(false);
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("portal_ui_settings", JSON.stringify(liveSettings));
+          document.cookie = `portal_landingPage=${liveSettings.landingPage}; path=/; max-age=31536000; SameSite=Lax`;
+        } catch {}
+      }
     });
     return () => unsub();
   }, []);

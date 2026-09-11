@@ -410,6 +410,29 @@ export default function PlatformSettingsPage() {
             </div>
 
             <div>
+              <label className="block text-xs font-semibold text-muted-foreground mb-1.5">
+                Calendar View Style (Global Website Setting)
+              </label>
+              <select
+                value={settings.general.calendarStyle || "standard"}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    general: {
+                      ...settings.general,
+                      calendarStyle: e.target.value as "standard" | "dropdown" | "presets",
+                    },
+                  })
+                }
+                className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+              >
+                <option value="standard">Standard Month Arrows (Default)</option>
+                <option value="dropdown">Dropdown Month & Year Selectors</option>
+                <option value="presets">Date Range with Quick Presets</option>
+              </select>
+            </div>
+
+            <div>
               <label className="block text-xs font-semibold text-muted-foreground mb-1.5">Support Email</label>
               <input
                 type="email"

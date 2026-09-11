@@ -7,7 +7,6 @@ import { getSchoolById } from "@/lib/services/school.service";
 import { getSchoolSetupData } from "@/lib/services/setup.service";
 import type { School } from "@/types";
 import { useEntitlement } from "@/context/EntitlementContext";
-import { EntitlementGate } from "@/components/common/EntitlementGate";
 import { ClassicSchoolAdminDashboard } from "@/components/admin/ClassicSchoolAdminDashboard";
 import { ModernSchoolAdminDashboard } from "@/components/admin/ModernSchoolAdminDashboard";
 import { LiquidGlassSchoolAdminDashboard } from "@/components/admin/LiquidGlassSchoolAdminDashboard";
@@ -43,37 +42,23 @@ export default function SchoolAdminPage() {
     academicYears: setupData?.academicYears?.length || 0,
   };
 
-  // 1. When Liquid Glass UI is selected by Super Admin
+// 1. When Liquid Glass UI is selected by Super Admin
   if (isLiquidGlass) {
     return (
-      <EntitlementGate
-        feature="school_dashboard"
-        title="School Admin Dashboard"
-        description="Real-time school metrics, faculty counts, student enrollments, and operational status."
-        requiredPlan="Starter Plan"
-      >
-        <LiquidGlassSchoolAdminDashboard
-          school={school ?? null}
-          counts={counts}
-        />
-      </EntitlementGate>
+      <LiquidGlassSchoolAdminDashboard
+        school={school ?? null}
+        counts={counts}
+      />
     );
   }
 
   // 2. When Modern UI 2.0 is selected by Super Admin
   if (isModern) {
     return (
-      <EntitlementGate
-        feature="school_dashboard"
-        title="School Admin Dashboard"
-        description="Real-time school metrics, faculty counts, student enrollments, and operational status."
-        requiredPlan="Starter Plan"
-      >
-        <ModernSchoolAdminDashboard
-          school={school ?? null}
-          counts={counts}
-        />
-      </EntitlementGate>
+      <ModernSchoolAdminDashboard
+        school={school ?? null}
+        counts={counts}
+      />
     );
   }
 

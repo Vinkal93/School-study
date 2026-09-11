@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/use-auth";
 import type { EffectiveEntitlement, FeatureAccessMode } from "@/types";
 import { getEffectiveEntitlement } from "@/lib/billing/entitlement";
 import { clearSubscriptionCache } from "@/lib/billing/subscriptions";
+import { appQueryClient } from "@/lib/cache";
 import { resolveEffectiveFeatureAccess } from "@/lib/feature-control/resolver";
 import { getFeatureDefinition } from "@/lib/feature-control/featureRegistry";
 import type { GlobalFeatureState, SchoolFeatureOverride } from "@/types/featureControl";
@@ -136,8 +137,28 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     const subRef = doc(db, "schoolSubscriptions", schoolId);
     const unsubscribeSub = onSnapshot(
       subRef,
-      () => {
+      (snap) => {
         clearSubscriptionCache(schoolId);
+        if (snap.exists()) {
+          const subData = snap.data();
+          const rawPlan = subData?.planId || "plan_starter";
+          let normalizedPlan = rawPlan.toLowerCase().trim();
+          if (!normalizedPlan.startsWith("plan_")) normalizedPlan = `plan_${normalizedPlan}`;
+
+          // Seed memory cache immediately with authoritative snapshot
+          const g = globalThis as any;
+          if (!g.__BILLING_SUBSCRIPTIONS_MAP__) g.__BILLING_SUBSCRIPTIONS_MAP__ = new Map();
+          g.__BILLING_SUBSCRIPTIONS_MAP__.set(schoolId, {
+            ...subData,
+            id: schoolId,
+            schoolId,
+            planId: normalizedPlan,
+            status: subData?.status || "ACTIVE",
+          });
+        }
+        appQueryClient.invalidateCache(`schoolProfile:${schoolId}`);
+        appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
+        appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
         fetchEntitlement();
       },
       (err) => {
@@ -151,8 +172,28 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     const schoolRef = doc(db, "schools", schoolId);
     const unsubscribeSchool = onSnapshot(
       schoolRef,
-      () => {
+      (snap) => {
         clearSubscriptionCache(schoolId);
+        if (snap.exists()) {
+          const sData = snap.data();
+          const rawPlan = sData?.planId || sData?.plan || "plan_starter";
+          let normalizedPlan = rawPlan.toLowerCase().trim();
+          if (!normalizedPlan.startsWith("plan_")) normalizedPlan = `plan_${normalizedPlan}`;
+
+          const g = globalThis as any;
+          if (!g.__BILLING_SUBSCRIPTIONS_MAP__) g.__BILLING_SUBSCRIPTIONS_MAP__ = new Map();
+          const existing = g.__BILLING_SUBSCRIPTIONS_MAP__.get(schoolId) || {};
+          g.__BILLING_SUBSCRIPTIONS_MAP__.set(schoolId, {
+            ...existing,
+            id: schoolId,
+            schoolId,
+            planId: normalizedPlan,
+            status: sData?.subscriptionStatus || existing?.status || "ACTIVE",
+          });
+        }
+        appQueryClient.invalidateCache(`schoolProfile:${schoolId}`);
+        appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
+        appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
         fetchEntitlement();
       },
       (err) => {
@@ -168,6 +209,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     const unsubscribeOverrides = onSnapshot(
       q,
       () => {
+        clearSubscriptionCache(schoolId);
         fetchEntitlement();
       },
       (err) => {
@@ -201,6 +243,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     const unsubscribePlans = onSnapshot(
       plansRef,
       () => {
+        clearSubscriptionCache(schoolId);
         fetchEntitlement();
       },
       (err) => {
@@ -210,6 +253,36 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       }
     );
 
+    // Cross-tab / Multi-window instant synchronization via BroadcastChannel & storage events
+    let broadcastChannel: BroadcastChannel | null = null;
+    try {
+      if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+        broadcastChannel = new BroadcastChannel("school_study_realtime_sync");
+        broadcastChannel.onmessage = (event) => {
+          if (event.data?.type === "PLAN_UPDATED" && (!event.data?.schoolId || event.data?.schoolId === schoolId)) {
+            clearSubscriptionCache(schoolId);
+            appQueryClient.invalidateCache(`schoolProfile:${schoolId}`);
+            appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
+            appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
+            fetchEntitlement();
+          }
+        };
+      }
+    } catch (bcErr) {}
+
+    const handleStorageEvent = (e: StorageEvent) => {
+      if (e.key === "school_study_plan_updated") {
+        clearSubscriptionCache(schoolId);
+        appQueryClient.invalidateCache(`schoolProfile:${schoolId}`);
+        appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
+        appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
+        fetchEntitlement();
+      }
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("storage", handleStorageEvent);
+    }
+
     return () => {
       unsubscribeFeatures();
       unsubscribeSub();
@@ -217,6 +290,10 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       unsubscribeOverrides();
       unsubscribeFeatOverrides();
       unsubscribePlans();
+      if (broadcastChannel) broadcastChannel.close();
+      if (typeof window !== "undefined") {
+        window.removeEventListener("storage", handleStorageEvent);
+      }
     };
   }, [schoolId]);
 
@@ -227,7 +304,12 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     const canonical = canonicalizeCapabilityKey(featureKey);
     const parentKey = getParentFeatureKey(canonical);
 
-    // 0. HIGHEST PRIORITY: Global Feature Control States (Super Admin Feature Control Center)
+    // 0. CORE DASHBOARD ACCESS: Evergreen core feature accessible for all active school accounts
+    if (canonical === "school_dashboard" || canonical === "dashboard") {
+      return true;
+    }
+
+    // 0b. HIGHEST PRIORITY: Global Feature Control States (Super Admin Feature Control Center)
     // If a feature or its parent module is globally disabled, deny access immediately
     if (Object.keys(globalFeatureStates).length > 0) {
       // Check direct feature state
@@ -319,6 +401,11 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     const canonical = canonicalizeCapabilityKey(featureKey);
     const parentCapKey = getParentCapabilityKey(canonical);
     const parentKey = getParentFeatureKey(canonical);
+
+    // 0. CORE DASHBOARD ACCESS: Evergreen core feature accessible for all active school accounts
+    if (canonical === "school_dashboard" || canonical === "dashboard") {
+      return "FULL_ACCESS";
+    }
 
     // 0. HIGHEST PRIORITY: Global Feature Control States
     if (Object.keys(globalFeatureStates).length > 0) {

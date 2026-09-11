@@ -21,6 +21,7 @@ export interface GeneralPlatformSettings {
   defaultCurrency: string;
   dateFormat: string;
   timeFormat: "12h" | "24h";
+  calendarStyle?: "standard" | "dropdown" | "presets";
   supportEmail: string;
   supportPhone: string;
   defaultPaginationSize: number;
@@ -130,6 +131,7 @@ export const DEFAULT_PLATFORM_SETTINGS: PlatformSettingsDoc = {
     defaultCurrency: "INR",
     dateFormat: "DD/MM/YYYY",
     timeFormat: "12h",
+    calendarStyle: "standard",
     supportEmail: "sbci224234@gmail.com",
     supportPhone: "+91 9118245636",
     defaultPaginationSize: 20,

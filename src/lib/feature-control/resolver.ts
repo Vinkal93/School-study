@@ -258,6 +258,18 @@ export function resolveEffectiveFeatureAccess({
     };
   }
 
+  // Core dashboard exception: always permitted across all plans
+  if (featureKey === "school_dashboard" || featureKey === "dashboard" || moduleKey === "dashboard") {
+    return {
+      allowed: true,
+      reason: "Core dashboard access granted.",
+      status: 200,
+      featureKey,
+      featureName: name,
+      category: "core",
+    };
+  }
+
   if (planAllowedFeatures && planAllowedFeatures.length > 0) {
     const isPermitted =
       planAllowedFeatures.includes(featureKey) ||

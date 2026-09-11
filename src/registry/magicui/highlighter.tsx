@@ -1,8 +1,6 @@
 "use client";
 
-import React, { useLayoutEffect, useRef } from "react";
-import { useInView } from "framer-motion";
-import { annotate } from "rough-notation";
+import React from "react";
 
 export type AnnotationAction =
   | "highlight"
@@ -29,90 +27,77 @@ export interface HighlighterProps {
 export function Highlighter({
   children,
   action = "highlight",
-  color = "#ffd1dc",
-  strokeWidth = 1.5,
-  animationDuration = 600,
-  iterations = 2,
-  padding = 2,
-  multiline = true,
-  isView = false,
-  className,
+  color = "#2563EB",
+  strokeWidth = 3,
+  className = "",
 }: HighlighterProps) {
-  const elementRef = useRef<HTMLSpanElement>(null);
+  if (action === "underline") {
+    return (
+      <span className={`relative inline-block ${className}`}>
+        {children}
+        <span
+          aria-hidden="true"
+          className="absolute left-0 -bottom-0.5 w-full rounded-full pointer-events-none"
+          style={{
+            height: strokeWidth,
+            backgroundColor: color,
+            boxShadow: `0 2px 8px ${color}40`,
+          }}
+        />
+      </span>
+    );
+  }
 
-  const isInView = useInView(elementRef, {
-    once: true,
-    margin: "-10%",
-  });
+  if (action === "highlight") {
+    return (
+      <span
+        className={`relative inline-block rounded-md px-1.5 py-0.5 transition-colors ${className}`}
+        style={{
+          backgroundColor: color,
+        }}
+      >
+        {children}
+      </span>
+    );
+  }
 
-  const shouldShow = !isView || isInView;
+  if (action === "box" || action === "circle") {
+    return (
+      <span
+        className={`relative inline-block px-2 py-0.5 ${
+          action === "circle" ? "rounded-full" : "rounded-lg"
+        } border-2 ${className}`}
+        style={{
+          borderColor: color,
+        }}
+      >
+        {children}
+      </span>
+    );
+  }
 
-  useLayoutEffect(() => {
-    const element = elementRef.current;
-    let annotation: any = null;
-    let resizeObserver: ResizeObserver | null = null;
-
-    if (shouldShow && element) {
-      const annotationConfig: any = {
-        type: action,
-        color,
-        strokeWidth,
-        animationDuration,
-        iterations,
-        padding,
-        multiline,
-      };
-
-      try {
-        const currentAnnotation = annotate(element, annotationConfig);
-        annotation = currentAnnotation;
-        currentAnnotation.show();
-
-        if (typeof ResizeObserver !== "undefined") {
-          resizeObserver = new ResizeObserver(() => {
-            currentAnnotation.hide();
-            currentAnnotation.show();
-          });
-
-          resizeObserver.observe(element);
-          if (document.body) {
-            resizeObserver.observe(document.body);
-          }
-        }
-      } catch (err) {
-        console.warn("Rough-notation annotation error:", err);
-      }
-    }
-
-    return () => {
-      try {
-        annotation?.remove();
-      } catch {
-        // ignore cleanup error
-      }
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
-    };
-  }, [
-    shouldShow,
-    action,
-    color,
-    strokeWidth,
-    animationDuration,
-    iterations,
-    padding,
-    multiline,
-  ]);
+  if (action === "strike-through") {
+    return (
+      <span className={`relative inline-block ${className}`}>
+        {children}
+        <span
+          aria-hidden="true"
+          className="absolute left-0 top-1/2 -translate-y-1/2 w-full pointer-events-none"
+          style={{
+            height: strokeWidth,
+            backgroundColor: color,
+          }}
+        />
+      </span>
+    );
+  }
 
   return (
-    <span
-      ref={elementRef}
-      className={`relative inline-block bg-transparent ${className || ""}`}
-    >
+    <span className={`relative inline-block ${className}`}>
       {children}
     </span>
   );
 }
 
 export default Highlighter;
+

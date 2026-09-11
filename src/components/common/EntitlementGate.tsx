@@ -91,6 +91,23 @@ export function EntitlementGate({
       let denialMessage = "";
       let resolvedMode: FeatureAccessMode = "FULL_ACCESS";
 
+      // Evergreen Core Guarantee: The main school admin dashboard is always accessible
+      if (targetCapability === "school_dashboard" || targetCapability === "dashboard") {
+        if (isMounted) {
+          setAccessResult({
+            allowed: true,
+            reason: "ALLOWED",
+            code: "ALLOWED",
+            message: "Core dashboard access granted.",
+            accessMode: "FULL_ACCESS",
+          });
+          setAccessMode("FULL_ACCESS");
+          setLimitExceeded(false);
+          setLoading(false);
+        }
+        return;
+      }
+
       if (targetCapability) {
         if (entitlementCtx?.entitlement) {
           isAllowed = entitlementCtx.canAccess(targetCapability);
@@ -182,7 +199,16 @@ export function EntitlementGate({
     return () => {
       isMounted = false;
     };
-  }, [schoolId, role, targetCapability, limitKey, currentCount, entitlementCtx?.entitlement]);
+  }, [
+    schoolId,
+    role,
+    targetCapability,
+    limitKey,
+    currentCount,
+    entitlementCtx?.loading,
+    entitlementCtx?.entitlement,
+    entitlementCtx?.entitlement?.plan?.id,
+  ]);
 
   if (loading) {
     if (!showLoading) return null;

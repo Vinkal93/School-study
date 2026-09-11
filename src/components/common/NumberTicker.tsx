@@ -23,7 +23,7 @@ export const NumberTicker: React.FC<NumberTickerProps> = ({
   className = "",
   onComplete,
 }) => {
-  const [displayValue, setDisplayValue] = useState(0);
+  const [displayValue, setDisplayValue] = useState(value);
 
   useEffect(() => {
     let animationId: number;

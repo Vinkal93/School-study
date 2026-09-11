@@ -101,11 +101,14 @@ export async function GET(req: NextRequest) {
 
     // 4. Search Matching Users (Admins, Teachers, Students, Super Admins)
     users.forEach((user) => {
+      const userAny = user as any;
       const matchName = user.name?.toLowerCase().includes(q);
       const matchEmail = user.email?.toLowerCase().includes(q);
       const matchUid = user.uid?.toLowerCase().includes(q);
+      const phoneVal = userAny.phone || userAny.phoneNumber || "";
+      const matchPhone = phoneVal ? String(phoneVal).toLowerCase().includes(q) : false;
 
-      if (matchName || matchEmail || matchUid) {
+      if (matchName || matchEmail || matchUid || matchPhone) {
         const associatedSchool = user.schoolId ? schoolsMap.get(user.schoolId) : null;
 
         results.push({

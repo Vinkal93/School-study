@@ -188,7 +188,7 @@ export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
           <input
             ref={inputRef}
             type="text"
-            placeholder="Search across Schools, Users, Teachers, Students..."
+            placeholder="Search by Phone number, User ID, Name, Email, or School..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="w-full bg-transparent px-3 py-3.5 sm:py-4 text-xs sm:text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none"

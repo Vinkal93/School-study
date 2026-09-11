@@ -43,10 +43,7 @@ export const FlipWords = ({
       >
         <motion.span
           key={currentWord}
-          initial={{
-            opacity: 0,
-            y: 12,
-          }}
+          initial={isAnimating ? { opacity: 0, y: 12 } : false}
           animate={{
             opacity: 1,
             y: 0,
