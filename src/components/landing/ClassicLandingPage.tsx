@@ -33,6 +33,7 @@ import { MarqueeText } from "@/components/common/MarqueeText";
 import { FlipWords } from "@/components/common/FlipWords";
 import { NumberTicker } from "@/components/common/NumberTicker";
 import { BentoGridFeatures } from "@/components/marketing/BentoGridFeatures";
+import { Highlighter } from "@/registry/magicui/highlighter";
 import { constructMetadata, getHomepageJsonLd, siteConfig } from "@/lib/seo";
 
 export function ClassicLandingPage() {
@@ -62,18 +63,27 @@ export function ClassicLandingPage() {
                   <span>Next-Generation School ERP & Management</span>
                 </div>
 
-                {/* Primary H1 with FlipWords Animation */}
-                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-slate-900 dark:text-white leading-[1.18]">
+                {/* Primary H1 with Magic UI Highlighter - rock solid layout without text overlap */}
+                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-slate-900 dark:text-white leading-[1.22] pb-1">
                   Simple School Management Software for{" "}
-                  <FlipWords
-                    words={["Modern Schools", "Smart Colleges", "Future Academies", "Growing Institutes", "Next-Gen Schools"]}
-                    className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 dark:from-blue-400 dark:via-indigo-400 dark:to-purple-300 bg-clip-text text-transparent font-black px-0"
-                  />
+                  <span className="inline-block mt-1 sm:mt-0">
+                    <Highlighter action="underline" color="#2563EB" strokeWidth={3.5} padding={4}>
+                      <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 dark:from-blue-400 dark:via-indigo-400 dark:to-purple-300 bg-clip-text text-transparent font-black">
+                        Modern Schools
+                      </span>
+                    </Highlighter>
+                  </span>
                 </h1>
 
                 {/* Subheading */}
                 <p className="text-sm sm:text-base text-slate-600 dark:text-slate-300 max-w-xl mx-auto lg:mx-0 leading-relaxed font-normal">
-                  School Study is a powerful and intuitive school management system that helps institutions manage students, faculty, attendance, classes, fees, and more — all from one centralized, secure platform.
+                  School Study is an all-in-one platform built to make institutional operations{" "}
+                  <Highlighter action="highlight" color="#BAE6FD" padding={2}>
+                    <span className="text-slate-900 dark:text-slate-900 font-semibold px-1">
+                      effortless and smart
+                    </span>
+                  </Highlighter>{" "}
+                  &mdash; manage students, teachers, attendance, classes, fees, and exams seamlessly.
                 </p>
 
                 {/* Action Buttons */}
@@ -412,7 +422,9 @@ export function ClassicLandingPage() {
             <div className="text-center max-w-2xl mx-auto mb-16">
               <h2 className="text-3xl sm:text-4xl font-black tracking-tight text-slate-900 dark:text-white">
                 Powerful Modules for{" "}
-                <span className="text-blue-600 dark:text-blue-400">Smart School Management</span>
+                <Highlighter action="underline" color="#3B82F6" strokeWidth={3} padding={3}>
+                  <span className="text-blue-600 dark:text-blue-400">Smart School Management</span>
+                </Highlighter>
               </h2>
               <p className="mt-3 text-sm sm:text-base text-slate-500 dark:text-slate-400 leading-relaxed font-normal">
                 Everything you need to run your school or institute, all in one place.

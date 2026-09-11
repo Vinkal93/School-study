@@ -35,6 +35,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { useTheme } from "@/context/theme-context";
+import { Highlighter } from "@/registry/magicui/highlighter";
 
 export function ModernLandingPage() {
   const { theme, toggleTheme } = useTheme();
@@ -206,10 +207,14 @@ export function ModernLandingPage() {
                 </div>
 
                 {/* Main Hero Headline */}
-                <h1 className="text-4xl sm:text-5xl lg:text-[3.6rem] font-black text-slate-900 dark:text-white tracking-tight leading-[1.12]">
+                <h1 className="text-4xl sm:text-5xl lg:text-[3.4rem] font-black text-slate-900 dark:text-white tracking-tight leading-[1.18] pb-1">
                   Simplify School Management.{" "}
-                  <span className="text-blue-600 dark:text-blue-500 block">
-                    Empower Education.
+                  <span className="block mt-1">
+                    <Highlighter action="underline" color="#2563EB" strokeWidth={3.5} padding={4}>
+                      <span className="text-blue-600 dark:text-blue-400">
+                        Empower Education.
+                      </span>
+                    </Highlighter>
                   </span>
                 </h1>
 

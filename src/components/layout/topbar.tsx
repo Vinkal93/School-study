@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Menu, Search } from "lucide-react";
+import Link from "next/link";
+import { Menu, Search, Copy, Check, Sparkles } from "lucide-react";
+import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { useMobileNav } from "@/context/mobile-nav-context";
 import { ThemeToggle } from "@/components/common/theme-toggle";
@@ -22,12 +24,15 @@ export function Topbar({ variant = "classic" }: TopbarProps) {
   const { toggleMobileNav } = useMobileNav();
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [school, setSchool] = useState<School | null>(null);
+  const [copiedId, setCopiedId] = useState(false);
 
   useEffect(() => {
     if (profile?.schoolId) {
-      getSchoolById(profile.schoolId).then((s) => {
-        if (s) setSchool(s);
-      }).catch(() => {});
+      getSchoolById(profile.schoolId)
+        .then((s) => {
+          if (s) setSchool(s);
+        })
+        .catch(() => {});
     }
   }, [profile?.schoolId]);
 
@@ -46,6 +51,24 @@ export function Topbar({ variant = "classic" }: TopbarProps) {
     return () => window.removeEventListener("keydown", handleGlobalKeyDown);
   }, [profile?.role]);
 
+  const handleCopySchoolId = () => {
+    const idToCopy = school?.id || profile?.schoolId;
+    if (!idToCopy) return;
+
+    navigator.clipboard
+      .writeText(idToCopy)
+      .then(() => {
+        setCopiedId(true);
+        toast.success("School ID copied to clipboard!", {
+          description: idToCopy,
+        });
+        setTimeout(() => setCopiedId(false), 2000);
+      })
+      .catch(() => {
+        toast.error("Failed to copy School ID");
+      });
+  };
+
   const roleLabelMap: Record<string, string> = {
     super_admin: "Super Admin Platform Control",
     school_admin: "School Admin Portal",
@@ -53,11 +76,14 @@ export function Topbar({ variant = "classic" }: TopbarProps) {
     student: "Student Portal",
   };
 
+  const isSuperAdmin = profile?.role === "super_admin";
+  const isSchoolPortal = profile?.schoolId || school;
+
   return (
     <>
       <header
         className={cn(
-          "flex h-16 items-center justify-between px-4 sm:px-6 transition-colors",
+          "flex h-15 sm:h-16 items-center justify-between px-3.5 sm:px-6 transition-colors",
           variant === "liquid"
             ? "bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border-b border-white/40 dark:border-white/10"
             : variant === "modern"
@@ -65,29 +91,66 @@ export function Topbar({ variant = "classic" }: TopbarProps) {
             : "border-b border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950"
         )}
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
           {/* Mobile Hamburger Button */}
           <button
             type="button"
             onClick={toggleMobileNav}
-            className="rounded-lg p-2 text-gray-600 hover:bg-gray-100 md:hidden dark:text-gray-300 dark:hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="rounded-lg p-2 text-gray-600 hover:bg-gray-100 md:hidden dark:text-gray-300 dark:hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 flex-shrink-0"
             aria-label="Open sidebar navigation menu"
           >
             <Menu className="h-5 w-5" />
           </button>
 
-          <div className="flex items-center gap-2.5">
-            <h2 className="text-sm font-bold text-gray-800 dark:text-gray-200 hidden sm:block">
+          {/* School Details or Portal Title */}
+          <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap min-w-0">
+            <h2 className="text-xs sm:text-sm font-bold text-gray-800 dark:text-gray-200 truncate max-w-[140px] sm:max-w-[200px] lg:max-w-[260px]">
               {school?.name || (profile?.role ? roleLabelMap[profile.role] || "Dashboard" : "Dashboard")}
             </h2>
+
             {school?.verificationBadge && school.verificationBadge !== "none" && (
               <VerifyBadge type={school.verificationBadge as any} size="xs" />
+            )}
+
+            {/* School Code Chip */}
+            {isSchoolPortal && school?.code && (
+              <span
+                title={`School Code: ${school.code}`}
+                className="hidden xs:inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/70 border border-blue-200/80 dark:border-blue-800/80 text-[11px] font-bold text-blue-700 dark:text-blue-300 shadow-2xs"
+              >
+                <span className="text-[9px] font-semibold text-blue-500 dark:text-blue-400 uppercase tracking-wider">
+                  CODE
+                </span>
+                <span>{school.code}</span>
+              </span>
+            )}
+
+            {/* School ID Badge with Instant 1-Click Copy */}
+            {isSchoolPortal && (school?.id || profile?.schoolId) && (
+              <button
+                type="button"
+                onClick={handleCopySchoolId}
+                title="Click to copy School ID"
+                className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-[11px] font-medium text-slate-700 dark:text-slate-300 transition-colors group cursor-pointer"
+              >
+                <span className="text-[9px] font-semibold text-slate-400 dark:text-slate-500 uppercase">
+                  ID
+                </span>
+                <span className="font-mono text-[10px] truncate max-w-[70px] sm:max-w-[100px]">
+                  {school?.id || profile?.schoolId}
+                </span>
+                {copiedId ? (
+                  <Check className="h-3 w-3 text-emerald-500 flex-shrink-0" />
+                ) : (
+                  <Copy className="h-3 w-3 text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 flex-shrink-0 transition-colors" />
+                )}
+              </button>
             )}
           </div>
         </div>
 
         {/* Center: Global Search Bar for Super Admin */}
-        {profile?.role === "super_admin" && (
+        {isSuperAdmin && (
           <div className="flex-1 max-w-md mx-4 hidden md:block">
             <button
               onClick={() => setSearchModalOpen(true)}
@@ -104,9 +167,24 @@ export function Topbar({ variant = "classic" }: TopbarProps) {
           </div>
         )}
 
-        <div className="flex items-center gap-2 sm:gap-4">
+        {/* Right Action Icons & Badges */}
+        <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
+          {/* Active Plan Badge for School Admin */}
+          {profile?.role === "school_admin" && (
+            <Link
+              href="/admin/billing"
+              title="Manage School Plan & Subscription"
+              className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 border border-blue-200/80 dark:border-blue-800/80 text-[11px] font-bold text-blue-700 dark:text-blue-300 hover:border-blue-400 dark:hover:border-blue-700 transition-all hover:scale-105 shadow-2xs"
+            >
+              <Sparkles className="h-3 w-3 text-amber-500 flex-shrink-0" />
+              <span className="truncate max-w-[110px]">
+                {school?.planName ? `${school.planName}` : "Standard Plan"}
+              </span>
+            </Link>
+          )}
+
           {/* Mobile Search Icon for Super Admin */}
-          {profile?.role === "super_admin" && (
+          {isSuperAdmin && (
             <button
               onClick={() => setSearchModalOpen(true)}
               className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 md:hidden dark:hover:bg-gray-800"
