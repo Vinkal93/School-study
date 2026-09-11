@@ -206,6 +206,37 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     const canonical = canonicalizeCapabilityKey(featureKey);
     const parentKey = getParentFeatureKey(canonical);
 
+    // 0. HIGHEST PRIORITY: Global Feature Control States (Super Admin Feature Control Center)
+    // If a feature or its parent module is globally disabled, deny access immediately
+    if (Object.keys(globalFeatureStates).length > 0) {
+      // Check direct feature state
+      const directState = globalFeatureStates[canonical] || globalFeatureStates[featureKey];
+      if (directState && (directState.rolloutMode === "OFF" || directState.enabled === false)) {
+        return false;
+      }
+
+      // Check parent module state
+      const moduleKey = canonical.split(".")[0];
+      const parentModuleState =
+        globalFeatureStates[`module:${moduleKey}`] ||
+        globalFeatureStates[moduleKey];
+      if (parentModuleState && (parentModuleState.rolloutMode === "OFF" || parentModuleState.enabled === false)) {
+        return false;
+      }
+
+      // Check BETA/SELECTED_SCHOOLS rollout
+      if (directState && (directState.rolloutMode === "SELECTED_SCHOOLS" || directState.rolloutMode === "BETA")) {
+        if (!schoolId || !directState.selectedSchoolIds?.includes(schoolId)) {
+          return false;
+        }
+      }
+      if (parentModuleState && (parentModuleState.rolloutMode === "SELECTED_SCHOOLS" || parentModuleState.rolloutMode === "BETA")) {
+        if (!schoolId || !parentModuleState.selectedSchoolIds?.includes(schoolId)) {
+          return false;
+        }
+      }
+    }
+
     // 1. Layered Feature Control Resolver Check
     const result = resolveEffectiveFeatureAccess({
       featureKey: canonical,
@@ -257,6 +288,26 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     const canonical = canonicalizeCapabilityKey(featureKey);
     const parentCapKey = getParentCapabilityKey(canonical);
     const parentKey = getParentFeatureKey(canonical);
+
+    // 0. HIGHEST PRIORITY: Global Feature Control States
+    if (Object.keys(globalFeatureStates).length > 0) {
+      const directState = globalFeatureStates[canonical] || globalFeatureStates[featureKey];
+      if (directState && (directState.rolloutMode === "OFF" || directState.enabled === false)) {
+        return "HIDDEN";
+      }
+      const moduleKey = canonical.split(".")[0];
+      const parentModuleState =
+        globalFeatureStates[`module:${moduleKey}`] ||
+        globalFeatureStates[moduleKey];
+      if (parentModuleState && (parentModuleState.rolloutMode === "OFF" || parentModuleState.enabled === false)) {
+        return "HIDDEN";
+      }
+      if (directState && (directState.rolloutMode === "SELECTED_SCHOOLS" || directState.rolloutMode === "BETA")) {
+        if (!schoolId || !directState.selectedSchoolIds?.includes(schoolId)) {
+          return "HIDDEN";
+        }
+      }
+    }
 
     // Layered Feature Control Resolver Check
     const result = resolveEffectiveFeatureAccess({

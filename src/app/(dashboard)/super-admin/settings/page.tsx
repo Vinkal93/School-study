@@ -239,31 +239,40 @@ export default function PlatformSettingsPage() {
   return (
     <div className="space-y-6 pb-12">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/40 pb-5">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
-            <Settings className="w-6 h-6 text-primary" />
-            Platform Settings & System Policies
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Centrally manage global defaults, security rules, integrations, storage limits, and environment info.
-          </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-200 dark:border-gray-800 pb-5">
+        <div className="flex items-start gap-3">
+          <div className="p-2.5 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-blue-950/50 dark:to-indigo-950/30 border border-blue-200/50 dark:border-blue-800/30">
+            <Settings className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">
+                Platform Settings & System Policies
+              </h1>
+              <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 rounded-md">
+                LIVE
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              Centrally manage global defaults, security rules, integrations, storage limits, and environment info.
+            </p>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setShowHelpModal(true)}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-border bg-card text-foreground text-sm font-semibold hover:bg-muted/80 transition shadow-xs"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 text-xs font-semibold hover:bg-gray-50 dark:hover:bg-gray-800 transition shadow-xs"
           >
-            <Video className="w-4 h-4 text-primary" />
-            Help &amp; Video Tutorials
+            <Video className="w-4 h-4 text-blue-500" />
+            Help & Tutorials
           </button>
 
           <button
             onClick={handleSavePlatformSettings}
             disabled={savingSettings}
-            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition shadow-sm disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-sm disabled:opacity-50"
           >
             {savingSettings ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             Save Changes
@@ -272,7 +281,7 @@ export default function PlatformSettingsPage() {
       </div>
 
       {/* Tabs Navigation */}
-      <div className="flex flex-wrap gap-1.5 p-1.5 bg-muted/40 rounded-xl border border-border/50 text-xs font-medium">
+      <div className="flex flex-wrap gap-1.5 p-1.5 bg-gray-100/60 dark:bg-gray-900/40 rounded-xl border border-gray-200/50 dark:border-gray-800/50 text-xs font-medium">
         {[
           { id: "general", label: "General", icon: Globe },
           { id: "security", label: "Security & Passwords", icon: Shield },
@@ -294,10 +303,10 @@ export default function PlatformSettingsPage() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg transition ${
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-all duration-150 ${
                 isActive
-                  ? "bg-card text-foreground shadow-sm font-semibold border border-border/60"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                  ? "bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm font-bold border border-gray-200 dark:border-gray-700"
+                  : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-gray-800/50"
               }`}
             >
               <Icon className="w-3.5 h-3.5" />
@@ -309,13 +318,13 @@ export default function PlatformSettingsPage() {
 
       {/* Tab 1: General Platform Settings */}
       {activeTab === "general" && (
-        <div className="bg-card border border-border rounded-xl p-6 space-y-6 shadow-sm">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 space-y-6 shadow-sm">
           <div>
-            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-              <Globe className="w-5 h-5 text-primary" />
+            <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <Globe className="w-5 h-5 text-blue-500" />
               General Platform Identity & Localization
             </h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
               Default operational preferences across all tenant dashboards.
             </p>
           </div>
@@ -420,10 +429,10 @@ export default function PlatformSettingsPage() {
 
       {/* Tab 2: Security & Password Policies */}
       {activeTab === "security" && (
-        <div className="bg-card border border-border rounded-xl p-6 space-y-6 shadow-sm">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 space-y-6 shadow-sm">
           <div>
-            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-              <Shield className="w-5 h-5 text-primary" />
+            <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <Shield className="w-5 h-5 text-blue-500" />
               Security Policies & Rate Limits
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -535,7 +544,7 @@ export default function PlatformSettingsPage() {
                     },
                   })
                 }
-                className="w-4 h-4 rounded border-border text-primary focus:ring-primary/40"
+                className="w-4 h-4 rounded border-border text-blue-500 focus:ring-primary/40"
               />
               <span className="text-sm font-medium text-foreground">
                 Require Super Admin PIN re-authentication for destructive/high-risk actions
@@ -555,7 +564,7 @@ export default function PlatformSettingsPage() {
                     },
                   })
                 }
-                className="w-4 h-4 rounded border-border text-primary focus:ring-primary/40"
+                className="w-4 h-4 rounded border-border text-blue-500 focus:ring-primary/40"
               />
               <span className="text-sm font-medium text-foreground">
                 Require special character in passwords (@, #, $, etc.)
@@ -567,10 +576,10 @@ export default function PlatformSettingsPage() {
 
       {/* Tab 3: Authentication Settings */}
       {activeTab === "auth" && (
-        <div className="bg-card border border-border rounded-xl p-6 space-y-6 shadow-sm">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 space-y-6 shadow-sm">
           <div>
-            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-              <Lock className="w-5 h-5 text-primary" />
+            <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <Lock className="w-5 h-5 text-blue-500" />
               Authentication & Onboarding Controls
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -589,7 +598,7 @@ export default function PlatformSettingsPage() {
                     auth: { ...settings.auth, allowPublicSignup: e.target.checked },
                   })
                 }
-                className="w-4 h-4 mt-0.5 rounded border-border text-primary focus:ring-primary/40"
+                className="w-4 h-4 mt-0.5 rounded border-border text-blue-500 focus:ring-primary/40"
               />
               <div>
                 <span className="text-sm font-semibold text-foreground block">Allow Public Institution Signup</span>
@@ -609,7 +618,7 @@ export default function PlatformSettingsPage() {
                     auth: { ...settings.auth, allowGoogleAuth: e.target.checked },
                   })
                 }
-                className="w-4 h-4 mt-0.5 rounded border-border text-primary focus:ring-primary/40"
+                className="w-4 h-4 mt-0.5 rounded border-border text-blue-500 focus:ring-primary/40"
               />
               <div>
                 <span className="text-sm font-semibold text-foreground block">Enable Google Single Sign-On (SSO)</span>
@@ -624,10 +633,10 @@ export default function PlatformSettingsPage() {
 
       {/* Tab 4: Session Settings */}
       {activeTab === "sessions" && (
-        <div className="bg-card border border-border rounded-xl p-6 space-y-6 shadow-sm">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 space-y-6 shadow-sm">
           <div>
-            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-              <Clock className="w-5 h-5 text-primary" />
+            <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <Clock className="w-5 h-5 text-blue-500" />
               Session Concurrency & Token Policies
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -685,10 +694,10 @@ export default function PlatformSettingsPage() {
 
       {/* Tab 5: Notification Defaults */}
       {activeTab === "notifications" && (
-        <div className="bg-card border border-border rounded-xl p-6 space-y-6 shadow-sm">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 space-y-6 shadow-sm">
           <div>
-            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-              <Bell className="w-5 h-5 text-primary" />
+            <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <Bell className="w-5 h-5 text-blue-500" />
               Default Notification Channels
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -735,7 +744,7 @@ export default function PlatformSettingsPage() {
                       },
                     })
                   }
-                  className="w-4 h-4 mt-0.5 rounded border-border text-primary focus:ring-primary/40"
+                  className="w-4 h-4 mt-0.5 rounded border-border text-blue-500 focus:ring-primary/40"
                 />
                 <div>
                   <span className="text-sm font-semibold text-foreground block">{item.label}</span>
@@ -749,10 +758,10 @@ export default function PlatformSettingsPage() {
 
       {/* Tab 6: Integrations */}
       {activeTab === "integrations" && (
-        <div className="bg-card border border-border rounded-xl p-6 space-y-6 shadow-sm">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 space-y-6 shadow-sm">
           <div>
-            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-              <Mail className="w-5 h-5 text-primary" />
+            <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <Mail className="w-5 h-5 text-blue-500" />
               Email, SMS & WhatsApp Integrations
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -806,10 +815,10 @@ export default function PlatformSettingsPage() {
 
       {/* Tab 7: Razorpay Gateway */}
       {activeTab === "payments" && (
-        <div className="bg-card border border-border rounded-xl p-6 space-y-6 shadow-sm">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 space-y-6 shadow-sm">
           <div>
-            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-              <CreditCard className="w-5 h-5 text-primary" />
+            <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <CreditCard className="w-5 h-5 text-blue-500" />
               Razorpay Payment Gateway Integration
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -849,7 +858,7 @@ export default function PlatformSettingsPage() {
               <button
                 type="submit"
                 disabled={savingRzp}
-                className="px-5 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition disabled:opacity-50"
+                className="px-5 py-2 rounded-lg bg-primary text-blue-500-foreground text-xs font-semibold hover:bg-primary/90 transition disabled:opacity-50"
               >
                 {savingRzp ? "Saving..." : "Update Razorpay Keys"}
               </button>
@@ -860,10 +869,10 @@ export default function PlatformSettingsPage() {
 
       {/* Tab 8: Storage Settings */}
       {activeTab === "storage" && (
-        <div className="bg-card border border-border rounded-xl p-6 space-y-6 shadow-sm">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 space-y-6 shadow-sm">
           <div>
-            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-              <HardDrive className="w-5 h-5 text-primary" />
+            <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <HardDrive className="w-5 h-5 text-blue-500" />
               Cloud Storage Constraints & MIME Validation
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -921,10 +930,10 @@ export default function PlatformSettingsPage() {
 
       {/* Tab 9: Backup & Disaster Recovery */}
       {activeTab === "backup" && (
-        <div className="bg-card border border-border rounded-xl p-6 space-y-6 shadow-sm">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 space-y-6 shadow-sm">
           <div>
-            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-              <Database className="w-5 h-5 text-primary" />
+            <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <Database className="w-5 h-5 text-blue-500" />
               Backup & Disaster Recovery Status
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -962,10 +971,10 @@ export default function PlatformSettingsPage() {
 
       {/* Tab 10: Data Privacy & Audit Retention */}
       {activeTab === "privacy" && (
-        <div className="bg-card border border-border rounded-xl p-6 space-y-6 shadow-sm">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 space-y-6 shadow-sm">
           <div>
-            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-              <FileText className="w-5 h-5 text-primary" />
+            <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <FileText className="w-5 h-5 text-blue-500" />
               Data Privacy & Audit Trail Retention
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -1028,10 +1037,10 @@ export default function PlatformSettingsPage() {
 
       {/* Tab 11: ERP System Defaults */}
       {activeTab === "systemDefaults" && (
-        <div className="bg-card border border-border rounded-xl p-6 space-y-6 shadow-sm">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 space-y-6 shadow-sm">
           <div>
-            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-              <Sliders className="w-5 h-5 text-primary" />
+            <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <Sliders className="w-5 h-5 text-blue-500" />
               School ERP System Defaults
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -1111,10 +1120,10 @@ export default function PlatformSettingsPage() {
 
       {/* Tab 12: Developer & Environment */}
       {activeTab === "developer" && (
-        <div className="bg-card border border-border rounded-xl p-6 space-y-6 shadow-sm">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 space-y-6 shadow-sm">
           <div>
-            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-              <Server className="w-5 h-5 text-primary" />
+            <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <Server className="w-5 h-5 text-blue-500" />
               Environment & Deployment Build Metadata
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -1145,10 +1154,10 @@ export default function PlatformSettingsPage() {
 
       {/* Tab 13: Super Admin Security PIN */}
       {activeTab === "securityPin" && (
-        <div className="bg-card border border-border rounded-xl p-6 space-y-6 shadow-sm max-w-xl">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 space-y-6 shadow-sm max-w-xl">
           <div>
-            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-              <KeyRound className="w-5 h-5 text-primary" />
+            <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <KeyRound className="w-5 h-5 text-blue-500" />
               Change Super Admin Security PIN
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -1202,7 +1211,7 @@ export default function PlatformSettingsPage() {
             <button
               type="submit"
               disabled={savingPin || !newPin || !confirmPin}
-              className="px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition disabled:opacity-50"
+              className="px-5 py-2.5 rounded-lg bg-primary text-blue-500-foreground text-sm font-semibold hover:bg-primary/90 transition disabled:opacity-50"
             >
               {savingPin ? "Updating PIN..." : "Update Security PIN"}
             </button>
