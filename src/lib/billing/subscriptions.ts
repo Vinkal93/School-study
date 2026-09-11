@@ -19,6 +19,19 @@ if (!g.__BILLING_SUBSCRIPTIONS_MAP__) g.__BILLING_SUBSCRIPTIONS_MAP__ = new Map<
 const memorySubscriptions: Map<string, SchoolSubscription> = g.__BILLING_SUBSCRIPTIONS_MAP__;
 
 /**
+ * Clears cached subscription data for a specific school (or all schools).
+ * MUST be called before re-fetching entitlement after a plan change
+ * to ensure the latest Firestore data is read instead of stale cache.
+ */
+export function clearSubscriptionCache(schoolId?: string): void {
+  if (schoolId) {
+    memorySubscriptions.delete(schoolId);
+  } else {
+    memorySubscriptions.clear();
+  }
+}
+
+/**
  * Server-side calculation of subscription status based on current time and expiration dates.
  */
 export function computeSubscriptionStatus(
@@ -67,8 +80,8 @@ export async function getSchoolSubscription(schoolId: string): Promise<SchoolSub
   const defaultSub: SchoolSubscription = {
     id: schoolId,
     schoolId,
-    planId: "plan_professional",
-    planVersionId: "plan_professional_v1",
+    planId: "plan_starter",
+    planVersionId: "plan_starter_v1",
     status: "ACTIVE",
     billingCycle: "monthly",
     startsAt: now.toISOString(),

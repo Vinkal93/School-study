@@ -6,6 +6,7 @@ import { getFirebaseDb } from "@/lib/firebase/client";
 import { useAuth } from "@/hooks/use-auth";
 import type { EffectiveEntitlement, FeatureAccessMode } from "@/types";
 import { getEffectiveEntitlement } from "@/lib/billing/entitlement";
+import { clearSubscriptionCache } from "@/lib/billing/subscriptions";
 import { resolveEffectiveFeatureAccess } from "@/lib/feature-control/resolver";
 import { getFeatureDefinition } from "@/lib/feature-control/featureRegistry";
 import type { GlobalFeatureState, SchoolFeatureOverride } from "@/types/featureControl";
@@ -60,6 +61,9 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     }
 
     try {
+      // CRITICAL: Clear stale in-memory subscription cache before re-fetching
+      // Without this, plan changes from Super Admin are invisible to school admins
+      clearSubscriptionCache(schoolId);
       const data = await getEffectiveEntitlement(schoolId);
       setEntitlement(data);
     } catch (err) {

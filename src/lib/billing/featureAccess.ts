@@ -77,7 +77,7 @@ export async function getEffectiveFeatureAccessModes(
 ): Promise<Record<string, FeatureAccessMode>> {
   const allKnownKeys = getAllKnownCapabilityKeys();
 
-  if (!schoolId || schoolId === "school_default" || schoolId === "system") {
+  if (!schoolId || schoolId === "system") {
     const defaultModes: Record<string, FeatureAccessMode> = {};
     for (const key of allKnownKeys) {
       defaultModes[key] = "FULL_ACCESS";
@@ -389,7 +389,7 @@ export async function canAccessFeature(
 
   const canonical = canonicalizeCapabilityKey(featureKey);
 
-  if (!schoolId || schoolId === "school_default" || schoolId === "system") {
+  if (!schoolId || schoolId === "system") {
     return {
       allowed: true,
       code: "ALLOWED",
