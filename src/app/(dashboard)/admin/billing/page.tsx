@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useAppQuery, appQueryClient } from "@/lib/cache";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, setDoc } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { PageSkeleton } from "@/components/common/skeletons";
 import { toast } from "sonner";
@@ -95,7 +95,51 @@ export default function SchoolAdminSubscriptionCommandCenter() {
   const subscriptionEvents = bundle?.subscriptionEvents || [];
   const siteSettings = bundle?.siteSettings || null;
 
-  const loading = isBundleLoading && !bundle;
+  // Live real-time Firestore synchronization state
+  const [liveSub, setLiveSub] = useState<any>(null);
+  const [liveSchool, setLiveSchool] = useState<any>(null);
+
+  const effectiveSub = liveSub || subscription;
+  const rawPlanId =
+    liveSub?.planId ||
+    liveSchool?.planId ||
+    liveSchool?.plan ||
+    subscription?.planId ||
+    "plan_starter";
+  const effectivePlanId = rawPlanId.toLowerCase().startsWith("plan_")
+    ? rawPlanId.toLowerCase()
+    : `plan_${rawPlanId.toLowerCase()}`;
+
+  const effectivePlan =
+    allPlans.find(
+      (p: any) =>
+        p.id === effectivePlanId || p.slug === effectivePlanId.replace("plan_", "")
+    ) ||
+    (plan?.id === effectivePlanId ? plan : null) || {
+      id: effectivePlanId,
+      name:
+        effectivePlanId === "plan_starter"
+          ? "Starter Plan"
+          : effectivePlanId === "plan_growth"
+          ? "Growth Plan"
+          : effectivePlanId === "plan_professional"
+          ? "Professional Plan"
+          : effectivePlanId === "plan_enterprise"
+          ? "Enterprise Plan"
+          : effectivePlanId === "plan_free"
+          ? "Free Plan"
+          : "Custom Plan",
+      slug: effectivePlanId.replace("plan_", ""),
+      description:
+        effectivePlanId === "plan_starter"
+          ? "Essential modules for small schools and new academies."
+          : "Comprehensive tools and management capabilities for educational institutions.",
+      status: "ACTIVE",
+      version: 1,
+      features: entitlement?.allowedFeatures || [],
+    };
+
+  const loading = isBundleLoading && !bundle && !liveSub;
 
   // Real-time Firestore Sync with Super Admin updates
   useEffect(() => {
@@ -106,11 +150,27 @@ export default function SchoolAdminSubscriptionCommandCenter() {
     const subRef = doc(db, "schoolSubscriptions", schoolId);
     const unsubsSub = onSnapshot(
       subRef,
-      () => {
+      (snap) => {
+        if (snap.exists()) {
+          setLiveSub({ id: snap.id, ...snap.data() });
+        }
         appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
         refetch(true);
       },
       (err) => console.warn("Live sub listener notice:", err)
+    );
+
+    const schoolRef = doc(db, "schools", schoolId);
+    const unsubsSchool = onSnapshot(
+      schoolRef,
+      (snap) => {
+        if (snap.exists()) {
+          setLiveSchool({ id: snap.id, ...snap.data() });
+        }
+        appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
+        refetch(true);
+      },
+      (err) => console.warn("Live school listener notice:", err)
     );
 
     const overridesRef = doc(db, "accessOverrides", schoolId);
@@ -145,6 +205,7 @@ export default function SchoolAdminSubscriptionCommandCenter() {
 
     return () => {
       unsubsSub();
+      unsubsSchool();
       unsubsOverrides();
       unsubsOffer();
       unsubsUsage();
@@ -158,19 +219,42 @@ export default function SchoolAdminSubscriptionCommandCenter() {
   };
 
   const handleCancelSubscription = async () => {
-    const res = await safeFetchJson("/api/billing/subscription/cancel", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ schoolId, actorId: profile?.uid || "school_admin" }),
-    });
-    if (!res.ok) throw new Error(res.error || "Failed to set cancellation preference.");
+    try {
+      const db = getFirebaseDb();
+      if (db && schoolId) {
+        await updateDoc(doc(db, "schoolSubscriptions", schoolId), {
+          cancelAtPeriodEnd: true,
+          updatedAt: new Date().toISOString(),
+        }).catch(() => {});
+      }
+      setLiveSub((prev: any) => (prev ? { ...prev, cancelAtPeriodEnd: true } : prev));
 
-    toast.success("Subscription set to cancel at period end.");
-    refetch(true);
+      const res = await safeFetchJson("/api/billing/subscription/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schoolId, actorId: profile?.uid || "school_admin" }),
+      });
+      if (!res.ok) throw new Error(res.error || "Failed to set cancellation preference.");
+
+      toast.success("Subscription set to cancel at period end.");
+      refetch(true);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to set cancellation preference.");
+    }
   };
 
   const handleResumeSubscription = async () => {
     try {
+      const db = getFirebaseDb();
+      if (db && schoolId) {
+        await updateDoc(doc(db, "schoolSubscriptions", schoolId), {
+          cancelAtPeriodEnd: false,
+          status: "ACTIVE",
+          updatedAt: new Date().toISOString(),
+        }).catch(() => {});
+      }
+      setLiveSub((prev: any) => (prev ? { ...prev, cancelAtPeriodEnd: false, status: "ACTIVE" } : prev));
+
       const res = await safeFetchJson("/api/billing/subscription/resume", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -209,16 +293,16 @@ export default function SchoolAdminSubscriptionCommandCenter() {
             <span>Refresh</span>
           </button>
           <button
-            onClick={() => openRecharge(subscription?.planId || "plan_starter", subscription?.billingCycle || "monthly")}
-            disabled={subscription?.status === "SUSPENDED"}
+            onClick={() => openRecharge(effectivePlanId, effectiveSub?.billingCycle || "monthly")}
+            disabled={effectiveSub?.status === "SUSPENDED"}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold shadow-md shadow-blue-500/20 active:scale-95 transition-all cursor-pointer"
           >
             <Zap className="h-3.5 w-3.5" />
             <span>Renew Plan</span>
           </button>
           <button
-            onClick={() => openRecharge("plan_professional", "monthly")}
-            disabled={subscription?.status === "SUSPENDED"}
+            onClick={() => openRecharge(effectivePlanId === "plan_starter" ? "plan_professional" : "plan_enterprise", "monthly")}
+            disabled={effectiveSub?.status === "SUSPENDED"}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold shadow-md shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer"
           >
             <Sparkles className="h-3.5 w-3.5" />
@@ -239,27 +323,27 @@ export default function SchoolAdminSubscriptionCommandCenter() {
 
           {/* 2. Contextual Subscription Alert */}
           <SubscriptionAlertBanner
-            subscription={subscription}
+            subscription={effectiveSub}
             daysRemaining={subState?.daysRemaining || 30}
-            onRenew={() => openRecharge(subscription?.planId || "plan_starter")}
-            onUpgrade={() => openRecharge("plan_professional")}
+            onRenew={() => openRecharge(effectivePlanId, effectiveSub?.billingCycle || "monthly")}
+            onUpgrade={() => openRecharge(effectivePlanId === "plan_starter" ? "plan_professional" : "plan_enterprise")}
           />
 
           {/* 3. Current Plan Hero Card */}
           <CurrentPlanHeroCard
-            subscription={subscription}
-            plan={plan}
+            subscription={effectiveSub}
+            plan={effectivePlan}
             planVersion={planVersion}
             daysRemaining={subState?.daysRemaining || 30}
-            onRenew={() => openRecharge(subscription?.planId || "plan_starter")}
-            onUpgrade={() => openRecharge("plan_professional")}
-            onChangePlan={() => openRecharge("plan_starter")}
+            onRenew={() => openRecharge(effectivePlanId, effectiveSub?.billingCycle || "monthly")}
+            onUpgrade={() => openRecharge(effectivePlanId === "plan_starter" ? "plan_professional" : "plan_enterprise")}
+            onChangePlan={() => openRecharge(effectivePlanId)}
           />
 
           {/* 4. Plan Limits & Resource Capacity */}
           <PlanLimitsProgress
             usage={usage}
-            onUpgrade={() => openRecharge("plan_professional")}
+            onUpgrade={() => openRecharge(effectivePlanId === "plan_starter" ? "plan_professional" : "plan_enterprise")}
           />
 
           {/* 5. Resource Usage Over Time Line Graph */}
@@ -273,14 +357,14 @@ export default function SchoolAdminSubscriptionCommandCenter() {
 
           {/* 6. Included Features Summary */}
           <PlanFeaturesIncluded
-            allowedFeatures={entitlement?.allowedFeatures || plan?.features || []}
+            allowedFeatures={entitlement?.allowedFeatures || effectivePlan?.features || []}
             permissions={entitlement?.features || {}}
             onViewAllFeatures={() => setShowViewAllFeatures(true)}
           />
 
           {/* 7. Feature Comparison Matrix */}
           <FeatureComparisonMatrix
-            currentPlanSlug={plan?.slug || "starter"}
+            currentPlanSlug={effectivePlan?.slug || "starter"}
             allPlans={allPlans}
             onSelectUpgrade={(targetPlanId) => openRecharge(targetPlanId)}
           />
@@ -310,12 +394,12 @@ export default function SchoolAdminSubscriptionCommandCenter() {
             <SubscriptionTimeline events={subscriptionEvents} />
             <SubscriptionSettingsCard
               schoolId={schoolId}
-              subscription={subscription}
-              planName={plan?.name || "Professional Plan"}
+              subscription={effectiveSub}
+              planName={effectivePlan?.name || "Active Plan"}
               nextBillingAmountRupees={Math.round(
-                (subscription?.amountPaise || planVersion?.monthlyPrice || 299900) / 100
+                (effectiveSub?.amountPaise || planVersion?.monthlyPrice || 99900) / 100
               )}
-              paymentMethodText={subscription?.paymentMethod || "Razorpay Autopay (UPI / Card)"}
+              paymentMethodText={effectiveSub?.paymentMethod || "Razorpay Autopay (UPI / Card)"}
               onCancel={handleCancelSubscription}
               onResume={handleResumeSubscription}
               onRefresh={() => refetch(true)}
@@ -331,8 +415,8 @@ export default function SchoolAdminSubscriptionCommandCenter() {
       <ViewAllFeaturesModal
         isOpen={showViewAllFeatures}
         onClose={() => setShowViewAllFeatures(false)}
-        planName={plan?.name || "Professional Plan"}
-        allowedFeatures={entitlement?.allowedFeatures || plan?.features || []}
+        planName={effectivePlan?.name || "Active Plan"}
+        allowedFeatures={entitlement?.allowedFeatures || effectivePlan?.features || []}
         permissions={entitlement?.features || {}}
       />
 

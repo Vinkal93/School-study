@@ -68,73 +68,142 @@ export function computeSubscriptionStatus(
  * Backward Compatibility (Section 22): Existing MVP schools without a subscription doc receive a 30-day Professional trial.
  */
 export async function getSchoolSubscription(schoolId: string): Promise<SchoolSubscription> {
-  const memSub = memorySubscriptions.get(schoolId);
-  if (memSub) {
-    return memSub;
-  }
-
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // +30 days
   const graceEndsAt = new Date(expiresAt.getTime() + 7 * 24 * 60 * 60 * 1000); // +7 days grace
 
-  const defaultSub: SchoolSubscription = {
-    id: schoolId,
-    schoolId,
-    planId: "plan_starter",
-    planVersionId: "plan_starter_v1",
-    status: "ACTIVE",
-    billingCycle: "monthly",
-    startsAt: now.toISOString(),
-    expiresAt: expiresAt.toISOString(),
-    graceEndsAt: graceEndsAt.toISOString(),
-    source: "system_trial",
-    lastPaymentId: null,
-    lastOrderId: null,
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
-  };
+  if (!schoolId || schoolId === "school_default" || schoolId === "system") {
+    return {
+      id: schoolId || "school_default",
+      schoolId: schoolId || "school_default",
+      planId: "plan_starter",
+      planVersionId: "plan_starter_v1",
+      status: "ACTIVE",
+      billingCycle: "monthly",
+      startsAt: now.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      graceEndsAt: graceEndsAt.toISOString(),
+      source: "system_trial",
+      lastPaymentId: null,
+      lastOrderId: null,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
+  }
+
+  const memSub = memorySubscriptions.get(schoolId);
+  if (memSub && memSub.planId) {
+    return memSub;
+  }
 
   try {
-    const adminDb = await getAdminDbServerOnly();
-    if (adminDb) {
-      const snap = await adminDb.collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS).doc(schoolId).get();
-      if (snap.exists) {
-        const sub = { id: snap.id, ...snap.data() } as SchoolSubscription;
-        const computedStatus = computeSubscriptionStatus(sub.expiresAt, sub.graceEndsAt, sub.status);
-        if (computedStatus !== sub.status) {
-          sub.status = computedStatus;
-          adminDb.collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS).doc(schoolId).update({ status: computedStatus, updatedAt: new Date().toISOString() }).catch(() => {});
+    let subData: any = null;
+    let schoolData: any = null;
+
+    // 1. Server-side Admin DB lookup
+    if (typeof window === "undefined") {
+      try {
+        const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+        const adminDb = getSafeAdminDb();
+        if (adminDb) {
+          const [subSnap, schoolSnap] = await Promise.all([
+            adminDb.collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS).doc(schoolId).get().catch(() => null),
+            adminDb.collection("schools").doc(schoolId).get().catch(() => null),
+          ]);
+          if (subSnap?.exists) subData = { id: subSnap.id, ...subSnap.data() };
+          if (schoolSnap?.exists) schoolData = { id: schoolSnap.id, ...schoolSnap.data() };
         }
-        memorySubscriptions.set(schoolId, sub);
-        return sub;
+      } catch (adminErr) {
+        // Fallback
       }
     }
+
+    // 2. Client SDK fallback
+    if (!subData || !schoolData) {
+      const db = getFirebaseDb();
+      if (db) {
+        try {
+          const [subSnap, schoolSnap] = await Promise.all([
+            !subData ? getDoc(doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId)).catch(() => null) : null,
+            !schoolData ? getDoc(doc(db, "schools", schoolId)).catch(() => null) : null,
+          ]);
+          if (subSnap && (subSnap as any).exists?.()) subData = { id: (subSnap as any).id, ...(subSnap as any).data() };
+          if (schoolSnap && (schoolSnap as any).exists?.()) schoolData = { id: (schoolSnap as any).id, ...(schoolSnap as any).data() };
+        } catch (clientErr) {
+          // Fallback
+        }
+      }
+    }
+
+    const rawPlan = subData?.planId || schoolData?.planId || schoolData?.plan || schoolData?.subscriptionPlan || "plan_starter";
+    let normalizedPlan = rawPlan.toLowerCase().trim();
+    if (!normalizedPlan.startsWith("plan_")) {
+      normalizedPlan = `plan_${normalizedPlan}`;
+    }
+
+    if (subData) {
+      const sub = {
+        ...subData,
+        id: schoolId,
+        schoolId,
+        planId: normalizedPlan,
+        planVersionId: subData.planVersionId || `${normalizedPlan}_v1`,
+        status: subData.status || schoolData?.subscriptionStatus || "ACTIVE",
+        billingCycle: subData.billingCycle || schoolData?.billingCycle || "monthly",
+      } as SchoolSubscription;
+
+      const computedStatus = computeSubscriptionStatus(sub.expiresAt, sub.graceEndsAt, sub.status);
+      if (computedStatus !== sub.status) {
+        sub.status = computedStatus;
+      }
+
+      memorySubscriptions.set(schoolId, sub);
+      return sub;
+    }
+
+    const defaultSub: SchoolSubscription = {
+      id: schoolId,
+      schoolId,
+      planId: normalizedPlan,
+      planVersionId: `${normalizedPlan}_v1`,
+      status: schoolData?.subscriptionStatus || "ACTIVE",
+      billingCycle: schoolData?.billingCycle || "monthly",
+      startsAt: now.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      graceEndsAt: graceEndsAt.toISOString(),
+      source: "system_trial",
+      lastPaymentId: null,
+      lastOrderId: null,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
 
     const db = getFirebaseDb();
     if (db) {
-      const subRef = doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId);
-      const snap = await getDoc(subRef);
-
-      if (snap.exists()) {
-        const sub = { id: snap.id, ...snap.data() } as SchoolSubscription;
-        const computedStatus = computeSubscriptionStatus(sub.expiresAt, sub.graceEndsAt, sub.status);
-
-        if (computedStatus !== sub.status) {
-          updateDoc(subRef, { status: computedStatus, updatedAt: new Date().toISOString() }).catch(() => {});
-          sub.status = computedStatus;
-        }
-        memorySubscriptions.set(schoolId, sub);
-        return sub;
-      }
-
-      setDoc(subRef, defaultSub).catch(() => {});
+      setDoc(doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId), defaultSub).catch(() => {});
     }
+
+    memorySubscriptions.set(schoolId, defaultSub);
+    return defaultSub;
   } catch (error) {
     // Non-blocking fallback
+    return {
+      id: schoolId,
+      schoolId,
+      planId: "plan_starter",
+      planVersionId: "plan_starter_v1",
+      status: "ACTIVE",
+      billingCycle: "monthly",
+      startsAt: now.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      graceEndsAt: graceEndsAt.toISOString(),
+      source: "system_trial",
+      lastPaymentId: null,
+      lastOrderId: null,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
   }
-
-  memorySubscriptions.set(schoolId, defaultSub);
-  return defaultSub;
 }
 
 /**

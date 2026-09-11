@@ -159,46 +159,91 @@ export async function getCurrentSubscription(schoolId: string): Promise<SchoolSu
   const expiresAt = new Date(now.getTime() + 30 * 86400000);
   const graceEndsAt = new Date(expiresAt.getTime() + 7 * 86400000);
 
-  const defaultSub: SchoolSubscription = {
-    id: schoolId || "school_default",
-    schoolId: schoolId || "school_default",
-    planId: "plan_professional",
-    planVersionId: "plan_professional_v1",
-    status: "ACTIVE",
-    billingCycle: "monthly",
-    startsAt: now.toISOString(),
-    expiresAt: expiresAt.toISOString(),
-    currentPeriodStart: now.toISOString(),
-    currentPeriodEnd: expiresAt.toISOString(),
-    graceEndsAt: graceEndsAt.toISOString(),
-    cancelAtPeriodEnd: false,
-    renewalStatus: "NONE",
-    source: "system_trial",
-    lastPaymentId: null,
-    lastOrderId: null,
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
-  };
-
   if (!schoolId || schoolId === "school_default" || schoolId === "system") {
-    return defaultSub;
+    return {
+      id: schoolId || "school_default",
+      schoolId: schoolId || "school_default",
+      planId: "plan_starter",
+      planVersionId: "plan_starter_v1",
+      status: "ACTIVE",
+      billingCycle: "monthly",
+      startsAt: now.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      currentPeriodStart: now.toISOString(),
+      currentPeriodEnd: expiresAt.toISOString(),
+      graceEndsAt: graceEndsAt.toISOString(),
+      cancelAtPeriodEnd: false,
+      renewalStatus: "NONE",
+      source: "system_trial",
+      lastPaymentId: null,
+      lastOrderId: null,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
   }
 
   const g = globalThis as any;
   if (g.__BILLING_SUBSCRIPTIONS_MAP__ && g.__BILLING_SUBSCRIPTIONS_MAP__.has(schoolId)) {
-    return g.__BILLING_SUBSCRIPTIONS_MAP__.get(schoolId);
+    const cached = g.__BILLING_SUBSCRIPTIONS_MAP__.get(schoolId);
+    if (cached && cached.planId) return cached;
   }
 
   try {
-    const db = getFirebaseDb();
-    if (!db) return defaultSub;
+    let subData: any = null;
+    let schoolData: any = null;
 
-    const subRef = doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId);
-    const snap = await getDoc(subRef);
+    // 1. Try server-side Admin SDK if running in Node.js
+    if (typeof window === "undefined") {
+      try {
+        const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+        const adminDb = getSafeAdminDb();
+        if (adminDb) {
+          const [subSnap, schoolSnap] = await Promise.all([
+            adminDb.collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS).doc(schoolId).get().catch(() => null),
+            adminDb.collection("schools").doc(schoolId).get().catch(() => null),
+          ]);
+          if (subSnap?.exists) subData = { id: subSnap.id, ...subSnap.data() };
+          if (schoolSnap?.exists) schoolData = { id: schoolSnap.id, ...schoolSnap.data() };
+        }
+      } catch (adminErr) {
+        // Fallback to client SDK
+      }
+    }
 
-    if (snap.exists()) {
-      const rawData = snap.data();
-      const sub = { id: snap.id, ...rawData } as SchoolSubscription;
+    // 2. Fallback to Client SDK
+    if (!subData || !schoolData) {
+      const db = getFirebaseDb();
+      if (db) {
+        try {
+          const [subSnap, schoolSnap] = await Promise.all([
+            !subData ? getDoc(doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId)).catch(() => null) : null,
+            !schoolData ? getDoc(doc(db, "schools", schoolId)).catch(() => null) : null,
+          ]);
+          if (subSnap && (subSnap as any).exists?.()) subData = { id: (subSnap as any).id, ...(subSnap as any).data() };
+          if (schoolSnap && (schoolSnap as any).exists?.()) schoolData = { id: (schoolSnap as any).id, ...(schoolSnap as any).data() };
+        } catch (clientErr) {
+          // Client SDK notice
+        }
+      }
+    }
+
+    // Normalize plan ID from schoolSubscriptions or schools collection
+    const rawPlan = subData?.planId || schoolData?.planId || schoolData?.plan || schoolData?.subscriptionPlan || "plan_starter";
+    let normalizedPlan = rawPlan.toLowerCase().trim();
+    if (!normalizedPlan.startsWith("plan_")) {
+      normalizedPlan = `plan_${normalizedPlan}`;
+    }
+
+    if (subData) {
+      const sub = {
+        ...subData,
+        id: schoolId,
+        schoolId,
+        planId: normalizedPlan,
+        planVersionId: subData.planVersionId || `${normalizedPlan}_v1`,
+        status: subData.status || schoolData?.subscriptionStatus || "ACTIVE",
+        billingCycle: subData.billingCycle || schoolData?.billingCycle || "monthly",
+      } as SchoolSubscription;
 
       // Check if scheduled pending downgrade has reached its effective date
       if (sub.pendingChange && new Date(sub.pendingChange.effectiveAt).getTime() <= Date.now()) {
@@ -207,42 +252,79 @@ export async function getCurrentSubscription(schoolId: string): Promise<SchoolSu
           sub.planId = pending.targetPlanId;
           sub.planVersionId = pending.targetPlanVersionId;
           sub.pendingChange = undefined as any;
-          await updateDoc(subRef, {
-            planId: pending.targetPlanId,
-            planVersionId: pending.targetPlanVersionId,
-            pendingChange: null,
-            updatedAt: new Date().toISOString(),
-          });
-
-          await recordSubscriptionHistory(schoolId, {
-            subscriptionId: schoolId,
-            schoolId,
-            action: "DOWNGRADED",
-            newPlanId: pending.targetPlanId,
-            newPlanVersionId: pending.targetPlanVersionId,
-            actorId: "system",
-            actorRole: "system",
-            reason: "Applied scheduled downgrade at period end",
-            timestamp: new Date().toISOString(),
-          });
-        } catch (e) {
-          console.warn("Notice: Scheduled downgrade application notice:", e);
-        }
+          const db = getFirebaseDb();
+          if (db) {
+            updateDoc(doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId), {
+              planId: pending.targetPlanId,
+              planVersionId: pending.targetPlanVersionId,
+              pendingChange: null,
+              updatedAt: new Date().toISOString(),
+            }).catch(() => {});
+          }
+        } catch (e) {}
       }
 
       const resolved = resolveSubscriptionStatus(sub);
       if (resolved.status !== sub.status) {
-        updateDoc(subRef, { status: resolved.status, updatedAt: new Date().toISOString() }).catch(() => {});
         sub.status = resolved.status;
       }
+
+      if (!g.__BILLING_SUBSCRIPTIONS_MAP__) g.__BILLING_SUBSCRIPTIONS_MAP__ = new Map();
+      g.__BILLING_SUBSCRIPTIONS_MAP__.set(schoolId, sub);
       return sub;
     }
 
-    // Persist default subscription if doc doesn't exist
-    setDoc(subRef, defaultSub).catch(() => {});
-    return defaultSub;
+    // Persist default subscription if doc doesn't exist, adopting school's assigned plan
+    const newDefaultSub: SchoolSubscription = {
+      id: schoolId,
+      schoolId,
+      planId: normalizedPlan,
+      planVersionId: `${normalizedPlan}_v1`,
+      status: schoolData?.subscriptionStatus || "ACTIVE",
+      billingCycle: schoolData?.billingCycle || "monthly",
+      startsAt: now.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      currentPeriodStart: now.toISOString(),
+      currentPeriodEnd: expiresAt.toISOString(),
+      graceEndsAt: graceEndsAt.toISOString(),
+      cancelAtPeriodEnd: false,
+      renewalStatus: "NONE",
+      source: "system_trial",
+      lastPaymentId: null,
+      lastOrderId: null,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
+
+    const db = getFirebaseDb();
+    if (db) {
+      setDoc(doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId), newDefaultSub).catch(() => {});
+    }
+
+    if (!g.__BILLING_SUBSCRIPTIONS_MAP__) g.__BILLING_SUBSCRIPTIONS_MAP__ = new Map();
+    g.__BILLING_SUBSCRIPTIONS_MAP__.set(schoolId, newDefaultSub);
+    return newDefaultSub;
   } catch (error) {
-    return defaultSub;
+    return {
+      id: schoolId,
+      schoolId,
+      planId: "plan_starter",
+      planVersionId: "plan_starter_v1",
+      status: "ACTIVE",
+      billingCycle: "monthly",
+      startsAt: now.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      currentPeriodStart: now.toISOString(),
+      currentPeriodEnd: expiresAt.toISOString(),
+      graceEndsAt: graceEndsAt.toISOString(),
+      cancelAtPeriodEnd: false,
+      renewalStatus: "NONE",
+      source: "system_trial",
+      lastPaymentId: null,
+      lastOrderId: null,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
   }
 }
 

@@ -39,6 +39,15 @@ async function saveSubscriptionDoc(schoolId: string, data: any) {
   if (adminDb) {
     try {
       await adminDb.collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS).doc(schoolId).set(data, { merge: true });
+      if (data.planId) {
+        await adminDb.collection("schools").doc(schoolId).set({
+          planId: data.planId,
+          plan: data.planId,
+          billingCycle: data.billingCycle || "monthly",
+          subscriptionStatus: data.status || "ACTIVE",
+          updatedAt: new Date().toISOString(),
+        }, { merge: true }).catch(() => {});
+      }
       return;
     } catch (e) {
       console.warn("adminDb subscription write notice, falling back to client SDK:", e);
@@ -53,6 +62,18 @@ async function saveSubscriptionDoc(schoolId: string, data: any) {
         setDoc(subRef, data, { merge: true }),
         timeoutPromise(1500, null),
       ]);
+      if (data.planId) {
+        await Promise.race([
+          setDoc(doc(clientDb, "schools", schoolId), {
+            planId: data.planId,
+            plan: data.planId,
+            billingCycle: data.billingCycle || "monthly",
+            subscriptionStatus: data.status || "ACTIVE",
+            updatedAt: new Date().toISOString(),
+          }, { merge: true }),
+          timeoutPromise(1500, null),
+        ]);
+      }
     } catch (e) {
       console.warn("clientDb subscription write notice:", e);
     }

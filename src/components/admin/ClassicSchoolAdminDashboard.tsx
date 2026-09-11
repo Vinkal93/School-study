@@ -27,7 +27,7 @@ import { EntitlementGate } from "@/components/common/EntitlementGate";
 export function ClassicSchoolAdminDashboard() {
   const { profile } = useAuth();
   const schoolId = profile?.schoolId || "";
-  const { canAccess } = useEntitlement();
+  const { canAccess, entitlement } = useEntitlement();
   const isAllowed = profile?.role === "super_admin" || canAccess("school_dashboard");
 
   // 1. Cached School Profile Query (30s staleTime, 5min cacheTime)
@@ -70,9 +70,15 @@ export function ClassicSchoolAdminDashboard() {
         {/* Welcome Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 text-xs font-semibold text-blue-600 dark:text-blue-400">
-            <Building2 className="h-3.5 w-3.5" />
-            <span>{school?.name || "School Portal"}{school?.code ? ` (${school.code})` : schoolId && schoolId !== "school_default" ? "" : " — Setup Required"}</span>
+          <div className="flex items-center gap-2 text-xs font-semibold text-blue-600 dark:text-blue-400 flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <Building2 className="h-3.5 w-3.5" />
+              <span>{school?.name || "School Portal"}{school?.code ? ` (${school.code})` : schoolId && schoolId !== "school_default" ? "" : " — Setup Required"}</span>
+            </div>
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-950/70 dark:text-blue-300 border border-blue-200 dark:border-blue-900">
+              <Sparkles className="h-3 w-3 text-amber-500" />
+              {entitlement?.plan?.name || (school?.planId ? school.planId.replace("plan_", "").toUpperCase() + " PLAN" : "STARTER PLAN")}
+            </span>
           </div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
             School Administration
@@ -82,13 +88,22 @@ export function ClassicSchoolAdminDashboard() {
           </p>
         </div>
 
-        <Link
-          href="/admin/setup"
-          className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
-        >
-          <Settings className="h-4 w-4" />
-          School Setup Wizard
-        </Link>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <Link
+            href="/admin/billing"
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-all"
+          >
+            <Sparkles className="h-4 w-4 text-amber-300" />
+            Plan & Billing
+          </Link>
+          <Link
+            href="/admin/setup"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+          >
+            <Settings className="h-4 w-4" />
+            School Setup Wizard
+          </Link>
+        </div>
       </div>
 
       {/* Onboarding Banner if setup is not marked completed */}

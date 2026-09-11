@@ -310,10 +310,26 @@ export async function fulfillSuccessfulPayment(
   if (adminDb) {
     try {
       await adminDb.collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS).doc(order.schoolId).set(updatedSubscription, { merge: true });
+      await adminDb.collection("schools").doc(order.schoolId).set({
+        planId: order.planId,
+        plan: order.planId,
+        billingCycle: order.billingCycle,
+        subscriptionStatus: "ACTIVE",
+        subscriptionExpiresAt: new Date(newExpiresAtMs).toISOString(),
+        updatedAt: nowIso,
+      }, { merge: true }).catch(() => {});
     } catch (e) {}
   } else if (db) {
     try {
       await setDoc(doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, order.schoolId), updatedSubscription, { merge: true });
+      await setDoc(doc(db, "schools", order.schoolId), {
+        planId: order.planId,
+        plan: order.planId,
+        billingCycle: order.billingCycle,
+        subscriptionStatus: "ACTIVE",
+        subscriptionExpiresAt: new Date(newExpiresAtMs).toISOString(),
+        updatedAt: nowIso,
+      }, { merge: true }).catch(() => {});
     } catch (e) {}
   }
 

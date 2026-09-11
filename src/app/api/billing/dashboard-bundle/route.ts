@@ -19,6 +19,7 @@ import {
   getActivePlan,
   getActivePlanVersion,
   getAllPlansAdmin,
+  normalizePlanId,
 } from "@/lib/billing";
 
 /**
@@ -65,16 +66,29 @@ export async function GET(request: Request) {
       console.warn("[DashboardBundleAPI] Notice: Subscription lookup fallback:", err?.message);
     }
 
+    // Cross-verify with schools collection to guarantee exact assigned plan
+    let schoolDocData: any = null;
+    try {
+      const schoolSnap = await getDoc(doc(db, "schools", schoolId));
+      if (schoolSnap.exists()) {
+        schoolDocData = schoolSnap.data();
+      }
+    } catch (e) {}
+
+    const resolvedPlanId = normalizePlanId(
+      subscription?.planId || schoolDocData?.planId || schoolDocData?.plan || schoolDocData?.subscriptionPlan || "plan_starter"
+    );
+
     if (!subscription) {
       const now = new Date();
       const expiresAt = new Date(now.getTime() + 30 * 86400000);
       subscription = {
         id: schoolId,
         schoolId,
-        planId: "plan_professional",
-        planVersionId: "plan_professional_v1",
-        status: "ACTIVE",
-        billingCycle: "monthly",
+        planId: resolvedPlanId,
+        planVersionId: `${resolvedPlanId}_v1`,
+        status: schoolDocData?.subscriptionStatus || "ACTIVE",
+        billingCycle: schoolDocData?.billingCycle || "monthly",
         startsAt: now.toISOString(),
         expiresAt: expiresAt.toISOString(),
         graceEndsAt: new Date(expiresAt.getTime() + 7 * 86400000).toISOString(),
@@ -84,6 +98,8 @@ export async function GET(request: Request) {
         createdAt: now.toISOString(),
         updatedAt: now.toISOString(),
       };
+    } else {
+      subscription.planId = resolvedPlanId;
     }
 
     const subState = calculateSubscriptionState(subscription, DEFAULT_GLOBAL_ACCESS_POLICY);

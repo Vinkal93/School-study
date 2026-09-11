@@ -255,6 +255,8 @@ export interface EffectiveEntitlement {
   daysRemaining: number;
   expiresAt: string;
   graceEndsAt: string;
+  controlMode?: "PLAN_DEFAULT" | "FULL_CONTROL" | "LIMITED_CONTROL" | "CUSTOM_ACCESS";
+  allowedFeatures?: string[];
 }
 
 export interface FeatureCheckResult {

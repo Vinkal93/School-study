@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import type { School } from "@/types";
 import { useAuth } from "@/hooks/use-auth";
+import { useEntitlement } from "@/context/EntitlementContext";
 
 interface LiquidGlassSchoolAdminDashboardProps {
   school: School | null;
@@ -37,6 +38,7 @@ export function LiquidGlassSchoolAdminDashboard({
   counts,
 }: LiquidGlassSchoolAdminDashboardProps) {
   const { profile } = useAuth();
+  const { entitlement } = useEntitlement();
   const router = useRouter();
   const schoolName = school?.name || "School Administration";
   const adminName = profile?.name || "School Administrator";
@@ -387,22 +389,35 @@ export function LiquidGlassSchoolAdminDashboard({
         {/* Header Bar */}
         <header className="lg-top">
           <div>
-            <div className="lg-eyebrow">
+            <div className="lg-eyebrow flex items-center gap-2 flex-wrap">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span>School Portal — Liquid Glass Active</span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/30">
+                <Sparkles className="w-3 h-3 text-amber-400" />
+                {entitlement?.plan?.name || (school?.planId ? school.planId.replace("plan_", "").toUpperCase() + " PLAN" : "STARTER PLAN")}
+              </span>
             </div>
             <h1 className="lg-title">{schoolName}</h1>
             <p className="lg-sub">
               Welcome back, {adminName}! Manage your faculty, students, classes, and notices.
             </p>
           </div>
-          <button
-            onClick={() => router.push("/admin/settings")}
-            className="lg-setup"
-          >
-            <span>⚙️</span>
-            <span>School Setup Wizard</span>
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => router.push("/admin/billing")}
+              className="lg-setup bg-blue-600! text-white! border-blue-500!"
+            >
+              <span>💳</span>
+              <span>Plan &amp; Billing</span>
+            </button>
+            <button
+              onClick={() => router.push("/admin/settings")}
+              className="lg-setup"
+            >
+              <span>⚙️</span>
+              <span>School Setup Wizard</span>
+            </button>
+          </div>
         </header>
 
         {/* Stats Row */}

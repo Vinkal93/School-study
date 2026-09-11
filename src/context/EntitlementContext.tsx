@@ -137,11 +137,27 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     const unsubscribeSub = onSnapshot(
       subRef,
       () => {
+        clearSubscriptionCache(schoolId);
         fetchEntitlement();
       },
       (err) => {
         if (err.code !== "permission-denied") {
           console.warn("Subscription real-time listener notice:", err);
+        }
+      }
+    );
+
+    // Setup real-time listener on schools/{schoolId} to instantly capture plan updates
+    const schoolRef = doc(db, "schools", schoolId);
+    const unsubscribeSchool = onSnapshot(
+      schoolRef,
+      () => {
+        clearSubscriptionCache(schoolId);
+        fetchEntitlement();
+      },
+      (err) => {
+        if (err.code !== "permission-denied") {
+          console.warn("School document real-time listener notice:", err);
         }
       }
     );
@@ -197,6 +213,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     return () => {
       unsubscribeFeatures();
       unsubscribeSub();
+      unsubscribeSchool();
       unsubscribeOverrides();
       unsubscribeFeatOverrides();
       unsubscribePlans();
@@ -241,6 +258,8 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       }
     }
 
+    const isFullControlOverride = (entitlement as any)?.controlMode === "FULL_CONTROL";
+
     // 1. Layered Feature Control Resolver Check
     const result = resolveEffectiveFeatureAccess({
       featureKey: canonical,
@@ -249,7 +268,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       globalStates: globalFeatureStates,
       schoolOverrides: schoolFeatureOverrides,
       planAllowedFeatures: entitlement ? Object.keys(entitlement.features).filter((k) => entitlement.features[k]) : [],
-      isFullControl: entitlement?.accessMode === "FULL_ACCESS",
+      isFullControl: isFullControlOverride,
     });
 
     if (!result.allowed) return false;
@@ -270,7 +289,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     // 3. Base Entitlement checks
     if (!entitlement) return true; // Default fallback while loading
     if (entitlement.accessMode === "NO_ACCESS") return false;
-    if (entitlement.accessMode === "FULL_ACCESS") return true;
+    if (isFullControlOverride) return true;
 
     if (entitlement.features[canonical] !== undefined) {
       return entitlement.features[canonical] !== false;
@@ -280,6 +299,14 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     }
     if (parentKey && entitlement.features[parentKey] !== undefined) {
       return entitlement.features[parentKey] !== false;
+    }
+
+    if (Array.isArray(entitlement?.allowedFeatures) && entitlement.allowedFeatures.length > 0) {
+      return (
+        entitlement.allowedFeatures.includes(canonical) ||
+        entitlement.allowedFeatures.includes(featureKey) ||
+        (parentKey ? entitlement.allowedFeatures.includes(parentKey) : false)
+      );
     }
 
     return false;
@@ -313,6 +340,8 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       }
     }
 
+    const isFullControlOverride = (entitlement as any)?.controlMode === "FULL_CONTROL";
+
     // Layered Feature Control Resolver Check
     const result = resolveEffectiveFeatureAccess({
       featureKey: canonical,
@@ -321,11 +350,15 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       globalStates: globalFeatureStates,
       schoolOverrides: schoolFeatureOverrides,
       planAllowedFeatures: entitlement ? Object.keys(entitlement.features).filter((k) => entitlement.features[k]) : [],
-      isFullControl: entitlement?.accessMode === "FULL_ACCESS",
+      isFullControl: isFullControlOverride,
     });
 
     if (!result.allowed) {
       return "HIDDEN";
+    }
+
+    if (isFullControlOverride) {
+      return "FULL_ACCESS";
     }
 
     if (entitlement?.featureAccessModes) {
@@ -353,6 +386,14 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       if (parentKey && entitlement.features[parentKey] !== undefined) {
         return entitlement.features[parentKey] ? "FULL_ACCESS" : "HIDDEN";
       }
+    }
+
+    if (Array.isArray(entitlement?.allowedFeatures) && entitlement.allowedFeatures.length > 0) {
+      const isIncluded =
+        entitlement.allowedFeatures.includes(canonical) ||
+        entitlement.allowedFeatures.includes(featureKey) ||
+        (parentKey ? entitlement.allowedFeatures.includes(parentKey) : false);
+      return isIncluded ? "FULL_ACCESS" : "HIDDEN";
     }
 
     return "FULL_ACCESS";

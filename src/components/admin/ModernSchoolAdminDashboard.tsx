@@ -33,9 +33,11 @@ import {
   Smile,
   CheckCircle2,
   AlertCircle,
+  Sparkles,
 } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { useAuth } from "@/hooks/use-auth";
+import { useEntitlement } from "@/context/EntitlementContext";
 import type { School } from "@/types";
 
 interface ModernSchoolAdminDashboardProps {
@@ -53,6 +55,7 @@ export function ModernSchoolAdminDashboard({
   counts,
 }: ModernSchoolAdminDashboardProps) {
   const { profile } = useAuth();
+  const { entitlement } = useEntitlement();
   const adminName = profile?.name || "Rahul Verma";
   const schoolName = school?.name || "Greenfield Public School";
 
@@ -176,6 +179,13 @@ export function ModernSchoolAdminDashboard({
 
           {/* Chips */}
           <div className="flex flex-wrap items-center gap-2.5 pt-1">
+            <Link
+              href="/admin/billing"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-2xs transition-colors"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+              <span>{entitlement?.plan?.name || (school?.planId ? school.planId.replace("plan_", "").toUpperCase() + " PLAN" : "STARTER PLAN")}</span>
+            </Link>
             <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 text-xs font-bold border border-slate-200/60 dark:border-slate-700/60 shadow-2xs">
               <Calendar className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
               <span>{todayFormatted}</span>

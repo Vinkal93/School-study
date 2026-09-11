@@ -110,5 +110,7 @@ export async function getEffectiveEntitlement(schoolId: string): Promise<Effecti
     daysRemaining: summary.daysRemaining,
     expiresAt: summary.expiresAt,
     graceEndsAt: summary.graceEndsAt,
+    controlMode: (summary.controlMode as any) || "PLAN_DEFAULT",
+    allowedFeatures: summary.allowedFeatures || [],
   };
 }

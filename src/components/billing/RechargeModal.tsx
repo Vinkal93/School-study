@@ -222,7 +222,7 @@ export function RechargeModal({
                 onClick={() => setSelectedPlanId("plan_starter")}
                 className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${
                   selectedPlanId === "plan_starter"
-                    ? "border-blue-600 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/30"
+                    ? "border-blue-600 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/30 ring-2 ring-blue-500/20"
                     : "border-slate-200 dark:border-slate-800 hover:border-slate-300"
                 }`}
               >
@@ -237,12 +237,32 @@ export function RechargeModal({
                 </p>
               </div>
 
+              {/* Growth Plan */}
+              <div
+                onClick={() => setSelectedPlanId("plan_growth")}
+                className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${
+                  selectedPlanId === "plan_growth"
+                    ? "border-blue-600 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/30 ring-2 ring-blue-500/20"
+                    : "border-slate-200 dark:border-slate-800 hover:border-slate-300"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-sm text-slate-900 dark:text-white">Growth Plan</h3>
+                  <span className="text-xs font-mono font-bold text-blue-600 dark:text-blue-400">
+                    {billingCycle === "annual" ? "₹1,199/mo" : "₹1,499/mo"}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Up to 1,500 students, 60 teachers, 40 classes & automated bells.
+                </p>
+              </div>
+
               {/* Professional Plan */}
               <div
                 onClick={() => setSelectedPlanId("plan_professional")}
                 className={`p-4 rounded-2xl border-2 cursor-pointer transition-all relative ${
                   selectedPlanId === "plan_professional"
-                    ? "border-blue-600 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/30"
+                    ? "border-blue-600 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/30 ring-2 ring-blue-500/20"
                     : "border-slate-200 dark:border-slate-800 hover:border-slate-300"
                 }`}
               >
@@ -256,7 +276,27 @@ export function RechargeModal({
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Up to 2,000 students, 100 teachers, reports & automated alerts.
+                  Up to 2,000 students, 100 teachers, fee management & reports.
+                </p>
+              </div>
+
+              {/* Enterprise Plan */}
+              <div
+                onClick={() => setSelectedPlanId("plan_enterprise")}
+                className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${
+                  selectedPlanId === "plan_enterprise"
+                    ? "border-blue-600 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/30 ring-2 ring-blue-500/20"
+                    : "border-slate-200 dark:border-slate-800 hover:border-slate-300"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-sm text-slate-900 dark:text-white">Enterprise Plan</h3>
+                  <span className="text-xs font-mono font-bold text-blue-600 dark:text-blue-400">
+                    {billingCycle === "annual" ? "₹3,999/mo" : "₹4,999/mo"}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Unlimited students, teachers, campuses, custom SLA & support.
                 </p>
               </div>
             </div>
