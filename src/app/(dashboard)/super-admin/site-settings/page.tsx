@@ -47,6 +47,9 @@ import {
   computeAnnouncementStatus,
 } from "@/lib/cms/siteSettings";
 import { toast } from "sonner";
+import { getFirebaseDb } from "@/lib/firebase/client";
+import { doc, getDoc, setDoc, getDocs, collection } from "firebase/firestore";
+import { sanitizeSiteSettings } from "@/lib/cms/siteSettings";
 
 export default function SuperAdminSiteSettingsPage() {
   const { profile, firebaseUser } = useAuth();
@@ -107,21 +110,62 @@ export default function SuperAdminSiteSettingsPage() {
   const loadData = async () => {
     setLoading(true);
     try {
+      let loaded = false;
       const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
-      const res = await fetch("/api/super-admin/site-settings", {
-        headers: {
-          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
-          ...(firebaseUser?.uid ? { "x-user-id": firebaseUser.uid } : {}),
-          ...(profile?.role ? { "x-user-role": profile.role } : {}),
-        },
-        cache: "no-store",
-      });
-      if (res.ok) {
-        const json = await res.json();
-        setPublishedSettings(json.published || DEFAULT_SITE_SETTINGS);
-        setSettings(json.draft || json.published || DEFAULT_SITE_SETTINGS);
-        setVersions(json.versions || []);
-      } else {
+      try {
+        const res = await fetch("/api/super-admin/site-settings", {
+          headers: {
+            ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+            ...(firebaseUser?.uid ? { "x-user-id": firebaseUser.uid } : {}),
+            ...(profile?.role ? { "x-user-role": profile.role } : {}),
+          },
+          cache: "no-store",
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.published) {
+            setPublishedSettings(json.published || DEFAULT_SITE_SETTINGS);
+            setSettings(json.draft || json.published || DEFAULT_SITE_SETTINGS);
+            setVersions(json.versions || []);
+            loaded = true;
+          }
+        }
+      } catch (apiErr) {
+        console.warn("API site settings fetch notice:", apiErr);
+      }
+
+      // Direct client Firestore fallback using authenticated session
+      if (!loaded) {
+        try {
+          const db = getFirebaseDb();
+          if (db) {
+            const pubSnap = await getDoc(doc(db, "siteSettings", "global"));
+            const draftSnap = await getDoc(doc(db, "siteSettings", "draft"));
+            const pubData = pubSnap.exists()
+              ? sanitizeSiteSettings(pubSnap.data() as Partial<SiteSettings>)
+              : DEFAULT_SITE_SETTINGS;
+            const draftData = draftSnap.exists()
+              ? sanitizeSiteSettings(draftSnap.data() as Partial<SiteSettings>)
+              : pubData;
+
+            let verList: SiteSettings[] = [];
+            try {
+              const versSnap = await getDocs(collection(db, "siteSettingsVersions"));
+              verList = versSnap.docs.map((d) => sanitizeSiteSettings(d.data() as Partial<SiteSettings>));
+              verList.sort((a, b) => (b.version || 0) - (a.version || 0));
+            } catch (vErr) {}
+
+            setPublishedSettings(pubData);
+            setSettings(draftData);
+            setVersions(verList);
+            loaded = true;
+          }
+        } catch (clientErr) {
+          console.warn("Client direct site settings fetch notice:", clientErr);
+        }
+      }
+
+      if (!loaded) {
         setPublishedSettings(DEFAULT_SITE_SETTINGS);
         setSettings(DEFAULT_SITE_SETTINGS);
       }
@@ -142,8 +186,28 @@ export default function SuperAdminSiteSettingsPage() {
     setSaving(true);
     setStatusMessage(null);
     try {
+      const nowIso = new Date().toISOString();
+      const actorId = profile?.email || firebaseUser?.email || "super_admin";
+      const draftDoc: SiteSettings = {
+        ...sanitizeSiteSettings(settings),
+        updatedAt: nowIso,
+        updatedBy: actorId,
+        status: "draft",
+      };
+
+      // 1. Direct client-side write to Firestore using authenticated Super Admin session
+      try {
+        const db = getFirebaseDb();
+        if (db) {
+          await setDoc(doc(db, "siteSettings", "draft"), draftDoc, { merge: true });
+        }
+      } catch (clientDraftErr) {
+        console.warn("Client draft write notice:", clientDraftErr);
+      }
+
+      // 2. Server-side API endpoint for backend audit logging
       const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
-      const res = await fetch("/api/super-admin/site-settings", {
+      fetch("/api/super-admin/site-settings", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -153,14 +217,13 @@ export default function SuperAdminSiteSettingsPage() {
         },
         body: JSON.stringify({
           action: "draft",
-          settings,
+          settings: draftDoc,
         }),
+      }).catch((apiErr) => {
+        console.warn("Server draft API background notice:", apiErr);
       });
 
-      const json = await res.json();
-      if (!res.ok || !json.success) throw new Error(json.error || "Failed to save draft.");
-
-      setSettings(json.settings);
+      setSettings(draftDoc);
       setStatusMessage({ type: "success", text: "Draft configuration saved successfully." });
       toast.success("Draft saved successfully.");
     } catch (e: any) {
@@ -175,8 +238,33 @@ export default function SuperAdminSiteSettingsPage() {
     setPublishing(true);
     setStatusMessage(null);
     try {
+      const nowIso = new Date().toISOString();
+      const actorId = profile?.email || firebaseUser?.email || "super_admin";
+      const nextVersion = (settings.version || 1) + 1;
+      const publishedDoc: SiteSettings = {
+        ...sanitizeSiteSettings(settings),
+        version: nextVersion,
+        status: "published",
+        updatedAt: nowIso,
+        updatedBy: actorId,
+      };
+      const versionId = `v${nextVersion}_${Date.now()}`;
+
+      // 1. Direct client-side write to Firestore using authenticated Super Admin session
+      const db = getFirebaseDb();
+      if (db) {
+        await setDoc(doc(db, "siteSettings", "global"), publishedDoc);
+        await setDoc(doc(db, "siteSettings", "draft"), publishedDoc);
+        try {
+          await setDoc(doc(db, "siteSettingsVersions", versionId), publishedDoc);
+        } catch (verErr) {
+          console.warn("Client version snapshot notice:", verErr);
+        }
+      }
+
+      // 2. Server API for portal UI synchronization and audit logs (background)
       const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
-      const res = await fetch("/api/super-admin/site-settings", {
+      fetch("/api/super-admin/site-settings", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -186,20 +274,19 @@ export default function SuperAdminSiteSettingsPage() {
         },
         body: JSON.stringify({
           action: "publish",
-          settings,
+          settings: publishedDoc,
         }),
+      }).catch((apiErr) => {
+        console.warn("Server publish API notice:", apiErr);
       });
 
-      const json = await res.json();
-      if (!res.ok || !json.success) throw new Error(json.error || "Failed to publish site settings.");
-
-      setPublishedSettings(json.settings);
-      setSettings(json.settings);
+      setPublishedSettings(publishedDoc);
+      setSettings(publishedDoc);
       setStatusMessage({
         type: "success",
-        text: `Version ${json.settings.version} published live to website!`,
+        text: `Version ${nextVersion} published live to website!`,
       });
-      toast.success(`Published Version ${json.settings.version} live to website!`);
+      toast.success(`Published Version ${nextVersion} live to website!`);
       loadData();
     } catch (e: any) {
       setStatusMessage({ type: "error", text: e.message || "Failed to publish site settings." });

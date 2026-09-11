@@ -12,6 +12,8 @@ function maskSecret(secret: string): string {
   return `${secret.slice(0, 4)}****************${secret.slice(-4)}`;
 }
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: Request) {
   const auth = await requireSuperAdmin(request);
   if (auth.errorResponse) return auth.errorResponse;

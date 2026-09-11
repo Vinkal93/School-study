@@ -13,6 +13,8 @@ import { getFirebaseDb } from "@/lib/firebase/client";
 import { doc, getDoc } from "firebase/firestore";
 import { updatePortalUIVersion } from "@/lib/services/portal-ui.service";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: Request) {
   // Enforce Super Admin authentication to view drafts and historical versions
   const auth = await requireSuperAdmin(request);

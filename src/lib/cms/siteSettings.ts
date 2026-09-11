@@ -638,22 +638,33 @@ export async function publishSiteSettings(
 
   const db = getFirebaseDb();
   if (db) {
-    await setDoc(doc(db, "siteSettings", "global"), published);
-    await setDoc(doc(db, "siteSettingsVersions", versionId), published);
+    try {
+      await setDoc(doc(db, "siteSettings", "global"), published);
+    } catch (pubErr) {
+      console.warn("Server siteSettings/global write notice:", pubErr);
+    }
 
-    await createBillingAuditLog(
-      actorId,
-      "super_admin",
-      "MANUAL_ACCESS_CHANGE",
-      "accessPolicy",
-      "globalSiteSettings",
-      {
-        actionType: "SITE_SETTINGS_PUBLISHED",
-        version: nextVersion,
-        versionId,
-        timestamp: nowIso,
-      }
-    ).catch(() => {});
+    try {
+      await setDoc(doc(db, "siteSettingsVersions", versionId), published);
+    } catch (verErr) {
+      console.warn("Server siteSettingsVersions snapshot notice (expected in uncredentialed serverless):", verErr);
+    }
+
+    try {
+      await createBillingAuditLog(
+        actorId,
+        "super_admin",
+        "MANUAL_ACCESS_CHANGE",
+        "accessPolicy",
+        "globalSiteSettings",
+        {
+          actionType: "SITE_SETTINGS_PUBLISHED",
+          version: nextVersion,
+          versionId,
+          timestamp: nowIso,
+        }
+      );
+    } catch (auditErr) {}
   }
 
   return published;

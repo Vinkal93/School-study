@@ -4,6 +4,8 @@ import { getFirebaseDb } from "@/lib/firebase/client";
 import { collection, getDocs } from "firebase/firestore";
 import { COLLECTIONS } from "@/lib/utils/constants";
 
+export const dynamic = "force-dynamic";
+
 /**
  * GET /api/super-admin/schools
  * Returns full list of registered schools for Super Admin selectors and management.
@@ -58,7 +60,7 @@ export async function GET() {
       }
     }
 
-    schools.sort((a, b) => a.name.localeCompare(b.name));
+    schools.sort((a, b) => String(a?.name || "").localeCompare(String(b?.name || "")));
 
     return NextResponse.json({
       success: true,
