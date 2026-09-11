@@ -52,6 +52,7 @@ import { generateNextTeacherId } from "@/lib/services/teacher.service";
 import { generateNextStudentId } from "@/lib/services/student.service";
 import type { School, AcademicYear, SchoolClass, TeacherProfile, StudentProfile, Gender } from "@/types";
 import { toast } from "sonner";
+import { triggerConfettiSideCannons } from "@/components/magicui/confetti";
 
 export default function SchoolSetupWizardPage() {
   const { profile } = useAuth();
@@ -651,6 +652,13 @@ export default function SchoolSetupWizardPage() {
       setIsFullyCompleted(true);
       appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
       appQueryClient.invalidateCache(`school:${schoolId}`);
+      
+      // Magic UI Side Cannons Confetti Celebration
+      triggerConfettiSideCannons({ durationSeconds: 4 });
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("just_registered_school", "true");
+      }
+      
       toast.success("🎉 School onboarding completed successfully! Your portal is ready.");
     } catch (err: any) {
       toast.error(err.message || "Failed to finalize onboarding.");

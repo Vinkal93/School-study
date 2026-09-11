@@ -24,6 +24,7 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { toast } from "sonner";
 import { Spinner } from "@/components/common/Spinner";
 import { useAuth } from "@/hooks/use-auth";
+import { triggerConfettiSideCannons } from "@/components/magicui/confetti";
 
 export function SchoolRegistrationFlow() {
   const router = useRouter();
@@ -119,7 +120,13 @@ export function SchoolRegistrationFlow() {
         await refreshProfile();
       } catch (e) {}
 
-      toast.success("School registered successfully! Welcome to your School Admin Portal.");
+      // 5. Celebratory Magic UI Side Cannons Confetti!
+      try {
+        triggerConfettiSideCannons({ durationSeconds: 3.5 });
+        sessionStorage.setItem("just_registered_school", schoolName.trim() || "Your School");
+      } catch (e) {}
+
+      toast.success("🎉 School registered successfully! Welcome to your School Admin Portal.");
       
       let redirectUrl = "/admin";
       try {
@@ -131,8 +138,10 @@ export function SchoolRegistrationFlow() {
         }
       } catch (e) {}
 
-      // Clean redirect directly to School Admin Portal
-      window.location.href = redirectUrl;
+      // Slight pause for user to enjoy celebratory confetti before entering dashboard
+      setTimeout(() => {
+        window.location.href = redirectUrl;
+      }, 1500);
     } catch (err: any) {
       console.error("Registration failed:", err);
       let errorMsg = err?.message || "Failed to register school. Please try again.";

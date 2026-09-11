@@ -48,6 +48,7 @@ import {
 } from "@/types/featureControl";
 import { FEATURE_REGISTRY } from "@/lib/feature-control/featureRegistry";
 import { useAuth } from "@/hooks/use-auth";
+import { AccessibilityExperiencePanel } from "@/components/feature-control/AccessibilityExperiencePanel";
 
 interface SchoolSimple {
   id: string;
@@ -59,7 +60,7 @@ interface SchoolSimple {
 export default function SuperAdminFeatureControlPage() {
   const { profile, firebaseUser } = useAuth();
   const [activeTab, setActiveTab] = useState<
-    "modules" | "features" | "actions" | "rollout" | "overrides" | "audit"
+    "modules" | "features" | "actions" | "rollout" | "overrides" | "accessibility" | "audit"
   >("modules");
 
   const [loading, setLoading] = useState(true);
@@ -635,6 +636,7 @@ export default function SuperAdminFeatureControlPage() {
           { id: "actions", label: "Action Kill Switches", count: actionsList.length },
           { id: "rollout", label: "Rollout / Beta", count: null },
           { id: "overrides", label: "School Overrides", count: overrides.length },
+          { id: "accessibility", label: "Accessibility & Experience", count: null },
           { id: "audit", label: "Audit History", count: auditLogs.length },
         ].map((tab) => (
           <button
@@ -1383,6 +1385,11 @@ export default function SuperAdminFeatureControlPage() {
             </table>
           </div>
         </div>
+      )}
+
+      {/* TAB 7: ACCESSIBILITY & EXPERIENCE */}
+      {activeTab === "accessibility" && (
+        <AccessibilityExperiencePanel />
       )}
 
       {/* 11. SLIDE-OVER DETAIL DRAWER */}

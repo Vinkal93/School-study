@@ -12,6 +12,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { getRedirectByRole, isRoleAllowedForPath } from "@/lib/utils/redirect-by-role";
 import { Spinner } from "@/components/common/Spinner";
+import { AdminWelcomeOverlay } from "@/components/common/AdminWelcomeOverlay";
 
 function DashboardShellSwitch({ children }: { children: React.ReactNode }) {
   const { isNewUI, isLiquidGlassUI, activePortal } = usePortalUI();
@@ -135,6 +136,7 @@ export default function DashboardLayout({
     <PortalUIProvider>
       <MobileNavProvider>
         <EntitlementProvider>
+          <AdminWelcomeOverlay />
           <DashboardShellSwitch>{children}</DashboardShellSwitch>
         </EntitlementProvider>
       </MobileNavProvider>
