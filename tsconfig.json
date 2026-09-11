@@ -19,7 +19,9 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@heroui/react": ["./src/components/heroui/index.ts"],
+      "@gravity-ui/icons": ["./src/components/heroui/icons.tsx"]
     }
   },
   "include": [
