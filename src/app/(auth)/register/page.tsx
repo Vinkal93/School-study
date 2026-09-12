@@ -6,10 +6,11 @@ import { GraduationCap } from "lucide-react";
 import { ThemeToggle } from "@/components/common/theme-toggle";
 
 export const metadata: Metadata = constructMetadata({
-  title: "Register Your School | Free Starter Tier | School Study",
+  title: "Register Your School | Free Starter Tier",
   description:
     "Register your school on School Study in 60 seconds. Get started for free with 10 students, 2 teachers, attendance, and online portals.",
   canonicalUrl: "/register",
+  noIndex: true,
 });
 
 export default function RegisterSchoolPage() {

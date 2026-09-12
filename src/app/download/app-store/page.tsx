@@ -6,10 +6,11 @@ import { constructMetadata } from "@/lib/seo";
 import { AppStoreComingSoonContent } from "@/components/download/AppStoreComingSoonContent";
 
 export const metadata: Metadata = constructMetadata({
-  title: "Apple App Store (iOS) App — Coming Soon | School Study",
+  title: "Apple App Store (iOS) App — Coming Soon",
   description:
     "The School Study official Apple App Store (iOS) app is in development. In the meantime, install the full-featured web app on iPhone and iPad via Safari 'Add to Home Screen'.",
   canonicalUrl: "/download/app-store",
+  noIndex: true,
 });
 
 export default function AppStorePage() {

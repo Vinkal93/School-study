@@ -16,6 +16,8 @@ import {
   Lock,
   ExternalLink,
   Video,
+  Copy,
+  Check,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
@@ -78,6 +80,32 @@ export function ProfileDropdown({ school }: ProfileDropdownProps) {
   const displayName = profile?.name || firebaseUser?.displayName || "User";
   const displayEmail = profile?.email || firebaseUser?.email || "Signed in";
   const userInitial = displayName.trim().charAt(0).toUpperCase() || "U";
+
+  const [hasCopiedUser, setHasCopiedUser] = useState(false);
+  const [hasCopiedSchool, setHasCopiedSchool] = useState(false);
+
+  const displayUserId =
+    profile?.userId ||
+    (profile as any)?.studentId ||
+    (profile as any)?.teacherId ||
+    profile?.uid ||
+    "";
+
+  const displaySchoolId = profile?.schoolId || "";
+
+  const handleCopy = (text: string, type: "user" | "school") => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    if (type === "user") {
+      setHasCopiedUser(true);
+      toast.success(`Copied User ID: ${text}`);
+      setTimeout(() => setHasCopiedUser(false), 2000);
+    } else {
+      setHasCopiedSchool(true);
+      toast.success(`Copied School ID: ${text}`);
+      setTimeout(() => setHasCopiedSchool(false), 2000);
+    }
+  };
 
   const roleMeta = useMemo(() => {
     switch (profile?.role as string) {
@@ -211,6 +239,68 @@ export function ProfileDropdown({ school }: ProfileDropdownProps) {
               <Building2 className="h-3.5 w-3.5 shrink-0 text-slate-400" />
               <span className="truncate font-medium">{organizationName}</span>
             </div>
+
+            {/* Authoritative User ID with Copy */}
+            {displayUserId && (
+              <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/60 dark:border-slate-700/60">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                    User ID:
+                  </span>
+                  <span className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200 truncate select-all">
+                    {displayUserId}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCopy(displayUserId, "user");
+                  }}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/50 transition-colors"
+                  title="Copy User ID"
+                >
+                  {hasCopiedUser ? (
+                    <>
+                      <Check className="h-3 w-3 text-emerald-500" />
+                      <span className="text-emerald-500">Copied</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3 w-3" />
+                      <span>Copy</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {/* School ID with Copy (if present) */}
+            {displaySchoolId && profile?.role !== "super_admin" && (
+              <div className="flex items-center justify-between gap-2 px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200/40 dark:border-slate-800 text-[10px]">
+                <div className="flex items-center gap-1 min-w-0 text-slate-500 dark:text-slate-400">
+                  <span>School ID:</span>
+                  <span className="font-mono font-bold text-slate-700 dark:text-slate-300 truncate">
+                    {displaySchoolId}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCopy(displaySchoolId, "school");
+                  }}
+                  className="text-slate-500 hover:text-blue-600 transition-colors"
+                  title="Copy School ID"
+                >
+                  {hasCopiedSchool ? (
+                    <span className="text-emerald-500 font-bold">Copied</span>
+                  ) : (
+                    <Copy className="h-2.5 w-2.5" />
+                  )}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Navigation Links */}

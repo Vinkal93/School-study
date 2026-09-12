@@ -217,8 +217,9 @@ export async function createStudentWithAuth(
   await requireFeatureAccess(schoolId, "student_management");
   await requirePlanLimit(schoolId, "students");
 
-  // 2. Atomic Student Unique ID (e.g. SBCI1, SBCI2...)
-  const autoStudentId = input.studentId || (await generateNextStudentId(schoolId));
+  // 2. Authoritative Unique User ID (e.g. STU564534)
+  const { generateAuthoritativeId, reserveUserIdentity } = await import("./identity.service");
+  const autoStudentId = input.studentId || (await generateAuthoritativeId("student", schoolId));
   const cleanAdmNo = (input.admissionNumber && input.admissionNumber.trim().length > 0)
     ? input.admissionNumber.trim().toUpperCase()
     : autoStudentId;
@@ -314,12 +315,24 @@ export async function createStudentWithAuth(
     email: input.email.trim().toLowerCase(),
     role: "student",
     schoolId: schoolId,
+    userId: cleanAdmNo,
     studentId: autoStudentId,
     admissionNumber: cleanAdmNo,
     status: "active",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+
+  // Register in authoritative unique identity registry
+  await reserveUserIdentity(cleanAdmNo, {
+    uid: userId,
+    email: input.email.trim().toLowerCase(),
+    role: "student",
+    schoolId,
+    name: input.name.trim(),
+    status: "active",
+    createdAt: new Date().toISOString(),
+  }).catch((e) => console.warn("Identity reservation notice:", e?.message));
 
   // 8. Atomically increment school usage counter
   await incrementSchoolUsage(schoolId, "students", 1);

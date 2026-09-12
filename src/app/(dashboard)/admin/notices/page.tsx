@@ -30,6 +30,7 @@ import { getClassesWithSections } from "@/lib/services/academic.service";
 import type { Notice, NoticeAudience, NoticeStatus, SchoolClass } from "@/types";
 import { useEntitlement } from "@/context/EntitlementContext";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
+import { ConfirmDeleteModal } from "@/components/common/ConfirmDeleteModal";
 import { toast } from "sonner";
 
 export default function AdminNoticesPage() {
@@ -54,6 +55,10 @@ export default function AdminNoticesPage() {
   const [selectedClassId, setSelectedClassId] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Delete Confirmation Modal State
+  const [deletingNotice, setDeletingNotice] = useState<Notice | null>(null);
+  const [isDeletingNotice, setIsDeletingNotice] = useState(false);
 
   const loadData = async () => {
     if (!schoolId) return;
@@ -144,14 +149,22 @@ export default function AdminNoticesPage() {
     }
   };
 
-  const handleDeleteNotice = async (noticeId: string) => {
-    if (!confirm("Are you sure you want to delete this notice permanently?")) return;
+  const handleDeleteNotice = (notice: Notice) => {
+    setDeletingNotice(notice);
+  };
+
+  const handleConfirmDeleteNotice = async () => {
+    if (!deletingNotice) return;
+    setIsDeletingNotice(true);
     try {
-      await deleteNotice(schoolId, noticeId);
-      setNotices((prev) => prev.filter((n) => n.id !== noticeId));
-      toast.success("Notice deleted.");
-    } catch (err) {
-      toast.error("Failed to delete notice.");
+      await deleteNotice(schoolId, deletingNotice.id);
+      setNotices((prev) => prev.filter((n) => n.id !== deletingNotice.id));
+      toast.success(`Notice "${deletingNotice.title}" deleted.`);
+      setDeletingNotice(null);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to delete notice.");
+    } finally {
+      setIsDeletingNotice(false);
     }
   };
 
@@ -364,8 +377,8 @@ export default function AdminNoticesPage() {
                   </button>
                   <span className="text-gray-300 dark:text-gray-700">|</span>
                   <button
-                    onClick={() => handleDeleteNotice(n.id)}
-                    className="text-xs text-red-600 hover:text-red-700"
+                    onClick={() => handleDeleteNotice(n)}
+                    className="text-xs text-red-600 hover:text-red-700 font-medium"
                   >
                     Delete
                   </button>
@@ -518,6 +531,18 @@ export default function AdminNoticesPage() {
         </EntitlementGate>
       </div>
     )}
+
+      {/* Global Delete Confirmation Modal */}
+      <ConfirmDeleteModal
+        isOpen={Boolean(deletingNotice)}
+        onClose={() => setDeletingNotice(null)}
+        onConfirm={handleConfirmDeleteNotice}
+        title="Delete Notice"
+        itemName={deletingNotice?.title}
+        itemId={deletingNotice?.id}
+        isDeleting={isDeletingNotice}
+        message="Are you sure you want to permanently delete this announcement? This action will remove it from all student, parent, and teacher portals."
+      />
       </div>
     </EntitlementGate>
   );

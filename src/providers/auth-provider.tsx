@@ -20,12 +20,20 @@ import type { AppUser } from "@/types";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 
+export type AuthBootstrapState =
+  | "AUTH_BOOTSTRAPPING"
+  | "AUTHENTICATED"
+  | "AUTHENTICATED_CONTEXT_READY"
+  | "UNAUTHENTICATED"
+  | "AUTH_ERROR";
+
 interface AuthContextType {
   firebaseUser: User | null;
   profile: AppUser | null;
   originalSuperAdminProfile: AppUser | null;
   isImpersonating: boolean;
   loading: boolean;
+  bootstrapState: AuthBootstrapState;
   signIn: (identifier: string, password: string) => Promise<AppUser>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<AppUser | null>;
@@ -46,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [originalProfile, setOriginalProfile] = useState<AppUser | null>(null);
   const [impersonatedUser, setImpersonatedUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [bootstrapState, setBootstrapState] = useState<AuthBootstrapState>("AUTH_BOOTSTRAPPING");
 
   // Restore impersonation session on mount
   useEffect(() => {
@@ -64,6 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setFirebaseUser(user);
 
       if (user) {
+        setBootstrapState("AUTHENTICATED");
         // Enforce 1-week maximum session duration
         try {
           const storedLoginTime = localStorage.getItem(SESSION_LOGIN_TIME_KEY);
@@ -77,6 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               setFirebaseUser(null);
               setOriginalProfile(null);
               setImpersonatedUser(null);
+              setBootstrapState("UNAUTHENTICATED");
               setLoading(false);
               toast.info("Your session has expired after 1 week. Please log in again to continue.");
               router.push("/login");
@@ -116,6 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setFirebaseUser(null);
             setOriginalProfile(null);
             setImpersonatedUser(null);
+            setBootstrapState("AUTH_ERROR");
             setLoading(false);
             return;
           }
@@ -130,6 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setFirebaseUser(null);
             setOriginalProfile(null);
             setImpersonatedUser(null);
+            setBootstrapState("AUTH_ERROR");
             setLoading(false);
             return;
           }
@@ -138,17 +151,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             toast.warning("Notice: Your account is operating under platform restriction.");
           }
 
-          setOriginalProfile(userProfile);
+          const authoritativeUserId =
+            userProfile.userId ||
+            userProfile.studentId ||
+            userProfile.teacherCode ||
+            userProfile.admissionNumber;
+
+          const enhancedProfile: AppUser = {
+            ...userProfile,
+            userId: authoritativeUserId,
+          };
+
+          setOriginalProfile(enhancedProfile);
+          setBootstrapState("AUTHENTICATED_CONTEXT_READY");
         } catch (err: any) {
           console.error("Failed to load user profile:", err);
           await signOutUser();
           setFirebaseUser(null);
           setOriginalProfile(null);
           setImpersonatedUser(null);
+          setBootstrapState("AUTH_ERROR");
         }
       } else {
         setOriginalProfile(null);
         setImpersonatedUser(null);
+        setBootstrapState("UNAUTHENTICATED");
         sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
         try {
           sessionStorage.removeItem("ss_super_admin_verified");
@@ -490,6 +517,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         originalSuperAdminProfile: originalProfile?.role === "super_admin" ? originalProfile : null,
         isImpersonating: !!impersonatedUser,
         loading,
+        bootstrapState,
         signIn,
         signOut,
         refreshProfile,

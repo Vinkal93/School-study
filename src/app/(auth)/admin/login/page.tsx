@@ -114,14 +114,14 @@ function AdminLoginForm() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <AuthInput
             id="admin-email"
-            type="email"
-            label="Email Address"
+            type="text"
+            label="Email Address or User ID"
             required
-            autoComplete="email"
+            autoComplete="username"
             icon={<Mail className="h-4 w-4" />}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="admin@school.com"
+            placeholder="admin@school.com or ADM123456"
             disabled={isSubmitting}
           />
 

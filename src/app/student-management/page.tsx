@@ -16,7 +16,7 @@ import { Footer } from "@/components/footer";
 import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
 
 export const metadata: Metadata = constructMetadata({
-  title: "Student Management Software & Portal | School Study",
+  title: "Student Management Software & Portal",
   description:
     "Student management made simple. Maintain student profiles, unique admission numbers, class sections, and transparent student attendance portals.",
   canonicalUrl: "/student-management",

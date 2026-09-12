@@ -6,7 +6,7 @@ import { Footer } from "@/components/footer";
 import { PricingContent } from "@/components/pricing/PricingContent";
 
 export const metadata: Metadata = constructMetadata({
-  title: "Pricing Plans for Schools | School Study",
+  title: "Pricing Plans for Schools",
   description:
     "Choose the right School Study plan for your institution. Simple, transparent pricing starting at ₹999/month. Starter, Professional, and Enterprise plans available.",
   canonicalUrl: "/pricing",

@@ -1,4 +1,11 @@
 import type { ReactNode } from "react";
+import type { Metadata } from "next";
+import { constructMetadata } from "@/lib/seo";
+
+export const metadata: Metadata = constructMetadata({
+  title: "Portal Access",
+  noIndex: true,
+});
 
 export default function AuthRootLayout({ children }: { children: ReactNode }) {
   return (

@@ -7,7 +7,7 @@ import type {
   AccessMode,
   SchoolAccessSummary,
 } from "@/types";
-import { BILLING_COLLECTIONS } from "./plans";
+import { BILLING_COLLECTIONS, getActivePlan } from "./plans";
 import { getSchoolSubscription, computeSubscriptionStatus } from "./subscriptions";
 import { getGlobalAccessPolicy } from "./accessPolicy";
 
@@ -139,33 +139,29 @@ export async function getSchoolAccess(schoolId: string): Promise<SchoolAccessSum
   };
 
   try {
-    const db = getFirebaseDb();
-    if (db) {
-      let loaded = false;
-
-      // 1. Attempt to fetch features from specific PlanVersion document if present
-      if (sub.planVersionId) {
-        const verSnap = await getDoc(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, sub.planVersionId));
-        if (verSnap.exists()) {
-          const verData = verSnap.data();
-          if (Array.isArray(verData.features) && verData.features.length > 0) {
-            allowedFeatures = verData.features;
-            loaded = true;
-          }
-          if (verData.limits) planLimits = verData.limits;
-        }
+    // 1. Authoritative Primary: Load the active Plan document directly from Firestore / memory cache
+    const activePlan = await getActivePlan(sub.planId);
+    if (activePlan) {
+      if (Array.isArray(activePlan.features) && activePlan.features.length > 0) {
+        allowedFeatures = [...activePlan.features];
       }
-
-      // 2. Fallback to main Plan document in Firestore
-      if (!loaded) {
-        const planSnap = await getDoc(doc(db, BILLING_COLLECTIONS.PLANS, sub.planId));
-        if (planSnap.exists()) {
-          const planData = planSnap.data() as Plan;
-          if (Array.isArray(planData.features) && planData.features.length > 0) {
-            allowedFeatures = planData.features;
+      if (activePlan.limits) {
+        planLimits = { ...activePlan.limits };
+      }
+    } else {
+      // 2. Fallback: historical planVersion if main plan doc cannot be found
+      const db = getFirebaseDb();
+      if (db && sub.planVersionId) {
+        try {
+          const verSnap = await getDoc(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, sub.planVersionId));
+          if (verSnap.exists()) {
+            const verData = verSnap.data();
+            if (Array.isArray(verData.features) && verData.features.length > 0) {
+              allowedFeatures = verData.features;
+            }
+            if (verData.limits) planLimits = verData.limits;
           }
-          if (planData.limits) planLimits = planData.limits;
-        }
+        } catch (verErr) {}
       }
     }
   } catch (err) {

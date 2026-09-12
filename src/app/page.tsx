@@ -5,7 +5,7 @@ import { LandingPageSwitch } from "@/components/landing/LandingPageSwitch";
 import { DEFAULT_PORTAL_UI_SETTINGS, type PortalUIVersion } from "@/types/portal-ui";
 
 export const metadata: Metadata = constructMetadata({
-  title: "School Management Software for Modern Schools | School Study",
+  title: "School Management Software for Modern Schools",
   description:
     "School Study is a modern school management platform for schools to manage students, teachers, classes and attendance from one simple system.",
   canonicalUrl: "/",

@@ -29,7 +29,7 @@ import { Footer } from "@/components/footer";
 import { constructMetadata, siteConfig, getBreadcrumbSchema, getFaqSchema, getSoftwareAppSchema } from "@/lib/seo";
 
 export const metadata: Metadata = constructMetadata({
-  title: "Core Features & Capabilities | School Study",
+  title: "Core Features & Capabilities",
   description:
     "Explore School Study's core modules: student administration, teacher assignment, live attendance tracking, notice boards, and role-based portals.",
   canonicalUrl: "/features",

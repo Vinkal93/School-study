@@ -18,7 +18,7 @@ import { Footer } from "@/components/footer";
 import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
 
 export const metadata: Metadata = constructMetadata({
-  title: "Simple School Attendance Management Software | School Study",
+  title: "Simple School Attendance Management Software",
   description:
     "Simple school attendance management software. Mark daily roll-call (Present, Absent, Late), track monthly attendance history, and empower students with real-time percentage visibility.",
   canonicalUrl: "/attendance-management",

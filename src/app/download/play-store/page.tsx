@@ -7,10 +7,11 @@ import { constructMetadata } from "@/lib/seo";
 import { PlayStoreComingSoonContent } from "@/components/download/PlayStoreComingSoonContent";
 
 export const metadata: Metadata = constructMetadata({
-  title: "Google Play Store App — Coming Soon | School Study",
+  title: "Google Play Store App — Coming Soon",
   description:
     "The School Study official Google Play Store application is currently under review and coming soon. In the meantime, download our direct APK or install the instant PWA.",
   canonicalUrl: "/download/play-store",
+  noIndex: true,
 });
 
 export default function PlayStorePage() {

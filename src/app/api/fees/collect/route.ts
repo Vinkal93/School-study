@@ -34,6 +34,16 @@ export async function POST(request: Request) {
       );
     }
 
+    // Authoritative Server Recalculation & Validation (Part 13)
+    const { getStudentApplicableFee } = await import("@/lib/services/fee.service");
+    const applicable = await getStudentApplicableFee(schoolId, studentId, academicYearId || "ay_current");
+    if (!applicable.isConfigured) {
+      return NextResponse.json(
+        { error: `Fee structure not configured for class "${applicable.className || className}".`, code: "FEE_UNCONFIGURED" },
+        { status: 400 }
+      );
+    }
+
     const result = await collectFeePayment(
       schoolId,
       {

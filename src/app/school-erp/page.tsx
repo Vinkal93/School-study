@@ -18,7 +18,7 @@ import { Footer } from "@/components/footer";
 import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
 
 export const metadata: Metadata = constructMetadata({
-  title: "Simple School ERP Software for Modern Institutions | School Study",
+  title: "Simple School ERP Software for Modern Institutions",
   description:
     "A simple, practical school ERP software for everyday school management. Manage multi-tenant school rosters, attendance, faculty, and notices cleanly without complexity.",
   canonicalUrl: "/school-erp",

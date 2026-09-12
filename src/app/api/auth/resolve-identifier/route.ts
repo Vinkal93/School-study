@@ -31,7 +31,33 @@ export async function POST(request: Request) {
     const adminDb = getSafeAdminDb();
     if (adminDb) {
       try {
-        // A. Search users collection by studentId
+        // 0. Check authoritative userIds registry
+        const idSnap = await adminDb.collection("userIds").doc(idUpper).get();
+        if (idSnap.exists && idSnap.data()?.email) {
+          return NextResponse.json({
+            success: true,
+            email: idSnap.data()!.email.toLowerCase(),
+            userId: idUpper,
+            role: idSnap.data()?.role,
+          });
+        }
+
+        // A. Search users collection by userId or studentId
+        for (const variant of searchVariants) {
+          const userSnap = await adminDb
+            .collection("users")
+            .where("userId", "==", variant)
+            .limit(1)
+            .get();
+          if (!userSnap.empty && userSnap.docs[0].data().email) {
+            return NextResponse.json({
+              success: true,
+              email: userSnap.docs[0].data().email.toLowerCase(),
+              userId: variant,
+              role: userSnap.docs[0].data().role,
+            });
+          }
+        }
         for (const variant of searchVariants) {
           const userSnap = await adminDb
             .collection("users")
@@ -128,8 +154,36 @@ export async function POST(request: Request) {
     // 2. Client SDK fallback on server
     const clientDb = getFirebaseDb();
     if (clientDb) {
+      // Check userIds doc
+      try {
+        const idSnap = await getDocs(query(collection(clientDb, "userIds"), where("userId", "==", idUpper), limit(1)));
+        if (!idSnap.empty && idSnap.docs[0].data().email) {
+          return NextResponse.json({
+            success: true,
+            email: idSnap.docs[0].data().email.toLowerCase(),
+            userId: idUpper,
+          });
+        }
+      } catch (e) {}
+
       // Search users collection
       for (const variant of searchVariants) {
+        try {
+          const qUserId = query(
+            collection(clientDb, "users"),
+            where("userId", "==", variant),
+            limit(1)
+          );
+          const snap = await getDocs(qUserId);
+          if (!snap.empty && snap.docs[0].data().email) {
+            return NextResponse.json({
+              success: true,
+              email: snap.docs[0].data().email.toLowerCase(),
+              userId: variant,
+            });
+          }
+        } catch (e) {}
+
         try {
           const qStudent = query(
             collection(clientDb, "users"),

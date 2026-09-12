@@ -17,7 +17,7 @@ import { Footer } from "@/components/footer";
 import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
 
 export const metadata: Metadata = constructMetadata({
-  title: "Teacher Management & Classroom Assignment Software | School Study",
+  title: "Teacher Management & Classroom Assignment Software",
   description:
     "Manage teachers and classes in one place. Provision faculty accounts, assign homeroom classes, allocate subject responsibilities, and streamline attendance workflows.",
   canonicalUrl: "/teacher-management",

@@ -126,9 +126,10 @@ export async function createTeacherWithAuth(
   await requirePlanLimit(schoolId, "teachers");
 
   // 2. Resolve Unique Teacher Code (Auto-generate if not provided)
+  const { generateAuthoritativeId, reserveUserIdentity } = await import("./identity.service");
   const finalTeacherCode = (input.teacherCode && input.teacherCode.trim().length > 0)
     ? input.teacherCode.trim().toUpperCase()
-    : await generateNextTeacherId(schoolId);
+    : await generateAuthoritativeId("teacher", schoolId);
 
   const secondaryAppName = `teacher-auth-${Date.now()}`;
   const secondaryApp = initializeApp(firebaseClientConfig, secondaryAppName);
@@ -170,12 +171,24 @@ export async function createTeacherWithAuth(
     email: input.email.trim().toLowerCase(),
     role: "teacher",
     schoolId: schoolId,
+    userId: finalTeacherCode,
     teacherCode: finalTeacherCode,
     teacherId: teacherId,
     status: "active",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+
+  // Register in authoritative unique identity registry
+  await reserveUserIdentity(finalTeacherCode, {
+    uid: userId,
+    email: input.email.trim().toLowerCase(),
+    role: "teacher",
+    schoolId,
+    name: input.name.trim(),
+    status: "active",
+    createdAt: new Date().toISOString(),
+  }).catch((e) => console.warn("Teacher identity reservation notice:", e?.message));
 
   const teacherData: Omit<TeacherProfile, "createdAt" | "updatedAt"> = {
     id: teacherId,

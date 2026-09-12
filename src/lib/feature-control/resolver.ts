@@ -270,7 +270,7 @@ export function resolveEffectiveFeatureAccess({
     };
   }
 
-  if (planAllowedFeatures && planAllowedFeatures.length > 0) {
+  if (Array.isArray(planAllowedFeatures)) {
     const isPermitted =
       planAllowedFeatures.includes(featureKey) ||
       planAllowedFeatures.includes(moduleKey) ||

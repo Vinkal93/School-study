@@ -343,9 +343,14 @@ export function Sidebar({ variant = "classic" }: SidebarProps) {
   const searchParams = useSearchParams();
   const currentFullUrl = pathname + (searchParams.toString() ? `?${searchParams.toString()}` : "");
 
-  const { profile } = useAuth();
+  const { profile, bootstrapState, loading: authLoading } = useAuth();
   const { isOpen, closeMobileNav } = useMobileNav();
-  const { canAccess, getFeatureAccessMode } = useEntitlement();
+  const { canAccess, getFeatureAccessMode, loading: entitlementLoading } = useEntitlement();
+
+  const isBootstrapping =
+    authLoading ||
+    (profile?.role !== "super_admin" && entitlementLoading) ||
+    bootstrapState !== "AUTHENTICATED_CONTEXT_READY";
 
   // Subscribe to real-time Experience & Accessibility Settings
   useEffect(() => {
@@ -469,7 +474,22 @@ export function Sidebar({ variant = "classic" }: SidebarProps) {
 
       {/* Nav Links */}
       <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
-        {currentNavItems.map((item) => {
+        {isBootstrapping ? (
+          <div className="space-y-2 py-1 px-1">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div key={i} className="flex items-center gap-3 px-3 py-2.5 rounded-lg animate-pulse">
+                <div className="h-5 w-5 rounded-md bg-slate-200 dark:bg-slate-800" />
+                {(!collapsed || isOpen) && (
+                  <div
+                    className="h-3.5 rounded-md bg-slate-200 dark:bg-slate-800"
+                    style={{ width: `${55 + (i % 4) * 15}%` }}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          currentNavItems.map((item) => {
           const itemAccessMode = item.featureKey ? getFeatureAccessMode(item.featureKey) : "FULL_ACCESS";
 
           // If HIDDEN, omit from sidebar completely
@@ -581,7 +601,8 @@ export function Sidebar({ variant = "classic" }: SidebarProps) {
               )}
             </Link>
           );
-        })}
+        })
+      )}
       </nav>
 
       {/* Role Badge Footer */}

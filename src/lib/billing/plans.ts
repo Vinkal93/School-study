@@ -739,6 +739,35 @@ export async function initializeDefaultBillingCatalog(): Promise<void> {
   }
 }
 
+const g = globalThis as any;
+if (!g.__BILLING_PLANS_CACHE__) g.__BILLING_PLANS_CACHE__ = new Map<string, Plan>();
+const memoryPlans: Map<string, Plan> = g.__BILLING_PLANS_CACHE__;
+
+export function cachePlan(plan: Plan): void {
+  if (!plan || !plan.id) return;
+  memoryPlans.set(plan.id, plan);
+  if (plan.slug) memoryPlans.set(plan.slug, plan);
+  const norm = normalizePlanId(plan.id);
+  if (norm) memoryPlans.set(norm, plan);
+}
+
+export function getCachedPlan(planId: string): Plan | null {
+  if (!planId) return null;
+  const norm = normalizePlanId(planId);
+  return memoryPlans.get(planId) || memoryPlans.get(norm) || null;
+}
+
+export function clearPlanCache(planId?: string): void {
+  if (planId) {
+    const norm = normalizePlanId(planId);
+    memoryPlans.delete(planId);
+    memoryPlans.delete(norm);
+    if (norm.startsWith("plan_")) memoryPlans.delete(norm.replace(/^plan_/, ""));
+  } else {
+    memoryPlans.clear();
+  }
+}
+
 export function normalizePlanId(planId?: string): string {
   if (!planId) return "plan_starter";
   const lower = planId.toLowerCase().trim();
@@ -746,24 +775,74 @@ export function normalizePlanId(planId?: string): string {
   if (lower === "custom" || lower === "plan_custom") return "plan_custom";
   if (lower === "free" || lower === "plan_free") return "plan_free";
   if (lower === "starter" || lower === "plan_starter") return "plan_starter";
-  if (lower === "professional" || lower === "plan_professional") return "plan_professional";
+  if (
+    lower === "professional" ||
+    lower === "plan_professional" ||
+    lower === "pro" ||
+    lower === "plan_pro"
+  )
+    return "plan_professional";
   if (lower === "enterprise" || lower === "plan_enterprise") return "plan_enterprise";
   return lower.startsWith("plan_") ? lower : `plan_${lower}`;
 }
 
 export async function getActivePlan(planId: string): Promise<Plan | null> {
   const normId = normalizePlanId(planId);
+  const cached = getCachedPlan(normId) || getCachedPlan(planId);
+  if (cached && cached.status === "ACTIVE" && !cached.isArchived) {
+    return cached;
+  }
+
   const db = getFirebaseDb();
   if (db) {
     try {
-      const planSnap = await getDoc(doc(db, BILLING_COLLECTIONS.PLANS, normId));
-      if (planSnap.exists()) {
-        const plan = { id: planSnap.id, ...planSnap.data() } as Plan;
-        if (plan.status === "ACTIVE" && !plan.isArchived) return plan;
+      // 1. Try normalized ID (e.g. plan_starter)
+      let planSnap = await getDoc(doc(db, BILLING_COLLECTIONS.PLANS, normId));
+
+      // 2. If not found, try original planId (e.g. starter or custom id)
+      if (!planSnap.exists() && planId && planId !== normId) {
+        planSnap = await getDoc(doc(db, BILLING_COLLECTIONS.PLANS, planId));
       }
-    } catch (err) {}
+
+      // 3. If not found, try stripped prefix (e.g. starter)
+      if (!planSnap.exists()) {
+        const stripped = normId.replace(/^plan_/, "");
+        if (stripped && stripped !== normId && stripped !== planId) {
+          planSnap = await getDoc(doc(db, BILLING_COLLECTIONS.PLANS, stripped));
+        }
+      }
+
+      // 4. If not found, query by slug
+      if (!planSnap.exists()) {
+        const cleanSlug = normId.replace(/^plan_/, "");
+        const slugQuery = query(collection(db, BILLING_COLLECTIONS.PLANS), where("slug", "==", cleanSlug));
+        const slugSnap = await getDocs(slugQuery);
+        if (!slugSnap.empty) {
+          const planDoc = slugSnap.docs[0];
+          const plan = { id: planDoc.id, ...planDoc.data() } as Plan;
+          if (plan.status === "ACTIVE" && !plan.isArchived) {
+            cachePlan(plan);
+            return plan;
+          }
+        }
+      } else {
+        const plan = { id: planSnap.id, ...planSnap.data() } as Plan;
+        if (plan.status === "ACTIVE" && !plan.isArchived) {
+          cachePlan(plan);
+          return plan;
+        }
+      }
+    } catch (err) {
+      console.warn("getActivePlan lookup notice:", err);
+    }
   }
-  const fallback = DEFAULT_STATIC_PLANS.find((p) => p.id === normId || p.slug === normId || p.id === planId || p.slug === planId);
+
+  const fallback = DEFAULT_STATIC_PLANS.find(
+    (p) => p.id === normId || p.slug === normId || p.id === planId || p.slug === planId
+  );
+  if (fallback) {
+    cachePlan(fallback);
+  }
   return fallback || null;
 }
 
@@ -1069,6 +1148,20 @@ export async function updatePlan(
 
   await updateDoc(planRef, updatedPlanData);
   const updatedPlan = { ...currentPlan, ...updatedPlanData };
+  cachePlan(updatedPlan);
+
+  // Server-side dual write if adminDb is available
+  if (typeof window === "undefined") {
+    try {
+      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+      const adminDb = getSafeAdminDb();
+      if (adminDb) {
+        await adminDb.collection(BILLING_COLLECTIONS.PLANS).doc(planId).set(updatedPlanData, { merge: true });
+      }
+    } catch (adminErr) {
+      console.warn("adminDb plan update notice:", adminErr);
+    }
+  }
 
   await createBillingAuditLog(actorId, "super_admin", "PLAN_UPDATED", "plan", planId, {
     planName: updatedPlan.name,

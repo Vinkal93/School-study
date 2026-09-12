@@ -51,9 +51,11 @@ const FEATURE_KEY_ALIASES: Record<string, string[]> = {
 };
 
 /**
- * Resolves all known keys from both high-level Feature Registry and Granular Permissions.
+ * Resolves all known keys from high-level Feature Registry, Granular Permissions, and dynamic plan features.
  */
-function getAllKnownCapabilityKeys(): string[] {
+function getAllKnownCapabilityKeys(
+  planDoc?: { features?: string[]; featureAccess?: Record<string, FeatureAccessMode> } | null
+): string[] {
   const keys = new Set<string>();
   for (const f of FEATURE_REGISTRY) {
     keys.add(f.key);
@@ -62,6 +64,14 @@ function getAllKnownCapabilityKeys(): string[] {
     keys.add(p.id);
     if (p.aliases) {
       p.aliases.forEach((a) => keys.add(a));
+    }
+  }
+  if (planDoc) {
+    if (Array.isArray(planDoc.features)) {
+      planDoc.features.forEach((k) => keys.add(k));
+    }
+    if (planDoc.featureAccess && typeof planDoc.featureAccess === "object") {
+      Object.keys(planDoc.featureAccess).forEach((k) => keys.add(k));
     }
   }
   return Array.from(keys);
@@ -75,9 +85,8 @@ function getAllKnownCapabilityKeys(): string[] {
 export async function getEffectiveFeatureAccessModes(
   schoolId: string
 ): Promise<Record<string, FeatureAccessMode>> {
-  const allKnownKeys = getAllKnownCapabilityKeys();
-
   if (!schoolId || schoolId === "system") {
+    const allKnownKeys = getAllKnownCapabilityKeys();
     const defaultModes: Record<string, FeatureAccessMode> = {};
     for (const key of allKnownKeys) {
       defaultModes[key] = "FULL_ACCESS";
@@ -91,6 +100,7 @@ export async function getEffectiveFeatureAccessModes(
   ]);
 
   const planDoc = await getActivePlan(summary.planId || "plan_starter");
+  const allKnownKeys = getAllKnownCapabilityKeys(planDoc);
   const planFeatureAccess: Record<string, FeatureAccessMode> = planDoc?.featureAccess || {};
   const planFeaturesList: string[] = planDoc?.features || summary.allowedFeatures || [];
 

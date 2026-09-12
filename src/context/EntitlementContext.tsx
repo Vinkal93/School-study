@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/use-auth";
 import type { EffectiveEntitlement, FeatureAccessMode } from "@/types";
 import { getEffectiveEntitlement } from "@/lib/billing/entitlement";
 import { clearSubscriptionCache } from "@/lib/billing/subscriptions";
+import { cachePlan, clearPlanCache } from "@/lib/billing/plans";
 import { appQueryClient } from "@/lib/cache";
 import { resolveEffectiveFeatureAccess } from "@/lib/feature-control/resolver";
 import { getFeatureDefinition } from "@/lib/feature-control/featureRegistry";
@@ -32,14 +33,14 @@ interface EntitlementContextType {
 const EntitlementContext = createContext<EntitlementContextType>({
   entitlement: null,
   loading: true,
-  accessMode: "FULL_ACCESS",
-  canAccess: () => true,
-  canAccessFeature: () => true,
-  canAccessAction: () => true,
-  getFeatureAccessMode: () => "FULL_ACCESS",
-  getCapabilityAccessMode: () => "FULL_ACCESS",
-  getRequiredPlanForFeature: () => "Professional Plan",
-  getRequiredPlanForCapability: () => "Professional Plan",
+  accessMode: "NO_ACCESS",
+  canAccess: () => false,
+  canAccessFeature: () => false,
+  canAccessAction: () => false,
+  getFeatureAccessMode: () => "HIDDEN",
+  getCapabilityAccessMode: () => "HIDDEN",
+  getRequiredPlanForFeature: () => "Upgrade Required",
+  getRequiredPlanForCapability: () => "Upgrade Required",
   refreshEntitlement: async () => {},
   globalFeatureStates: {},
   schoolFeatureOverrides: [],
@@ -242,8 +243,17 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     const plansRef = collection(db, "plans");
     const unsubscribePlans = onSnapshot(
       plansRef,
-      () => {
+      (snap) => {
+        if (!snap.empty) {
+          snap.docs.forEach((d) => {
+            const p = { id: d.id, ...d.data() } as any;
+            cachePlan(p);
+          });
+        }
         clearSubscriptionCache(schoolId);
+        appQueryClient.invalidateCache(`schoolProfile:${schoolId}`);
+        appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
+        appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
         fetchEntitlement();
       },
       (err) => {
@@ -259,7 +269,9 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       if (typeof window !== "undefined" && "BroadcastChannel" in window) {
         broadcastChannel = new BroadcastChannel("school_study_realtime_sync");
         broadcastChannel.onmessage = (event) => {
-          if (event.data?.type === "PLAN_UPDATED" && (!event.data?.schoolId || event.data?.schoolId === schoolId)) {
+          const evtType = String(event.data?.type || "").toUpperCase();
+          if (evtType === "PLAN_UPDATED" && (!event.data?.schoolId || event.data?.schoolId === schoolId)) {
+            clearPlanCache();
             clearSubscriptionCache(schoolId);
             appQueryClient.invalidateCache(`schoolProfile:${schoolId}`);
             appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
@@ -272,6 +284,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
 
     const handleStorageEvent = (e: StorageEvent) => {
       if (e.key === "school_study_plan_updated") {
+        clearPlanCache();
         clearSubscriptionCache(schoolId);
         appQueryClient.invalidateCache(`schoolProfile:${schoolId}`);
         appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
@@ -307,6 +320,11 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     // 0. CORE DASHBOARD ACCESS: Evergreen core feature accessible for all active school accounts
     if (canonical === "school_dashboard" || canonical === "dashboard") {
       return true;
+    }
+
+    // Fail-closed while loading or if not authenticated with a school
+    if (loading || !entitlement) {
+      return false;
     }
 
     // 0b. HIGHEST PRIORITY: Global Feature Control States (Super Admin Feature Control Center)
@@ -407,6 +425,11 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       return "FULL_ACCESS";
     }
 
+    // Fail-closed while loading or if not authenticated with a school
+    if (loading || !entitlement) {
+      return "HIDDEN";
+    }
+
     // 0. HIGHEST PRIORITY: Global Feature Control States
     if (Object.keys(globalFeatureStates).length > 0) {
       const directState = globalFeatureStates[canonical] || globalFeatureStates[featureKey];
@@ -441,6 +464,24 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     });
 
     if (!result.allowed) {
+      if (
+        result.status === 503 ||
+        result.reason?.includes("restricted for this school") ||
+        result.reason?.includes("disabled by platform")
+      ) {
+        return "HIDDEN";
+      }
+
+      const explicitMode =
+        entitlement?.featureAccessModes?.[canonical] ||
+        entitlement?.featureAccessModes?.[featureKey] ||
+        (parentCapKey ? entitlement?.featureAccessModes?.[parentCapKey] : undefined) ||
+        (parentKey ? entitlement?.featureAccessModes?.[parentKey] : undefined);
+
+      if (explicitMode === "SHOWCASE") {
+        return "SHOWCASE";
+      }
+
       return "HIDDEN";
     }
 

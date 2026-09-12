@@ -17,7 +17,7 @@ import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
 import { ContactForm } from "@/components/contact/ContactForm";
 
 export const metadata: Metadata = constructMetadata({
-  title: "Contact Support & Inquiries | School Study",
+  title: "Contact Support & Inquiries",
   description:
     "Get in touch with School Study. Contact our official support team via email or phone for institutional onboarding, technical assistance, or product questions.",
   canonicalUrl: "/contact",

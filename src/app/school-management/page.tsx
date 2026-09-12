@@ -18,7 +18,7 @@ import { Footer } from "@/components/footer";
 import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
 
 export const metadata: Metadata = constructMetadata({
-  title: "School Management Software Built for Modern Schools | School Study",
+  title: "School Management Software Built for Modern Schools",
   description:
     "Discover School Study's school management system. Easily administer students, teachers, classes, daily attendance, and notices in one unified platform.",
   canonicalUrl: "/school-management",

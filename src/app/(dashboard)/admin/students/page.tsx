@@ -34,6 +34,8 @@ import {
 } from "lucide-react";
 import { ImageCropModal } from "@/components/common/ImageCropModal";
 import { RegisterComplaintModal } from "@/components/complaints/RegisterComplaintModal";
+import { ConfirmDeleteModal } from "@/components/common/ConfirmDeleteModal";
+import { ResponsiveActionMenu } from "@/components/common/ResponsiveActionMenu";
 import {
   getStudents,
   createStudentWithAuth,
@@ -103,6 +105,42 @@ export default function AdminStudentsPage() {
 
   // Student Complaint Modal State
   const [complaintStudent, setComplaintStudent] = useState<StudentProfile | null>(null);
+
+  // Delete Confirmation Modal State
+  const [deletingStudent, setDeletingStudent] = useState<StudentProfile | null>(null);
+  const [isDeletingInProgress, setIsDeletingInProgress] = useState(false);
+
+  // Column width resize state with persistence
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("ss_student_table_col_widths");
+        if (saved) return JSON.parse(saved);
+      } catch {}
+    }
+    return {
+      roll: 60,
+      student: 220,
+      studentId: 120,
+      class: 150,
+      genderDob: 120,
+      contact: 140,
+      status: 100,
+      actions: 140,
+    };
+  });
+
+  const handleResizeColumn = (colKey: string, deltaWidth: number) => {
+    setColumnWidths((prev) => {
+      const current = prev[colKey] || 120;
+      const next = Math.max(50, Math.min(450, current + deltaWidth));
+      const updated = { ...prev, [colKey]: next };
+      try {
+        localStorage.setItem("ss_student_table_col_widths", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
 
   // Enroll Student Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -304,25 +342,28 @@ export default function AdminStudentsPage() {
     }
   };
 
-  const handleDeleteStudent = async (stu: StudentProfile) => {
-    if (
-      confirm(
-        `Are you sure you want to delete student "${stu.name}" (${stu.studentId || stu.admissionNumber})? Financial and attendance history will be preserved in archive.`
-      )
-    ) {
-      try {
-        await deleteStudent(schoolId, stu.id, stu.userId);
-        setStudentsCache((prev) =>
-          (prev || []).map((s) =>
-            s.id === stu.id ? { ...s, status: "deleted", deletedAt: new Date().toISOString() } : s
-          )
-        );
-        appQueryClient.invalidateCache(`planLimit:${schoolId}:*`);
-        appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
-        toast.success(`Student "${stu.name}" deleted (archived).`);
-      } catch (err: any) {
-        toast.error(err.message || "Failed to delete student.");
-      }
+  const handleDeleteStudent = (stu: StudentProfile) => {
+    setDeletingStudent(stu);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deletingStudent) return;
+    setIsDeletingInProgress(true);
+    try {
+      await deleteStudent(schoolId, deletingStudent.id, deletingStudent.userId);
+      setStudentsCache((prev) =>
+        (prev || []).map((s) =>
+          s.id === deletingStudent.id ? { ...s, status: "deleted", deletedAt: new Date().toISOString() } : s
+        )
+      );
+      appQueryClient.invalidateCache(`planLimit:${schoolId}:*`);
+      appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
+      toast.success(`Student "${deletingStudent.name}" deleted (archived).`);
+      setDeletingStudent(null);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete student.");
+    } finally {
+      setIsDeletingInProgress(false);
     }
   };
 
@@ -812,14 +853,105 @@ export default function AdminStudentsPage() {
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-800 text-gray-500 dark:text-gray-400">
                   <tr>
-                    <th className="py-3.5 px-4 font-medium w-16">Roll</th>
-                    <th className="py-3.5 px-4 font-medium">Student</th>
-                    <th className="py-3.5 px-4 font-medium">Student ID</th>
-                    <th className="py-3.5 px-4 font-medium">Class & Section</th>
-                    <th className="py-3.5 px-4 font-medium">Gender / DOB</th>
-                    <th className="py-3.5 px-4 font-medium">Contact</th>
-                    <th className="py-3.5 px-4 font-medium">Status</th>
-                    <th className="py-3.5 px-4 font-medium text-right">Actions</th>
+                    <th style={{ width: columnWidths.roll }} className="relative py-3.5 px-4 font-medium select-none">
+                      Roll
+                      <div
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          const startX = e.clientX;
+                          const onMove = (me: MouseEvent) => handleResizeColumn("roll", me.clientX - startX);
+                          const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+                          window.addEventListener("mousemove", onMove);
+                          window.addEventListener("mouseup", onUp);
+                        }}
+                        className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-500/50"
+                      />
+                    </th>
+                    <th style={{ width: columnWidths.student }} className="relative py-3.5 px-4 font-medium select-none">
+                      Student
+                      <div
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          const startX = e.clientX;
+                          const onMove = (me: MouseEvent) => handleResizeColumn("student", me.clientX - startX);
+                          const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+                          window.addEventListener("mousemove", onMove);
+                          window.addEventListener("mouseup", onUp);
+                        }}
+                        className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-500/50"
+                      />
+                    </th>
+                    <th style={{ width: columnWidths.studentId }} className="relative py-3.5 px-4 font-medium select-none">
+                      Student ID
+                      <div
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          const startX = e.clientX;
+                          const onMove = (me: MouseEvent) => handleResizeColumn("studentId", me.clientX - startX);
+                          const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+                          window.addEventListener("mousemove", onMove);
+                          window.addEventListener("mouseup", onUp);
+                        }}
+                        className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-500/50"
+                      />
+                    </th>
+                    <th style={{ width: columnWidths.class }} className="relative py-3.5 px-4 font-medium select-none">
+                      Class & Section
+                      <div
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          const startX = e.clientX;
+                          const onMove = (me: MouseEvent) => handleResizeColumn("class", me.clientX - startX);
+                          const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+                          window.addEventListener("mousemove", onMove);
+                          window.addEventListener("mouseup", onUp);
+                        }}
+                        className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-500/50"
+                      />
+                    </th>
+                    <th style={{ width: columnWidths.genderDob }} className="relative py-3.5 px-4 font-medium select-none">
+                      Gender / DOB
+                      <div
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          const startX = e.clientX;
+                          const onMove = (me: MouseEvent) => handleResizeColumn("genderDob", me.clientX - startX);
+                          const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+                          window.addEventListener("mousemove", onMove);
+                          window.addEventListener("mouseup", onUp);
+                        }}
+                        className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-500/50"
+                      />
+                    </th>
+                    <th style={{ width: columnWidths.contact }} className="relative py-3.5 px-4 font-medium select-none">
+                      Contact
+                      <div
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          const startX = e.clientX;
+                          const onMove = (me: MouseEvent) => handleResizeColumn("contact", me.clientX - startX);
+                          const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+                          window.addEventListener("mousemove", onMove);
+                          window.addEventListener("mouseup", onUp);
+                        }}
+                        className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-500/50"
+                      />
+                    </th>
+                    <th style={{ width: columnWidths.status }} className="relative py-3.5 px-4 font-medium select-none">
+                      Status
+                      <div
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          const startX = e.clientX;
+                          const onMove = (me: MouseEvent) => handleResizeColumn("status", me.clientX - startX);
+                          const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+                          window.addEventListener("mousemove", onMove);
+                          window.addEventListener("mouseup", onUp);
+                        }}
+                        className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-500/50"
+                      />
+                    </th>
+                    <th style={{ width: columnWidths.actions }} className="py-3.5 px-4 font-medium text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
@@ -919,60 +1051,49 @@ export default function AdminStudentsPage() {
                               Restore
                             </button>
                           ) : (
-                            <>
-                              <button
-                                onClick={() => {
-                                  setTransferringStudent(s);
-                                  setTargetClassId("");
-                                  setTargetSectionId("");
-                                }}
-                                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/20"
-                                title="Transfer to another class"
-                              >
-                                <ArrowRightLeft className="h-3 w-3" />
-                                Transfer
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setPhotoEditingStudent(s);
-                                  setEditPhotoPreview(s.photoUrl || null);
-                                  setEditPhotoFile(null);
-                                }}
-                                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/20"
-                                title="Upload/Update Student Photo"
-                              >
-                                <Camera className="h-3 w-3" />
-                                Photo
-                              </button>
-                              <button
-                                onClick={() => setComplaintStudent(s)}
-                                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 cursor-pointer"
-                                title="Register Student Complaint"
-                              >
-                                <ShieldAlert className="h-3 w-3 text-rose-600" />
-                                Report
-                              </button>
-                              <button
-                                onClick={() => handleToggleStatus(s)}
-                                disabled={togglingId === s.id}
-                                className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium ${
-                                  s.status === "active"
-                                    ? "text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20"
-                                    : "text-green-600 hover:bg-green-50 dark:hover:bg-green-950/20"
-                                }`}
-                              >
-                                <Power className="h-3 w-3" />
-                                {s.status === "active" ? "Disable" : "Activate"}
-                              </button>
-                              <button
-                                onClick={() => handleDeleteStudent(s)}
-                                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20"
-                                title="Delete student / archive"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                                Delete
-                              </button>
-                            </>
+                            <ResponsiveActionMenu
+                              primaryActions={[
+                                {
+                                  label: "Transfer",
+                                  icon: <ArrowRightLeft className="h-3.5 w-3.5 text-purple-600" />,
+                                  onClick: () => {
+                                    setTransferringStudent(s);
+                                    setTargetClassId("");
+                                    setTargetSectionId("");
+                                  },
+                                  className: "hover:bg-purple-50 dark:hover:bg-purple-950/20 text-purple-600",
+                                },
+                                {
+                                  label: "Photo",
+                                  icon: <Camera className="h-3.5 w-3.5 text-blue-600" />,
+                                  onClick: () => {
+                                    setPhotoEditingStudent(s);
+                                    setEditPhotoPreview(s.photoUrl || null);
+                                    setEditPhotoFile(null);
+                                  },
+                                  className: "hover:bg-blue-50 dark:hover:bg-blue-950/20 text-blue-600",
+                                },
+                              ]}
+                              secondaryActions={[
+                                {
+                                  label: "Report Complaint",
+                                  icon: <ShieldAlert className="h-3.5 w-3.5 text-rose-600" />,
+                                  onClick: () => setComplaintStudent(s),
+                                },
+                                {
+                                  label: s.status === "active" ? "Disable Account" : "Activate Account",
+                                  icon: <Power className="h-3.5 w-3.5 text-amber-600" />,
+                                  onClick: () => handleToggleStatus(s),
+                                  disabled: togglingId === s.id,
+                                },
+                                {
+                                  label: "Delete Student",
+                                  icon: <Trash2 className="h-3.5 w-3.5 text-rose-600" />,
+                                  onClick: () => handleDeleteStudent(s),
+                                  destructive: true,
+                                },
+                              ]}
+                            />
                           )}
                         </div>
                       </td>
@@ -1554,6 +1675,18 @@ export default function AdminStudentsPage() {
           }}
         />
       )}
+
+      {/* Global Delete Confirmation Modal */}
+      <ConfirmDeleteModal
+        isOpen={Boolean(deletingStudent)}
+        onClose={() => setDeletingStudent(null)}
+        onConfirm={handleConfirmDelete}
+        title="Delete Student Record"
+        itemName={deletingStudent?.name}
+        itemId={deletingStudent?.studentId || deletingStudent?.admissionNumber}
+        isDeleting={isDeletingInProgress}
+        message={`Are you sure you want to archive this student? Their account status will be set to deleted, their profile hidden from active rosters, and plan capacity freed.`}
+      />
       </div>
     </EntitlementGate>
   );

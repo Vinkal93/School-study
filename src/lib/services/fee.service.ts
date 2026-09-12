@@ -443,6 +443,29 @@ export function matchesClass(structureClassName: string, studentClassName: strin
   return false;
 }
 
+export interface ApplicableFeeResult {
+  schoolId: string;
+  studentId: string;
+  studentName: string;
+  className: string;
+  academicYearId: string;
+  isConfigured: boolean;
+  feeStructureTitle?: string;
+  baseFeePaise: number;
+  baseFeeRupees: number;
+  discountPaise: number;
+  discountRupees: number;
+  lateFeePaise: number;
+  lateFeeRupees: number;
+  previousDuePaise: number;
+  previousDueRupees: number;
+  payablePaise: number;
+  payableRupees: number;
+  totalPaise: number;
+  totalRupees: number;
+  sourceDescription: string;
+}
+
 export interface StudentFeeSummary {
   assignment: StudentFeeAssignment;
   recentPayments: FeePayment[];
@@ -454,6 +477,9 @@ export interface StudentFeeSummary {
   totalPaidRupees: number;
   totalPendingRupees: number;
   lastPayment: FeePayment | null;
+  isConfigured?: boolean;
+  feeStructureTitle?: string;
+  sourceDescription?: string;
 }
 
 export async function getStudentFeeSummary(
@@ -492,19 +518,30 @@ export async function getStudentFeeSummary(
 
   // Compute monthly rate
   let monthlyFeeRupees = 0;
-  classStructures.forEach((s) => {
-    if (s.frequency === "monthly") monthlyFeeRupees += s.amountPaise / 100;
-  });
+  let isConfigured = classStructures.length > 0;
+  let feeStructureTitle: string | undefined;
 
-  if (monthlyFeeRupees === 0) {
+  if (isConfigured) {
+    classStructures.forEach((s) => {
+      if (s.frequency === "monthly") {
+        monthlyFeeRupees += s.amountPaise / 100;
+        if (!feeStructureTitle) feeStructureTitle = s.title;
+      }
+    });
+  }
+
+  if (monthlyFeeRupees === 0 && assignment) {
     // If ledger has non-zero amount for active months, derive from ledger
     const nonZeroMonth = assignment.monthLedger.find((m) => m.amountPaise > 0);
     if (nonZeroMonth) {
       monthlyFeeRupees = nonZeroMonth.amountPaise / 100;
-    } else {
-      monthlyFeeRupees = 500; // fallback standard rate
+      isConfigured = true;
     }
   }
+
+  const sourceDescription = isConfigured
+    ? `Based on Class ${student.className || "grade"} fee structure`
+    : `Fee structure not configured for this class (${student.className || "Unassigned"}).`;
 
   // Determine paid vs pending
   const paidMonths: string[] = [];
@@ -539,6 +576,84 @@ export async function getStudentFeeSummary(
     totalPaidRupees,
     totalPendingRupees,
     lastPayment,
+    isConfigured,
+    feeStructureTitle,
+    sourceDescription,
+  };
+}
+
+/**
+ * Authoritative Server Function: getStudentApplicableFee
+ * Resolves student -> class -> fee structure -> discounts -> late fee -> payable amount
+ * Never silently defaults to ₹500!
+ */
+export async function getStudentApplicableFee(
+  schoolId: string,
+  studentId: string,
+  academicYearId: string = "ay_current"
+): Promise<ApplicableFeeResult> {
+  const db = getFirebaseDb();
+  let studentDoc: any = null;
+
+  if (db) {
+    try {
+      const snap = await getDoc(doc(db, "schools", schoolId, "students", studentId));
+      if (snap.exists()) studentDoc = snap.data();
+    } catch (e) {}
+  }
+
+  const studentName = studentDoc?.name || "Student";
+  const className = studentDoc?.className || "";
+
+  const structures = await getFeeStructures(schoolId, academicYearId);
+  const classStructures = structures.filter(
+    (s) => s.status === "ACTIVE" && matchesClass(s.className, className)
+  );
+
+  const isConfigured = classStructures.length > 0;
+  let baseFeePaise = 0;
+  let feeStructureTitle = "";
+
+  if (isConfigured) {
+    classStructures.forEach((s) => {
+      if (s.frequency === "monthly") {
+        baseFeePaise += s.amountPaise;
+        if (!feeStructureTitle) feeStructureTitle = s.title;
+      }
+    });
+  }
+
+  const assignment = await getStudentFeeAssignment(schoolId, studentId, academicYearId);
+  const previousDuePaise = assignment?.totalPendingPaise || 0;
+  const discountPaise = assignment?.totalDiscountPaise || 0;
+  const lateFeePaise = assignment?.totalLateFeePaise || 0;
+
+  const payablePaise = isConfigured ? Math.max(0, baseFeePaise - discountPaise + lateFeePaise) : 0;
+  const totalPaise = payablePaise + previousDuePaise;
+
+  return {
+    schoolId,
+    studentId,
+    studentName,
+    className,
+    academicYearId,
+    isConfigured,
+    feeStructureTitle: feeStructureTitle || (isConfigured ? `Class ${className} Tuition Fee` : undefined),
+    baseFeePaise,
+    baseFeeRupees: baseFeePaise / 100,
+    discountPaise,
+    discountRupees: discountPaise / 100,
+    lateFeePaise,
+    lateFeeRupees: lateFeePaise / 100,
+    previousDuePaise,
+    previousDueRupees: previousDuePaise / 100,
+    payablePaise,
+    payableRupees: payablePaise / 100,
+    totalPaise,
+    totalRupees: totalPaise / 100,
+    sourceDescription: isConfigured
+      ? `Based on Class ${className} fee structure`
+      : `Fee structure not configured for this class (${className || "Unassigned"}).`,
   };
 }
 
@@ -600,8 +715,7 @@ export async function provisionStudentFeeAssignment(
         else if (s.frequency === "annual" && idx === startCycleIdx) monthAmountPaise += s.amountPaise;
       });
     } else {
-      const anyMonthly = structures.find((s) => s.status === "ACTIVE" && s.frequency === "monthly");
-      monthAmountPaise = anyMonthly ? anyMonthly.amountPaise : 50000;
+      monthAmountPaise = 0;
     }
 
     monthLedger.push({

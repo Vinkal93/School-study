@@ -46,7 +46,7 @@ export default function AdminCollectFeePage() {
   const [className, setClassName] = useState("");
   const [sectionName, setSectionName] = useState("");
   const [feeType, setFeeType] = useState<FeeType>("tuition");
-  const [amountPaidRupees, setAmountPaidRupees] = useState("500");
+  const [amountPaidRupees, setAmountPaidRupees] = useState("0");
   const [discountRupees, setDiscountRupees] = useState("0");
   const [paymentMethod, setPaymentMethod] = useState<FeePayment["paymentMethod"]>("Cash");
   const [transactionRef, setTransactionRef] = useState("");
@@ -73,7 +73,7 @@ export default function AdminCollectFeePage() {
       } else if (item && item.amountPaise > 0) {
         total += item.amountPaise / 100;
       } else {
-        total += summary.monthlyFeeRupees || 500;
+        total += summary.monthlyFeeRupees || 0;
       }
     });
     return Math.round(total);
@@ -211,7 +211,7 @@ export default function AdminCollectFeePage() {
     setStudentSearch("");
     setFeeSummary(null);
     setSelectedMonths(["April 2026"]);
-    setAmountPaidRupees("500");
+    setAmountPaidRupees("0");
     setIsManualAmountOverride(false);
   };
 
@@ -572,7 +572,7 @@ export default function AdminCollectFeePage() {
                     </div>
                   </div>
 
-                  {/* 3. Class Monthly Rate & Auto Calculation */}
+                  {/* 3. Class Monthly Rate & Authoritative Source */}
                   <div className="p-3 rounded-xl bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 space-y-1 shadow-2xs">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-600 dark:text-blue-400 flex items-center gap-1">
@@ -583,12 +583,25 @@ export default function AdminCollectFeePage() {
                         {selectedStudent.className || "Class"}
                       </span>
                     </div>
-                    <p className="text-sm font-black text-slate-900 dark:text-white">
-                      ₹{feeSummary?.monthlyFeeRupees || 500} <span className="text-[11px] font-normal text-slate-400">/ month</span>
-                    </p>
-                    <p className="text-[10px] text-slate-400">
-                      Selecting months below automatically loads the exact total fee.
-                    </p>
+                    {feeSummary?.isConfigured === false ? (
+                      <div className="rounded-lg bg-rose-50 dark:bg-rose-950/40 p-2 border border-rose-200 dark:border-rose-900/60">
+                        <p className="text-xs font-bold text-rose-700 dark:text-rose-300">
+                          Fee structure not configured for this class.
+                        </p>
+                        <p className="text-[10px] text-rose-600 dark:text-rose-400 mt-0.5">
+                          Configure a fee structure for Class {selectedStudent.className || ""} under Fee Structures.
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-sm font-black text-slate-900 dark:text-white">
+                          ₹{feeSummary?.monthlyFeeRupees || 0} <span className="text-[11px] font-normal text-slate-400">/ month</span>
+                        </p>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                          {feeSummary?.sourceDescription || `Based on Class ${selectedStudent.className || "grade"} fee structure`}
+                        </p>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -732,7 +745,7 @@ export default function AdminCollectFeePage() {
                 const paidAmount = ledgerItem?.paidAmountPaise ? Math.round(ledgerItem.paidAmountPaise / 100) : 0;
                 const pendingAmount = ledgerItem?.pendingAmountPaise
                   ? Math.round(ledgerItem.pendingAmountPaise / 100)
-                  : feeSummary?.monthlyFeeRupees || 500;
+                  : feeSummary?.monthlyFeeRupees || 0;
 
                 return (
                   <button

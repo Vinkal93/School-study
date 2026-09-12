@@ -657,6 +657,13 @@ export default function SuperAdminPricingPage() {
       ? 7999
       : 799;
 
+    const initialFeatures = Array.from(
+      new Set([
+        ...(plan.features || []),
+        ...Object.keys(initialAccess).filter((k) => initialAccess[k] === "FULL_ACCESS"),
+      ])
+    );
+
     setEditForm({
       name: plan.name,
       description: plan.description,
@@ -666,7 +673,7 @@ export default function SuperAdminPricingPage() {
       publicVisible: plan.publicVisible !== undefined ? plan.publicVisible : true,
       displayOrder: plan.displayOrder,
       status: plan.status,
-      features: [...plan.features],
+      features: initialFeatures,
       featureAccess: initialAccess,
       maxStudents: plan.limits?.maxStudents !== undefined ? plan.limits.maxStudents : 500,
       maxTeachers: plan.limits?.maxTeachers !== undefined ? plan.limits.maxTeachers : 20,
@@ -690,6 +697,13 @@ export default function SuperAdminPricingPage() {
 
     setSaving(true);
     try {
+      const synchronizedFeatures = Array.from(
+        new Set([
+          ...editForm.features.filter((k) => editForm.featureAccess?.[k] !== "HIDDEN"),
+          ...Object.keys(editForm.featureAccess || {}).filter((k) => editForm.featureAccess[k] === "FULL_ACCESS"),
+        ])
+      );
+
       const input: UpdatePlanInput = {
         name: editForm.name,
         description: editForm.description,
@@ -699,7 +713,7 @@ export default function SuperAdminPricingPage() {
         status: editForm.status,
         monthlyPricePaise: Math.round(editForm.monthlyPriceRupees * 100),
         annualPricePaise: Math.round(editForm.annualPriceRupees * 100),
-        features: editForm.features,
+        features: synchronizedFeatures,
         featureAccess: editForm.featureAccess,
         limits: {
           maxStudents: Number(editForm.maxStudents),
@@ -741,13 +755,13 @@ export default function SuperAdminPricingPage() {
       if (typeof window !== "undefined") {
         try {
           const ch = new BroadcastChannel("school_study_realtime_sync");
-          ch.postMessage({ type: "plan_updated", planId: selectedPlan.id, timestamp: Date.now() });
+          ch.postMessage({ type: "PLAN_UPDATED", planId: selectedPlan.id, timestamp: Date.now() });
           ch.close();
         } catch {}
         try {
           localStorage.setItem(
             "school_study_plan_updated",
-            JSON.stringify({ type: "plan_updated", planId: selectedPlan.id, timestamp: Date.now() })
+            JSON.stringify({ type: "PLAN_UPDATED", planId: selectedPlan.id, timestamp: Date.now() })
           );
         } catch {}
       }

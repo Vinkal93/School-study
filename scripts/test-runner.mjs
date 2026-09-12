@@ -35,9 +35,11 @@ const testSuites = [
   { name: "Super Admin Global Reports & Exports", file: "scripts/test-super-admin-global-reports.mjs" },
   { name: "Super Admin Site Settings & CMS Module", file: "scripts/test-site-settings-cms.mjs" },
   { name: "Portal UI/UX Version Control & Switching", file: "scripts/test-portal-ui-version-control.mjs" },
-  { name: "Platform Settings & Security Policies", file: "scripts/test-platform-settings-security.mjs" },
   { name: "Strict Auth Pipeline, Complaints & Help Center", file: "scripts/test-auth-pipeline-complaint-help.mjs" },
   { name: "Security Command Center (Red + Blue Team)", file: "scripts/test-security-command-center.ts" },
+  { name: "Unique Identity & Authoritative ID System", file: "scripts/test-identity-system.mjs" },
+  { name: "Class-Wise Fee Resolution & Server Validation", file: "scripts/test-class-wise-fees.mjs" },
+  { name: "Auth Bootstrap State & Anti-Flicker Skeleton", file: "scripts/test-auth-bootstrap-flicker.mjs" },
 ];
 
 console.log("==================================================");

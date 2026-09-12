@@ -18,7 +18,7 @@ export const siteConfig = {
   titleTemplate: "%s | School Study",
   defaultDescription:
     "School Study is a modern school management platform for schools to manage students, teachers, classes and attendance from one simple system.",
-  defaultOgImage: `${getSiteUrl()}/icon.svg`,
+  defaultOgImage: `${getSiteUrl()}/og-image.png`,
   supportEmail: "sbci224234@gmail.com",
   supportPhone: "+91 9118245636",
   googleSiteVerification: "zZHJ9sQqwYwYL1UpsI5ZZK3dUZlBoomo5LdBR7KVJd8",
@@ -49,6 +49,7 @@ export const siteConfig = {
     "/teacher",
     "/student",
     "/super-admin",
+    "/billing",
     "/api",
   ] as const,
 };

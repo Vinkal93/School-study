@@ -12,6 +12,7 @@ export interface AppUser {
   schoolId?: string; // null/undefined for super_admin
   status: UserStatus;
   studentId?: string;
+  userId?: string;
   teacherCode?: string;
   teacherId?: string;
   admissionNumber?: string;
