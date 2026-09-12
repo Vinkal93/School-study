@@ -106,12 +106,12 @@ export default function SuperAdminEmergencyControlCenter() {
   const [ultraPinInput, setUltraPinInput] = useState("");
   const [ultraPinError, setUltraPinError] = useState("");
 
-  // Single User Erase
+  // Single Candidate (User or School) Erase
   const [eraseSearchQuery, setEraseSearchQuery] = useState("");
   const [eraseSearching, setEraseSearching] = useState(false);
-  const [candidateToErase, setCandidateToErase] = useState<any | null>(null);
-  const [eraseUserPinInput, setEraseUserPinInput] = useState("");
-  const [eraseUserLoading, setEraseUserLoading] = useState(false);
+  const [candidateToErase, setCandidateToErase] = useState<{ targetType: "school" | "user"; school?: any; user?: any } | null>(null);
+  const [eraseCandidatePinInput, setEraseCandidatePinInput] = useState("");
+  const [eraseCandidateLoading, setEraseCandidateLoading] = useState(false);
 
   // Full Portal Wipe
   const [portalConfirmPhrase, setPortalConfirmPhrase] = useState("");
@@ -137,7 +137,7 @@ export default function SuperAdminEmergencyControlCenter() {
     setUltraPinError("");
     setCandidateToErase(null);
     setEraseSearchQuery("");
-    setEraseUserPinInput("");
+    setEraseCandidatePinInput("");
     setPortalConfirmPhrase("");
     setPortalPinInput("");
     setPortalWipeCountdown(null);
@@ -146,7 +146,7 @@ export default function SuperAdminEmergencyControlCenter() {
 
   const handleSearchCandidateToErase = async () => {
     if (!eraseSearchQuery.trim()) {
-      toast.error("Please enter a User ID, Email, or Phone number.");
+      toast.error("Please enter a School ID, User UID, Email, or Phone number.");
       return;
     }
     setEraseSearching(true);
@@ -155,40 +155,75 @@ export default function SuperAdminEmergencyControlCenter() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "GET_USER_PREVIEW",
+          action: "GET_CANDIDATE_PREVIEW",
           identifier: eraseSearchQuery.trim(),
         }),
       });
       const data = await res.json();
-      if (res.ok && data.success) {
-        setCandidateToErase(data.user);
-        toast.success("Candidate record retrieved.");
+      if (data.success && (data.school || data.user)) {
+        setCandidateToErase(data);
+        toast.success(data.targetType === "school" ? "School tenant record retrieved." : "User candidate record retrieved.");
       } else {
-        toast.error(data.error || "User not found.");
+        toast.error(data.error || "No matching school or user found.");
         setCandidateToErase(null);
       }
     } catch (err) {
-      toast.error("Network error fetching user preview.");
+      toast.error("Network error fetching candidate preview.");
     } finally {
       setEraseSearching(false);
     }
   };
 
-  const handleEraseSingleUser = async () => {
-    if (!candidateToErase?.uid) return;
-    if (eraseUserPinInput.trim() !== "630649") {
-      toast.error("Invalid 6-digit Security PIN. Enter 630649 to authorize erase.");
+  const handleEraseSingleSchool = async () => {
+    if (!candidateToErase?.school?.id) return;
+    if (eraseCandidatePinInput.trim() !== "630649") {
+      toast.error("Invalid 6-digit Master Security PIN.");
       return;
     }
-    setEraseUserLoading(true);
+    setEraseCandidateLoading(true);
+    try {
+      const res = await fetch("/api/super-admin/ultra-security", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "ERASE_SCHOOL",
+          pin: eraseCandidatePinInput.trim(),
+          schoolId: candidateToErase.school.id,
+          actorId: profile?.uid || "super_admin",
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(data.message || "School and all associated data permanently erased.");
+        setCandidateToErase(null);
+        setEraseSearchQuery("");
+        setEraseCandidatePinInput("");
+        fetchMetrics();
+      } else {
+        toast.error(data.error || "Failed to erase school.");
+      }
+    } catch (err) {
+      toast.error("Network error during school erase operation.");
+    } finally {
+      setEraseCandidateLoading(false);
+    }
+  };
+
+  const handleEraseSingleUser = async () => {
+    if (!candidateToErase?.user?.uid) return;
+    if (eraseCandidatePinInput.trim() !== "630649") {
+      toast.error("Invalid 6-digit Master Security PIN.");
+      return;
+    }
+    setEraseCandidateLoading(true);
     try {
       const res = await fetch("/api/super-admin/ultra-security", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "ERASE_USER",
-          pin: eraseUserPinInput.trim(),
-          userId: candidateToErase.uid,
+          pin: eraseCandidatePinInput.trim(),
+          userId: candidateToErase.user.uid,
           actorId: profile?.uid || "super_admin",
         }),
       });
@@ -197,14 +232,15 @@ export default function SuperAdminEmergencyControlCenter() {
         toast.success(data.message || "User data permanently erased.");
         setCandidateToErase(null);
         setEraseSearchQuery("");
-        setEraseUserPinInput("");
+        setEraseCandidatePinInput("");
+        fetchMetrics();
       } else {
         toast.error(data.error || "Failed to erase user.");
       }
     } catch (err) {
       toast.error("Network error during erase operation.");
     } finally {
-      setEraseUserLoading(false);
+      setEraseCandidateLoading(false);
     }
   };
 
@@ -1202,23 +1238,23 @@ export default function SuperAdminEmergencyControlCenter() {
           ) : (
             /* Unlocked Controls */
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2">
-              {/* Option 1: Targeted Single User Erase */}
+              {/* Option 1: Targeted Data Erase (School or User) */}
               <div className="rounded-2xl bg-slate-900/90 border border-slate-800 p-6 space-y-4">
                 <div className="flex items-center gap-2.5 text-rose-400">
                   <UserX className="h-5 w-5" />
-                  <h3 className="text-base font-bold text-white">Targeted User Data Erase</h3>
+                  <h3 className="text-base font-bold text-white">Targeted Data Erase (School or User)</h3>
                 </div>
                 <p className="text-xs text-slate-400">
-                  Search and permanently erase any student, teacher, or staff account along with all their records and authentication credentials.
+                  Search and permanently erase any School Tenant or User account (student, teacher, staff) along with all their records, subcollections, and credentials.
                 </p>
 
                 <div className="space-y-3">
                   <div>
-                    <label className="text-[11px] font-bold text-slate-400">Candidate Search (UID, Email, or Phone):</label>
+                    <label className="text-[11px] font-bold text-slate-400">Candidate Search (School ID, User UID, Email, or Phone):</label>
                     <div className="flex gap-2 mt-1">
                       <input
                         type="text"
-                        placeholder="e.g. user@school.com, 9876543210, or UID"
+                        placeholder="e.g. nNuxKZJOvLi3fzDhAtag, user@school.com, or UID"
                         value={eraseSearchQuery}
                         onChange={(e) => setEraseSearchQuery(e.target.value)}
                         onKeyDown={(e) => {
@@ -1229,7 +1265,7 @@ export default function SuperAdminEmergencyControlCenter() {
                       <button
                         onClick={handleSearchCandidateToErase}
                         disabled={eraseSearching}
-                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition"
+                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer"
                       >
                         {eraseSearching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
                         Preview
@@ -1239,42 +1275,118 @@ export default function SuperAdminEmergencyControlCenter() {
 
                   {candidateToErase && (
                     <div className="p-4 rounded-xl bg-slate-950 border border-rose-900/40 space-y-3">
-                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                        <div>
-                          <div className="font-bold text-white text-sm">{candidateToErase.name}</div>
-                          <div className="text-[11px] text-slate-400">{candidateToErase.email} • {candidateToErase.phone}</div>
-                        </div>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-slate-800 text-slate-300 border border-slate-700">
-                          {candidateToErase.role}
-                        </span>
-                      </div>
+                      {candidateToErase.targetType === "school" && candidateToErase.school ? (
+                        <>
+                          <div className="flex items-start justify-between border-b border-slate-800 pb-2.5">
+                            <div className="flex items-center gap-2.5">
+                              <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400">
+                                <Building2 className="h-5 w-5" />
+                              </div>
+                              <div>
+                                <div className="font-bold text-white text-sm flex items-center gap-2">
+                                  {candidateToErase.school.name}
+                                </div>
+                                <div className="text-[11px] text-slate-400">
+                                  ID: <span className="font-mono text-slate-300 font-semibold">{candidateToErase.school.id}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                              School Tenant
+                            </span>
+                          </div>
 
-                      <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400">
-                        <div>UID: <span className="font-mono text-slate-200">{candidateToErase.uid.substring(0, 12)}...</span></div>
-                        <div>School: <span className="text-slate-200">{candidateToErase.schoolName || candidateToErase.schoolId || "None"}</span></div>
-                      </div>
+                          <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400">
+                            <div>Email: <span className="text-slate-200">{candidateToErase.school.email || "N/A"}</span></div>
+                            <div>Phone: <span className="text-slate-200">{candidateToErase.school.phone || "N/A"}</span></div>
+                            <div>City/State: <span className="text-slate-200">{candidateToErase.school.city ? `${candidateToErase.school.city}, ${candidateToErase.school.state || ""}` : "Not specified"}</span></div>
+                            <div>Status: <span className="text-emerald-400 font-bold uppercase">{candidateToErase.school.status || "ACTIVE"}</span></div>
+                          </div>
 
-                      <div className="pt-2 border-t border-slate-800/80 space-y-2">
-                        <label className="text-[11px] font-bold text-rose-400">Confirm with Master PIN (630649):</label>
-                        <div className="flex gap-2">
-                          <input
-                            type="password"
-                            maxLength={6}
-                            placeholder="Enter 630649"
-                            value={eraseUserPinInput}
-                            onChange={(e) => setEraseUserPinInput(e.target.value.replace(/\D/g, ""))}
-                            className="flex-1 px-3 py-2 bg-slate-900 border border-rose-700/50 rounded-xl text-xs font-mono tracking-widest text-white text-center focus:outline-none"
-                          />
-                          <button
-                            onClick={handleEraseSingleUser}
-                            disabled={eraseUserLoading || eraseUserPinInput.length !== 6}
-                            className="px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition shadow-lg shadow-rose-950"
-                          >
-                            {eraseUserLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                            Permanently Erase
-                          </button>
-                        </div>
-                      </div>
+                          <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px]">
+                            <span className="px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 font-semibold">
+                              👥 {candidateToErase.school.studentCount || 0} Students
+                            </span>
+                            <span className="px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 font-semibold">
+                              🎓 {candidateToErase.school.teacherCount || 0} Teachers
+                            </span>
+                            <span className="px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 font-semibold">
+                              🏫 {candidateToErase.school.classCount || 0} Classes
+                            </span>
+                          </div>
+
+                          <div className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-600/30 text-[11px] text-rose-300 space-y-1">
+                            <div className="font-bold flex items-center gap-1.5 text-rose-400">
+                              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                              Destructive Tenant Purge
+                            </div>
+                            <p className="text-[10px] text-rose-200/80 leading-relaxed">
+                              Erasing this school will permanently delete all students, teachers, classes, fees, attendance, notices, and inquiries from Firebase.
+                            </p>
+                          </div>
+
+                          <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                            <label className="text-[11px] font-bold text-rose-400">Confirm with 6-Digit Master Security PIN:</label>
+                            <div className="flex gap-2">
+                              <input
+                                type="password"
+                                maxLength={6}
+                                placeholder="••••••"
+                                value={eraseCandidatePinInput}
+                                onChange={(e) => setEraseCandidatePinInput(e.target.value.replace(/\D/g, ""))}
+                                className="flex-1 px-3 py-2 bg-slate-900 border border-rose-700/50 rounded-xl text-xs font-mono tracking-widest text-white text-center focus:outline-none placeholder:text-slate-600"
+                              />
+                              <button
+                                onClick={handleEraseSingleSchool}
+                                disabled={eraseCandidateLoading || eraseCandidatePinInput.length !== 6}
+                                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition shadow-lg shadow-rose-950 cursor-pointer"
+                              >
+                                {eraseCandidateLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                                Permanently Erase School
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      ) : candidateToErase.targetType === "user" && candidateToErase.user ? (
+                        <>
+                          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                            <div>
+                              <div className="font-bold text-white text-sm">{candidateToErase.user.name}</div>
+                              <div className="text-[11px] text-slate-400">{candidateToErase.user.email} • {candidateToErase.user.phone}</div>
+                            </div>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-slate-800 text-slate-300 border border-slate-700">
+                              {candidateToErase.user.role}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400">
+                            <div>UID: <span className="font-mono text-slate-200">{candidateToErase.user.uid.substring(0, 12)}...</span></div>
+                            <div>School: <span className="text-slate-200">{candidateToErase.user.schoolName || candidateToErase.user.schoolId || "None"}</span></div>
+                          </div>
+
+                          <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                            <label className="text-[11px] font-bold text-rose-400">Confirm with 6-Digit Master Security PIN:</label>
+                            <div className="flex gap-2">
+                              <input
+                                type="password"
+                                maxLength={6}
+                                placeholder="••••••"
+                                value={eraseCandidatePinInput}
+                                onChange={(e) => setEraseCandidatePinInput(e.target.value.replace(/\D/g, ""))}
+                                className="flex-1 px-3 py-2 bg-slate-900 border border-rose-700/50 rounded-xl text-xs font-mono tracking-widest text-white text-center focus:outline-none placeholder:text-slate-600"
+                              />
+                              <button
+                                onClick={handleEraseSingleUser}
+                                disabled={eraseCandidateLoading || eraseCandidatePinInput.length !== 6}
+                                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition shadow-lg shadow-rose-950 cursor-pointer"
+                              >
+                                {eraseCandidateLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                                Permanently Erase User
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      ) : null}
                     </div>
                   )}
                 </div>
@@ -1330,7 +1442,7 @@ export default function SuperAdminEmergencyControlCenter() {
                       <input
                         type="password"
                         maxLength={6}
-                        placeholder="Enter 630649"
+                        placeholder="••••••"
                         value={portalPinInput}
                         onChange={(e) => setPortalPinInput(e.target.value.replace(/\D/g, ""))}
                         className="w-full mt-1 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-mono tracking-widest text-center text-white focus:outline-none focus:border-rose-500"
