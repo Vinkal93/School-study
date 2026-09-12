@@ -4,6 +4,9 @@ const nextConfig: NextConfig = {
   // Disable x-powered-by header for security and payload reduction
   poweredByHeader: false,
 
+  // Prevent serverless bundler crashes with firebase-admin and native modules
+  serverExternalPackages: ["firebase-admin"],
+
   // Enable gzip/brotli compression
   compress: true,
 

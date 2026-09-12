@@ -278,6 +278,35 @@ service cloud.firestore {
       allow write: if isSchoolAdmin(schoolId) || isSuperAdmin();
     }
 
+    // Inquiries and Parent Leads Collections
+    match /inquiries/{id} {
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+      );
+      allow create: if true; // Public website contact and inquiry leads can create
+      allow update, delete: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', '')))
+      );
+
+      match /activities/{activityId} {
+        allow read, write: if isAuthenticated() && (
+          isSuperAdmin() ||
+          (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+        );
+      }
+    }
+
+    match /contactInquiries/{id} {
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+      );
+      allow create: if true;
+      allow update, delete: if isSuperAdmin();
+    }
+
     // Academic & School Collections (Top-level Fallbacks)
     match /academicYears/{id} {
       allow read: if isAuthenticated();
