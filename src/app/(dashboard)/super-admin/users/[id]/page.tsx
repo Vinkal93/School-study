@@ -736,7 +736,16 @@ export default function UserProfileInspectorPage() {
               <div>
                 <span className="text-xs text-gray-400">Emergency Contact</span>
                 <p className="font-semibold text-gray-900 dark:text-white mt-0.5">
-                  {(user as any).emergencyContact || academicProfile?.emergencyContact || "—"}
+                  {(() => {
+                    const ec = (user as any).emergencyContact || academicProfile?.emergencyContact;
+                    if (!ec) return "—";
+                    if (typeof ec === "string") return ec;
+                    if (typeof ec === "object") {
+                      const parts = [ec.name, ec.relation ? `(${ec.relation})` : "", ec.phone].filter(Boolean);
+                      return parts.length > 0 ? parts.join(" ") : "—";
+                    }
+                    return "—";
+                  })()}
                 </p>
               </div>
               <div>

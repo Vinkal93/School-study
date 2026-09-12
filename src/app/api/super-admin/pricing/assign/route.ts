@@ -126,8 +126,14 @@ export async function POST(request: Request) {
 
     const cleanSchoolId = schoolId.trim();
     const normalizedPlan = normalizePlanId(planId);
-    const plan = await getActivePlan(normalizedPlan);
-    const planVersion = await getActivePlanVersion(normalizedPlan);
+    let plan = null;
+    let planVersion = null;
+    try {
+      plan = await getActivePlan(normalizedPlan);
+      planVersion = await getActivePlanVersion(normalizedPlan);
+    } catch (err) {
+      console.warn("Notice: plan retrieval non-fatal fallback:", err);
+    }
 
     const now = new Date();
     let safeExpMs: number;
