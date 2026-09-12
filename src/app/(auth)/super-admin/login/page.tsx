@@ -252,9 +252,6 @@ export default function SuperAdminLoginPage() {
                     autoFocus
                   />
                 </div>
-                <p className="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500 text-center">
-                  Default initial Security PIN is 630649
-                </p>
               </div>
 
               <AuthButton

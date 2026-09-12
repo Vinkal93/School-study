@@ -22,6 +22,8 @@ export type {
 export type {
   NoticeAudience,
   NoticeStatus,
+  NoticeTickStatus,
+  NoticeRecipientStatus,
   Notice,
   CreateNoticeInput,
 } from "./notice";

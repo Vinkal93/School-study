@@ -33,6 +33,10 @@ import {
   Phone,
   Mail,
   HelpCircle,
+  Trash2,
+  Skull,
+  KeyRound,
+  ShieldOff,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -96,6 +100,161 @@ export default function SuperAdminEmergencyControlCenter() {
     severity: "WARNING" as EmergencySeverity,
     target: "ALL" as "ALL" | "SCHOOLS" | "ROLES",
   });
+
+  // Ultra-Security Zone State
+  const [ultraUnlocked, setUltraUnlocked] = useState(false);
+  const [ultraPinInput, setUltraPinInput] = useState("");
+  const [ultraPinError, setUltraPinError] = useState("");
+
+  // Single User Erase
+  const [eraseSearchQuery, setEraseSearchQuery] = useState("");
+  const [eraseSearching, setEraseSearching] = useState(false);
+  const [candidateToErase, setCandidateToErase] = useState<any | null>(null);
+  const [eraseUserPinInput, setEraseUserPinInput] = useState("");
+  const [eraseUserLoading, setEraseUserLoading] = useState(false);
+
+  // Full Portal Wipe
+  const [portalConfirmPhrase, setPortalConfirmPhrase] = useState("");
+  const [portalPinInput, setPortalPinInput] = useState("");
+  const [portalWipeLoading, setPortalWipeLoading] = useState(false);
+  const [portalWipeCountdown, setPortalWipeCountdown] = useState<number | null>(null);
+  const [portalWipeReport, setPortalWipeReport] = useState<Record<string, number> | null>(null);
+
+  const handleUnlockUltraSecurity = () => {
+    if (ultraPinInput.trim() === "630649") {
+      setUltraUnlocked(true);
+      setUltraPinError("");
+      toast.success("Ultra-Security Zone Unlocked. Proceed with extreme caution.");
+    } else {
+      setUltraPinError("Incorrect 6-digit Master PIN. Access Denied.");
+      toast.error("Invalid Ultra-Security PIN");
+    }
+  };
+
+  const handleLockUltraSecurity = () => {
+    setUltraUnlocked(false);
+    setUltraPinInput("");
+    setUltraPinError("");
+    setCandidateToErase(null);
+    setEraseSearchQuery("");
+    setEraseUserPinInput("");
+    setPortalConfirmPhrase("");
+    setPortalPinInput("");
+    setPortalWipeCountdown(null);
+    toast.info("Ultra-Security Zone locked.");
+  };
+
+  const handleSearchCandidateToErase = async () => {
+    if (!eraseSearchQuery.trim()) {
+      toast.error("Please enter a User ID, Email, or Phone number.");
+      return;
+    }
+    setEraseSearching(true);
+    try {
+      const res = await fetch("/api/super-admin/ultra-security", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "GET_USER_PREVIEW",
+          identifier: eraseSearchQuery.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setCandidateToErase(data.user);
+        toast.success("Candidate record retrieved.");
+      } else {
+        toast.error(data.error || "User not found.");
+        setCandidateToErase(null);
+      }
+    } catch (err) {
+      toast.error("Network error fetching user preview.");
+    } finally {
+      setEraseSearching(false);
+    }
+  };
+
+  const handleEraseSingleUser = async () => {
+    if (!candidateToErase?.uid) return;
+    if (eraseUserPinInput.trim() !== "630649") {
+      toast.error("Invalid 6-digit Security PIN. Enter 630649 to authorize erase.");
+      return;
+    }
+    setEraseUserLoading(true);
+    try {
+      const res = await fetch("/api/super-admin/ultra-security", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "ERASE_USER",
+          pin: eraseUserPinInput.trim(),
+          userId: candidateToErase.uid,
+          actorId: profile?.uid || "super_admin",
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(data.message || "User data permanently erased.");
+        setCandidateToErase(null);
+        setEraseSearchQuery("");
+        setEraseUserPinInput("");
+      } else {
+        toast.error(data.error || "Failed to erase user.");
+      }
+    } catch (err) {
+      toast.error("Network error during erase operation.");
+    } finally {
+      setEraseUserLoading(false);
+    }
+  };
+
+  const handleInitiatePortalWipe = async () => {
+    if (portalConfirmPhrase.trim() !== "ERASE ENTIRE PORTAL DATA") {
+      toast.error('You must type "ERASE ENTIRE PORTAL DATA" exactly.');
+      return;
+    }
+    if (portalPinInput.trim() !== "630649") {
+      toast.error("Invalid 6-digit Master PIN. Enter 630649 to authorize full wipe.");
+      return;
+    }
+
+    setPortalWipeCountdown(5);
+    let counter = 5;
+    const interval = setInterval(async () => {
+      counter--;
+      if (counter > 0) {
+        setPortalWipeCountdown(counter);
+      } else {
+        clearInterval(interval);
+        setPortalWipeCountdown(null);
+        setPortalWipeLoading(true);
+        try {
+          const res = await fetch("/api/super-admin/ultra-security", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "ERASE_PORTAL_DATA",
+              pin: portalPinInput.trim(),
+              confirmationPhrase: portalConfirmPhrase.trim(),
+              actorId: profile?.uid || "super_admin",
+            }),
+          });
+          const data = await res.json();
+          if (res.ok && data.success) {
+            setPortalWipeReport(data.report || {});
+            toast.success("Portal data erased. Factory reset complete!");
+            fetchMetrics();
+          } else {
+            toast.error(data.error || "Platform wipe failed.");
+          }
+        } catch (err) {
+          toast.error("Error executing platform wipe.");
+        } finally {
+          setPortalWipeLoading(false);
+        }
+      }
+    }, 1000);
+  };
 
   const fetchMetrics = React.useCallback(async () => {
     try {
@@ -948,6 +1107,268 @@ export default function SuperAdminEmergencyControlCenter() {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* ULTRA SECURITY ZONE: PIN 630649 PROTECTED (WIPE USER & PORTAL DATA) */}
+      {/* ========================================================================= */}
+      <div className="mt-8 rounded-3xl border-2 border-rose-600/40 bg-slate-950 p-6 sm:p-8 text-white shadow-2xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 -mt-12 -mr-12 h-64 w-64 rounded-full bg-rose-600/15 blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-0 -mb-12 -ml-12 h-64 w-64 rounded-full bg-red-800/15 blur-3xl pointer-events-none" />
+
+        <div className="relative z-10 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-rose-900/50 pb-5">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-rose-950/80 border border-rose-500/50 rounded-2xl text-rose-400 shadow-lg shadow-rose-900/40">
+                <ShieldAlert className="h-7 w-7" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-rose-900/70 text-rose-300 border border-rose-500/40">
+                    Maximum Security Level
+                  </span>
+                  {ultraUnlocked && (
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-emerald-950 text-emerald-400 border border-emerald-600/40 animate-pulse">
+                      Session Unlocked
+                    </span>
+                  )}
+                </div>
+                <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white mt-1">
+                  Ultra-Security Zone (Targeted Data Erase & Factory Reset)
+                </h2>
+                <p className="text-xs text-rose-300/80 mt-0.5">
+                  Restricted to platform root administrator. Requires Master Security PIN verification.
+                </p>
+              </div>
+            </div>
+
+            {ultraUnlocked && (
+              <button
+                onClick={handleLockUltraSecurity}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+              >
+                <Lock className="h-3.5 w-3.5" />
+                Lock Ultra Security
+              </button>
+            )}
+          </div>
+
+          {!ultraUnlocked ? (
+            /* PIN Gate Modal/Screen */
+            <div className="max-w-md mx-auto py-8 text-center space-y-5">
+              <div className="w-14 h-14 mx-auto rounded-2xl bg-rose-950/60 border border-rose-500/30 flex items-center justify-center text-rose-400 shadow-inner">
+                <KeyRound className="h-7 w-7" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Enter 6-Digit Master Security PIN</h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Single-user wipe and platform factory reset require direct PIN authorization.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <div className="relative max-w-xs mx-auto">
+                  <input
+                    type="password"
+                    maxLength={6}
+                    inputMode="numeric"
+                    placeholder="••••••"
+                    value={ultraPinInput}
+                    onChange={(e) => {
+                      setUltraPinInput(e.target.value.replace(/\D/g, ""));
+                      setUltraPinError("");
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleUnlockUltraSecurity();
+                    }}
+                    className="w-full py-3 px-4 text-center tracking-[0.6em] font-mono text-xl font-bold bg-slate-900 border-2 border-rose-500/40 rounded-2xl text-white focus:outline-none focus:border-rose-400 placeholder:text-slate-600 shadow-inner"
+                  />
+                </div>
+
+                {ultraPinError && (
+                  <p className="text-xs font-bold text-rose-400 animate-shake">{ultraPinError}</p>
+                )}
+
+                <button
+                  onClick={handleUnlockUltraSecurity}
+                  className="w-full max-w-xs mx-auto px-6 py-3 rounded-2xl font-bold text-sm bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white shadow-xl shadow-rose-950/50 cursor-pointer flex items-center justify-center gap-2 transition"
+                >
+                  <KeyRound className="h-4 w-4" />
+                  Unlock Ultra-Security Zone
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Unlocked Controls */
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2">
+              {/* Option 1: Targeted Single User Erase */}
+              <div className="rounded-2xl bg-slate-900/90 border border-slate-800 p-6 space-y-4">
+                <div className="flex items-center gap-2.5 text-rose-400">
+                  <UserX className="h-5 w-5" />
+                  <h3 className="text-base font-bold text-white">Targeted User Data Erase</h3>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Search and permanently erase any student, teacher, or staff account along with all their records and authentication credentials.
+                </p>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-400">Candidate Search (UID, Email, or Phone):</label>
+                    <div className="flex gap-2 mt-1">
+                      <input
+                        type="text"
+                        placeholder="e.g. user@school.com, 9876543210, or UID"
+                        value={eraseSearchQuery}
+                        onChange={(e) => setEraseSearchQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleSearchCandidateToErase();
+                        }}
+                        className="flex-1 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-rose-500"
+                      />
+                      <button
+                        onClick={handleSearchCandidateToErase}
+                        disabled={eraseSearching}
+                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition"
+                      >
+                        {eraseSearching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+                        Preview
+                      </button>
+                    </div>
+                  </div>
+
+                  {candidateToErase && (
+                    <div className="p-4 rounded-xl bg-slate-950 border border-rose-900/40 space-y-3">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                        <div>
+                          <div className="font-bold text-white text-sm">{candidateToErase.name}</div>
+                          <div className="text-[11px] text-slate-400">{candidateToErase.email} • {candidateToErase.phone}</div>
+                        </div>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-slate-800 text-slate-300 border border-slate-700">
+                          {candidateToErase.role}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400">
+                        <div>UID: <span className="font-mono text-slate-200">{candidateToErase.uid.substring(0, 12)}...</span></div>
+                        <div>School: <span className="text-slate-200">{candidateToErase.schoolName || candidateToErase.schoolId || "None"}</span></div>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                        <label className="text-[11px] font-bold text-rose-400">Confirm with Master PIN (630649):</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="password"
+                            maxLength={6}
+                            placeholder="Enter 630649"
+                            value={eraseUserPinInput}
+                            onChange={(e) => setEraseUserPinInput(e.target.value.replace(/\D/g, ""))}
+                            className="flex-1 px-3 py-2 bg-slate-900 border border-rose-700/50 rounded-xl text-xs font-mono tracking-widest text-white text-center focus:outline-none"
+                          />
+                          <button
+                            onClick={handleEraseSingleUser}
+                            disabled={eraseUserLoading || eraseUserPinInput.length !== 6}
+                            className="px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition shadow-lg shadow-rose-950"
+                          >
+                            {eraseUserLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                            Permanently Erase
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Option 2: Complete Platform Factory Reset (Nuke & Clean Start) */}
+              <div className="rounded-2xl bg-rose-950/20 border-2 border-rose-600/40 p-6 space-y-4">
+                <div className="flex items-center gap-2.5 text-rose-400">
+                  <Skull className="h-5 w-5" />
+                  <h3 className="text-base font-bold text-white">Full Platform Factory Reset</h3>
+                </div>
+                <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-500/30 text-xs text-rose-200 space-y-1">
+                  <div className="font-bold flex items-center gap-1.5 text-rose-300">
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+                    Destructive Action - Fresh Platform Start
+                  </div>
+                  <p className="text-[11px] text-rose-200/90 leading-relaxed">
+                    Wipes all registered schools, students, teachers, fee ledgers, notices, inquiries, sessions, and activity records. <strong>Your Super Admin root account is strictly preserved</strong> so you can re-configure the system cleanly.
+                  </p>
+                </div>
+
+                {portalWipeReport ? (
+                  <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-500/40 space-y-2">
+                    <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
+                      <CheckCircle2 className="h-5 w-5" />
+                      Platform Successfully Reset to Factory State!
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 text-[11px] text-slate-300">
+                      {Object.entries(portalWipeReport).map(([col, cnt]) => (
+                        <div key={col} className="truncate">
+                          {col}: <span className="font-bold text-white">{cnt}</span> wiped
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-400">
+                        Type confirmation phrase <span className="text-rose-400 font-mono">ERASE ENTIRE PORTAL DATA</span>:
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="ERASE ENTIRE PORTAL DATA"
+                        value={portalConfirmPhrase}
+                        onChange={(e) => setPortalConfirmPhrase(e.target.value)}
+                        className="w-full mt-1 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-mono text-white placeholder:text-slate-600 focus:outline-none focus:border-rose-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-400">6-Digit Master PIN:</label>
+                      <input
+                        type="password"
+                        maxLength={6}
+                        placeholder="Enter 630649"
+                        value={portalPinInput}
+                        onChange={(e) => setPortalPinInput(e.target.value.replace(/\D/g, ""))}
+                        className="w-full mt-1 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-mono tracking-widest text-center text-white focus:outline-none focus:border-rose-500"
+                      />
+                    </div>
+
+                    <button
+                      onClick={handleInitiatePortalWipe}
+                      disabled={
+                        portalWipeLoading ||
+                        portalWipeCountdown !== null ||
+                        portalConfirmPhrase !== "ERASE ENTIRE PORTAL DATA" ||
+                        portalPinInput.length !== 6
+                      }
+                      className="w-full py-3 rounded-xl font-bold text-xs bg-red-600 hover:bg-red-500 disabled:opacity-30 text-white shadow-xl shadow-red-950 flex items-center justify-center gap-2 transition cursor-pointer"
+                    >
+                      {portalWipeLoading ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>Resetting Platform... Please wait</span>
+                        </>
+                      ) : portalWipeCountdown !== null ? (
+                        <>
+                          <Flame className="h-4 w-4 animate-bounce" />
+                          <span>Executing Full Reset in {portalWipeCountdown}s... Click to Cancel</span>
+                        </>
+                      ) : (
+                        <>
+                          <Skull className="h-4 w-4" />
+                          <span>NUKE & ERASE ENTIRE PORTAL DATA</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

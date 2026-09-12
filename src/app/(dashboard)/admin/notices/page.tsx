@@ -19,15 +19,24 @@ import {
   RefreshCw,
   X,
   Megaphone,
+  Check,
+  CheckCheck,
+  Eye,
+  Clock,
+  UserCheck,
+  UserX,
+  Filter,
 } from "lucide-react";
 import {
   getNoticesForAdmin,
   createNotice,
   toggleNoticeStatus,
   deleteNotice,
+  getNoticeDeliveryDetails,
+  type NoticeDeliverySummary,
 } from "@/lib/services/notice.service";
 import { getClassesWithSections } from "@/lib/services/academic.service";
-import type { Notice, NoticeAudience, NoticeStatus, SchoolClass } from "@/types";
+import type { Notice, NoticeAudience, NoticeStatus, SchoolClass, NoticeRecipientStatus } from "@/types";
 import { useEntitlement } from "@/context/EntitlementContext";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
 import { ConfirmDeleteModal } from "@/components/common/ConfirmDeleteModal";
@@ -60,6 +69,13 @@ export default function AdminNoticesPage() {
   const [deletingNotice, setDeletingNotice] = useState<Notice | null>(null);
   const [isDeletingNotice, setIsDeletingNotice] = useState(false);
 
+  // Notice Read Receipts & WhatsApp Delivery Tracking Modal State
+  const [trackingNotice, setTrackingNotice] = useState<Notice | null>(null);
+  const [deliveryData, setDeliveryData] = useState<NoticeDeliverySummary | null>(null);
+  const [isTrackingLoading, setIsTrackingLoading] = useState(false);
+  const [recipientSearch, setRecipientSearch] = useState("");
+  const [recipientStatusFilter, setRecipientStatusFilter] = useState<"ALL" | "read" | "delivered" | "sent">("ALL");
+
   const loadData = async () => {
     if (!schoolId) return;
     if (profile?.role !== "super_admin" && !canAccess("notices_announcements")) {
@@ -85,6 +101,22 @@ export default function AdminNoticesPage() {
   useEffect(() => {
     loadData();
   }, [schoolId]);
+
+  const handleOpenTracking = async (notice: Notice) => {
+    setTrackingNotice(notice);
+    setIsTrackingLoading(true);
+    setRecipientSearch("");
+    setRecipientStatusFilter("ALL");
+    try {
+      const details = await getNoticeDeliveryDetails(schoolId, notice);
+      setDeliveryData(details);
+    } catch (err) {
+      console.error("Failed to load notice delivery details:", err);
+      toast.error("Failed to load delivery receipts.");
+    } finally {
+      setIsTrackingLoading(false);
+    }
+  };
 
   const handlePublishNotice = async (e: FormEvent) => {
     e.preventDefault();
@@ -394,8 +426,40 @@ export default function AdminNoticesPage() {
                 </p>
               </div>
 
-              <div className="mt-4 pt-2 text-[11px] text-gray-400">
-                Posted by {n.createdByName || "Admin"}
+              <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800 flex flex-wrap items-center justify-between gap-3 text-[11px] text-gray-500 dark:text-gray-400">
+                <div className="flex items-center gap-1.5">
+                  <span>Posted by <strong className="font-semibold text-gray-700 dark:text-gray-300">{n.createdByName || "Admin"}</strong></span>
+                </div>
+
+                {/* WhatsApp-Style Read & Delivery Receipts Indicator */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleOpenTracking(n)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 hover:bg-sky-100 dark:hover:bg-sky-900/60 transition-colors font-medium text-xs shadow-2xs"
+                    title="Track recipient delivery and read status (WhatsApp ticks)"
+                  >
+                    {Object.keys(n.readBy || {}).length > 0 ? (
+                      <span className="flex items-center text-sky-600 dark:text-sky-400 font-bold" title="Read by users">
+                        <CheckCheck className="h-4 w-4 text-sky-500" />
+                      </span>
+                    ) : Object.keys(n.deliveredTo || {}).length > 0 ? (
+                      <span className="flex items-center text-gray-400" title="Delivered to users (logged in)">
+                        <CheckCheck className="h-4 w-4 text-gray-400" />
+                      </span>
+                    ) : (
+                      <span className="flex items-center text-gray-400" title="Dispatched / Sent (Offline)">
+                        <Check className="h-4 w-4 text-gray-400" />
+                      </span>
+                    )}
+                    <span>
+                      {Object.keys(n.readBy || {}).length} Read
+                    </span>
+                    <span className="text-sky-300 dark:text-sky-700">•</span>
+                    <span className="text-[11px] font-semibold text-sky-600 dark:text-sky-400 hover:underline">
+                      Track Receipts →
+                    </span>
+                  </button>
+                </div>
               </div>
             </div>
           ))
@@ -531,6 +595,246 @@ export default function AdminNoticesPage() {
         </EntitlementGate>
       </div>
     )}
+
+      {/* Notice Delivery & Read Receipts Modal (WhatsApp-Style Ticks) */}
+      {trackingNotice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-3xl rounded-2xl bg-white shadow-2xl dark:bg-gray-950 border border-gray-200 dark:border-gray-800 flex flex-col max-h-[90vh] overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-gray-100 dark:border-gray-800 flex items-start justify-between gap-4 bg-gray-50/50 dark:bg-gray-900/30">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
+                    Live Delivery Tracking
+                  </span>
+                  <span className="text-xs text-gray-400">• Posted {trackingNotice.date}</span>
+                </div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white mt-1">
+                  {trackingNotice.title}
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1 mt-0.5">
+                  Target: {trackingNotice.audience} {trackingNotice.className ? `(${trackingNotice.className})` : ""}
+                </p>
+              </div>
+              <button
+                onClick={() => setTrackingNotice(null)}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 overflow-y-auto space-y-5 flex-1">
+              {/* WhatsApp Tick Explanations & KPIs */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {/* Total */}
+                <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-900/60 border border-gray-200/80 dark:border-gray-800">
+                  <div className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Total Recipients</div>
+                  <div className="text-xl font-bold text-gray-900 dark:text-white mt-0.5">
+                    {deliveryData?.summary.total || 0}
+                  </div>
+                </div>
+
+                {/* Double Blue Tick: Read */}
+                <div className="p-3 rounded-xl bg-sky-50/70 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/60">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-sky-700 dark:text-sky-300">
+                    <CheckCheck className="h-4 w-4 text-sky-500 shrink-0" />
+                    <span>Read (Seen)</span>
+                  </div>
+                  <div className="text-xl font-bold text-sky-900 dark:text-sky-200 mt-0.5">
+                    {deliveryData?.summary.read || 0}
+                    <span className="text-xs font-normal text-sky-600 dark:text-sky-400 ml-1">
+                      ({deliveryData?.summary.readPercentage || 0}%)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Double Grey Tick: Delivered Unread */}
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                    <CheckCheck className="h-4 w-4 text-slate-400 shrink-0" />
+                    <span>Delivered</span>
+                  </div>
+                  <div className="text-xl font-bold text-slate-900 dark:text-slate-200 mt-0.5">
+                    {deliveryData?.summary.delivered || 0}
+                  </div>
+                </div>
+
+                {/* Single Grey Tick: Offline / Sent */}
+                <div className="p-3 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/70 dark:border-amber-900/40">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+                    <Check className="h-4 w-4 text-amber-500 shrink-0" />
+                    <span>Offline (Sent)</span>
+                  </div>
+                  <div className="text-xl font-bold text-amber-900 dark:text-amber-200 mt-0.5">
+                    {deliveryData?.summary.offline || 0}
+                  </div>
+                </div>
+              </div>
+
+              {/* Search & Filter Bar */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-1">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search candidate by name or class..."
+                    value={recipientSearch}
+                    onChange={(e) => setRecipientSearch(e.target.value)}
+                    className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500"
+                  />
+                </div>
+
+                {/* Filter Tabs */}
+                <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-900 p-1 rounded-lg text-xs overflow-x-auto">
+                  {(["ALL", "read", "delivered", "sent"] as const).map((filterKey) => (
+                    <button
+                      key={filterKey}
+                      onClick={() => setRecipientStatusFilter(filterKey)}
+                      className={`px-2.5 py-1 rounded-md font-medium text-[11px] whitespace-nowrap transition-colors ${
+                        recipientStatusFilter === filterKey
+                          ? "bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-xs"
+                          : "text-gray-500 hover:text-gray-700 dark:text-gray-400"
+                      }`}
+                    >
+                      {filterKey === "ALL"
+                        ? `All (${deliveryData?.summary.total || 0})`
+                        : filterKey === "read"
+                        ? `Read (${deliveryData?.summary.read || 0})`
+                        : filterKey === "delivered"
+                        ? `Delivered (${deliveryData?.summary.delivered || 0})`
+                        : `Offline (${deliveryData?.summary.offline || 0})`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Candidate Recipients Table */}
+              {isTrackingLoading ? (
+                <div className="py-12 flex flex-col items-center justify-center gap-2">
+                  <Loader2 className="h-6 w-6 animate-spin text-sky-500" />
+                  <span className="text-xs text-gray-500">Checking delivery receipts...</span>
+                </div>
+              ) : (
+                <div className="border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden">
+                  <div className="max-h-[360px] overflow-y-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900/90 text-gray-600 dark:text-gray-300 font-semibold border-b border-gray-200 dark:border-gray-800">
+                        <tr>
+                          <th className="px-3.5 py-2.5">Candidate Name</th>
+                          <th className="px-3.5 py-2.5">Role</th>
+                          <th className="px-3.5 py-2.5">Class / Dept</th>
+                          <th className="px-3.5 py-2.5">Status (WhatsApp Ticks)</th>
+                          <th className="px-3.5 py-2.5 text-right">Read Timestamp</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 dark:divide-gray-800 bg-white dark:bg-gray-950">
+                        {(() => {
+                          const list = (deliveryData?.recipients || []).filter((r) => {
+                            if (recipientStatusFilter !== "ALL" && r.status !== recipientStatusFilter) return false;
+                            if (recipientSearch) {
+                              const q = recipientSearch.toLowerCase();
+                              return (
+                                r.name.toLowerCase().includes(q) ||
+                                (r.className && r.className.toLowerCase().includes(q)) ||
+                                (r.email && r.email.toLowerCase().includes(q))
+                              );
+                            }
+                            return true;
+                          });
+
+                          if (list.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={5} className="py-8 text-center text-gray-400 text-xs">
+                                  No candidates match the selected filter.
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return list.map((c) => (
+                            <tr key={c.userId} className="hover:bg-gray-50/70 dark:hover:bg-gray-900/40 transition-colors">
+                              <td className="px-3.5 py-2.5 font-medium text-gray-900 dark:text-white">
+                                {c.name}
+                                {c.email && (
+                                  <div className="text-[10px] text-gray-400 font-normal">{c.email}</div>
+                                )}
+                              </td>
+                              <td className="px-3.5 py-2.5">
+                                <span
+                                  className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${
+                                    c.role === "teacher"
+                                      ? "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300"
+                                      : "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+                                  }`}
+                                >
+                                  {c.role}
+                                </span>
+                              </td>
+                              <td className="px-3.5 py-2.5 text-gray-600 dark:text-gray-300">
+                                {c.className || "—"}
+                              </td>
+                              <td className="px-3.5 py-2.5">
+                                {c.status === "read" ? (
+                                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 text-[11px] font-semibold">
+                                    <CheckCheck className="h-3.5 w-3.5 text-sky-500" />
+                                    <span>Read</span>
+                                  </div>
+                                ) : c.status === "delivered" ? (
+                                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[11px] font-semibold">
+                                    <CheckCheck className="h-3.5 w-3.5 text-slate-400" />
+                                    <span>Delivered (Unread)</span>
+                                  </div>
+                                ) : (
+                                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 text-[11px] font-semibold">
+                                    <Check className="h-3.5 w-3.5 text-amber-500" />
+                                    <span>Offline (Not Seen)</span>
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-3.5 py-2.5 text-right font-mono text-[11px] text-gray-500 dark:text-gray-400">
+                                {c.readAt ? (
+                                  new Date(c.readAt).toLocaleString("en-IN", {
+                                    day: "numeric",
+                                    month: "short",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })
+                                ) : c.deliveredAt ? (
+                                  <span className="text-gray-400">Active {new Date(c.deliveredAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>
+                                ) : (
+                                  <span className="text-gray-400">Offline</span>
+                                )}
+                              </td>
+                            </tr>
+                          ));
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/20 text-xs text-gray-500">
+              <div className="flex items-center gap-3">
+                <span className="inline-flex items-center gap-1"><Check className="h-3.5 w-3.5 text-gray-400" /> Single Tick = Offline</span>
+                <span className="inline-flex items-center gap-1"><CheckCheck className="h-3.5 w-3.5 text-gray-400" /> Double Grey = Logged In</span>
+                <span className="inline-flex items-center gap-1 text-sky-600 dark:text-sky-400 font-medium"><CheckCheck className="h-3.5 w-3.5 text-sky-500" /> Double Blue = Read</span>
+              </div>
+              <button
+                onClick={() => setTrackingNotice(null)}
+                className="px-4 py-1.5 rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Global Delete Confirmation Modal */}
       <ConfirmDeleteModal
