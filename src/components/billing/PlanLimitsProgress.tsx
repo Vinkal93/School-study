@@ -13,6 +13,7 @@ export interface UsageMetricItem {
 }
 
 export interface PlanLimitsProgressProps {
+  planName?: string;
   usage: {
     students: { current: number; limit: number };
     teachers: { current: number; limit: number };
@@ -27,13 +28,16 @@ export interface PlanLimitsProgressProps {
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 MB";
+  if (bytes < 0) return "Unlimited";
   const k = 1024;
   const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
 }
 
-export function PlanLimitsProgress({ usage, onUpgrade }: PlanLimitsProgressProps) {
+export function PlanLimitsProgress({ planName, usage, onUpgrade }: PlanLimitsProgressProps) {
+  const isUnlimitedPlan = usage.students.limit === -1;
+
   const metrics: UsageMetricItem[] = [
     {
       key: "students",
@@ -67,23 +71,30 @@ export function PlanLimitsProgress({ usage, onUpgrade }: PlanLimitsProgressProps
       key: "parents",
       label: "Parent Accounts",
       icon: HeartHandshake,
-      current: usage.parents?.current || 0,
-      limit: usage.parents?.limit || 2000,
+      current: usage.parents?.current ?? 0,
+      limit: usage.parents?.limit ?? (isUnlimitedPlan ? -1 : usage.students.limit),
     },
     {
       key: "storage",
       label: "Cloud Storage",
       icon: HardDrive,
-      current: usage.storage ? Math.round(usage.storage.currentBytes / (1024 * 1024)) : 480, // MB
-      limit: usage.storage ? Math.round(usage.storage.limitBytes / (1024 * 1024)) : 10240, // 10 GB in MB
+      current: usage.storage ? Math.round(usage.storage.currentBytes / (1024 * 1024)) : 0, // MB
+      limit:
+        usage.storage?.limitBytes === -1
+          ? -1
+          : usage.storage
+          ? Math.round(usage.storage.limitBytes / (1024 * 1024))
+          : isUnlimitedPlan
+          ? -1
+          : 2048, // 2 GB in MB
       unit: "MB",
     },
     {
       key: "notifications",
-      label: "Monthly Notifications",
+      label: "Monthly Circulars & Notices",
       icon: BellRing,
-      current: usage.monthlyNotifications?.current || 0,
-      limit: usage.monthlyNotifications?.limit || 10000,
+      current: usage.monthlyNotifications?.current ?? 0,
+      limit: usage.monthlyNotifications?.limit ?? (isUnlimitedPlan ? -1 : 2000),
     },
   ];
 
@@ -91,12 +102,19 @@ export function PlanLimitsProgress({ usage, onUpgrade }: PlanLimitsProgressProps
     <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
         <div>
-          <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-            <span>Plan Capacity & Resource Limits</span>
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+              <span>Plan Capacity & Resource Limits</span>
+            </h3>
+            {planName && (
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                {planName}
+              </span>
+            )}
+          </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Real-time server calculated usage against your subscription limits.
+            Real-time server calculated usage against your {planName || "active subscription"} plan limits.
           </p>
         </div>
 

@@ -55,26 +55,39 @@ export async function reconcileSchoolUsage(
   }
 
   try {
-    const [studentsSnap, teachersSnap, classesSnap, staffSnap] = await Promise.all([
-      getDocs(collection(db, "schools", schoolId, "students")),
-      getDocs(collection(db, "schools", schoolId, "teachers")),
-      getDocs(collection(db, "schools", schoolId, "classes")),
-      getDocs(
-        query(
-          collection(db, "users"),
-          where("schoolId", "==", schoolId),
-          where("role", "==", "school_admin")
-        )
-      ),
+    const [
+      studentsSub,
+      studentsRoot,
+      teachersSub,
+      teachersRoot,
+      classesSub,
+      classesRoot,
+      usersSnap,
+    ] = await Promise.all([
+      getDocs(collection(db, "schools", schoolId, "students")).catch(() => ({ size: 0 })),
+      getDocs(query(collection(db, "students"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0 })),
+      getDocs(collection(db, "schools", schoolId, "teachers")).catch(() => ({ size: 0 })),
+      getDocs(query(collection(db, "teachers"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0 })),
+      getDocs(collection(db, "schools", schoolId, "classes")).catch(() => ({ size: 0 })),
+      getDocs(query(collection(db, "classes"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0 })),
+      getDocs(query(collection(db, "users"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0, docs: [] })),
     ]);
+
+    let staffCount = 0;
+    if ((usersSnap as any).docs) {
+      (usersSnap as any).docs.forEach((d: any) => {
+        const r = d.data()?.role;
+        if (r === "school_admin" || r === "admin" || r === "staff") staffCount++;
+      });
+    }
 
     const now = new Date().toISOString();
     const usageData: SchoolUsage = {
       schoolId,
-      students: studentsSnap.size,
-      teachers: teachersSnap.size,
-      classes: classesSnap.size,
-      staff: staffSnap.size,
+      students: Math.max(studentsSub.size || 0, studentsRoot.size || 0),
+      teachers: Math.max(teachersSub.size || 0, teachersRoot.size || 0),
+      classes: Math.max(classesSub.size || 0, classesRoot.size || 0),
+      staff: Math.max(1, staffCount),
       lastReconciledAt: now,
       updatedAt: now,
     };

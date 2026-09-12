@@ -175,6 +175,38 @@ export default function SchoolAdminSubscriptionCommandCenter() {
           createdAt: new Date().toISOString(),
         };
 
+  const planLimits = (effectivePlan?.limits || effectivePlanVersion?.limits || {}) as any;
+  const effectiveUsage = {
+    students: {
+      current: bundle?.usage?.students?.current ?? 0,
+      limit: bundle?.usage?.students?.limit ?? planLimits.maxStudents ?? 500,
+    },
+    teachers: {
+      current: bundle?.usage?.teachers?.current ?? 0,
+      limit: bundle?.usage?.teachers?.limit ?? planLimits.maxTeachers ?? 20,
+    },
+    classes: {
+      current: bundle?.usage?.classes?.current ?? 0,
+      limit: bundle?.usage?.classes?.limit ?? planLimits.maxClasses ?? 15,
+    },
+    staffAccounts: {
+      current: bundle?.usage?.staffAccounts?.current ?? 1,
+      limit: bundle?.usage?.staffAccounts?.limit ?? planLimits.maxStaffAccounts ?? 2,
+    },
+    parents: {
+      current: bundle?.usage?.parents?.current ?? 0,
+      limit: bundle?.usage?.parents?.limit ?? planLimits.maxParents ?? (planLimits.maxStudents ?? 500),
+    },
+    storage: {
+      currentBytes: bundle?.usage?.storage?.currentBytes ?? 0,
+      limitBytes: bundle?.usage?.storage?.limitBytes ?? planLimits.maxStorageBytes ?? (2 * 1024 * 1024 * 1024),
+    },
+    monthlyNotifications: {
+      current: bundle?.usage?.monthlyNotifications?.current ?? 0,
+      limit: bundle?.usage?.monthlyNotifications?.limit ?? planLimits.maxNotifications ?? 2000,
+    },
+  };
+
   const loading = isBundleLoading && !bundle && !liveSub;
 
   // Debounced listener refetch to eliminate screen jump and value flicker
@@ -414,17 +446,18 @@ export default function SchoolAdminSubscriptionCommandCenter() {
 
           {/* 4. Plan Limits & Resource Capacity */}
           <PlanLimitsProgress
-            usage={usage}
+            planName={effectivePlan?.name || "Base Plan"}
+            usage={effectiveUsage}
             onUpgrade={() => openRecharge(effectivePlanId === "plan_starter" ? "plan_professional" : "plan_enterprise")}
           />
 
           {/* 5. Resource Usage Over Time Line Graph */}
           <UsageGraphSection
-            studentCount={usage.students.current}
-            teacherCount={usage.teachers.current}
-            classCount={usage.classes.current}
-            storageBytes={usage.storage?.currentBytes || 480 * 1024 * 1024}
-            notificationCount={usage.monthlyNotifications?.current || 0}
+            studentCount={effectiveUsage.students.current}
+            teacherCount={effectiveUsage.teachers.current}
+            classCount={effectiveUsage.classes.current}
+            storageBytes={effectiveUsage.storage?.currentBytes || 0}
+            notificationCount={effectiveUsage.monthlyNotifications?.current || 0}
           />
 
           {/* 6. Included Features Summary */}

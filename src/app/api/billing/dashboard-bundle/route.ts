@@ -198,40 +198,80 @@ export async function GET(request: Request) {
     let realNoticeCount = 0;
 
     try {
-      const [stuSnap, teaSnap, clsSnap, usrSnap, notSnap] = await Promise.all([
+      // 1. Students: subcollection schools/{id}/students OR root students
+      const [subStudents, rootStudents] = await Promise.all([
+        getDocs(collection(db, "schools", schoolId, "students")).catch(() => ({ size: 0, docs: [] })),
         getDocs(query(collection(db, "students"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0, docs: [] })),
-        getDocs(query(collection(db, "teachers"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0, docs: [] })),
-        getDocs(query(collection(db, "classes"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0, docs: [] })),
-        getDocs(query(collection(db, "users"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0, docs: [] })),
-        getDocs(query(collection(db, "notices"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0, docs: [] })),
       ]);
+      const subStuDocs = (subStudents as any).docs || [];
+      const rootStuDocs = (rootStudents as any).docs || [];
+      realStudentCount = Math.max(subStudents.size || subStuDocs.length || 0, rootStudents.size || rootStuDocs.length || 0);
 
-      realStudentCount = (stuSnap as any).size || 0;
-      realTeacherCount = (teaSnap as any).size || 0;
-      realClassCount = (clsSnap as any).size || 0;
-      realNoticeCount = (notSnap as any).size || 0;
+      // 2. Teachers: subcollection schools/{id}/teachers OR root teachers
+      const [subTeachers, rootTeachers] = await Promise.all([
+        getDocs(collection(db, "schools", schoolId, "teachers")).catch(() => ({ size: 0, docs: [] })),
+        getDocs(query(collection(db, "teachers"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0, docs: [] })),
+      ]);
+      const subTeaDocs = (subTeachers as any).docs || [];
+      const rootTeaDocs = (rootTeachers as any).docs || [];
+      realTeacherCount = Math.max(subTeachers.size || subTeaDocs.length || 0, rootTeachers.size || rootTeaDocs.length || 0);
 
+      // 3. Classes: subcollection schools/{id}/classes OR root classes
+      const [subClasses, rootClasses] = await Promise.all([
+        getDocs(collection(db, "schools", schoolId, "classes")).catch(() => ({ size: 0, docs: [] })),
+        getDocs(query(collection(db, "classes"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0, docs: [] })),
+      ]);
+      const subClsDocs = (subClasses as any).docs || [];
+      const rootClsDocs = (rootClasses as any).docs || [];
+      realClassCount = Math.max(subClasses.size || subClsDocs.length || 0, rootClasses.size || rootClsDocs.length || 0);
+
+      // 4. Users: staff, admins, parents
+      const usrSnap = await getDocs(query(collection(db, "users"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0, docs: [] }));
       if ((usrSnap as any).docs) {
         (usrSnap as any).docs.forEach((doc: any) => {
           const data = doc.data();
-          if (data.role === "staff" || data.role === "admin") realStaffCount++;
+          if (data.role === "staff" || data.role === "admin" || data.role === "school_admin") realStaffCount++;
           if (data.role === "parent") realParentCount++;
         });
       }
+
+      // Count parent phone numbers from student records if parents aren't separate user records
+      if (realParentCount === 0 && subStuDocs.length > 0) {
+        const parentPhones = new Set<string>();
+        subStuDocs.forEach((doc: any) => {
+          const p = doc.data()?.parentPhone || doc.data()?.fatherPhone || doc.data()?.guardianPhone;
+          if (p) parentPhones.add(p);
+        });
+        realParentCount = parentPhones.size;
+      }
+
+      // 5. Notices: notices where schoolId == schoolId
+      const notSnap = await getDocs(query(collection(db, "notices"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0, docs: [] }));
+      realNoticeCount = (notSnap as any).size || (notSnap as any).docs?.length || 0;
     } catch (err) {
       console.warn("[DashboardBundleAPI] Error calculating usage metrics:", err);
     }
 
-    const storageBytes = realStudentCount * 120 * 1024 + realTeacherCount * 250 * 1024;
+    const storageBytes = realStudentCount * 120 * 1024 + realTeacherCount * 250 * 1024 + realNoticeCount * 50 * 1024;
+
+    const effectivePlanLimits: any = plan?.limits || planVersion?.limits || entitlement?.limits || {};
+    
+    const studentLimit = typeof effectivePlanLimits.maxStudents === "number" ? effectivePlanLimits.maxStudents : (entitlement?.limits?.students?.limit ?? 500);
+    const teacherLimit = typeof effectivePlanLimits.maxTeachers === "number" ? effectivePlanLimits.maxTeachers : (entitlement?.limits?.teachers?.limit ?? 20);
+    const classLimit = typeof effectivePlanLimits.maxClasses === "number" ? effectivePlanLimits.maxClasses : (entitlement?.limits?.classes?.limit ?? 15);
+    const staffLimit = typeof effectivePlanLimits.maxStaffAccounts === "number" ? effectivePlanLimits.maxStaffAccounts : (entitlement?.limits?.staff?.limit ?? 2);
+    const parentLimit = typeof effectivePlanLimits.maxParents === "number" ? effectivePlanLimits.maxParents : (studentLimit === -1 ? -1 : studentLimit);
+    const storageLimitBytes = typeof effectivePlanLimits.maxStorageBytes === "number" ? effectivePlanLimits.maxStorageBytes : (studentLimit === -1 ? -1 : 2 * 1024 * 1024 * 1024);
+    const notificationLimit = typeof effectivePlanLimits.maxNotifications === "number" ? effectivePlanLimits.maxNotifications : (studentLimit === -1 ? -1 : 2000);
 
     const usage = {
-      students: { current: realStudentCount, limit: entitlement.limits?.students?.limit || 500 },
-      teachers: { current: realTeacherCount, limit: entitlement.limits?.teachers?.limit || 20 },
-      classes: { current: realClassCount, limit: entitlement.limits?.classes?.limit || 15 },
-      staffAccounts: { current: Math.max(1, realStaffCount), limit: entitlement.limits?.staff?.limit || 2 },
-      parents: { current: realParentCount, limit: 2000 },
-      storage: { currentBytes: storageBytes, limitBytes: 10 * 1024 * 1024 * 1024 },
-      monthlyNotifications: { current: realNoticeCount * 15, limit: 10000 },
+      students: { current: realStudentCount, limit: studentLimit },
+      teachers: { current: realTeacherCount, limit: teacherLimit },
+      classes: { current: realClassCount, limit: classLimit },
+      staffAccounts: { current: Math.max(1, realStaffCount), limit: staffLimit },
+      parents: { current: realParentCount, limit: parentLimit },
+      storage: { currentBytes: storageBytes, limitBytes: storageLimitBytes },
+      monthlyNotifications: { current: realNoticeCount, limit: notificationLimit },
     };
 
     // 5. Billing Profile
