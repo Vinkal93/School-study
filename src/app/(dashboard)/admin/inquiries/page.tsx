@@ -6,6 +6,7 @@ import { ModernInquiryPortal2_0 } from "@/components/inquiries/ModernInquiryPort
 import { useSearchParams } from "next/navigation";
 import { usePortalUI } from "@/context/portal-ui-context";
 import { MessageSquare, RefreshCw, Sparkles, AlertCircle } from "lucide-react";
+import { EntitlementGate } from "@/components/common/EntitlementGate";
 
 export default function SchoolAdminInquiriesPage() {
   const { profile, loading } = useAuth();
@@ -34,12 +35,19 @@ export default function SchoolAdminInquiriesPage() {
 
   return (
     <div className="max-w-7xl mx-auto">
-      <ModernInquiryPortal2_0
-        portalType="schoolAdmin"
-        schoolId={profile?.schoolId || undefined}
-        onSwitchToClassic={() => setViewVersion("classic")}
-        currentVersion={viewVersion}
-      />
+      <EntitlementGate
+        feature="inquiries_portal"
+        title="Admission & Parent Inquiries"
+        description="Manage prospective student admissions, parent leads, and campus visit inquiries. This module is available from Professional Plan."
+        requiredPlan="Professional Plan"
+      >
+        <ModernInquiryPortal2_0
+          portalType="schoolAdmin"
+          schoolId={profile?.schoolId || undefined}
+          onSwitchToClassic={() => setViewVersion("classic")}
+          currentVersion={viewVersion}
+        />
+      </EntitlementGate>
     </div>
   );
 }

@@ -1,7 +1,6 @@
 "use client";
-
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { doc, onSnapshot, setDoc, getDocs, collection } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, getDocs, collection, deleteDoc } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { toast } from "sonner";
 import { safeFetchJson } from "@/lib/utils/safeFetch";
@@ -216,6 +215,20 @@ export default function SuperAdminFeatureControlPage() {
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
+  // Real-time broadcast helper across windows/tabs
+  const notifyRealtimeSync = (type: string, payload?: any) => {
+    try {
+      if (typeof window !== "undefined") {
+        if ("BroadcastChannel" in window) {
+          const ch = new BroadcastChannel("school_study_realtime_sync");
+          ch.postMessage({ type, timestamp: Date.now(), ...payload });
+          ch.close();
+        }
+        localStorage.setItem("school_study_features_updated", String(Date.now()));
+      }
+    } catch {}
+  };
+
   // Handle instant toggle for a feature/module/action (Optimistic UI)
   const handleToggleState = async (
     feature: FeatureDefinition,
@@ -271,6 +284,7 @@ export default function SuperAdminFeatureControlPage() {
     } catch (fsErr) {
       console.warn("Direct feature write notice:", fsErr);
     }
+    notifyRealtimeSync("FEATURES_UPDATED", { featureId: fId, enabled: newEnabled });
 
     try {
       const headers = await getAuthHeaders();
@@ -343,6 +357,7 @@ export default function SuperAdminFeatureControlPage() {
         }, { merge: true }).catch(() => {});
       }
     } catch (e) {}
+    notifyRealtimeSync("FEATURES_UPDATED", { featureId: rolloutFeatureId, rolloutMode });
 
     try {
       setRolloutSaving(true);
@@ -397,6 +412,7 @@ export default function SuperAdminFeatureControlPage() {
       if (db) {
         await setDoc(doc(db, "schoolFeatureOverrides", overrideId), overridePayload).catch(() => {});
       }
+      notifyRealtimeSync("FEATURE_OVERRIDE_UPDATED", { schoolId: newOverrideSchoolId, featureId: newOverrideFeatureId });
 
       const headers = await getAuthHeaders();
       await safeFetchJson("/api/super-admin/features/overrides", {
@@ -435,6 +451,11 @@ export default function SuperAdminFeatureControlPage() {
     const key = id || `${schoolId}_${featureId}`;
     try {
       setDeletingOverrideId(key);
+      const db = getFirebaseDb();
+      if (db && id) {
+        deleteDoc(doc(db, "schoolFeatureOverrides", id)).catch(() => {});
+      }
+      notifyRealtimeSync("FEATURE_OVERRIDE_UPDATED", { id, schoolId, featureId });
       const headers = await getAuthHeaders();
       const url = id
         ? `/api/super-admin/features/overrides?id=${id}`

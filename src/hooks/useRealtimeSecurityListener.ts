@@ -37,38 +37,37 @@ export function useRealtimeSecurityListener() {
           toast.error("Your account has been suspended or blocked by administration.");
           const auth = getFirebaseAuth();
           if (auth) auth.signOut();
+          if (typeof window !== "undefined") {
+            localStorage.removeItem("school_study_session_login_time");
+            sessionStorage.removeItem("school_study_impersonation_user");
+          }
           setTimeout(() => {
             window.location.href = "/login?reason=account_suspended";
-          }, 800);
+          }, 400);
           return;
         }
 
-        if (initialSecurityVersionRef.current === null) {
-          // If document was updated AFTER current login with requireReLogin = true
-          if (data.requireReLogin === true && updateTime >= loginTime) {
-            console.warn("[RealtimeSecurity] requireReLogin active on login state. Forcing logout...");
+        if (data.forceLogout === true || data.requireReLogin === true) {
+          const versionBumped = typeof data.securityVersion === "number" && initialSecurityVersionRef.current !== null && data.securityVersion > initialSecurityVersionRef.current;
+          const isRecent = updateTime >= mountTimeRef.current - 5000;
+          if (versionBumped || isRecent || initialSecurityVersionRef.current === null) {
+            console.warn("[RealtimeSecurity] Force logout triggered on userSecurityControl.");
             toast.error("Your session has been terminated by administrator. Redirecting to login...");
             const auth = getFirebaseAuth();
             if (auth) auth.signOut();
+            if (typeof window !== "undefined") {
+              localStorage.removeItem("school_study_session_login_time");
+              sessionStorage.removeItem("school_study_impersonation_user");
+            }
             setTimeout(() => {
               window.location.href = "/login?reason=session_revoked";
-            }, 800);
+            }, 400);
             return;
           }
-          initialSecurityVersionRef.current = data.securityVersion || 1;
-        } else {
-          const versionBumped = typeof data.securityVersion === "number" && data.securityVersion > initialSecurityVersionRef.current;
-          const reLoginRequired = data.requireReLogin === true && updateTime >= mountTimeRef.current;
+        }
 
-          if (versionBumped || reLoginRequired) {
-            console.warn("[RealtimeSecurity] Security version bumped or re-login required. Forcing logout...");
-            toast.error("Your session has been terminated by administrator. Redirecting to login...");
-            const auth = getFirebaseAuth();
-            if (auth) auth.signOut();
-            setTimeout(() => {
-              window.location.href = "/login?reason=session_revoked";
-            }, 800);
-          }
+        if (initialSecurityVersionRef.current === null && data.securityVersion) {
+          initialSecurityVersionRef.current = data.securityVersion;
         }
       },
       (err) => {
@@ -78,7 +77,7 @@ export function useRealtimeSecurityListener() {
       }
     );
 
-    // 1b. Listen to User document directly for instant status change detection
+    // 1b. Listen to User document directly for instant status change and force logout detection
     const unsubUserDoc = onSnapshot(
       doc(db, "users", userId),
       (snapshot) => {
@@ -88,9 +87,29 @@ export function useRealtimeSecurityListener() {
           toast.error("Your account has been deactivated by administration.");
           const auth = getFirebaseAuth();
           if (auth) auth.signOut();
+          if (typeof window !== "undefined") {
+            localStorage.removeItem("school_study_session_login_time");
+            sessionStorage.removeItem("school_study_impersonation_user");
+          }
           setTimeout(() => {
             window.location.href = "/login?reason=account_suspended";
-          }, 800);
+          }, 400);
+          return;
+        }
+
+        if (uData.forceLogout === true || uData.requireReLogin === true) {
+          console.warn("[RealtimeSecurity] Force logout triggered on user document.");
+          toast.error("Your session has been terminated by administrator. Redirecting to login...");
+          const auth = getFirebaseAuth();
+          if (auth) auth.signOut();
+          if (typeof window !== "undefined") {
+            localStorage.removeItem("school_study_session_login_time");
+            sessionStorage.removeItem("school_study_impersonation_user");
+          }
+          setTimeout(() => {
+            window.location.href = "/login?reason=session_revoked";
+          }, 400);
+          return;
         }
       },
       (err) => {
@@ -192,11 +211,71 @@ export function useRealtimeSecurityListener() {
       );
     }
 
+    // 4. Instant multi-window / multi-tab synchronization via BroadcastChannel & storage events
+    let securityChannel: BroadcastChannel | null = null;
+    try {
+      if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+        securityChannel = new BroadcastChannel("school_study_security_channel");
+        securityChannel.onmessage = (event) => {
+          const msg = event.data;
+          if (msg && (msg.userId === userId || msg.email === profile?.email)) {
+            const isSuspended = msg.status === "suspended" || msg.type === "SUSPEND";
+            console.warn("[RealtimeSecurity] BroadcastChannel security signal received.");
+            toast.error(
+              isSuspended
+                ? "Your account has been suspended by administration."
+                : "Your session has been terminated by administrator. Redirecting to login..."
+            );
+            const auth = getFirebaseAuth();
+            if (auth) auth.signOut();
+            if (typeof window !== "undefined") {
+              localStorage.removeItem("school_study_session_login_time");
+              sessionStorage.removeItem("school_study_impersonation_user");
+            }
+            setTimeout(() => {
+              window.location.href = isSuspended ? "/login?reason=account_suspended" : "/login?reason=session_revoked";
+            }, 300);
+          }
+        };
+      }
+    } catch {}
+
+    const handleStorageSecurity = (e: StorageEvent) => {
+      if (e.key === "school_study_force_logout_event" && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (parsed && (parsed.userId === userId || parsed.email === profile?.email)) {
+            const isSuspended = parsed.status === "suspended";
+            console.warn("[RealtimeSecurity] Storage security signal received.");
+            toast.error(
+              isSuspended
+                ? "Your account has been suspended by administration."
+                : "Your session has been terminated by administrator. Redirecting to login..."
+            );
+            const auth = getFirebaseAuth();
+            if (auth) auth.signOut();
+            localStorage.removeItem("school_study_session_login_time");
+            sessionStorage.removeItem("school_study_impersonation_user");
+            setTimeout(() => {
+              window.location.href = isSuspended ? "/login?reason=account_suspended" : "/login?reason=session_revoked";
+            }, 300);
+          }
+        } catch {}
+      }
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("storage", handleStorageSecurity);
+    }
+
     return () => {
       unsubUserSecurity();
       unsubUserDoc();
       unsubGlobal();
       if (unsubSchool) unsubSchool();
+      if (securityChannel) securityChannel.close();
+      if (typeof window !== "undefined") {
+        window.removeEventListener("storage", handleStorageSecurity);
+      }
     };
   }, [userId, profile?.role, profile?.schoolId]);
 }

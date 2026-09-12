@@ -423,21 +423,40 @@ export async function updateUserSecurityControl(
   try {
     const adminDb = await getAdminDbServerOnly();
     if (adminDb) {
+      const userDocUpdate: Record<string, any> = {
+        securityVersion: updated.securityVersion,
+        userStatus: updated.status,
+        updatedAt: updated.updatedAt,
+      };
+      if (updated.status) {
+        userDocUpdate.status = updated.status.toLowerCase();
+      }
+      if (updated.requireReLogin || (updated as any).forceLogout) {
+        userDocUpdate.requireReLogin = true;
+        userDocUpdate.forceLogout = true;
+      }
+
       await adminDb.collection(USER_SECURITY_COLLECTION).doc(userId).set(updated, { merge: true });
       // Dual write to user document for resilience
-      await adminDb.collection("users").doc(userId).set(
-        {
-          securityVersion: updated.securityVersion,
-          userStatus: updated.status,
-          updatedAt: updated.updatedAt,
-        },
-        { merge: true }
-      );
+      await adminDb.collection("users").doc(userId).set(userDocUpdate, { merge: true });
     } else {
       const db = getFirebaseDb();
       if (db) {
+        const userDocUpdate: Record<string, any> = {
+          securityVersion: updated.securityVersion,
+          userStatus: updated.status,
+          updatedAt: updated.updatedAt,
+        };
+        if (updated.status) {
+          userDocUpdate.status = updated.status.toLowerCase();
+        }
+        if (updated.requireReLogin || (updated as any).forceLogout) {
+          userDocUpdate.requireReLogin = true;
+          userDocUpdate.forceLogout = true;
+        }
+
         await setDoc(doc(db, USER_SECURITY_COLLECTION, userId), updated, { merge: true });
-        await setDoc(doc(db, "users", userId), { securityVersion: updated.securityVersion, userStatus: updated.status }, { merge: true });
+        await setDoc(doc(db, "users", userId), userDocUpdate, { merge: true });
       }
     }
   } catch (err) {

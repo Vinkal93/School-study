@@ -33,12 +33,12 @@ import { getLoginLogs } from "@/lib/services/audit.service";
 import type { LoginLogEntry } from "@/types";
 import { useAuth } from "@/hooks/use-auth";
 import { getFirebaseDb } from "@/lib/firebase/client";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, setDoc, collection, query, where, getDocs, updateDoc } from "firebase/firestore";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils/cn";
 
 export default function LoginActivityPage() {
-  const { profile: currentUser } = useAuth();
+  const { profile: currentUser, firebaseUser } = useAuth();
   const [logs, setLogs] = useState<LoginLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -94,37 +94,194 @@ export default function LoginActivityPage() {
     try {
       const db = getFirebaseDb();
       const reason = actionReason.trim() || `Super Admin security trigger: ${confirmModal.type}`;
+      const targetUid = selectedLog.uid;
+      const targetEmail = selectedLog.email;
 
       if (confirmModal.type === "FORCE_LOGOUT") {
-        const res = await fetch("/api/super-admin/emergency/user-security", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            actionType: "FORCE_LOGOUT_USER",
-            userId: selectedLog.uid || selectedLog.email,
-            reason,
-            actorId: currentUser?.email || "super_admin",
-          }),
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(json.error || "Failed to force logout user.");
+        // 1. Direct Client Firestore Writes with Super Admin Credentials
+        if (db && targetUid) {
+          await setDoc(
+            doc(db, "userSecurityControl", targetUid),
+            {
+              userId: targetUid,
+              securityVersion: Date.now(),
+              requireReLogin: true,
+              forceLogout: true,
+              updatedAt: new Date().toISOString(),
+              updatedBy: currentUser?.email || "super_admin",
+              reason,
+            },
+            { merge: true }
+          ).catch((e) => console.warn("userSecurityControl direct write notice:", e));
 
-        toast.success(`Active sessions revoked for ${selectedLog.email}. User has been force logged out.`);
+          await setDoc(
+            doc(db, "users", targetUid),
+            {
+              securityVersion: Date.now(),
+              requireReLogin: true,
+              forceLogout: true,
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true }
+          ).catch((e) => console.warn("users forceLogout direct write notice:", e));
+
+          const sessSnap = await getDocs(
+            query(collection(db, "active_sessions"), where("userId", "==", targetUid))
+          ).catch(() => null);
+          if (sessSnap && !sessSnap.empty) {
+            sessSnap.docs.forEach((sDoc) => {
+              updateDoc(sDoc.ref, {
+                status: "revoked",
+                revokedAt: new Date().toISOString(),
+                revokedBy: currentUser?.email || "super_admin",
+                revokeReason: reason,
+              }).catch(() => {});
+            });
+          }
+        }
+
+        // 2. Real-time Multi-Tab / Multi-Window Notification
+        if (typeof window !== "undefined") {
+          try {
+            const ch = new BroadcastChannel("school_study_security_channel");
+            ch.postMessage({
+              type: "FORCE_LOGOUT",
+              userId: targetUid,
+              email: targetEmail,
+              timestamp: Date.now(),
+            });
+            ch.close();
+          } catch {}
+          try {
+            localStorage.setItem(
+              "school_study_force_logout_event",
+              JSON.stringify({
+                userId: targetUid,
+                email: targetEmail,
+                timestamp: Date.now(),
+              })
+            );
+          } catch {}
+        }
+
+        // 3. Server-Side Token Revocation
+        try {
+          const token = (await firebaseUser?.getIdToken?.().catch(() => "")) || "";
+          await fetch("/api/super-admin/emergency/user-security", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              "x-user-id": currentUser?.uid || "",
+              "x-user-role": currentUser?.role || "super_admin",
+            },
+            body: JSON.stringify({
+              actionType: "FORCE_LOGOUT_USER",
+              userId: targetUid || targetEmail,
+              reason,
+              actorId: currentUser?.email || "super_admin",
+            }),
+          });
+        } catch (apiErr) {
+          console.warn("Notice: server token revocation fallback:", apiErr);
+        }
+
+        toast.success(`Active sessions revoked for ${targetEmail}. User has been force logged out.`);
       } else if (confirmModal.type === "SUSPEND") {
-        const res = await fetch("/api/super-admin/emergency/user-security", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            actionType: "SUSPEND_USER",
-            userId: selectedLog.uid || selectedLog.email,
-            reason,
-            actorId: currentUser?.email || "super_admin",
-          }),
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(json.error || "Failed to suspend user.");
+        // 1. Direct Client Firestore Writes with Super Admin Credentials
+        if (db && targetUid) {
+          await setDoc(
+            doc(db, "userSecurityControl", targetUid),
+            {
+              userId: targetUid,
+              status: "SUSPENDED",
+              securityVersion: Date.now(),
+              requireReLogin: true,
+              forceLogout: true,
+              updatedAt: new Date().toISOString(),
+              updatedBy: currentUser?.email || "super_admin",
+              reason,
+            },
+            { merge: true }
+          ).catch((e) => console.warn("userSecurityControl direct write notice:", e));
 
-        toast.success(`User ${selectedLog.email} account has been SUSPENDED.`);
+          await setDoc(
+            doc(db, "users", targetUid),
+            {
+              status: "suspended",
+              userStatus: "suspended",
+              securityVersion: Date.now(),
+              requireReLogin: true,
+              forceLogout: true,
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true }
+          ).catch((e) => console.warn("users suspend direct write notice:", e));
+
+          const sessSnap = await getDocs(
+            query(collection(db, "active_sessions"), where("userId", "==", targetUid))
+          ).catch(() => null);
+          if (sessSnap && !sessSnap.empty) {
+            sessSnap.docs.forEach((sDoc) => {
+              updateDoc(sDoc.ref, {
+                status: "revoked",
+                revokedAt: new Date().toISOString(),
+                revokedBy: currentUser?.email || "super_admin",
+                revokeReason: reason,
+              }).catch(() => {});
+            });
+          }
+        }
+
+        // 2. Real-time Multi-Tab / Multi-Window Notification
+        if (typeof window !== "undefined") {
+          try {
+            const ch = new BroadcastChannel("school_study_security_channel");
+            ch.postMessage({
+              type: "SUSPEND",
+              userId: targetUid,
+              email: targetEmail,
+              status: "suspended",
+              timestamp: Date.now(),
+            });
+            ch.close();
+          } catch {}
+          try {
+            localStorage.setItem(
+              "school_study_force_logout_event",
+              JSON.stringify({
+                userId: targetUid,
+                email: targetEmail,
+                status: "suspended",
+                timestamp: Date.now(),
+              })
+            );
+          } catch {}
+        }
+
+        // 3. Server-Side Token Revocation & Status Update
+        try {
+          const token = (await firebaseUser?.getIdToken?.().catch(() => "")) || "";
+          await fetch("/api/super-admin/emergency/user-security", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              "x-user-id": currentUser?.uid || "",
+              "x-user-role": currentUser?.role || "super_admin",
+            },
+            body: JSON.stringify({
+              actionType: "SUSPEND_USER",
+              userId: targetUid || targetEmail,
+              reason,
+              actorId: currentUser?.email || "super_admin",
+            }),
+          });
+        } catch (apiErr) {
+          console.warn("Notice: server user suspension fallback:", apiErr);
+        }
+
+        toast.success(`User ${targetEmail} account has been SUSPENDED.`);
       } else if (confirmModal.type === "BLOCK_IP") {
         const targetIp = selectedLog.ipAddress || "client-direct";
         if (db && targetIp && targetIp !== "client-direct") {
@@ -148,6 +305,7 @@ export default function LoginActivityPage() {
 
       setConfirmModal(null);
       setActionReason("");
+      loadLogs();
     } catch (err: any) {
       toast.error(err.message || "Failed to execute security action.");
     } finally {

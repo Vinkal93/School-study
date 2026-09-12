@@ -34,6 +34,7 @@ import {
 import type { SchoolClass, TeacherProfile } from "@/types";
 import type { ClassBell, DayOfWeek, CreateClassBellInput } from "@/types/timetable";
 import { toast } from "sonner";
+import { EntitlementGate } from "@/components/common/EntitlementGate";
 
 const DAYS: { id: DayOfWeek; label: string }[] = [
   { id: "monday", label: "Monday" },
@@ -357,7 +358,13 @@ export default function AdminTimetablePage() {
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+    <EntitlementGate
+      feature="timetable_bells"
+      title="Timetable & Automated Period Bells"
+      description="Configure daily period timings, subject schedules, and bell alerts. Available from Professional Plan."
+      requiredPlan="Professional Plan"
+    >
+      <div className="space-y-6 max-w-7xl mx-auto pb-12">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -1002,6 +1009,7 @@ export default function AdminTimetablePage() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </EntitlementGate>
   );
 }

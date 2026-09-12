@@ -768,6 +768,20 @@ export function clearPlanCache(planId?: string): void {
   }
 }
 
+export function broadcastPlanChange(planId?: string): void {
+  clearPlanCache(planId);
+  if (typeof window !== "undefined") {
+    try {
+      if ("BroadcastChannel" in window) {
+        const bc = new BroadcastChannel("school_study_realtime_sync");
+        bc.postMessage({ type: "PLAN_UPDATED", planId, timestamp: Date.now() });
+        bc.close();
+      }
+      localStorage.setItem("school_study_plan_updated", String(Date.now()));
+    } catch {}
+  }
+}
+
 export function normalizePlanId(planId?: string): string {
   if (!planId) return "plan_starter";
   const lower = planId.toLowerCase().trim();
@@ -1026,6 +1040,7 @@ export async function createPlan(input: CreatePlanInput, actorId: string = "supe
     publicVisible: plan.publicVisible,
   });
 
+  broadcastPlanChange(planId);
   return plan;
 }
 
@@ -1169,6 +1184,7 @@ export async function updatePlan(
     publicVisible: updatedPlan.publicVisible,
   });
 
+  broadcastPlanChange(planId);
   return { plan: updatedPlan, newVersionCreated };
 }
 
@@ -1195,6 +1211,7 @@ export async function archivePlan(planId: string, actorId: string = "super_admin
     archivedAt: nowIso,
   });
 
+  broadcastPlanChange(planId);
   return { id: planSnap.id, ...planSnap.data(), ...updateData } as Plan;
 }
 
@@ -1217,6 +1234,7 @@ export async function togglePlanStatus(
     newStatus: targetStatus,
   });
 
+  broadcastPlanChange(planId);
   return { id: planSnap.id, ...planSnap.data(), status: targetStatus, updatedAt: nowIso } as Plan;
 }
 
@@ -1368,5 +1386,6 @@ export async function deletePlan(
 
   await createBillingAuditLog(actorId, "super_admin", "PLAN_DELETED", "plan", planId, {}).catch(() => {});
 
+  broadcastPlanChange(planId);
   return { success: true, archived: false, message: `Plan "${planId}" deleted successfully.` };
 }

@@ -244,6 +244,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     const unsubscribePlans = onSnapshot(
       plansRef,
       (snap) => {
+        clearPlanCache();
         if (!snap.empty) {
           snap.docs.forEach((d) => {
             const p = { id: d.id, ...d.data() } as any;
@@ -270,7 +271,13 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
         broadcastChannel = new BroadcastChannel("school_study_realtime_sync");
         broadcastChannel.onmessage = (event) => {
           const evtType = String(event.data?.type || "").toUpperCase();
-          if (evtType === "PLAN_UPDATED" && (!event.data?.schoolId || event.data?.schoolId === schoolId)) {
+          if (
+            (evtType === "PLAN_UPDATED" ||
+              evtType === "FEATURE_OVERRIDE_UPDATED" ||
+              evtType === "SUBSCRIPTION_UPDATED" ||
+              evtType === "FEATURES_UPDATED") &&
+            (!event.data?.schoolId || event.data?.schoolId === schoolId)
+          ) {
             clearPlanCache();
             clearSubscriptionCache(schoolId);
             appQueryClient.invalidateCache(`schoolProfile:${schoolId}`);
@@ -283,7 +290,11 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     } catch (bcErr) {}
 
     const handleStorageEvent = (e: StorageEvent) => {
-      if (e.key === "school_study_plan_updated") {
+      if (
+        e.key === "school_study_plan_updated" ||
+        e.key === "school_study_features_updated" ||
+        e.key === "school_study_realtime_sync"
+      ) {
         clearPlanCache();
         clearSubscriptionCache(schoolId);
         appQueryClient.invalidateCache(`schoolProfile:${schoolId}`);

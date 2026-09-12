@@ -21,6 +21,7 @@ import {
   FileText,
   HelpCircle,
 } from "lucide-react";
+import { EntitlementGate } from "@/components/common/EntitlementGate";
 import {
   subscribeToSchoolRules,
   createSchoolRule,
@@ -176,7 +177,13 @@ export default function SchoolRulesPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-[1520px] mx-auto pb-16 animate-fadeIn text-slate-800 dark:text-slate-100">
+    <EntitlementGate
+      feature="rules_policies"
+      title="Rules & Policies"
+      description="Configure behavioral rules, punctuality penalties, performance rewards, and reviewed financial adjustments. Available from Professional Plan."
+      requiredPlan="Professional Plan"
+    >
+      <div className="space-y-6 max-w-[1520px] mx-auto pb-16 animate-fadeIn text-slate-800 dark:text-slate-100">
       {/* Header */}
       <div>
         <Link
@@ -519,6 +526,7 @@ export default function SchoolRulesPage() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </EntitlementGate>
   );
 }
