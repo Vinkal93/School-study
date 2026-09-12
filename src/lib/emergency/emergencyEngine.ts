@@ -176,16 +176,20 @@ export async function getGlobalEmergencyControls(): Promise<GlobalEmergencyContr
         const snap = await getDoc(doc(db, "siteSettings", EMERGENCY_CONTROLS_DOC));
         if (snap.exists()) {
           const data = snap.data() as Partial<GlobalEmergencyControls>;
-          const res: GlobalEmergencyControls = {
-            ...DEFAULT_GLOBAL_EMERGENCY,
-            ...data,
-            moduleKillSwitches: { ...DEFAULT_GLOBAL_EMERGENCY.moduleKillSwitches, ...(data.moduleKillSwitches || {}) },
-            featureKillSwitches: { ...DEFAULT_GLOBAL_EMERGENCY.featureKillSwitches, ...(data.featureKillSwitches || {}) },
-            emergencyAnnouncement: { ...DEFAULT_GLOBAL_EMERGENCY.emergencyAnnouncement, ...(data.emergencyAnnouncement || {}) },
-            activeIncidents: data.activeIncidents || [],
-          };
-          emergencyStore.global = res;
-          return res;
+          const dbUpdatedAt = data.updatedAt ? new Date(data.updatedAt).getTime() : 0;
+          const memUpdatedAt = emergencyStore.global.updatedAt ? new Date(emergencyStore.global.updatedAt).getTime() : 0;
+          if (dbUpdatedAt > memUpdatedAt) {
+            const res: GlobalEmergencyControls = {
+              ...DEFAULT_GLOBAL_EMERGENCY,
+              ...data,
+              moduleKillSwitches: { ...DEFAULT_GLOBAL_EMERGENCY.moduleKillSwitches, ...(data.moduleKillSwitches || {}) },
+              featureKillSwitches: { ...DEFAULT_GLOBAL_EMERGENCY.featureKillSwitches, ...(data.featureKillSwitches || {}) },
+              emergencyAnnouncement: { ...DEFAULT_GLOBAL_EMERGENCY.emergencyAnnouncement, ...(data.emergencyAnnouncement || {}) },
+              activeIncidents: data.activeIncidents || [],
+            };
+            emergencyStore.global = res;
+            return res;
+          }
         }
       }
     }
@@ -280,9 +284,14 @@ export async function getSchoolEmergencyControl(schoolId: string): Promise<Schoo
         const snap = await getDoc(doc(db, SCHOOL_EMERGENCY_COLLECTION, schoolId));
         if (snap.exists()) {
           const data = snap.data() as SchoolEmergencyControl;
-          const res = { ...data, schoolId };
-          emergencyStore.schools[schoolId] = res;
-          return res;
+          const dbUpdatedAt = data.updatedAt ? new Date(data.updatedAt).getTime() : 0;
+          const memObj = emergencyStore.schools[schoolId];
+          const memUpdatedAt = memObj?.updatedAt ? new Date(memObj.updatedAt).getTime() : 0;
+          if (dbUpdatedAt > memUpdatedAt) {
+            const res = { ...data, schoolId };
+            emergencyStore.schools[schoolId] = res;
+            return res;
+          }
         }
       }
     }
@@ -376,9 +385,14 @@ export async function getUserSecurityControl(userId: string): Promise<UserSecuri
         const snap = await getDoc(doc(db, USER_SECURITY_COLLECTION, userId));
         if (snap.exists()) {
           const data = snap.data() as UserSecurityControl;
-          const res = { ...data, userId };
-          emergencyStore.users[userId] = res;
-          return res;
+          const dbUpdatedAt = data.updatedAt ? new Date(data.updatedAt).getTime() : 0;
+          const memObj = emergencyStore.users[userId];
+          const memUpdatedAt = memObj?.updatedAt ? new Date(memObj.updatedAt).getTime() : 0;
+          if (dbUpdatedAt > memUpdatedAt) {
+            const res = { ...data, userId };
+            emergencyStore.users[userId] = res;
+            return res;
+          }
         }
       }
     }

@@ -571,22 +571,59 @@ export async function calculateServerBillingPrice({
   }
 
   // Fallback defaults for standard plans if catalog not yet seeded
+  const cleanId = planId.toLowerCase();
   if (!planData || !planVersion) {
-    const cleanId = planId.toLowerCase();
-    if (cleanId.includes("starter")) {
+    if (cleanId.includes("base")) {
+      planData = { id: "plan_base", name: "Base Plan", slug: "base", description: "", status: "ACTIVE", displayOrder: 0, isPopular: false, features: [], limits: { maxStudents: 500, maxTeachers: 20, maxClasses: 15, maxStaffAccounts: 2 }, createdAt: "", updatedAt: "" };
+      planVersion = { id: "plan_base_v1", planId: "plan_base", version: 1, monthlyPrice: 39900, annualPrice: 29900, currency: "INR", features: [], limits: planData.limits, effectiveFrom: "", effectiveUntil: null, status: "ACTIVE", createdAt: "" };
+    } else if (cleanId.includes("starter")) {
       planData = { id: "plan_starter", name: "Starter Plan", slug: "starter", description: "", status: "ACTIVE", displayOrder: 1, isPopular: false, features: [], limits: { maxStudents: 500, maxTeachers: 20, maxClasses: 15, maxStaffAccounts: 2 }, createdAt: "", updatedAt: "" };
       planVersion = { id: "plan_starter_v1", planId: "plan_starter", version: 1, monthlyPrice: 99900, annualPrice: 79900, currency: "INR", features: [], limits: planData.limits, effectiveFrom: "", effectiveUntil: null, status: "ACTIVE", createdAt: "" };
+    } else if (cleanId.includes("growth")) {
+      planData = { id: "plan_growth", name: "Growth Plan", slug: "growth", description: "", status: "ACTIVE", displayOrder: 2, isPopular: false, features: [], limits: { maxStudents: 1500, maxTeachers: 60, maxClasses: 40, maxStaffAccounts: 6 }, createdAt: "", updatedAt: "" };
+      planVersion = { id: "plan_growth_v1", planId: "plan_growth", version: 1, monthlyPrice: 149900, annualPrice: 119900, currency: "INR", features: [], limits: planData.limits, effectiveFrom: "", effectiveUntil: null, status: "ACTIVE", createdAt: "" };
     } else if (cleanId.includes("professional")) {
-      planData = { id: "plan_professional", name: "Professional Plan", slug: "professional", description: "", status: "ACTIVE", displayOrder: 2, isPopular: true, features: [], limits: { maxStudents: 2000, maxTeachers: 100, maxClasses: 60, maxStaffAccounts: 10 }, createdAt: "", updatedAt: "" };
+      planData = { id: "plan_professional", name: "Professional Plan", slug: "professional", description: "", status: "ACTIVE", displayOrder: 3, isPopular: true, features: [], limits: { maxStudents: 2000, maxTeachers: 100, maxClasses: 60, maxStaffAccounts: 10 }, createdAt: "", updatedAt: "" };
       planVersion = { id: "plan_professional_v1", planId: "plan_professional", version: 1, monthlyPrice: 199900, annualPrice: 159900, currency: "INR", features: [], limits: planData.limits, effectiveFrom: "", effectiveUntil: null, status: "ACTIVE", createdAt: "" };
     } else {
-      planData = { id: "plan_enterprise", name: "Enterprise Plan", slug: "enterprise", description: "", status: "ACTIVE", displayOrder: 3, isPopular: false, features: [], limits: { maxStudents: -1, maxTeachers: -1, maxClasses: -1, maxStaffAccounts: -1 }, createdAt: "", updatedAt: "" };
-      planVersion = { id: "plan_enterprise_v1", planId: "plan_enterprise", version: 1, monthlyPrice: 999900, annualPrice: 799900, currency: "INR", features: [], limits: planData.limits, effectiveFrom: "", effectiveUntil: null, status: "ACTIVE", createdAt: "" };
+      planData = { id: "plan_enterprise", name: "Enterprise Plan", slug: "enterprise", description: "", status: "ACTIVE", displayOrder: 4, isPopular: false, features: [], limits: { maxStudents: -1, maxTeachers: -1, maxClasses: -1, maxStaffAccounts: -1 }, createdAt: "", updatedAt: "" };
+      planVersion = { id: "plan_enterprise_v1", planId: "plan_enterprise", version: 1, monthlyPrice: 499900, annualPrice: 399900, currency: "INR", features: [], limits: planData.limits, effectiveFrom: "", effectiveUntil: null, status: "ACTIVE", createdAt: "" };
+    }
+  }
+
+  // Ensure positive price fallback for any paid plan if monthlyPrice / annualPrice in DB is 0 or null
+  const isFreePlan = cleanId.includes("free") || (planData?.slug === "free");
+  if (!isFreePlan && planVersion) {
+    const defaultPricing: Record<string, { monthly: number; annual: number }> = {
+      base: { monthly: 39900, annual: 29900 },
+      starter: { monthly: 99900, annual: 79900 },
+      growth: { monthly: 149900, annual: 119900 },
+      professional: { monthly: 199900, annual: 159900 },
+      enterprise: { monthly: 499900, annual: 399900 },
+    };
+    let tierPrices = defaultPricing.starter;
+    for (const [tier, p] of Object.entries(defaultPricing)) {
+      if (cleanId.includes(tier)) {
+        tierPrices = p;
+        break;
+      }
+    }
+
+    if (!planVersion.monthlyPrice || planVersion.monthlyPrice <= 0) {
+      planVersion.monthlyPrice = tierPrices.monthly;
+    }
+    if (!planVersion.annualPrice || planVersion.annualPrice <= 0) {
+      planVersion.annualPrice = tierPrices.annual;
     }
   }
 
   // 1. Calculate Base Amount in Integer Paise
-  let baseAmountPaise = normalizedCycle === "annual" ? planVersion.annualPrice * 12 : planVersion.monthlyPrice;
+  let baseAmountPaise = isFreePlan
+    ? 0
+    : normalizedCycle === "annual"
+    ? (planVersion.annualPrice || 79900) * 12
+    : (planVersion.monthlyPrice || 99900);
+
   if (typeof customOfferPricePaise === "number" && customOfferPricePaise > 0) {
     baseAmountPaise = customOfferPricePaise;
   }

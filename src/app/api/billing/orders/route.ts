@@ -169,7 +169,35 @@ export async function POST(request: Request) {
     // Tertiary: Static catalog fallback for default starter / professional plans
     if (!planData || !planVersion) {
       const cleanId = planId.toLowerCase();
-      if (cleanId.includes("starter")) {
+      if (cleanId.includes("base")) {
+        planData = {
+          id: "plan_base",
+          name: "Base Plan",
+          slug: "base",
+          description: "Core institution features for daily school administration.",
+          status: "ACTIVE",
+          displayOrder: 0,
+          isPopular: false,
+          features: ["Student Management", "Teacher Management", "Class Management", "Basic Attendance", "School Dashboard", "Notices & Announcements", "Subscription Billing"],
+          limits: { maxStudents: 500, maxTeachers: 20, maxClasses: 15, maxStaffAccounts: 2 },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        planVersion = {
+          id: "plan_base_v1",
+          planId: "plan_base",
+          version: 1,
+          monthlyPrice: 39900,
+          annualPrice: 29900,
+          currency: "INR",
+          features: planData.features,
+          limits: planData.limits,
+          effectiveFrom: new Date().toISOString(),
+          effectiveUntil: null,
+          status: "ACTIVE",
+          createdAt: new Date().toISOString(),
+        };
+      } else if (cleanId.includes("starter")) {
         planData = {
           id: "plan_starter",
           name: "Starter Plan",
@@ -197,6 +225,34 @@ export async function POST(request: Request) {
           status: "ACTIVE",
           createdAt: new Date().toISOString(),
         };
+      } else if (cleanId.includes("growth")) {
+        planData = {
+          id: "plan_growth",
+          name: "Growth Plan",
+          slug: "growth",
+          description: "Advanced tools for expanding schools and growing student bodies.",
+          status: "ACTIVE",
+          displayOrder: 2,
+          isPopular: false,
+          features: ["Student Management", "Teacher Management", "Class Management", "Basic Attendance", "Attendance Automation", "School Dashboard", "Notices & Announcements", "Advanced Reports"],
+          limits: { maxStudents: 1500, maxTeachers: 60, maxClasses: 40, maxStaffAccounts: 6 },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        planVersion = {
+          id: "plan_growth_v1",
+          planId: "plan_growth",
+          version: 1,
+          monthlyPrice: 149900,
+          annualPrice: 119900,
+          currency: "INR",
+          features: planData.features,
+          limits: planData.limits,
+          effectiveFrom: new Date().toISOString(),
+          effectiveUntil: null,
+          status: "ACTIVE",
+          createdAt: new Date().toISOString(),
+        };
       } else if (cleanId.includes("professional")) {
         planData = {
           id: "plan_professional",
@@ -204,7 +260,7 @@ export async function POST(request: Request) {
           slug: "professional",
           description: "Advanced controls & analytics for growing institutions.",
           status: "ACTIVE",
-          displayOrder: 2,
+          displayOrder: 3,
           isPopular: true,
           features: ["Everything in Starter", "Advanced Attendance & Leave", "School Admin Dashboard", "Notices & Announcements", "Advanced Reports & Analytics", "Priority Support", "More Staff Accounts"],
           limits: { maxStudents: 2000, maxTeachers: 100, maxClasses: 60, maxStaffAccounts: 10 },
@@ -232,7 +288,7 @@ export async function POST(request: Request) {
           slug: "enterprise",
           description: "Custom limits and dedicated support for large networks.",
           status: "ACTIVE",
-          displayOrder: 3,
+          displayOrder: 4,
           isPopular: false,
           features: ["Everything in Professional", "Multiple School Support", "Custom Requirements & Modules", "Dedicated Account Manager", "Advanced Data Controls", "Custom Onboarding"],
           limits: { maxStudents: -1, maxTeachers: -1, maxClasses: -1, maxStaffAccounts: -1 },
@@ -243,8 +299,8 @@ export async function POST(request: Request) {
           id: "plan_enterprise_v1",
           planId: "plan_enterprise",
           version: 1,
-          monthlyPrice: 999900,
-          annualPrice: 799900,
+          monthlyPrice: 499900,
+          annualPrice: 399900,
           currency: "INR",
           features: planData.features,
           limits: planData.limits,
@@ -253,6 +309,32 @@ export async function POST(request: Request) {
           status: "ACTIVE",
           createdAt: new Date().toISOString(),
         };
+      }
+    }
+
+    // Ensure planVersion pricing is valid and positive for any paid plan
+    const isFree = (planData?.id || planId).toLowerCase().includes("free");
+    if (!isFree && planVersion) {
+      const defaultPricing: Record<string, { monthly: number; annual: number }> = {
+        base: { monthly: 39900, annual: 29900 },
+        starter: { monthly: 99900, annual: 79900 },
+        growth: { monthly: 149900, annual: 119900 },
+        professional: { monthly: 199900, annual: 159900 },
+        enterprise: { monthly: 499900, annual: 399900 },
+      };
+      const cleanId = (planData?.id || planId).toLowerCase();
+      let tierPrices = defaultPricing.starter;
+      for (const [tier, p] of Object.entries(defaultPricing)) {
+        if (cleanId.includes(tier)) {
+          tierPrices = p;
+          break;
+        }
+      }
+      if (!planVersion.monthlyPrice || planVersion.monthlyPrice <= 0) {
+        planVersion.monthlyPrice = tierPrices.monthly;
+      }
+      if (!planVersion.annualPrice || planVersion.annualPrice <= 0) {
+        planVersion.annualPrice = tierPrices.annual;
       }
     }
 

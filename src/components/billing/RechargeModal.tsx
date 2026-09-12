@@ -178,10 +178,28 @@ export function RechargeModal({
   };
 
   // Downgrade check
-  const isDowngrade =
-    currentPlanId === "plan_professional" && selectedPlanId === "plan_starter";
-  const studentCount = currentUsage?.students || 0;
-  const isOverLimitOnDowngrade = isDowngrade && studentCount > 500;
+  const planTiers: Record<string, number> = {
+    plan_free: 0,
+    plan_base: 1,
+    plan_starter: 2,
+    plan_growth: 3,
+    plan_professional: 4,
+    plan_enterprise: 5,
+  };
+  const isDowngrade = (planTiers[selectedPlanId] ?? 0) < (planTiers[currentPlanId] ?? 0);
+  const studentCount = typeof currentUsage?.students === "number" 
+    ? currentUsage.students 
+    : (currentUsage?.students as any)?.current || 0;
+  const studentLimits: Record<string, number> = {
+    plan_free: 100,
+    plan_base: 500,
+    plan_starter: 500,
+    plan_growth: 1500,
+    plan_professional: 2000,
+    plan_enterprise: 999999,
+  };
+  const targetLimit = studentLimits[selectedPlanId] ?? 500;
+  const isOverLimitOnDowngrade = isDowngrade && studentCount > targetLimit;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs overflow-y-auto">
@@ -217,6 +235,26 @@ export function RechargeModal({
               Select Subscription Plan
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Base Plan */}
+              <div
+                onClick={() => setSelectedPlanId("plan_base")}
+                className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${
+                  selectedPlanId === "plan_base"
+                    ? "border-blue-600 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/30 ring-2 ring-blue-500/20"
+                    : "border-slate-200 dark:border-slate-800 hover:border-slate-300"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-sm text-slate-900 dark:text-white">Base Plan</h3>
+                  <span className="text-xs font-mono font-bold text-blue-600 dark:text-blue-400">
+                    {billingCycle === "annual" ? "₹299/mo" : "₹399/mo"}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Up to 500 students, 20 teachers, notices & daily administration.
+                </p>
+              </div>
+
               {/* Starter Plan */}
               <div
                 onClick={() => setSelectedPlanId("plan_starter")}

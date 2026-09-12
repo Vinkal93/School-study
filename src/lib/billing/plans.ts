@@ -1029,7 +1029,17 @@ export async function getActivePlanVersion(planId: string): Promise<PlanVersion 
         const versions = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as PlanVersion[];
         const activeVersions = versions.filter((v) => v.status === "ACTIVE");
         if (activeVersions.length > 0) {
-          return activeVersions.sort((a, b) => b.version - a.version)[0];
+          const v = { ...activeVersions.sort((a, b) => b.version - a.version)[0] };
+          const staticFallback = DEFAULT_STATIC_PLAN_VERSIONS[normId] || DEFAULT_STATIC_PLAN_VERSIONS[planId];
+          if (!normId.includes("free")) {
+            if (!v.monthlyPrice || v.monthlyPrice <= 0) {
+              v.monthlyPrice = staticFallback?.monthlyPrice || 99900;
+            }
+            if (!v.annualPrice || v.annualPrice <= 0) {
+              v.annualPrice = staticFallback?.annualPrice || 79900;
+            }
+          }
+          return v;
         }
       }
     } catch (err) {

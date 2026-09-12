@@ -146,7 +146,17 @@ export function FeatureComparisonMatrix({
       <div className="flex justify-end pt-2">
         {currentPlanSlug !== "enterprise" && (
           <button
-            onClick={() => onSelectUpgrade(currentPlanSlug === "starter" ? "plan_professional" : "plan_enterprise")}
+            onClick={() => {
+              const norm = String(currentPlanSlug || "").toLowerCase();
+              const target = norm.includes("free") || norm.includes("base")
+                ? "plan_starter"
+                : norm.includes("starter")
+                ? "plan_growth"
+                : norm.includes("growth")
+                ? "plan_professional"
+                : "plan_enterprise";
+              onSelectUpgrade(target);
+            }}
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 cursor-pointer"
           >
             <span>Upgrade to Higher Tier</span>

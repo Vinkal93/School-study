@@ -316,6 +316,15 @@ export default function SchoolAdminSubscriptionCommandCenter() {
     };
   }, [schoolId, refetchOffers]);
 
+  const getNextTierPlanId = (currentPlanId?: string): string => {
+    const norm = String(currentPlanId || "").toLowerCase();
+    if (norm.includes("free") || norm.includes("base")) return "plan_starter";
+    if (norm.includes("starter")) return "plan_growth";
+    if (norm.includes("growth")) return "plan_professional";
+    if (norm.includes("professional")) return "plan_enterprise";
+    return "plan_enterprise";
+  };
+
   const openRecharge = (planId: string, cycle: "monthly" | "annual" = "monthly") => {
     setSelectedRechargePlan(planId);
     setSelectedRechargeCycle(cycle);
@@ -405,7 +414,7 @@ export default function SchoolAdminSubscriptionCommandCenter() {
             <span>Renew Plan</span>
           </button>
           <button
-            onClick={() => openRecharge(effectivePlanId === "plan_starter" ? "plan_professional" : "plan_enterprise", "monthly")}
+            onClick={() => openRecharge(getNextTierPlanId(effectivePlanId), "monthly")}
             disabled={effectiveSub?.status === "SUSPENDED"}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold shadow-md shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer"
           >
@@ -430,7 +439,7 @@ export default function SchoolAdminSubscriptionCommandCenter() {
             subscription={effectiveSub}
             daysRemaining={computedDaysRemaining}
             onRenew={() => openRecharge(effectivePlanId, effectiveSub?.billingCycle || "monthly")}
-            onUpgrade={() => openRecharge(effectivePlanId === "plan_starter" ? "plan_professional" : "plan_enterprise")}
+            onUpgrade={() => openRecharge(getNextTierPlanId(effectivePlanId))}
           />
 
           {/* 3. Current Plan Hero Card */}
@@ -440,7 +449,7 @@ export default function SchoolAdminSubscriptionCommandCenter() {
             planVersion={effectivePlanVersion}
             daysRemaining={computedDaysRemaining}
             onRenew={() => openRecharge(effectivePlanId, effectiveSub?.billingCycle || "monthly")}
-            onUpgrade={() => openRecharge(effectivePlanId === "plan_starter" ? "plan_professional" : "plan_enterprise")}
+            onUpgrade={() => openRecharge(getNextTierPlanId(effectivePlanId))}
             onChangePlan={() => openRecharge(effectivePlanId)}
           />
 
@@ -448,7 +457,7 @@ export default function SchoolAdminSubscriptionCommandCenter() {
           <PlanLimitsProgress
             planName={effectivePlan?.name || "Base Plan"}
             usage={effectiveUsage}
-            onUpgrade={() => openRecharge(effectivePlanId === "plan_starter" ? "plan_professional" : "plan_enterprise")}
+            onUpgrade={() => openRecharge(getNextTierPlanId(effectivePlanId))}
           />
 
           {/* 5. Resource Usage Over Time Line Graph */}
