@@ -82,8 +82,43 @@ export async function getUserProfile(uid: string, email?: string | null): Promis
 
       if (docSnap.exists()) {
         const data = docSnap.data() as Partial<AppUser>;
+        let schoolId = data.schoolId;
+
+        // Auto-heal school association: If user is school_admin and schoolId is missing, empty, or 'school_default',
+        // look up the registered school where adminEmail matches user email or adminId matches uid.
+        if (data.role === "school_admin" && (!schoolId || schoolId === "school_default")) {
+          try {
+            const userEmail = (email || data.email || "").trim().toLowerCase();
+            if (userEmail) {
+              const { collection: fsCol, query: fsQ, where: fsW, getDocs: fsGetDocs, updateDoc: fsUpdateDoc } = await import("firebase/firestore");
+              const schoolsQ = fsQ(
+                fsCol(db, COLLECTIONS.SCHOOLS),
+                fsW("adminEmail", "==", userEmail)
+              );
+              const schoolsSnap = await fsGetDocs(schoolsQ);
+              if (!schoolsSnap.empty) {
+                schoolId = schoolsSnap.docs[0].id;
+                fsUpdateDoc(docRef, { schoolId }).catch(() => {});
+              } else {
+                // Also try matching by adminId / adminUid
+                const idQ = fsQ(
+                  fsCol(db, COLLECTIONS.SCHOOLS),
+                  fsW("adminId", "==", uid)
+                );
+                const idSnap = await fsGetDocs(idQ);
+                if (!idSnap.empty) {
+                  schoolId = idSnap.docs[0].id;
+                  fsUpdateDoc(docRef, { schoolId }).catch(() => {});
+                }
+              }
+            }
+          } catch (healErr) {
+            console.warn("Notice: School admin self-healing notice:", healErr);
+          }
+        }
+
         // AUTHORITATIVE ROLE: Use exactly what is saved in Firestore! Never overwrite!
-        return { uid: docSnap.id, ...data } as AppUser;
+        return { uid: docSnap.id, ...data, schoolId } as AppUser;
       }
     } catch (dbErr: any) {
       console.warn("Firestore unavailable/offline, activating resilient profile:", dbErr?.message);

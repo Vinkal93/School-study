@@ -454,6 +454,9 @@ export default function SuperAdminPricingPage() {
       const safeExpiresAt = new Date(safeExpMs).toISOString();
       const cleanSchoolId = assignForm.schoolId.trim();
 
+      const assignedPlan = plans.find((p) => p.id === assignForm.planId);
+      const planName = assignedPlan?.name || (assignForm.planId.replace(/^plan_/, "").toUpperCase() + " Plan");
+
       // 1. Direct client-side Firestore dual-write (authoritative Super Admin session)
       try {
         const db = getFirebaseDb();
@@ -464,6 +467,7 @@ export default function SuperAdminPricingPage() {
               id: cleanSchoolId,
               schoolId: cleanSchoolId,
               planId: assignForm.planId,
+              planName,
               status: "ACTIVE",
               billingCycle: assignForm.billingCycle,
               startsAt: now.toISOString(),
@@ -481,18 +485,46 @@ export default function SuperAdminPricingPage() {
             {
               planId: assignForm.planId,
               plan: assignForm.planId,
+              planName,
               subscriptionStatus: "ACTIVE",
               subscriptionExpiresAt: safeExpiresAt,
               updatedAt: now.toISOString(),
             },
             { merge: true }
           );
+
+          // Guarantee school admin user is attached to this school
+          const selectedSchoolInfo = schoolsList.find((s) => s.id === cleanSchoolId);
+          if (selectedSchoolInfo?.email) {
+            try {
+              const { collection: fsCol, query: fsQ, where: fsW, getDocs: fsGetDocs, updateDoc: fsUpdateDoc } = await import("firebase/firestore");
+              const userQ = fsQ(
+                fsCol(db, "users"),
+                fsW("email", "==", selectedSchoolInfo.email.trim().toLowerCase())
+              );
+              const userSnap = await fsGetDocs(userQ);
+              userSnap.forEach((u) => {
+                fsUpdateDoc(u.ref, { schoolId: cleanSchoolId }).catch(() => {});
+              });
+            } catch {}
+          }
         }
       } catch (clientWriteErr) {
         console.warn("Client direct write notice:", clientWriteErr);
       }
 
-      // 2. Server-side API endpoint for backend audit logging and billing memory cache
+      // 2. Broadcast instant real-time sync to all open windows/tabs
+      try {
+        const channel = new BroadcastChannel("school_study_realtime_sync");
+        channel.postMessage({ schoolId: cleanSchoolId, planId: assignForm.planId, planName, timestamp: Date.now() });
+        channel.close();
+      } catch {}
+      try {
+        localStorage.setItem("school_study_plan_updated", `${cleanSchoolId}_${Date.now()}`);
+        localStorage.setItem("school_study_plan_updated_raw", JSON.stringify({ schoolId: cleanSchoolId, planId: assignForm.planId, planName, timestamp: Date.now() }));
+      } catch {}
+
+      // 3. Server-side API endpoint for backend audit logging and billing memory cache
       try {
         const res = await fetch("/api/super-admin/pricing/assign", {
           method: "POST",
@@ -500,6 +532,7 @@ export default function SuperAdminPricingPage() {
           body: JSON.stringify({
             schoolId: cleanSchoolId,
             planId: assignForm.planId,
+            planName,
             billingCycle: assignForm.billingCycle,
             durationDays,
             customExpiryDate,
@@ -516,9 +549,8 @@ export default function SuperAdminPricingPage() {
         console.warn("Server assignment fetch notice:", apiErr);
       }
 
-      const assignedPlan = plans.find((p) => p.id === assignForm.planId);
       toast.success(
-        `Plan "${assignedPlan?.name || assignForm.planId}" assigned to school successfully!`
+        `Plan "${planName}" assigned to school successfully!`
       );
       setShowAssignModal(false);
     } catch (err: any) {

@@ -147,10 +147,13 @@ export async function POST(request: Request) {
     const safeExpiresAt = new Date(safeExpMs).toISOString();
     const graceEndsAt = new Date(safeExpMs + 7 * 86400000).toISOString();
 
+    const planName = body.planName || plan?.name || (normalizedPlan.replace(/^plan_/, "").toUpperCase() + " Plan");
+
     const subscriptionData = {
       id: cleanSchoolId,
       schoolId: cleanSchoolId,
       planId: normalizedPlan,
+      planName,
       planVersionId: planVersion?.id || `${normalizedPlan}_v1`,
       status: "ACTIVE" as const,
       billingCycle: billingCycle as any,
@@ -182,12 +185,33 @@ export async function POST(request: Request) {
           {
             planId: normalizedPlan,
             plan: normalizedPlan,
+            planName,
             subscriptionStatus: "ACTIVE",
             subscriptionExpiresAt: safeExpiresAt,
             updatedAt: now.toISOString(),
           },
           { merge: true }
         );
+
+        // Sync school admin's user doc to match schoolId
+        try {
+          const schSnap = await adminDb.collection("schools").doc(cleanSchoolId).get();
+          if (schSnap.exists) {
+            const sData = schSnap.data();
+            const adminUid = sData?.adminId || sData?.adminUid;
+            const adminEmail = sData?.adminEmail || sData?.email;
+            if (adminUid) {
+              await adminDb.collection("users").doc(adminUid).set({ schoolId: cleanSchoolId }, { merge: true });
+            }
+            if (adminEmail) {
+              const uSnap = await adminDb.collection("users").where("email", "==", adminEmail.toLowerCase().trim()).get();
+              for (const u of uSnap.docs) {
+                await u.ref.set({ schoolId: cleanSchoolId }, { merge: true });
+              }
+            }
+          }
+        } catch (uSyncErr) {}
+
         written = true;
       } catch (e) {
         console.warn("adminDb assign plan write notice:", e);
@@ -206,6 +230,7 @@ export async function POST(request: Request) {
             {
               planId: normalizedPlan,
               plan: normalizedPlan,
+              planName,
               subscriptionStatus: "ACTIVE",
               subscriptionExpiresAt: safeExpiresAt,
               updatedAt: now.toISOString(),

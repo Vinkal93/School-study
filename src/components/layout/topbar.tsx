@@ -12,6 +12,8 @@ import { getSchoolById } from "@/lib/services/school.service";
 import { VerifyBadge } from "@/components/common/VerifyBadge";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { ProfileDropdown } from "@/components/layout/ProfileDropdown";
+import { getFirebaseDb } from "@/lib/firebase/client";
+import { doc, onSnapshot } from "firebase/firestore";
 import type { School } from "@/types";
 import { cn } from "@/lib/utils/cn";
 
@@ -24,16 +26,81 @@ export function Topbar({ variant = "classic" }: TopbarProps) {
   const { toggleMobileNav } = useMobileNav();
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [school, setSchool] = useState<School | null>(null);
+  const [activePlanName, setActivePlanName] = useState<string>("");
   const [copiedId, setCopiedId] = useState(false);
 
   useEffect(() => {
-    if (profile?.schoolId) {
-      getSchoolById(profile.schoolId)
-        .then((s) => {
-          if (s) setSchool(s);
-        })
-        .catch(() => {});
-    }
+    if (!profile?.schoolId) return;
+
+    // Initial fetch
+    getSchoolById(profile.schoolId)
+      .then((s) => {
+        if (s) {
+          setSchool(s);
+          if (s.planName) setActivePlanName(s.planName);
+        }
+      })
+      .catch(() => {});
+
+    // Real-time Firestore listeners
+    const db = getFirebaseDb();
+    if (!db) return;
+
+    const unsubs: (() => void)[] = [];
+
+    try {
+      const schoolRef = doc(db, "schools", profile.schoolId);
+      const unsubSchool = onSnapshot(
+        schoolRef,
+        (snap) => {
+          if (snap.exists()) {
+            const data = snap.data();
+            const s = { id: snap.id, ...data } as School;
+            setSchool(s);
+            if (s.planName) {
+              setActivePlanName(s.planName);
+            } else if (s.planId || (s as any).plan) {
+              const pid = String(s.planId || (s as any).plan).toLowerCase();
+              if (pid.includes("base")) setActivePlanName("Base");
+              else if (pid.includes("growth")) setActivePlanName("Growth Plan");
+              else if (pid.includes("pro")) setActivePlanName("Professional Plan");
+              else if (pid.includes("enterprise")) setActivePlanName("Enterprise Plan");
+              else if (pid.includes("free")) setActivePlanName("Free Plan");
+              else setActivePlanName("Starter Plan");
+            }
+          }
+        },
+        () => {}
+      );
+      unsubs.push(unsubSchool);
+
+      const subRef = doc(db, "schoolSubscriptions", profile.schoolId);
+      const unsubSub = onSnapshot(
+        subRef,
+        (snap) => {
+          if (snap.exists()) {
+            const subData = snap.data();
+            if (subData.planName) {
+              setActivePlanName(subData.planName);
+            } else if (subData.planId) {
+              const pid = String(subData.planId).toLowerCase();
+              if (pid.includes("base")) setActivePlanName("Base");
+              else if (pid.includes("growth")) setActivePlanName("Growth Plan");
+              else if (pid.includes("pro")) setActivePlanName("Professional Plan");
+              else if (pid.includes("enterprise")) setActivePlanName("Enterprise Plan");
+              else if (pid.includes("free")) setActivePlanName("Free Plan");
+              else setActivePlanName("Starter Plan");
+            }
+          }
+        },
+        () => {}
+      );
+      unsubs.push(unsubSub);
+    } catch {}
+
+    return () => {
+      unsubs.forEach((fn) => fn());
+    };
   }, [profile?.schoolId]);
 
   // Global keyboard shortcut (Ctrl+K or Cmd+K)
@@ -178,7 +245,7 @@ export function Topbar({ variant = "classic" }: TopbarProps) {
             >
               <Sparkles className="h-3 w-3 text-amber-500 flex-shrink-0" />
               <span className="truncate max-w-[110px]">
-                {school?.planName ? `${school.planName}` : "Standard Plan"}
+                {activePlanName || school?.planName || "Standard Plan"}
               </span>
             </Link>
           )}

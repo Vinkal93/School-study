@@ -113,12 +113,16 @@ export default function SchoolAdminSubscriptionCommandCenter() {
   const effectivePlan =
     allPlans.find(
       (p: any) =>
-        p.id === effectivePlanId || p.slug === effectivePlanId.replace("plan_", "")
+        p.id === effectivePlanId || p.slug === effectivePlanId.replace("plan_", "") || p.id === rawPlanId
     ) ||
-    (plan?.id === effectivePlanId ? plan : null) || {
+    (plan?.id === effectivePlanId || plan?.id === rawPlanId ? plan : null) || {
       id: effectivePlanId,
       name:
-        effectivePlanId === "plan_starter"
+        liveSub?.planName ||
+        liveSchool?.planName ||
+        (effectivePlanId === "plan_base"
+          ? "Base"
+          : effectivePlanId === "plan_starter"
           ? "Starter Plan"
           : effectivePlanId === "plan_growth"
           ? "Growth Plan"
@@ -128,10 +132,12 @@ export default function SchoolAdminSubscriptionCommandCenter() {
           ? "Enterprise Plan"
           : effectivePlanId === "plan_free"
           ? "Free Plan"
-          : "Custom Plan",
+          : "Custom Plan"),
       slug: effectivePlanId.replace("plan_", ""),
       description:
-        effectivePlanId === "plan_starter"
+        effectivePlanId === "plan_base"
+          ? "Core institution features for daily school administration."
+          : effectivePlanId === "plan_starter"
           ? "Essential modules for small schools and new academies."
           : "Comprehensive tools and management capabilities for educational institutions.",
       status: "ACTIVE",
@@ -144,6 +150,7 @@ export default function SchoolAdminSubscriptionCommandCenter() {
     : (subState?.daysRemaining ?? 30);
 
   const fallbackPrices: Record<string, { monthly: number; annual: number; limits?: any }> = {
+    plan_base: { monthly: 39900, annual: 29900, limits: { maxStudents: 500, maxTeachers: 20, maxClasses: 15 } },
     plan_starter: { monthly: 99900, annual: 89900, limits: { maxStudents: 500, maxTeachers: 25, maxClasses: 20 } },
     plan_growth: { monthly: 149900, annual: 129900, limits: { maxStudents: 1000, maxTeachers: 50, maxClasses: 40 } },
     plan_professional: { monthly: 199900, annual: 169900, limits: { maxStudents: 2500, maxTeachers: 100, maxClasses: 80 } },
@@ -151,7 +158,7 @@ export default function SchoolAdminSubscriptionCommandCenter() {
     plan_free: { monthly: 0, annual: 0, limits: { maxStudents: 100, maxTeachers: 10, maxClasses: 5 } },
   };
 
-  const defaultPrice = fallbackPrices[effectivePlanId] || { monthly: 199900, annual: 169900 };
+  const defaultPrice = fallbackPrices[effectivePlanId] || { monthly: 39900, annual: 29900 };
 
   const effectivePlanVersion =
     planVersion && (planVersion.planId === effectivePlanId || planVersion.id?.includes(effectivePlanId))

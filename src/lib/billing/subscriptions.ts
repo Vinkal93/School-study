@@ -81,10 +81,10 @@ export async function getSchoolSubscription(schoolId: string): Promise<SchoolSub
   const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // +30 days
   const graceEndsAt = new Date(expiresAt.getTime() + 7 * 24 * 60 * 60 * 1000); // +7 days grace
 
-  if (!schoolId || schoolId === "school_default" || schoolId === "system") {
+  if (!schoolId) {
     return {
-      id: schoolId || "school_default",
-      schoolId: schoolId || "school_default",
+      id: "school_default",
+      schoolId: "school_default",
       planId: "plan_starter",
       planVersionId: "plan_starter_v1",
       status: "ACTIVE",
@@ -128,25 +128,22 @@ export async function getSchoolSubscription(schoolId: string): Promise<SchoolSub
     }
 
     // 2. Client SDK fallback
-    if (!subData || !schoolData) {
+    if (!subData && typeof window !== "undefined") {
       const db = getFirebaseDb();
       if (db) {
-        try {
-          const [subSnap, schoolSnap] = await Promise.all([
-            !subData ? getDoc(doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId)).catch(() => null) : null,
-            !schoolData ? getDoc(doc(db, "schools", schoolId)).catch(() => null) : null,
-          ]);
-          if (subSnap && (subSnap as any).exists?.()) subData = { id: (subSnap as any).id, ...(subSnap as any).data() };
-          if (schoolSnap && (schoolSnap as any).exists?.()) schoolData = { id: (schoolSnap as any).id, ...(schoolSnap as any).data() };
-        } catch (clientErr) {
-          // Fallback
-        }
+        const [subSnap, schoolSnap] = await Promise.all([
+          getDoc(doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId)).catch(() => null),
+          getDoc(doc(db, "schools", schoolId)).catch(() => null),
+        ]);
+        if (subSnap?.exists()) subData = { id: subSnap.id, ...subSnap.data() };
+        if (schoolSnap?.exists()) schoolData = { id: schoolSnap.id, ...schoolSnap.data() };
       }
     }
 
     const rawPlan = subData?.planId || schoolData?.planId || schoolData?.plan || schoolData?.subscriptionPlan || "plan_starter";
     let normalizedPlan = rawPlan.toLowerCase().trim();
-    if (normalizedPlan === "growth" || normalizedPlan === "plan_growth") normalizedPlan = "plan_growth";
+    if (normalizedPlan === "base" || normalizedPlan === "plan_base") normalizedPlan = "plan_base";
+    else if (normalizedPlan === "growth" || normalizedPlan === "plan_growth") normalizedPlan = "plan_growth";
     else if (normalizedPlan === "professional" || normalizedPlan === "plan_professional") normalizedPlan = "plan_professional";
     else if (normalizedPlan === "enterprise" || normalizedPlan === "plan_enterprise") normalizedPlan = "plan_enterprise";
     else if (normalizedPlan === "starter" || normalizedPlan === "plan_starter") normalizedPlan = "plan_starter";

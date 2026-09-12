@@ -159,10 +159,10 @@ export async function getCurrentSubscription(schoolId: string): Promise<SchoolSu
   const expiresAt = new Date(now.getTime() + 30 * 86400000);
   const graceEndsAt = new Date(expiresAt.getTime() + 7 * 86400000);
 
-  if (!schoolId || schoolId === "school_default" || schoolId === "system") {
+  if (!schoolId) {
     return {
-      id: schoolId || "school_default",
-      schoolId: schoolId || "school_default",
+      id: "school_default",
+      schoolId: "school_default",
       planId: "plan_starter",
       planVersionId: "plan_starter_v1",
       status: "ACTIVE",

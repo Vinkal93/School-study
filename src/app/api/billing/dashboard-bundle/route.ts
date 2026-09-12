@@ -150,7 +150,9 @@ export async function GET(request: Request) {
       plan = {
         id: subscription.planId || "plan_starter",
         name:
-          subscription.planId === "plan_professional"
+          subscription.planId === "plan_base"
+            ? "Base"
+            : subscription.planId === "plan_professional"
             ? "Professional Plan"
             : subscription.planId === "plan_enterprise"
             ? "Enterprise Plan"
@@ -172,8 +174,8 @@ export async function GET(request: Request) {
         id: `${plan.id}_v1`,
         planId: plan.id,
         version: 1,
-        monthlyPrice: plan.slug === "professional" ? 199900 : 99900,
-        annualPrice: plan.slug === "professional" ? 159900 : 79900,
+        monthlyPrice: plan.slug === "base" ? 39900 : plan.slug === "professional" ? 199900 : 99900,
+        annualPrice: plan.slug === "base" ? 29900 : plan.slug === "professional" ? 159900 : 79900,
         currency: "INR",
         features: plan.features,
         limits: plan.limits,
