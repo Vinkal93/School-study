@@ -157,9 +157,10 @@ export const LEGACY_COLLECTION = "contactInquiries";
 /**
  * Maps raw status to 2.0 Display Status
  */
-export function mapStatusTo2_0(statusRaw?: string): InquiryStatus2 {
+export function mapStatusTo2_0(statusRaw?: any): InquiryStatus2 {
   if (!statusRaw) return "New";
-  const s = statusRaw.trim().toUpperCase();
+  const str = typeof statusRaw === "string" ? statusRaw : String(statusRaw);
+  const s = str.trim().toUpperCase();
   if (s === "NEW") return "New";
   if (s === "CONTACTED" || s === "IN_PROGRESS" || s === "WAITING_FOR_RESPONSE") return "Contacted";
   if (s === "IN_DISCUSSION" || s === "DISCUSSION") return "In Discussion";
@@ -172,7 +173,8 @@ export function mapStatusTo2_0(statusRaw?: string): InquiryStatus2 {
  * Standardizes raw Firestore doc into normalized Inquiry object.
  */
 export function normalizeInquiry(docId: string, data: any): Inquiry {
-  const statusRaw = (data.status || "NEW").toUpperCase();
+  data = data || {};
+  const statusRaw = String(data.status || "NEW").toUpperCase();
   let status: InquiryStatus = "NEW";
   if (statusRaw === "CONTACTED") status = "CONTACTED";
   else if (statusRaw === "IN_DISCUSSION" || statusRaw === "DISCUSSION") status = "IN_DISCUSSION";
@@ -184,14 +186,14 @@ export function normalizeInquiry(docId: string, data: any): Inquiry {
 
   const status2: InquiryStatus2 = mapStatusTo2_0(data.status2 || data.status);
 
-  const priorityRaw = (data.priority || "NORMAL").toUpperCase();
+  const priorityRaw = String(data.priority || "NORMAL").toUpperCase();
   let priority: InquiryPriority = "NORMAL";
   if (priorityRaw === "LOW") priority = "LOW";
   else if (priorityRaw === "HIGH") priority = "HIGH";
   else if (priorityRaw === "URGENT") priority = "URGENT";
 
   let interestLevel: InquiryInterestLevel = "Medium";
-  const rawInterest = (data.interestLevel || data.interest || "").toUpperCase();
+  const rawInterest = String(data.interestLevel || data.interest || "").toUpperCase();
   if (rawInterest === "HIGH" || rawInterest === "HOT") interestLevel = "High";
   else if (rawInterest === "LOW" || rawInterest === "COLD") interestLevel = "Low";
   else if (rawInterest === "MEDIUM" || rawInterest === "WARM") interestLevel = "Medium";
@@ -203,7 +205,7 @@ export function normalizeInquiry(docId: string, data: any): Inquiry {
 
   // Derive source
   let source: InquirySource = "Website";
-  const rawSource = data.source || "";
+  const rawSource = typeof data.source === "string" ? data.source : String(data.source || "");
   if (/google/i.test(rawSource)) source = "Google Ads";
   else if (/referral/i.test(rawSource)) source = "Referral";
   else if (/social|instagram|facebook|linkedin|twitter/i.test(rawSource)) source = "Social Media";
@@ -214,18 +216,26 @@ export function normalizeInquiry(docId: string, data: any): Inquiry {
   else if (rawSource) source = rawSource as InquirySource;
 
   // Derive assignedTo Avatar
-  const assignedToName = data.assignedToName || (data.assignedTo ? "Team Member" : null);
-  let assignedToAvatar = data.assignedToAvatar || null;
+  const assignedToName = typeof data.assignedToName === "string" ? data.assignedToName : (typeof data.assignedTo === "string" ? "Team Member" : null);
+  let assignedToAvatar = typeof data.assignedToAvatar === "string" ? data.assignedToAvatar : null;
   if (assignedToName && !assignedToAvatar) {
     const parts = assignedToName.trim().split(" ");
     assignedToAvatar = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}`.toUpperCase() : parts[0].slice(0, 2).toUpperCase();
   }
 
+  // Derive safe string name
+  let name = "Parent / Student";
+  if (typeof data.name === "string" && data.name.trim()) {
+    name = data.name.trim();
+  } else if (data.name && typeof data.name === "object") {
+    name = typeof data.name.name === "string" ? data.name.name : (typeof data.name.phone === "string" ? data.name.phone : "Parent / Student");
+  }
+
   // Derive inquiry number
-  let inquiryNumber = data.inquiryNumber || 0;
+  let inquiryNumber = typeof data.inquiryNumber === "number" ? data.inquiryNumber : 0;
   if (!inquiryNumber) {
-    const numMatch = docId.match(/\d+/);
-    inquiryNumber = numMatch ? parseInt(numMatch[0].slice(-4), 10) : 1000 + (Math.abs(docId.split("").reduce((a, b) => a + b.charCodeAt(0), 0)) % 9000);
+    const numMatch = String(docId || "").match(/\d+/);
+    inquiryNumber = numMatch ? parseInt(numMatch[0].slice(-4), 10) : 1000 + (Math.abs(String(docId || "").split("").reduce((a, b) => a + b.charCodeAt(0), 0)) % 9000);
   }
 
   const createdAt = data.createdAt?.toDate
@@ -240,19 +250,19 @@ export function normalizeInquiry(docId: string, data: any): Inquiry {
     ? data.updatedAt
     : createdAt;
 
-  const organization = data.organization || data.schoolName || "Bright Future School";
+  const organization = typeof data.organization === "string" ? data.organization : (typeof data.schoolName === "string" ? data.schoolName : "Bright Future School");
 
   return {
     id: docId,
     inquiryNumber,
-    name: data.name || "Rahul Sharma",
-    email: data.email || "rahul@bfschool.in",
-    phone: data.phone || "+91 98765 43210",
+    name,
+    email: typeof data.email === "string" ? data.email : "parent@school.in",
+    phone: typeof data.phone === "string" ? data.phone : "+91 98765 43210",
     organization,
     schoolName: organization,
-    location: data.location || data.city || "Delhi, India",
-    subject: data.subject || `Inquiry from ${data.name || organization}`,
-    message: data.message || "We are looking for a complete school management solution for our 500+ students. Please share details about pricing and features.",
+    location: typeof data.location === "string" ? data.location : (typeof data.city === "string" ? data.city : "Delhi, India"),
+    subject: typeof data.subject === "string" ? data.subject : `Inquiry from ${name}`,
+    message: typeof data.message === "string" ? data.message : "Admission inquiry details.",
     source,
     interestLevel,
     priority,

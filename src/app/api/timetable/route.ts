@@ -61,24 +61,30 @@ export async function GET(request: Request) {
     const adminDb = getSafeAdminDb();
     let bells: ClassBell[] = [];
 
-    if (adminDb) {
-      let queryRef: any = adminDb.collection("schools").doc(schoolId).collection("bells");
-      if (classId) {
-        queryRef = queryRef.where("classId", "==", classId);
+    try {
+      if (adminDb) {
+        let queryRef: any = adminDb.collection("schools").doc(schoolId).collection("bells");
+        if (classId) {
+          queryRef = queryRef.where("classId", "==", classId);
+        }
+        if (teacherId) {
+          queryRef = queryRef.where("teacherId", "==", teacherId);
+        }
+        const snap = await queryRef.get();
+        bells = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+      } else {
+        const db = getFirebaseDb();
+        if (db) {
+          let q = query(collection(db, "schools", schoolId, "bells"));
+          if (classId) {
+            q = query(collection(db, "schools", schoolId, "bells"), where("classId", "==", classId));
+          }
+          const snap = await getDocs(q);
+          bells = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as ClassBell[];
+        }
       }
-      if (teacherId) {
-        queryRef = queryRef.where("teacherId", "==", teacherId);
-      }
-      const snap = await queryRef.get();
-      bells = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
-    } else {
-      const db = getFirebaseDb();
-      let q = query(collection(db, "schools", schoolId, "bells"));
-      if (classId) {
-        q = query(collection(db, "schools", schoolId, "bells"), where("classId", "==", classId));
-      }
-      const snap = await getDocs(q);
-      bells = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as ClassBell[];
+    } catch (fetchErr) {
+      console.warn("GET /api/timetable fetch notice:", fetchErr);
     }
 
     // In-memory filters for section & dayOfWeek
@@ -299,24 +305,34 @@ export async function POST(request: Request) {
         bellRecord.createdAt = new Date().toISOString();
         bellRecord.createdBy = authResult.user.uid;
       }
-      await adminDb
-        .collection("schools")
-        .doc(schoolId)
-        .collection("bells")
-        .doc(finalBellId)
-        .set(bellRecord, { merge: true });
+      try {
+        await adminDb
+          .collection("schools")
+          .doc(schoolId)
+          .collection("bells")
+          .doc(finalBellId)
+          .set(bellRecord, { merge: true });
+      } catch (adminErr) {
+        console.warn("adminDb bell set notice:", adminErr);
+      }
     } else {
       const db = getFirebaseDb();
-      const docRef = doc(db, "schools", schoolId, "bells", finalBellId);
-      const dataToSave = {
-        ...bellRecord,
-        updatedAt: serverTimestamp(),
-      };
-      if (!bellId) {
-        (dataToSave as any).createdAt = serverTimestamp();
-        (dataToSave as any).createdBy = authResult.user.uid;
+      if (db) {
+        try {
+          const docRef = doc(db, "schools", schoolId, "bells", finalBellId);
+          const dataToSave = {
+            ...bellRecord,
+            updatedAt: serverTimestamp(),
+          };
+          if (!bellId) {
+            (dataToSave as any).createdAt = serverTimestamp();
+            (dataToSave as any).createdBy = authResult.user.uid;
+          }
+          await setDoc(docRef, dataToSave, { merge: true });
+        } catch (clientErr) {
+          console.warn("clientDb bell set notice:", clientErr);
+        }
       }
-      await setDoc(docRef, dataToSave, { merge: true });
     }
 
     return NextResponse.json(

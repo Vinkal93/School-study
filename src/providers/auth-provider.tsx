@@ -367,7 +367,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setImpersonatedUser(null);
         sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
         try {
-          localStorage.setItem(SESSION_LOGIN_TIME_KEY, String(Date.now()));
+          const nowTime = Date.now();
+          localStorage.setItem(SESSION_LOGIN_TIME_KEY, String(nowTime));
+          const db = getFirebaseDb();
+          if (db) {
+            updateDoc(doc(db, "users", fbUser.uid), {
+              forceLogout: false,
+              requireReLogin: false,
+              lastLoginAt: new Date().toISOString(),
+              sessionEstablishedAt: nowTime,
+            }).catch(() => {});
+            updateDoc(doc(db, "userSecurityControl", fbUser.uid), {
+              forceLogout: false,
+              requireReLogin: false,
+              sessionEstablishedAt: nowTime,
+            }).catch(() => {});
+          }
         } catch (e) {
           console.warn("Could not save session login time:", e);
         }

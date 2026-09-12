@@ -46,8 +46,19 @@ const DAYS: { id: DayOfWeek; label: string }[] = [
 ];
 
 export default function AdminTimetablePage() {
-  const { profile } = useAuth();
+  const { profile, firebaseUser } = useAuth();
   const schoolId = profile?.schoolId || "";
+
+  const getAuthHeaders = async () => {
+    let token = "";
+    try {
+      if (firebaseUser) token = await firebaseUser.getIdToken();
+    } catch {}
+    return {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+  };
 
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [teachers, setTeachers] = useState<TeacherProfile[]>([]);
@@ -228,7 +239,7 @@ export default function AdminTimetablePage() {
       // Direct API call to guarantee backend persistence & validation
       const res = await fetch("/api/timetable", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({
           schoolId,
           bellId: editingBellId || undefined,
@@ -280,6 +291,7 @@ export default function AdminTimetablePage() {
     try {
       const res = await fetch(`/api/timetable?schoolId=${encodeURIComponent(schoolId)}&bellId=${encodeURIComponent(bellId)}`, {
         method: "DELETE",
+        headers: await getAuthHeaders(),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -310,7 +322,7 @@ export default function AdminTimetablePage() {
     try {
       const res = await fetch("/api/timetable/apply-all", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({
           schoolId,
           classId: selectedClassId,

@@ -39,7 +39,12 @@ export async function GET(request: Request) {
         if (schoolId) {
           q = q.where("schoolId", "==", schoolId);
         }
-        const snap = await q.orderBy("createdAt", "desc").get();
+        let snap;
+        try {
+          snap = await q.orderBy("createdAt", "desc").get();
+        } catch {
+          snap = await q.get();
+        }
         snap.forEach((d: any) => rawDocs.push({ id: d.id, data: d.data() }));
       } catch (e) {
         console.warn("School inquiries Admin DB notice:", e);
@@ -52,19 +57,66 @@ export async function GET(request: Request) {
         try {
           let q: any = collection(db, INQUIRY_COLLECTION);
           if (schoolId) {
-            q = query(q, where("schoolId", "==", schoolId), orderBy("createdAt", "desc"));
+            try {
+              const snap = await getDocs(query(q, where("schoolId", "==", schoolId), orderBy("createdAt", "desc")));
+              snap.forEach((d) => rawDocs.push({ id: d.id, data: d.data() }));
+            } catch {
+              const snap = await getDocs(query(q, where("schoolId", "==", schoolId)));
+              snap.forEach((d) => rawDocs.push({ id: d.id, data: d.data() }));
+            }
           } else {
-            q = query(q, orderBy("createdAt", "desc"));
+            const snap = await getDocs(query(q, orderBy("createdAt", "desc")));
+            snap.forEach((d) => rawDocs.push({ id: d.id, data: d.data() }));
           }
-          const snap = await getDocs(q);
-          snap.forEach((d) => rawDocs.push({ id: d.id, data: d.data() }));
         } catch (e) {
           console.warn("School inquiries Client DB notice:", e);
         }
       }
     }
 
-    let inquiries: Inquiry[] = rawDocs.map((d) => normalizeInquiry(d.id, d.data));
+    // 3. Fallback to Firestore REST API if SDK queries were empty or lacked index
+    if (rawDocs.length === 0 && schoolId) {
+      try {
+        const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || "school-study-c8991";
+        const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "";
+        const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${INQUIRY_COLLECTION}${apiKey ? `?key=${apiKey}` : ""}`;
+        const res = await fetch(url, { cache: "no-store" });
+        if (res.ok) {
+          const json = await res.json();
+          const documents = json.documents || [];
+          for (const item of documents) {
+            const docId = item.name.split("/").pop() || "";
+            const fields = item.fields || {};
+            const data: any = {};
+            for (const [k, v] of Object.entries(fields) as any) {
+              if (v.stringValue !== undefined) data[k] = v.stringValue;
+              else if (v.booleanValue !== undefined) data[k] = v.booleanValue;
+              else if (v.integerValue !== undefined) data[k] = parseInt(v.integerValue, 10);
+              else if (v.timestampValue !== undefined) data[k] = v.timestampValue;
+            }
+            if (!schoolId || data.schoolId === schoolId) {
+              if (!rawDocs.some((d) => d.id === docId)) {
+                rawDocs.push({ id: docId, data });
+              }
+            }
+          }
+        }
+      } catch (restErr) {
+        console.warn("School inquiries REST fetch notice:", restErr);
+      }
+    }
+
+    const inquiries: Inquiry[] = [];
+    for (const d of rawDocs) {
+      try {
+        inquiries.push(normalizeInquiry(d.id, d.data));
+      } catch (normErr) {
+        console.warn("Notice: skipping unparseable inquiry:", d.id, normErr);
+      }
+    }
+
+    // In-memory sort by createdAt descending
+    inquiries.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
 
     return NextResponse.json({
       success: true,
@@ -74,7 +126,7 @@ export async function GET(request: Request) {
   } catch (error: any) {
     console.error("GET /api/school/inquiries error:", error);
     return NextResponse.json(
-      { success: false, error: error.message || "Failed to fetch school inquiries." },
+      { success: false, error: error?.message || "Failed to fetch school inquiries." },
       { status: 500 }
     );
   }

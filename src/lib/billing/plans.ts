@@ -585,6 +585,11 @@ function validatePlanLimitsAndFeatures(
  * Initializes default plans, plan versions, and feature definitions into Firestore if not present.
  */
 export async function initializeDefaultBillingCatalog(): Promise<void> {
+  // Default static plans already exist in memory for client rendering.
+  // Never attempt Firestore write initialization from browser for regular users or school admins.
+  if (typeof window !== "undefined") {
+    return;
+  }
   const db = getFirebaseDb();
   if (!db) return;
 
@@ -892,7 +897,9 @@ export async function calculatePlanPrice(
 export async function getAllPlans(): Promise<Plan[]> {
   const db = getFirebaseDb();
   if (db) {
-    await initializeDefaultBillingCatalog();
+    if (typeof window === "undefined") {
+      await initializeDefaultBillingCatalog().catch(() => {});
+    }
     try {
       const snap = await getDocs(collection(db, BILLING_COLLECTIONS.PLANS));
       if (!snap.empty) {
@@ -913,7 +920,9 @@ export async function getAllPlansAdmin(): Promise<Plan[]> {
   const db = getFirebaseDb();
   if (!db) return [];
 
-  await initializeDefaultBillingCatalog();
+  if (typeof window === "undefined") {
+    await initializeDefaultBillingCatalog().catch(() => {});
+  }
 
   try {
     const snap = await getDocs(collection(db, BILLING_COLLECTIONS.PLANS));

@@ -10,7 +10,7 @@ import {
   onSnapshot,
   writeBatch,
 } from "firebase/firestore";
-import { getFirebaseDb } from "@/lib/firebase/client";
+import { getFirebaseDb, getFirebaseAuth } from "@/lib/firebase/client";
 import type {
   ClassBell,
   CreateClassBellInput,
@@ -236,6 +236,20 @@ export function subscribeToTeacherBells(
  * Saves or updates a Class Bell record.
  * Attempts server API first for authoritative server validation, with client Firestore fallback.
  */
+async function getClientAuthHeaders(): Promise<Record<string, string>> {
+  let token = "";
+  try {
+    const auth = getFirebaseAuth();
+    if (auth?.currentUser) {
+      token = await auth.currentUser.getIdToken();
+    }
+  } catch {}
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
 export async function saveClassBell(
   schoolId: string,
   input: CreateClassBellInput,
@@ -254,9 +268,10 @@ export async function saveClassBell(
   // 1. Try authenticated API route if running in browser
   if (typeof window !== "undefined") {
     try {
+      const headers = await getClientAuthHeaders();
       const res = await fetch("/api/timetable", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           schoolId,
           bellId,
@@ -326,8 +341,10 @@ export async function saveClassBell(
 export async function deleteClassBell(schoolId: string, bellId: string): Promise<void> {
   if (typeof window !== "undefined") {
     try {
+      const headers = await getClientAuthHeaders();
       const res = await fetch(`/api/timetable?schoolId=${encodeURIComponent(schoolId)}&bellId=${encodeURIComponent(bellId)}`, {
         method: "DELETE",
+        headers,
       });
       if (res.ok) return;
     } catch (e) {
@@ -351,9 +368,10 @@ export async function copyBellsToOtherDays(
 ): Promise<void> {
   if (typeof window !== "undefined") {
     try {
+      const headers = await getClientAuthHeaders();
       const res = await fetch("/api/timetable/apply-all", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           schoolId,
           classId,

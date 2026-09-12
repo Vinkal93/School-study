@@ -48,9 +48,12 @@ export function useRealtimeSecurityListener() {
         }
 
         if (data.forceLogout === true || data.requireReLogin === true) {
-          const versionBumped = typeof data.securityVersion === "number" && initialSecurityVersionRef.current !== null && data.securityVersion > initialSecurityVersionRef.current;
-          const isRecent = updateTime >= mountTimeRef.current - 5000;
-          if (versionBumped || isRecent || initialSecurityVersionRef.current === null) {
+          const forceLogoutTime = typeof data.forceLogoutAt === "number"
+            ? data.forceLogoutAt
+            : (typeof data.securityVersion === "number" ? data.securityVersion : updateTime);
+
+          // Terminate active session only if force logout was issued AFTER this session was created
+          if (forceLogoutTime > loginTime) {
             console.warn("[RealtimeSecurity] Force logout triggered on userSecurityControl.");
             toast.error("Your session has been terminated by administrator. Redirecting to login...");
             const auth = getFirebaseAuth();
@@ -97,7 +100,15 @@ export function useRealtimeSecurityListener() {
           return;
         }
 
-        if (uData.forceLogout === true || uData.requireReLogin === true) {
+        const storedLoginTime = typeof window !== "undefined" ? localStorage.getItem("school_study_session_login_time") : null;
+        const loginTime = storedLoginTime ? parseInt(storedLoginTime, 10) : mountTimeRef.current;
+        const uUpdateTime = uData.updatedAt ? new Date(uData.updatedAt).getTime() : 0;
+        const uForceLogoutTime = typeof uData.forceLogoutAt === "number"
+          ? uData.forceLogoutAt
+          : (typeof uData.securityVersion === "number" ? uData.securityVersion : uUpdateTime);
+
+        // Terminate active session only if force logout was issued AFTER this session was created
+        if ((uData.forceLogout === true || uData.requireReLogin === true) && uForceLogoutTime > loginTime) {
           console.warn("[RealtimeSecurity] Force logout triggered on user document.");
           toast.error("Your session has been terminated by administrator. Redirecting to login...");
           const auth = getFirebaseAuth();
