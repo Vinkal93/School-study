@@ -33,8 +33,39 @@ import {
   Heart,
   Smile,
   CheckCircle2,
+  Smartphone,
 } from "lucide-react";
 import { useTheme } from "@/context/theme-context";
+import { HeroSection2 } from "@/components/landing/HeroSection2";
+import { GlowyWavesHero } from "@/components/uitripled/glowy-waves-hero-shadcnui";
+import { NativeMarquee } from "@/components/uitripled/native-marquee-shadcnui";
+import { BentoGridBlock } from "@/components/uitripled/bento-grid-block-shadcnui";
+import { OurServicesSection } from "@/components/uitripled/our-services-section-shadcnui";
+import { FAQAccordionBlock } from "@/components/uitripled/faq-accordion-block-shadcnui";
+import { NewsletterSignupBlock } from "@/components/uitripled/newsletter-signup-block-shadcnui";
+import { ContactBlock } from "@/components/uitripled/contact-block-shadcnui";
+
+const marqueeChipsRow1 = [
+  { id: "sis", label: "Student Information System (SIS)", icon: <GraduationCap className="h-4 w-4 text-blue-500" /> },
+  { id: "att", label: "Real-Time Roll Call & Attendance", icon: <ClipboardCheck className="h-4 w-4 text-emerald-500" /> },
+  { id: "fee", label: "Automated Fees & Razorpay Gateway", icon: <CreditCard className="h-4 w-4 text-indigo-500" /> },
+  { id: "def", label: "Class-Wise Defaulter Tracking", icon: <BarChart3 className="h-4 w-4 text-amber-500" /> },
+  { id: "tt", label: "AI Timetable & Audio Period Bells", icon: <Clock className="h-4 w-4 text-purple-500" /> },
+  { id: "rep", label: "CBSE & ICSE Compliant Report Cards", icon: <FileText className="h-4 w-4 text-teal-500" /> },
+  { id: "not", label: "Digital Circulars with Read Receipts", icon: <Bell className="h-4 w-4 text-rose-500" /> },
+  { id: "pwa", label: "Parent & Student Mobile PWA App", icon: <Smartphone className="h-4 w-4 text-sky-500" /> },
+];
+
+const marqueeChipsRow2 = [
+  { id: "hw", label: "Homework Upload & Digital Grading", icon: <BookOpen className="h-4 w-4 text-emerald-500" /> },
+  { id: "sec", label: "Ultra-Secure Multi-Tenant Cloud", icon: <ShieldCheck className="h-4 w-4 text-blue-600" /> },
+  { id: "sms", label: "Automated WhatsApp & SMS Alerts", icon: <Send className="h-4 w-4 text-emerald-600" /> },
+  { id: "pay", label: "Faculty Payroll & Teacher Leaves", icon: <Users className="h-4 w-4 text-indigo-600" /> },
+  { id: "adm", label: "Digital Admissions & Inquiries", icon: <Building2 className="h-4 w-4 text-purple-500" /> },
+  { id: "exam", label: "Admit Cards & Seating Plans", icon: <FileText className="h-4 w-4 text-amber-600" /> },
+  { id: "multi", label: "Multi-Branch Campus Control", icon: <School className="h-4 w-4 text-cyan-600" /> },
+  { id: "cert", label: "Transfer & Character Certificates", icon: <CheckCircle2 className="h-4 w-4 text-teal-600" /> },
+];
 
 export function ModernLandingPage() {
   const { theme, toggleTheme } = useTheme();
@@ -171,6 +202,15 @@ export function ModernLandingPage() {
               {theme === "dark" ? <Sun className="h-4.5 w-4.5" /> : <Moon className="h-4.5 w-4.5" />}
             </button>
 
+            {/* Request a Demo Button */}
+            <button
+              type="button"
+              onClick={() => setDemoModalOpen(true)}
+              className="hidden md:inline-flex items-center justify-center px-4 py-2 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-sm font-bold shadow-xs transition-all hover:scale-105 active:scale-95"
+            >
+              Request a Demo
+            </button>
+
             {/* Login Link */}
             <Link
               href="/login"
@@ -182,9 +222,10 @@ export function ModernLandingPage() {
             {/* Get Started Button */}
             <Link
               href="/register"
-              className="inline-flex items-center justify-center px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-md shadow-blue-600/25 transition-all hover:scale-105 active:scale-95"
+              className="inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-md shadow-blue-600/25 transition-all hover:scale-105 active:scale-95"
             >
-              Get Started
+              <span>Get Started</span>
+              <ArrowRight className="h-4 w-4 stroke-[2.5]" />
             </Link>
           </div>
         </div>
@@ -192,239 +233,22 @@ export function ModernLandingPage() {
 
       <main id="main-content">
         {/* ==========================================
-            2. HERO SECTION
+            HERO SECTION 2.0 (Modern UI with School Student PNG)
         ========================================== */}
-        <section className="relative pt-12 pb-16 lg:pt-16 lg:pb-24 overflow-hidden">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
-              
-              {/* Left Column: Heading & CTAs */}
-              <div className="lg:col-span-6 space-y-6 text-left">
-                {/* Pill Badge */}
-                <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-50 dark:bg-blue-950/60 border border-blue-200/80 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-xs font-bold">
-                  <span>All-in-One School Management Platform</span>
-                </div>
+        <HeroSection2 onWatchVideoClick={() => setDemoModalOpen(true)} />
 
-                {/* Main Hero Headline */}
-                <h1 className="text-4xl sm:text-5xl lg:text-[3.4rem] font-black text-slate-900 dark:text-white tracking-tight leading-[1.18] pb-1">
-                  Simplify School Management.{" "}
-                  <span className="block mt-1 relative inline-block">
-                    <span className="text-blue-600 dark:text-blue-400 bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-400 dark:to-indigo-400 bg-clip-text text-transparent">
-                      Empower Education.
-                    </span>
-                    <span className="absolute left-0 -bottom-1 w-full h-[4px] bg-gradient-to-r from-blue-600 to-indigo-500 rounded-full" />
-                  </span>
-                </h1>
-
-                {/* Subtitle */}
-                <p className="text-base sm:text-lg text-slate-600 dark:text-slate-400 font-normal leading-relaxed max-w-xl">
-                  A modern, easy-to-use platform for schools, institutes and coaching centers. 
-                  Manage students, teachers, attendance, fees, exams and more &mdash; all in one place.
-                </p>
-
-                {/* Action Buttons */}
-                <div className="flex flex-wrap items-center gap-3 pt-2">
-                  <Link
-                    href="/register"
-                    className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-lg shadow-blue-600/25 transition-all hover:scale-105 active:scale-95"
-                  >
-                    <span>Get Started Free</span>
-                    <ArrowRight className="h-4 w-4" />
-                  </Link>
-
-                  <button
-                    type="button"
-                    onClick={() => setDemoModalOpen(true)}
-                    className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-blue-50/80 hover:bg-blue-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-blue-700 dark:text-blue-300 font-bold text-sm transition-all"
-                  >
-                    <div className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center">
-                      <Play className="h-2.5 w-2.5 fill-white ml-0.5" />
-                    </div>
-                    <span>Watch Demo</span>
-                  </button>
-                </div>
-
-                {/* Trust Points */}
-                <div className="flex flex-wrap items-center gap-6 pt-2 text-xs font-semibold text-slate-600 dark:text-slate-400">
-                  <div className="flex items-center gap-1.5">
-                    <Check className="h-4 w-4 text-emerald-500 stroke-[3]" />
-                    <span>Easy Setup</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Check className="h-4 w-4 text-emerald-500 stroke-[3]" />
-                    <span>No Credit Card Required</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Check className="h-4 w-4 text-emerald-500 stroke-[3]" />
-                    <span>Trusted by 500+ Schools</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Right Column: Interactive Dashboard Mockup Showcase */}
-              <div className="lg:col-span-6 relative">
-                {/* Decorative background blob */}
-                <div className="absolute -top-12 -right-12 w-80 h-80 bg-blue-400/10 rounded-full blur-3xl pointer-events-none" />
-                <div className="absolute -bottom-10 -left-10 w-72 h-72 bg-purple-400/10 rounded-full blur-3xl pointer-events-none" />
-
-                {/* Floating Top Badge */}
-                <div className="relative z-20 mx-auto lg:ml-8 max-w-md mb-[-24px] sm:mb-[-28px]">
-                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-white dark:bg-slate-800 shadow-xl border border-slate-100 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200">
-                    <div className="w-6 h-6 rounded-lg bg-purple-100 dark:bg-purple-950 text-purple-600 flex items-center justify-center">
-                      <Sparkles className="h-3.5 w-3.5" />
-                    </div>
-                    <span>Make Schools Smarter with Technology ✨</span>
-                  </div>
-                </div>
-
-                {/* The Realistic Dashboard Mockup Card */}
-                <div className="relative z-10 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-2xl overflow-hidden p-5 sm:p-6 text-left">
-                  {/* Mock Browser Topbar */}
-                  <div className="flex items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-lg bg-blue-600 text-white flex items-center justify-center text-xs font-bold">
-                        S
-                      </div>
-                      <span className="font-extrabold text-xs text-slate-800 dark:text-white">
-                        SchoolStudy
-                      </span>
-                    </div>
-
-                    {/* Search Mockup */}
-                    <div className="flex-1 max-w-xs relative hidden sm:block">
-                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-                      <input
-                        type="text"
-                        readOnly
-                        placeholder="Search students, classes..."
-                        className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 text-[11px] text-slate-500 border border-slate-200/60 dark:border-slate-700 cursor-default"
-                      />
-                    </div>
-
-                    {/* Right User Capsule */}
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500">
-                        <Bell className="h-3.5 w-3.5" />
-                      </div>
-                      <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold text-[10px] flex items-center justify-center">
-                        RV
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Greeting Row */}
-                  <div className="pt-4 flex items-center justify-between">
-                    <div>
-                      <h4 className="font-extrabold text-base text-slate-900 dark:text-white">
-                        Good Morning!
-                      </h4>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Here&rsquo;s what&rsquo;s happening today.
-                      </p>
-                    </div>
-                    <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                      2025-26 ⌵
-                    </span>
-                  </div>
-
-                  {/* 4 Stat Cards */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-4">
-                    <div className="p-2.5 rounded-xl bg-blue-50/60 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900/60">
-                      <div className="flex items-center gap-1.5">
-                        <Users className="h-3.5 w-3.5 text-blue-600" />
-                        <span className="text-xs font-black text-slate-900 dark:text-white">1,248</span>
-                      </div>
-                      <span className="text-[10px] text-slate-500 font-medium">Students</span>
-                    </div>
-
-                    <div className="p-2.5 rounded-xl bg-purple-50/60 dark:bg-purple-950/40 border border-purple-100 dark:border-purple-900/60">
-                      <div className="flex items-center gap-1.5">
-                        <UserCheck className="h-3.5 w-3.5 text-purple-600" />
-                        <span className="text-xs font-black text-slate-900 dark:text-white">46</span>
-                      </div>
-                      <span className="text-[10px] text-slate-500 font-medium">Teachers</span>
-                    </div>
-
-                    <div className="p-2.5 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-900/60">
-                      <div className="flex items-center gap-1.5">
-                        <ClipboardCheck className="h-3.5 w-3.5 text-emerald-600" />
-                        <span className="text-xs font-black text-slate-900 dark:text-white">92%</span>
-                      </div>
-                      <span className="text-[10px] text-slate-500 font-medium">Attendance</span>
-                    </div>
-
-                    <div className="p-2.5 rounded-xl bg-amber-50/60 dark:bg-amber-950/40 border border-amber-100 dark:border-amber-900/60">
-                      <div className="flex items-center gap-1.5">
-                        <CreditCard className="h-3.5 w-3.5 text-amber-600" />
-                        <span className="text-xs font-black text-slate-900 dark:text-white">₹12.5L</span>
-                      </div>
-                      <span className="text-[10px] text-slate-500 font-medium">Fee Collected</span>
-                    </div>
-                  </div>
-
-                  {/* Attendance & Schedule Row */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">
-                    {/* Attendance Mini Graph */}
-                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
-                      <div className="flex items-center justify-between text-[11px] font-bold">
-                        <span>Attendance Overview</span>
-                        <span className="text-emerald-500">+12%</span>
-                      </div>
-                      {/* SVG Mini Wave */}
-                      <svg viewBox="0 0 200 60" className="w-full h-14 mt-2">
-                        <path
-                          d="M0,45 Q40,30 80,40 T160,20 T200,30"
-                          fill="none"
-                          stroke="#3B82F6"
-                          strokeWidth="2.5"
-                        />
-                      </svg>
-                      <div className="flex justify-between text-[9px] text-slate-400 font-semibold px-1">
-                        <span>Mon</span>
-                        <span>Tue</span>
-                        <span>Wed</span>
-                        <span>Thu</span>
-                        <span>Fri</span>
-                        <span>Sat</span>
-                      </div>
-                    </div>
-
-                    {/* Today's Schedule Mini List */}
-                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 space-y-1.5">
-                      <span className="text-[11px] font-bold block">Today&rsquo;s Schedule</span>
-                      {[
-                        { time: "08:00", title: "Class 6-A • Mathematics" },
-                        { time: "09:00", title: "Class 7-B • Science" },
-                        { time: "10:00", title: "Class 8-A • English" },
-                        { time: "11:00", title: "Class 9-A • Computer" },
-                      ].map((item, i) => (
-                        <div key={i} className="flex items-center gap-2 text-[10px]">
-                          <span className="font-mono text-blue-600 dark:text-blue-400 font-bold">
-                            {item.time}
-                          </span>
-                          <span className="truncate text-slate-700 dark:text-slate-300 font-medium">
-                            {item.title}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Hand-drawn Callout Annotation */}
-                <div className="hidden sm:flex items-center gap-2 absolute -bottom-8 -right-4 z-20 text-slate-500 font-serif italic text-xs">
-                  <svg width="40" height="30" viewBox="0 0 40 30" fill="none" className="text-blue-500">
-                    <path
-                      d="M5 25 C15 20, 25 10, 35 5 M35 5 L28 6 M35 5 L33 12"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  <span>Education made simple for everyone</span>
-                </div>
-              </div>
-            </div>
+        {/* ==========================================
+            NATIVE MARQUEE: WEBSITE CHIPS
+        ========================================== */}
+        <section className="py-8 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-y border-slate-200/60 dark:border-slate-800 relative overflow-hidden">
+          <div className="max-w-7xl mx-auto px-4 mb-4 text-center">
+            <span className="text-[11px] uppercase tracking-[0.25em] font-extrabold text-blue-600 dark:text-blue-400">
+              ⚡ Complete Smart School Ecosystem &bull; All Integrated
+            </span>
+          </div>
+          <div className="space-y-3">
+            <NativeMarquee items={marqueeChipsRow1} speed={22} pauseOnHover={true} gap={14} />
+            <NativeMarquee items={marqueeChipsRow2} speed={25} reverse={true} pauseOnHover={true} gap={14} />
           </div>
         </section>
 
@@ -601,6 +425,16 @@ export function ModernLandingPage() {
             </div>
           </div>
         </section>
+
+        {/* ==========================================
+            BENTO GRID ERP ARCHITECTURE
+        ========================================== */}
+        <BentoGridBlock />
+
+        {/* ==========================================
+            OUR SERVICES: CORE ERP MODULES
+        ========================================== */}
+        <OurServicesSection />
 
         {/* ==========================================
             4. SIX FEATURE TILES STRIP
@@ -896,6 +730,21 @@ export function ModernLandingPage() {
             </div>
           </div>
         </section>
+
+        {/* ==========================================
+            FAQ ACCORDION BLOCK
+        ========================================== */}
+        <FAQAccordionBlock />
+
+        {/* ==========================================
+            NEWSLETTER SIGNUP BLOCK
+        ========================================== */}
+        <NewsletterSignupBlock />
+
+        {/* ==========================================
+            CONTACT BLOCK
+        ========================================== */}
+        <ContactBlock />
 
         {/* ==========================================
             7. CALL TO ACTION BANNER (Dark Navy Gradient)
