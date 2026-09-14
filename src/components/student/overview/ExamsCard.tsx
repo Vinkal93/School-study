@@ -16,8 +16,8 @@ export function ExamsCard({ data, onClick }: ExamsCardProps) {
   const displayState = useMemo(() => {
     if (!nextExam || !nextExam.date) {
       return {
-        metric: "12 Days",
-        subtitle: "Unit Test - Science",
+        metric: "None",
+        subtitle: "No upcoming exams",
         isSpecial: false,
       };
     }

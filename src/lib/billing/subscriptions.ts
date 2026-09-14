@@ -6,7 +6,7 @@ import {
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import type { SchoolSubscription, SubscriptionStatus, BillingCycle } from "@/types";
-import { BILLING_COLLECTIONS, getActivePlanVersion } from "./plans";
+import { BILLING_COLLECTIONS, getActivePlanVersion, normalizePlanId } from "./plans";
 import { createBillingAuditLog } from "./audit";
 
 // Server and Client universal DB handler
@@ -127,28 +127,21 @@ export async function getSchoolSubscription(schoolId: string): Promise<SchoolSub
       }
     }
 
-    // 2. Client SDK fallback
-    if (!subData && typeof window !== "undefined") {
+    // 2. Fallback to Client SDK if adminDb was not available or document not found
+    if (!subData) {
       const db = getFirebaseDb();
       if (db) {
         const [subSnap, schoolSnap] = await Promise.all([
           getDoc(doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId)).catch(() => null),
-          getDoc(doc(db, "schools", schoolId)).catch(() => null),
+          !schoolData ? getDoc(doc(db, "schools", schoolId)).catch(() => null) : null,
         ]);
-        if (subSnap?.exists()) subData = { id: subSnap.id, ...subSnap.data() };
-        if (schoolSnap?.exists()) schoolData = { id: schoolSnap.id, ...schoolSnap.data() };
+        if (subSnap && (subSnap as any).exists?.()) subData = { id: (subSnap as any).id, ...(subSnap as any).data() };
+        if (schoolSnap && (schoolSnap as any).exists?.()) schoolData = { id: (schoolSnap as any).id, ...(schoolSnap as any).data() };
       }
     }
 
-    const rawPlan = subData?.planId || schoolData?.planId || schoolData?.plan || schoolData?.subscriptionPlan || "plan_starter";
-    let normalizedPlan = rawPlan.toLowerCase().trim();
-    if (normalizedPlan === "base" || normalizedPlan === "plan_base") normalizedPlan = "plan_base";
-    else if (normalizedPlan === "growth" || normalizedPlan === "plan_growth") normalizedPlan = "plan_growth";
-    else if (normalizedPlan === "professional" || normalizedPlan === "plan_professional") normalizedPlan = "plan_professional";
-    else if (normalizedPlan === "enterprise" || normalizedPlan === "plan_enterprise") normalizedPlan = "plan_enterprise";
-    else if (normalizedPlan === "starter" || normalizedPlan === "plan_starter") normalizedPlan = "plan_starter";
-    else if (normalizedPlan === "free" || normalizedPlan === "plan_free") normalizedPlan = "plan_free";
-    else if (!normalizedPlan.startsWith("plan_")) normalizedPlan = `plan_${normalizedPlan}`;
+    const rawPlan = subData?.planId || schoolData?.planId || schoolData?.plan || schoolData?.subscriptionPlan || (schoolId ? "plan_base" : "plan_starter");
+    const normalizedPlan = normalizePlanId(rawPlan);
 
     if (subData) {
       const sub = {
@@ -170,6 +163,7 @@ export async function getSchoolSubscription(schoolId: string): Promise<SchoolSub
       return sub;
     }
 
+    const resolvedSource = schoolData?.subscriptionSource || (schoolData?.planId ? "manual_admin" : "system_trial");
     const defaultSub: SchoolSubscription = {
       id: schoolId,
       schoolId,
@@ -177,30 +171,28 @@ export async function getSchoolSubscription(schoolId: string): Promise<SchoolSub
       planVersionId: `${normalizedPlan}_v1`,
       status: schoolData?.subscriptionStatus || "ACTIVE",
       billingCycle: schoolData?.billingCycle || "monthly",
-      startsAt: now.toISOString(),
-      expiresAt: expiresAt.toISOString(),
-      graceEndsAt: graceEndsAt.toISOString(),
-      source: "system_trial",
+      startsAt: schoolData?.subscriptionStartsAt || now.toISOString(),
+      expiresAt: schoolData?.subscriptionExpiresAt || expiresAt.toISOString(),
+      graceEndsAt: schoolData?.subscriptionExpiresAt
+        ? new Date(new Date(schoolData.subscriptionExpiresAt).getTime() + 7 * 86400000).toISOString()
+        : graceEndsAt.toISOString(),
+      source: resolvedSource,
       lastPaymentId: null,
       lastOrderId: null,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
     };
 
-    const db = getFirebaseDb();
-    if (db) {
-      setDoc(doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId), defaultSub).catch(() => {});
-    }
-
     memorySubscriptions.set(schoolId, defaultSub);
     return defaultSub;
   } catch (error) {
-    // Non-blocking fallback
+    const mem = memorySubscriptions.get(schoolId);
+    if (mem && mem.planId) return mem;
     return {
       id: schoolId,
       schoolId,
-      planId: "plan_starter",
-      planVersionId: "plan_starter_v1",
+      planId: "plan_base",
+      planVersionId: "plan_base_v1",
       status: "ACTIVE",
       billingCycle: "monthly",
       startsAt: now.toISOString(),

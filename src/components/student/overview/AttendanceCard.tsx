@@ -13,18 +13,18 @@ interface AttendanceCardProps {
 export function AttendanceCard({ data, onClick }: AttendanceCardProps) {
   // Safe calculation of percentage to prevent NaN% or division by zero errors
   const percentage = useMemo(() => {
-    if (!data) return 92; // Default mock fallback for preview
+    if (!data) return 0;
     if (typeof data.percentage === "number" && !isNaN(data.percentage)) {
       return Math.min(100, Math.max(0, Math.round(data.percentage)));
     }
     if (data.totalDays > 0) {
       return Math.min(100, Math.max(0, Math.round((data.presentDays / data.totalDays) * 100)));
     }
-    return 100;
+    return 0;
   }, [data]);
 
-  const presentDays = data?.presentDays ?? 23;
-  const totalDays = data?.totalDays ?? 25;
+  const presentDays = data?.presentDays ?? 0;
+  const totalDays = data?.totalDays ?? 0;
 
   const cardContent = (
     <div className="w-full h-full bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-sm hover:shadow-md hover:border-emerald-300 dark:hover:border-emerald-800/80 transition-all duration-200 flex flex-col justify-between gap-3 group">

@@ -169,6 +169,7 @@ export async function POST(request: Request) {
       currentPeriodEnd: safeExpiresAt,
       graceEndsAt,
       source: "manual_admin",
+      assignedBy: actorId,
       updatedAt: now.toISOString(),
     };
 
@@ -194,6 +195,8 @@ export async function POST(request: Request) {
             planName,
             subscriptionStatus: "ACTIVE",
             subscriptionExpiresAt: safeExpiresAt,
+            subscriptionSource: "manual_admin",
+            assignedBy: actorId,
             updatedAt: now.toISOString(),
           },
           { merge: true }
@@ -239,6 +242,8 @@ export async function POST(request: Request) {
               planName,
               subscriptionStatus: "ACTIVE",
               subscriptionExpiresAt: safeExpiresAt,
+              subscriptionSource: "manual_admin",
+              assignedBy: actorId,
               updatedAt: now.toISOString(),
             },
             { merge: true }

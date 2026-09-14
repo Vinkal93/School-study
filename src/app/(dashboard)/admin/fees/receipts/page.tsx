@@ -110,6 +110,7 @@ export default function AdminFeeReceiptsPage() {
 
         <FeeReceiptModal
           payment={selectedPayment}
+          schoolName={profile?.schoolName || ""}
           isOpen={showModal}
           onClose={() => setShowModal(false)}
         />

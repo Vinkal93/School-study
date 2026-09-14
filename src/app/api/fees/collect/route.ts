@@ -1,9 +1,18 @@
-import { NextResponse } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
+import { authenticateRequest } from "@/lib/auth/serverAuth";
 import { canAccessFeature } from "@/lib/billing/featureAccess";
 import { collectFeePayment } from "@/lib/services/fee.service";
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
+    const authResult = await authenticateRequest(request);
+    if (authResult.isAuthenticated && authResult.user) {
+      const role = authResult.user.role;
+      if (role === "student" || role === "parent" || role === "teacher") {
+        return NextResponse.json({ error: "Forbidden: You are not authorized to collect fees." }, { status: 403 });
+      }
+    }
+
     const body = await request.json();
     const {
       schoolId,
@@ -26,7 +35,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing required fee payment fields" }, { status: 400 });
     }
 
-    const access = await canAccessFeature(schoolId, "fee_collection");
+    let access = await canAccessFeature(schoolId, "fee_collection");
+    if (!access.allowed) {
+      const moduleAccess = await canAccessFeature(schoolId, "fee_management");
+      if (moduleAccess.allowed) {
+        access = moduleAccess;
+      }
+    }
     if (!access.allowed) {
       return NextResponse.json(
         { error: access.message || "Fee collection feature is not enabled for your plan.", code: access.code || "FORBIDDEN" },
@@ -37,9 +52,9 @@ export async function POST(request: Request) {
     // Authoritative Server Recalculation & Validation (Part 13)
     const { getStudentApplicableFee } = await import("@/lib/services/fee.service");
     const applicable = await getStudentApplicableFee(schoolId, studentId, academicYearId || "ay_current");
-    if (!applicable.isConfigured) {
+    if (!applicable.isConfigured && (!amountPaidRupees || amountPaidRupees <= 0)) {
       return NextResponse.json(
-        { error: `Fee structure not configured for class "${applicable.className || className}".`, code: "FEE_UNCONFIGURED" },
+        { error: `Fee structure not configured for class "${applicable.className || className}". Please enter a valid payment amount.`, code: "FEE_UNCONFIGURED" },
         { status: 400 }
       );
     }
@@ -66,6 +81,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result);
   } catch (err: any) {
+    console.error("POST /api/fees/collect error:", err);
     return NextResponse.json({ error: err.message || "Failed to process fee payment" }, { status: 400 });
   }
 }

@@ -43,8 +43,11 @@ async function saveSubscriptionDoc(schoolId: string, data: any) {
         await adminDb.collection("schools").doc(schoolId).set({
           planId: data.planId,
           plan: data.planId,
+          planName: data.planName,
           billingCycle: data.billingCycle || "monthly",
           subscriptionStatus: data.status || "ACTIVE",
+          subscriptionSource: data.source || "manual_admin",
+          assignedBy: data.assignedBy,
           updatedAt: new Date().toISOString(),
         }, { merge: true }).catch(() => {});
       }
@@ -67,8 +70,11 @@ async function saveSubscriptionDoc(schoolId: string, data: any) {
           setDoc(doc(clientDb, "schools", schoolId), {
             planId: data.planId,
             plan: data.planId,
+            planName: data.planName,
             billingCycle: data.billingCycle || "monthly",
             subscriptionStatus: data.status || "ACTIVE",
+            subscriptionSource: data.source || "manual_admin",
+            assignedBy: data.assignedBy,
             updatedAt: new Date().toISOString(),
           }, { merge: true }),
           timeoutPromise(1500, null),
@@ -403,10 +409,14 @@ export async function POST(
       const safeExpiresAt = new Date(safeExpMs).toISOString();
       const graceEndsAt = new Date(safeExpMs + 7 * 86400000).toISOString();
 
+      const updatedPlan = await getActivePlan(normalizedPlan).catch(() => null);
+      const planName = updatedPlan?.name || (normalizedPlan === "plan_base" ? "Base Plan" : normalizedPlan);
+
       const updatedFields = {
         id: schoolId,
         schoolId,
         planId: normalizedPlan,
+        planName,
         planVersionId: `${normalizedPlan}_v1`,
         status: "ACTIVE" as const,
         billingCycle: billingCycle as any,
@@ -416,6 +426,7 @@ export async function POST(
         currentPeriodEnd: safeExpiresAt,
         graceEndsAt,
         source: "manual_admin",
+        assignedBy: actorId,
         updatedAt: now.toISOString(),
       };
 

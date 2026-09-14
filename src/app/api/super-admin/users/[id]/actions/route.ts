@@ -270,6 +270,12 @@ export async function POST(
       previousState = { activeSessionRevocation: false };
       newState = { activeSessionRevocation: true };
 
+      const nowMs = Date.now();
+      userUpdates.forceLogout = true;
+      userUpdates.requireReLogin = true;
+      userUpdates.forceLogoutAt = nowMs;
+      userUpdates.securityVersion = nowMs;
+
       if (adminAuth) {
         await adminAuth.revokeRefreshTokens(targetUserId).catch((err) => {
           console.warn("Token revocation notice:", err);
@@ -279,8 +285,10 @@ export async function POST(
       await updateUserSecurityControl(
         targetUserId,
         {
-          securityVersion: Date.now(),
+          securityVersion: nowMs,
           requireReLogin: true,
+          forceLogout: true,
+          forceLogoutAt: nowMs,
           reason: mandatoryReason,
         },
         performer.uid,

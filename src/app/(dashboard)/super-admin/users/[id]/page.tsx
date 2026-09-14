@@ -240,11 +240,21 @@ export default function UserProfileInspectorPage() {
             reason
           );
         } else if (payload.action === "FORCE_LOGOUT" || payload.action === "REQUIRE_RE_LOGIN") {
+          const nowMs = Date.now();
+          await updateDoc(doc(db, "users", user.uid), {
+            forceLogout: true,
+            requireReLogin: true,
+            forceLogoutAt: nowMs,
+            securityVersion: nowMs,
+            updatedAt: serverTimestamp(),
+          }).catch(() => {});
           await updateUserSecurityControl(
             user.uid,
             {
-              securityVersion: Date.now(),
+              securityVersion: nowMs,
               requireReLogin: true,
+              forceLogout: true,
+              forceLogoutAt: nowMs,
               reason,
             },
             currentUser.uid,

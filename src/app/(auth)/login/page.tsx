@@ -1,8 +1,8 @@
 "use client";
 
-import React, { Suspense } from "react";
+import React, { Suspense, useEffect } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   GraduationCap,
   School,
@@ -10,12 +10,38 @@ import {
   ArrowRight,
   Sparkles,
   UserPlus,
+  Loader2,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/common/theme-toggle";
+import { useAuth } from "@/hooks/use-auth";
+import { getRedirectByRole } from "@/lib/utils/redirect-by-role";
 
 function PortalSelectionContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
+  const { firebaseUser, profile, loading } = useAuth();
   const queryString = searchParams.toString() ? `?${searchParams.toString()}` : "";
+
+  // Auto-redirect if user already has an active authenticated session
+  useEffect(() => {
+    if (!loading && firebaseUser && profile?.role) {
+      const redirectPath = getRedirectByRole(profile.role);
+      if (redirectPath) {
+        router.replace(redirectPath);
+      }
+    }
+  }, [firebaseUser, profile, loading, router]);
+
+  if (loading || (firebaseUser && profile?.role)) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-950">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600 mb-3" />
+        <p className="text-sm font-medium text-gray-600 dark:text-gray-400">
+          Checking your active session...
+        </p>
+      </div>
+    );
+  }
 
   const portals = [
     {

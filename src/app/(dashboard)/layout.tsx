@@ -13,6 +13,7 @@ import { useEffect } from "react";
 import { getRedirectByRole, isRoleAllowedForPath } from "@/lib/utils/redirect-by-role";
 import { Spinner } from "@/components/common/Spinner";
 import { AdminWelcomeOverlay } from "@/components/common/AdminWelcomeOverlay";
+import { FeatureShowcaseModal } from "@/components/showcase/FeatureShowcaseModal";
 
 function DashboardShellSwitch({ children }: { children: React.ReactNode }) {
   const { isNewUI, isLiquidGlassUI, activePortal } = usePortalUI();
@@ -64,7 +65,11 @@ export default function DashboardLayout({
           router.replace(correctRoute);
           return;
         }
-        const isPinVerified = sessionStorage.getItem("ss_super_admin_verified") === "true";
+        const isPinVerified =
+          typeof window !== "undefined"
+            ? localStorage.getItem("ss_super_admin_verified") === "true" ||
+              sessionStorage.getItem("ss_super_admin_verified") === "true"
+            : false;
         if (!isPinVerified) {
           router.replace("/super-admin/login");
           return;
@@ -95,7 +100,8 @@ export default function DashboardLayout({
   const isSuperAdminRoute = pathname.startsWith("/super-admin");
   const isSuperAdminVerified =
     typeof window !== "undefined"
-      ? sessionStorage.getItem("ss_super_admin_verified") === "true"
+      ? localStorage.getItem("ss_super_admin_verified") === "true" ||
+        sessionStorage.getItem("ss_super_admin_verified") === "true"
       : false;
 
   if (isSuperAdminRoute && (!profile || profile.role !== "super_admin" || !isSuperAdminVerified)) {
@@ -123,6 +129,7 @@ export default function DashboardLayout({
       <PortalUIProvider>
         <MobileNavProvider>
           <EntitlementProvider>
+            <FeatureShowcaseModal />
             <div className="min-h-screen min-h-[100dvh] bg-[#F8FAFC] dark:bg-slate-950">
               {children}
             </div>
@@ -137,6 +144,7 @@ export default function DashboardLayout({
       <MobileNavProvider>
         <EntitlementProvider>
           <AdminWelcomeOverlay />
+          <FeatureShowcaseModal />
           <DashboardShellSwitch>{children}</DashboardShellSwitch>
         </EntitlementProvider>
       </MobileNavProvider>

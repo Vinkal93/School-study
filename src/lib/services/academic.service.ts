@@ -165,6 +165,8 @@ export async function createClass(
     name: string;
     order?: number;
     academicYearId?: string;
+    classTeacherId?: string;
+    classTeacherName?: string;
     initialSections?: string[];
     monthlyFee?: number;
     admissionFee?: number;
@@ -188,6 +190,8 @@ export async function createClass(
     name: data.name.trim(),
     order: data.order ?? 1,
     academicYearId: data.academicYearId || "",
+    classTeacherId: data.classTeacherId || "",
+    classTeacherName: data.classTeacherName || "",
     monthlyFee: data.monthlyFee ?? 0,
     admissionFee: data.admissionFee ?? 0,
     otherFee: data.otherFee ?? 0,
@@ -195,6 +199,16 @@ export async function createClass(
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+
+  // If classTeacherId is assigned, synchronize teacher profile
+  if (data.classTeacherId) {
+    const teacherDocRef = doc(db, "schools", schoolId, "teachers", data.classTeacherId);
+    batch.update(teacherDocRef, {
+      assignedClassId: classId,
+      assignedClassName: data.name.trim(),
+      updatedAt: serverTimestamp(),
+    });
+  }
 
   // Create initial sections if provided
   const sectionsToCreate =
@@ -278,6 +292,8 @@ export async function updateClass(
     name?: string;
     order?: number;
     academicYearId?: string;
+    classTeacherId?: string;
+    classTeacherName?: string;
     monthlyFee?: number;
     admissionFee?: number;
     otherFee?: number;
@@ -285,10 +301,131 @@ export async function updateClass(
 ): Promise<void> {
   const db = getFirebaseDb();
   const classDocRef = doc(db, "schools", schoolId, "classes", classId);
+
+  // If classTeacherId is explicitly updated, handle teacher sync
+  if (data.classTeacherId !== undefined) {
+    const existingSnap = await getDoc(classDocRef).catch(() => null);
+    const existingData = existingSnap?.data();
+    const prevTeacherId = existingData?.classTeacherId;
+
+    const batch = writeBatch(db);
+    batch.update(classDocRef, {
+      ...data,
+      updatedAt: serverTimestamp(),
+    });
+
+    // Unassign previous teacher if different
+    if (prevTeacherId && prevTeacherId !== data.classTeacherId) {
+      const prevRef = doc(db, "schools", schoolId, "teachers", prevTeacherId);
+      batch.update(prevRef, {
+        assignedClassId: "",
+        assignedClassName: "",
+        updatedAt: serverTimestamp(),
+      });
+    }
+
+    // Assign new teacher
+    if (data.classTeacherId) {
+      const newRef = doc(db, "schools", schoolId, "teachers", data.classTeacherId);
+      batch.update(newRef, {
+        assignedClassId: classId,
+        assignedClassName: data.name || existingData?.name || "",
+        updatedAt: serverTimestamp(),
+      });
+    }
+
+    await batch.commit();
+    return;
+  }
+
   await updateDoc(classDocRef, {
     ...data,
     updatedAt: serverTimestamp(),
   });
+}
+
+/**
+ * Authoritatively assigns a teacher as the designated Class Teacher of a class.
+ * Atomically synchronizes class.classTeacherId and teacher.assignedClassId.
+ */
+export async function assignClassTeacher(
+  schoolId: string,
+  classId: string,
+  teacherId: string,
+  teacherName: string
+): Promise<void> {
+  const db = getFirebaseDb();
+  const classDocRef = doc(db, "schools", schoolId, "classes", classId);
+  const classSnap = await getDoc(classDocRef);
+  if (!classSnap.exists()) throw new Error("Class not found.");
+
+  const classData = classSnap.data();
+  const prevTeacherId = classData?.classTeacherId;
+
+  const batch = writeBatch(db);
+
+  // 1. Update class record
+  batch.update(classDocRef, {
+    classTeacherId: teacherId,
+    classTeacherName: teacherName.trim(),
+    updatedAt: serverTimestamp(),
+  });
+
+  // 2. Unassign previous teacher if different
+  if (prevTeacherId && prevTeacherId !== teacherId) {
+    const prevRef = doc(db, "schools", schoolId, "teachers", prevTeacherId);
+    batch.update(prevRef, {
+      assignedClassId: "",
+      assignedClassName: "",
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  // 3. Assign new teacher
+  if (teacherId) {
+    const newRef = doc(db, "schools", schoolId, "teachers", teacherId);
+    batch.update(newRef, {
+      assignedClassId: classId,
+      assignedClassName: classData.name,
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  await batch.commit();
+}
+
+/**
+ * Removes the Class Teacher assignment from a class.
+ */
+export async function removeClassTeacher(
+  schoolId: string,
+  classId: string
+): Promise<void> {
+  const db = getFirebaseDb();
+  const classDocRef = doc(db, "schools", schoolId, "classes", classId);
+  const classSnap = await getDoc(classDocRef);
+  if (!classSnap.exists()) return;
+
+  const classData = classSnap.data();
+  const prevTeacherId = classData?.classTeacherId;
+
+  const batch = writeBatch(db);
+  batch.update(classDocRef, {
+    classTeacherId: "",
+    classTeacherName: "",
+    updatedAt: serverTimestamp(),
+  });
+
+  if (prevTeacherId) {
+    const prevRef = doc(db, "schools", schoolId, "teachers", prevTeacherId);
+    batch.update(prevRef, {
+      assignedClassId: "",
+      assignedClassName: "",
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  await batch.commit();
 }
 
 /**

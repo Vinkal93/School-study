@@ -153,9 +153,47 @@ export default function TeacherHomeworkPage() {
         dueDate,
       };
 
-      await createHomework(schoolId, teacherId, teacherName, input);
-      toast.success("Homework assigned successfully! Students can now view it.");
-      setShowModal(false);
+      let apiSuccess = false;
+      try {
+        const res = await fetch("/api/teacher/homework", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            schoolId,
+            classId: input.classId,
+            className: input.className,
+            sectionId: input.sectionId,
+            sectionName: input.sectionName,
+            bellId: input.bellId,
+            bellNumber: input.bellNumber,
+            subject: input.subject,
+            bookName: input.bookName,
+            title: input.title,
+            description: input.description,
+            assignedDate: input.assignedDate,
+            dueDate: input.dueDate,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
+          apiSuccess = true;
+          toast.success("Homework assigned successfully! Students can now view it.");
+          setShowModal(false);
+        } else if (data.error) {
+          throw new Error(data.error);
+        }
+      } catch (apiErr: any) {
+        if (apiErr?.message?.includes("Access Denied")) {
+          throw apiErr;
+        }
+        console.warn("API homework assignment note, falling back to direct write:", apiErr?.message);
+      }
+
+      if (!apiSuccess) {
+        await createHomework(schoolId, teacherId, teacherName, input);
+        toast.success("Homework assigned successfully! Students can now view it.");
+        setShowModal(false);
+      }
     } catch (err: any) {
       toast.error(err.message || "Failed to assign homework.");
     } finally {

@@ -105,7 +105,7 @@ export default function SchoolAdminSubscriptionCommandCenter() {
     liveSchool?.planId ||
     liveSchool?.plan ||
     subscription?.planId ||
-    "plan_starter";
+    (schoolId ? "plan_base" : "plan_starter");
   const effectivePlanId = rawPlanId.toLowerCase().startsWith("plan_")
     ? rawPlanId.toLowerCase()
     : `plan_${rawPlanId.toLowerCase()}`;
@@ -121,7 +121,7 @@ export default function SchoolAdminSubscriptionCommandCenter() {
         liveSub?.planName ||
         liveSchool?.planName ||
         (effectivePlanId === "plan_base"
-          ? "Base"
+          ? "Base Plan"
           : effectivePlanId === "plan_starter"
           ? "Starter Plan"
           : effectivePlanId === "plan_growth"

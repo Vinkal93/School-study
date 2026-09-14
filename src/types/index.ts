@@ -6,6 +6,7 @@ export type {
   Section,
   TeacherProfile,
   StudentProfile,
+  StudentTransferRecord,
   CreateTeacherInput,
   CreateStudentInput,
   Gender,
@@ -60,5 +61,7 @@ export type {
 
 export * from "./billing";
 export * from "./reports";
+export * from "./rules";
+export * from "./backup";
 export * from "./timetable";
 export * from "./notification";

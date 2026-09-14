@@ -92,7 +92,7 @@ export async function getTeacherDashboardContext(
     console.error("Error fetching school classes:", err);
   }
 
-  // 3. Resolve assigned classes
+  // 3. Resolve assigned classes (from teacher profile and class.classTeacherId)
   const assignedList: AssignedClassInfo[] = [];
 
   if (teacher?.assignedClasses && teacher.assignedClasses.length > 0) {
@@ -113,20 +113,26 @@ export async function getTeacherDashboardContext(
       sectionName: teacher.assignedSectionName || "Section A",
       subject: teacher.subjects?.[0] || "General",
     });
-  } else if (allSchoolClasses.length > 0) {
-    // If no explicit assignment, provide up to 4 classes from the school
-    allSchoolClasses.slice(0, 4).forEach((cls, idx) => {
-      const sec = cls.sections?.[0];
-      const subjects = ["Mathematics", "Science", "English", "Social Studies", "Computer"];
-      assignedList.push({
-        classId: cls.id,
-        className: cls.name,
-        sectionId: sec?.id,
-        sectionName: sec?.name || "A",
-        subject: subjects[idx % subjects.length],
-      });
+  }
+
+  // Also include classes where this teacher is designated as Class Teacher
+  if (teacher) {
+    allSchoolClasses.forEach((cls) => {
+      const isClassTeacher =
+        Boolean(cls.classTeacherId && (cls.classTeacherId === teacher.id || cls.classTeacherId === teacher.userId));
+      if (isClassTeacher && !assignedList.some((a) => a.classId === cls.id)) {
+        const sec = cls.sections?.[0];
+        assignedList.push({
+          classId: cls.id,
+          className: cls.name,
+          sectionId: sec?.id,
+          sectionName: sec?.name || "A",
+          subject: teacher.subjects?.[0] || "Class Teacher",
+        });
+      }
     });
   }
+  // Real Data Only: If no class has been assigned by School Admin, assignedList remains empty [].
 
   // 4. Populate student counts per assigned class
   await Promise.all(

@@ -2216,20 +2216,20 @@ export default function SuperAdminPricingPage() {
                       )}
 
                       {/* Live GST Tax Breakdown Preview */}
-                      <div className="p-4 rounded-2xl bg-slate-900 text-white font-mono text-xs space-y-3">
-                        <div className="flex items-center justify-between text-slate-400 border-b border-slate-800 pb-2">
-                          <span className="font-bold flex items-center gap-1.5 text-slate-200">
-                            <Receipt className="h-4 w-4 text-blue-400" />
+                      <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 font-mono text-xs space-y-3 shadow-sm">
+                        <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2">
+                          <span className="font-bold flex items-center gap-1.5 text-slate-800 dark:text-slate-200">
+                            <Receipt className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                             GST Invoice Breakdown ({gstSettings.gstPercentage}%)
                           </span>
-                          <span className="text-[10px]">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200/80 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
                             {gstSettings.gstEnabled ? "GST ACTIVE" : "GST EXEMPT"}
                           </span>
                         </div>
                         <div className="grid grid-cols-2 gap-4 pt-1">
                           <div className="space-y-1">
-                            <span className="text-slate-400 block text-[10px]">Monthly Total (with GST)</span>
-                            <span className="text-base font-bold text-emerald-400 font-sans">
+                            <span className="text-slate-500 dark:text-slate-400 block text-[10px]">Monthly Total (with GST)</span>
+                            <span className="text-base font-bold text-emerald-600 dark:text-emerald-400 font-sans">
                               ₹
                               {(
                                 createForm.monthlyPriceRupees *
@@ -2238,8 +2238,8 @@ export default function SuperAdminPricingPage() {
                             </span>
                           </div>
                           <div className="space-y-1">
-                            <span className="text-slate-400 block text-[10px]">Annual Billed (with GST)</span>
-                            <span className="text-base font-bold text-blue-400 font-sans">
+                            <span className="text-slate-500 dark:text-slate-400 block text-[10px]">Annual Billed (with GST)</span>
+                            <span className="text-base font-bold text-blue-600 dark:text-blue-400 font-sans">
                               ₹
                               {(
                                 createForm.annualPriceRupees *
@@ -2984,20 +2984,20 @@ export default function SuperAdminPricingPage() {
                       )}
 
                       {/* Live GST Tax Breakdown Preview */}
-                      <div className="p-4 rounded-2xl bg-slate-900 text-white font-mono text-xs space-y-3">
-                        <div className="flex items-center justify-between text-slate-400 border-b border-slate-800 pb-2">
-                          <span className="font-bold flex items-center gap-1.5 text-slate-200">
-                            <Receipt className="h-4 w-4 text-blue-400" />
+                      <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 font-mono text-xs space-y-3 shadow-sm">
+                        <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2">
+                          <span className="font-bold flex items-center gap-1.5 text-slate-800 dark:text-slate-200">
+                            <Receipt className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                             GST Invoice Breakdown ({gstSettings.gstPercentage}%)
                           </span>
-                          <span className="text-[10px]">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200/80 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
                             {gstSettings.gstEnabled ? "GST ACTIVE" : "GST EXEMPT"}
                           </span>
                         </div>
                         <div className="grid grid-cols-2 gap-4 pt-1">
                           <div className="space-y-1">
-                            <span className="text-slate-400 block text-[10px]">Monthly Total (with GST)</span>
-                            <span className="text-base font-bold text-emerald-400 font-sans">
+                            <span className="text-slate-500 dark:text-slate-400 block text-[10px]">Monthly Total (with GST)</span>
+                            <span className="text-base font-bold text-emerald-600 dark:text-emerald-400 font-sans">
                               ₹
                               {(
                                 editForm.monthlyPriceRupees *
@@ -3006,8 +3006,8 @@ export default function SuperAdminPricingPage() {
                             </span>
                           </div>
                           <div className="space-y-1">
-                            <span className="text-slate-400 block text-[10px]">Annual Billed (with GST)</span>
-                            <span className="text-base font-bold text-blue-400 font-sans">
+                            <span className="text-slate-500 dark:text-slate-400 block text-[10px]">Annual Billed (with GST)</span>
+                            <span className="text-base font-bold text-blue-600 dark:text-blue-400 font-sans">
                               ₹
                               {(
                                 editForm.annualPriceRupees *

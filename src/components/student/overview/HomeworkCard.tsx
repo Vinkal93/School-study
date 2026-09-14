@@ -11,7 +11,7 @@ interface HomeworkCardProps {
 }
 
 export function HomeworkCard({ data, onClick }: HomeworkCardProps) {
-  const pendingCount = data?.pendingCount ?? 3;
+  const pendingCount = data?.pendingCount ?? 0;
   const dueTodayCount = data?.dueTodayCount;
 
   const displayState = useMemo(() => {

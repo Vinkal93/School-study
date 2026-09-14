@@ -145,7 +145,8 @@ export default function SuperAdminEmergencyControlCenter() {
   };
 
   const handleSearchCandidateToErase = async () => {
-    if (!eraseSearchQuery.trim()) {
+    const rawSearch = eraseSearchQuery.trim();
+    if (!rawSearch) {
       toast.error("Please enter a School ID, User UID, Email, or Phone number.");
       return;
     }
@@ -156,17 +157,114 @@ export default function SuperAdminEmergencyControlCenter() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "GET_CANDIDATE_PREVIEW",
-          identifier: eraseSearchQuery.trim(),
+          identifier: rawSearch,
+          actorId: profile?.uid || "super_admin",
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({ success: false }));
       if (data.success && (data.school || data.user)) {
-        setCandidateToErase(data);
+        setCandidateToErase({
+          targetType: data.targetType,
+          school: data.school,
+          user: data.user,
+        });
         toast.success(data.targetType === "school" ? "School tenant record retrieved." : "User candidate record retrieved.");
-      } else {
-        toast.error(data.error || "No matching school or user found.");
-        setCandidateToErase(null);
+        return;
       }
+
+      // Authoritative Browser Client SDK Fallback (Super Admin in browser has active authenticated Firestore session)
+      try {
+        const { getFirebaseDb } = await import("@/lib/firebase/client");
+        const { doc, getDoc, collection, query, where, getDocs } = await import("firebase/firestore");
+        const db = getFirebaseDb();
+        if (db) {
+          // 1. Direct school doc lookup by ID
+          const schoolSnap = await getDoc(doc(db, "schools", rawSearch)).catch(() => null);
+          if (schoolSnap && schoolSnap.exists()) {
+            const sData = schoolSnap.data() as any;
+            const [stSnap, teSnap, clSnap] = await Promise.all([
+              getDocs(collection(db, "schools", rawSearch, "students")).catch(() => null),
+              getDocs(collection(db, "schools", rawSearch, "teachers")).catch(() => null),
+              getDocs(collection(db, "schools", rawSearch, "classes")).catch(() => null),
+            ]);
+            setCandidateToErase({
+              targetType: "school",
+              school: {
+                id: schoolSnap.id,
+                name: sData.name || sData.schoolName || "Lord Buddha Public School",
+                code: sData.code || "",
+                email: sData.email || "No email",
+                phone: sData.phone || "No phone",
+                address: sData.address || "",
+                city: sData.city || "",
+                state: sData.state || "",
+                status: sData.status || "active",
+                studentCount: stSnap?.size || 0,
+                teacherCount: teSnap?.size || 0,
+                classCount: clSnap?.size || 0,
+                inquiryCount: 0,
+                createdAt: sData.createdAt || null,
+              },
+            });
+            toast.success("School tenant record retrieved.");
+            return;
+          }
+
+          // 2. Query users collection for matching schoolId
+          const uSnap = await getDocs(query(collection(db, "users"), where("schoolId", "==", rawSearch))).catch(() => null);
+          if (uSnap && !uSnap.empty) {
+            const firstUser = uSnap.docs[0].data() as any;
+            setCandidateToErase({
+              targetType: "school",
+              school: {
+                id: rawSearch,
+                name: firstUser.schoolName || firstUser.school || "Lord Buddha Public School",
+                code: "",
+                email: "No email",
+                phone: "No phone",
+                address: "",
+                city: "",
+                state: "",
+                status: "active",
+                studentCount: uSnap.docs.filter((d) => (d.data() as any).role === "student").length,
+                teacherCount: uSnap.docs.filter((d) => (d.data() as any).role === "teacher").length,
+                classCount: 0,
+                inquiryCount: 0,
+                createdAt: null,
+              },
+            });
+            toast.success("School tenant record retrieved.");
+            return;
+          }
+
+          // 3. Direct user doc lookup
+          const userSnap = await getDoc(doc(db, "users", rawSearch)).catch(() => null);
+          if (userSnap && userSnap.exists()) {
+            const uData = userSnap.data() as any;
+            setCandidateToErase({
+              targetType: "user",
+              user: {
+                uid: userSnap.id,
+                name: uData.name || uData.displayName || "User",
+                email: uData.email || "No email",
+                phone: uData.phone || "No phone",
+                role: uData.role || "user",
+                schoolId: uData.schoolId || "N/A",
+                schoolName: uData.schoolName || "",
+                status: uData.status || "active",
+                createdAt: uData.createdAt || null,
+              },
+            });
+            toast.success("User candidate record retrieved.");
+            return;
+          }
+        }
+      } catch (clientErr) {
+        console.warn("Client candidate search fallback notice:", clientErr);
+      }
+
+      toast.error(data.error || "No matching school or user found.");
+      setCandidateToErase(null);
     } catch (err) {
       toast.error("Network error fetching candidate preview.");
     } finally {
@@ -1147,33 +1245,33 @@ export default function SuperAdminEmergencyControlCenter() {
       </div>
 
       {/* ========================================================================= */}
-      {/* ULTRA SECURITY ZONE: PIN 630649 PROTECTED (WIPE USER & PORTAL DATA) */}
+      {/* ULTRA SECURITY ZONE: PIN PROTECTED (WIPE USER & PORTAL DATA) */}
       {/* ========================================================================= */}
-      <div className="mt-8 rounded-3xl border-2 border-rose-600/40 bg-slate-950 p-6 sm:p-8 text-white shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 -mt-12 -mr-12 h-64 w-64 rounded-full bg-rose-600/15 blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 left-0 -mb-12 -ml-12 h-64 w-64 rounded-full bg-red-800/15 blur-3xl pointer-events-none" />
+      <div className="mt-8 rounded-3xl border-2 border-rose-300 dark:border-rose-900/50 bg-white dark:bg-slate-900 p-6 sm:p-8 text-slate-900 dark:text-white shadow-sm relative overflow-hidden">
+        <div className="absolute top-0 right-0 -mt-12 -mr-12 h-64 w-64 rounded-full bg-rose-500/5 dark:bg-rose-600/10 blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-0 -mb-12 -ml-12 h-64 w-64 rounded-full bg-red-500/5 dark:bg-red-800/10 blur-3xl pointer-events-none" />
 
         <div className="relative z-10 space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-rose-900/50 pb-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-rose-100 dark:border-rose-950 pb-5">
             <div className="flex items-center gap-3">
-              <div className="p-3 bg-rose-950/80 border border-rose-500/50 rounded-2xl text-rose-400 shadow-lg shadow-rose-900/40">
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/80 border border-rose-200 dark:border-rose-500/50 rounded-2xl text-rose-600 dark:text-rose-400 shadow-sm">
                 <ShieldAlert className="h-7 w-7" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-rose-900/70 text-rose-300 border border-rose-500/40">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-rose-100 dark:bg-rose-900/70 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/40">
                     Maximum Security Level
                   </span>
                   {ultraUnlocked && (
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-emerald-950 text-emerald-400 border border-emerald-600/40 animate-pulse">
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-600/40 animate-pulse">
                       Session Unlocked
                     </span>
                   )}
                 </div>
-                <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white mt-1">
+                <h2 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white mt-1">
                   Ultra-Security Zone (Targeted Data Erase & Factory Reset)
                 </h2>
-                <p className="text-xs text-rose-300/80 mt-0.5">
+                <p className="text-xs text-rose-600/90 dark:text-rose-300/80 mt-0.5">
                   Restricted to platform root administrator. Requires Master Security PIN verification.
                 </p>
               </div>
@@ -1182,7 +1280,7 @@ export default function SuperAdminEmergencyControlCenter() {
             {ultraUnlocked && (
               <button
                 onClick={handleLockUltraSecurity}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition"
               >
                 <Lock className="h-3.5 w-3.5" />
                 Lock Ultra Security
@@ -1193,12 +1291,12 @@ export default function SuperAdminEmergencyControlCenter() {
           {!ultraUnlocked ? (
             /* PIN Gate Modal/Screen */
             <div className="max-w-md mx-auto py-8 text-center space-y-5">
-              <div className="w-14 h-14 mx-auto rounded-2xl bg-rose-950/60 border border-rose-500/30 flex items-center justify-center text-rose-400 shadow-inner">
+              <div className="w-14 h-14 mx-auto rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-500/30 flex items-center justify-center text-rose-600 dark:text-rose-400 shadow-sm">
                 <KeyRound className="h-7 w-7" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-white">Enter 6-Digit Master Security PIN</h3>
-                <p className="text-xs text-slate-400 mt-1">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Enter 6-Digit Master Security PIN</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                   Single-user wipe and platform factory reset require direct PIN authorization.
                 </p>
               </div>
@@ -1218,17 +1316,17 @@ export default function SuperAdminEmergencyControlCenter() {
                     onKeyDown={(e) => {
                       if (e.key === "Enter") handleUnlockUltraSecurity();
                     }}
-                    className="w-full py-3 px-4 text-center tracking-[0.6em] font-mono text-xl font-bold bg-slate-900 border-2 border-rose-500/40 rounded-2xl text-white focus:outline-none focus:border-rose-400 placeholder:text-slate-600 shadow-inner"
+                    className="w-full py-3 px-4 text-center tracking-[0.6em] font-mono text-xl font-bold bg-slate-50 dark:bg-slate-950 border-2 border-rose-300 dark:border-rose-500/40 rounded-2xl text-slate-900 dark:text-white focus:outline-none focus:border-rose-500 placeholder:text-slate-400 dark:placeholder:text-slate-600 shadow-inner"
                   />
                 </div>
 
                 {ultraPinError && (
-                  <p className="text-xs font-bold text-rose-400 animate-shake">{ultraPinError}</p>
+                  <p className="text-xs font-bold text-rose-600 dark:text-rose-400 animate-shake">{ultraPinError}</p>
                 )}
 
                 <button
                   onClick={handleUnlockUltraSecurity}
-                  className="w-full max-w-xs mx-auto px-6 py-3 rounded-2xl font-bold text-sm bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white shadow-xl shadow-rose-950/50 cursor-pointer flex items-center justify-center gap-2 transition"
+                  className="w-full max-w-xs mx-auto px-6 py-3 rounded-2xl font-bold text-sm bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white shadow-lg shadow-rose-500/20 cursor-pointer flex items-center justify-center gap-2 transition"
                 >
                   <KeyRound className="h-4 w-4" />
                   Unlock Ultra-Security Zone
@@ -1239,18 +1337,18 @@ export default function SuperAdminEmergencyControlCenter() {
             /* Unlocked Controls */
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2">
               {/* Option 1: Targeted Data Erase (School or User) */}
-              <div className="rounded-2xl bg-slate-900/90 border border-slate-800 p-6 space-y-4">
-                <div className="flex items-center gap-2.5 text-rose-400">
+              <div className="rounded-2xl bg-slate-50/70 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-6 space-y-4 shadow-xs">
+                <div className="flex items-center gap-2.5 text-rose-600 dark:text-rose-400">
                   <UserX className="h-5 w-5" />
-                  <h3 className="text-base font-bold text-white">Targeted Data Erase (School or User)</h3>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">Targeted Data Erase (School or User)</h3>
                 </div>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-600 dark:text-slate-400">
                   Search and permanently erase any School Tenant or User account (student, teacher, staff) along with all their records, subcollections, and credentials.
                 </p>
 
                 <div className="space-y-3">
                   <div>
-                    <label className="text-[11px] font-bold text-slate-400">Candidate Search (School ID, User UID, Email, or Phone):</label>
+                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400">Candidate Search (School ID, User UID, Email, or Phone):</label>
                     <div className="flex gap-2 mt-1">
                       <input
                         type="text"
@@ -1260,12 +1358,12 @@ export default function SuperAdminEmergencyControlCenter() {
                         onKeyDown={(e) => {
                           if (e.key === "Enter") handleSearchCandidateToErase();
                         }}
-                        className="flex-1 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-rose-500"
+                        className="flex-1 px-3 py-2 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500"
                       />
                       <button
                         onClick={handleSearchCandidateToErase}
                         disabled={eraseSearching}
-                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer"
+                        className="px-4 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer"
                       >
                         {eraseSearching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
                         Preview
@@ -1274,59 +1372,59 @@ export default function SuperAdminEmergencyControlCenter() {
                   </div>
 
                   {candidateToErase && (
-                    <div className="p-4 rounded-xl bg-slate-950 border border-rose-900/40 space-y-3">
+                    <div className="p-4 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-rose-900/40 space-y-3 shadow-xs">
                       {candidateToErase.targetType === "school" && candidateToErase.school ? (
                         <>
-                          <div className="flex items-start justify-between border-b border-slate-800 pb-2.5">
+                          <div className="flex items-start justify-between border-b border-slate-200 dark:border-slate-800 pb-2.5">
                             <div className="flex items-center gap-2.5">
-                              <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400">
+                              <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400">
                                 <Building2 className="h-5 w-5" />
                               </div>
                               <div>
-                                <div className="font-bold text-white text-sm flex items-center gap-2">
+                                <div className="font-bold text-slate-900 dark:text-white text-sm flex items-center gap-2">
                                   {candidateToErase.school.name}
                                 </div>
-                                <div className="text-[11px] text-slate-400">
-                                  ID: <span className="font-mono text-slate-300 font-semibold">{candidateToErase.school.id}</span>
+                                <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                  ID: <span className="font-mono text-slate-800 dark:text-slate-300 font-semibold">{candidateToErase.school.id}</span>
                                 </div>
                               </div>
                             </div>
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30">
                               School Tenant
                             </span>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400">
-                            <div>Email: <span className="text-slate-200">{candidateToErase.school.email || "N/A"}</span></div>
-                            <div>Phone: <span className="text-slate-200">{candidateToErase.school.phone || "N/A"}</span></div>
-                            <div>City/State: <span className="text-slate-200">{candidateToErase.school.city ? `${candidateToErase.school.city}, ${candidateToErase.school.state || ""}` : "Not specified"}</span></div>
-                            <div>Status: <span className="text-emerald-400 font-bold uppercase">{candidateToErase.school.status || "ACTIVE"}</span></div>
+                          <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                            <div>Email: <span className="text-slate-900 dark:text-slate-200 font-medium">{candidateToErase.school.email || "N/A"}</span></div>
+                            <div>Phone: <span className="text-slate-900 dark:text-slate-200 font-medium">{candidateToErase.school.phone || "N/A"}</span></div>
+                            <div>City/State: <span className="text-slate-900 dark:text-slate-200 font-medium">{candidateToErase.school.city ? `${candidateToErase.school.city}, ${candidateToErase.school.state || ""}` : "Not specified"}</span></div>
+                            <div>Status: <span className="text-emerald-600 dark:text-emerald-400 font-bold uppercase">{candidateToErase.school.status || "ACTIVE"}</span></div>
                           </div>
 
                           <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px]">
-                            <span className="px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 font-semibold">
+                            <span className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-semibold">
                               👥 {candidateToErase.school.studentCount || 0} Students
                             </span>
-                            <span className="px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 font-semibold">
+                            <span className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-semibold">
                               🎓 {candidateToErase.school.teacherCount || 0} Teachers
                             </span>
-                            <span className="px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 font-semibold">
+                            <span className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-semibold">
                               🏫 {candidateToErase.school.classCount || 0} Classes
                             </span>
                           </div>
 
-                          <div className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-600/30 text-[11px] text-rose-300 space-y-1">
-                            <div className="font-bold flex items-center gap-1.5 text-rose-400">
+                          <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-600/30 text-[11px] text-rose-800 dark:text-rose-300 space-y-1">
+                            <div className="font-bold flex items-center gap-1.5 text-rose-700 dark:text-rose-400">
                               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                               Destructive Tenant Purge
                             </div>
-                            <p className="text-[10px] text-rose-200/80 leading-relaxed">
+                            <p className="text-[10px] text-rose-600 dark:text-rose-200/80 leading-relaxed">
                               Erasing this school will permanently delete all students, teachers, classes, fees, attendance, notices, and inquiries from Firebase.
                             </p>
                           </div>
 
-                          <div className="pt-2 border-t border-slate-800/80 space-y-2">
-                            <label className="text-[11px] font-bold text-rose-400">Confirm with 6-Digit Master Security PIN:</label>
+                          <div className="pt-2 border-t border-slate-200 dark:border-slate-800/80 space-y-2">
+                            <label className="text-[11px] font-bold text-rose-600 dark:text-rose-400">Confirm with 6-Digit Master Security PIN:</label>
                             <div className="flex gap-2">
                               <input
                                 type="password"
@@ -1334,12 +1432,12 @@ export default function SuperAdminEmergencyControlCenter() {
                                 placeholder="••••••"
                                 value={eraseCandidatePinInput}
                                 onChange={(e) => setEraseCandidatePinInput(e.target.value.replace(/\D/g, ""))}
-                                className="flex-1 px-3 py-2 bg-slate-900 border border-rose-700/50 rounded-xl text-xs font-mono tracking-widest text-white text-center focus:outline-none placeholder:text-slate-600"
+                                className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-rose-300 dark:border-rose-700/50 rounded-xl text-xs font-mono tracking-widest text-slate-900 dark:text-white text-center focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:ring-1 focus:ring-rose-500"
                               />
                               <button
                                 onClick={handleEraseSingleSchool}
                                 disabled={eraseCandidateLoading || eraseCandidatePinInput.length !== 6}
-                                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition shadow-lg shadow-rose-950 cursor-pointer"
+                                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer"
                               >
                                 {eraseCandidateLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                                 Permanently Erase School
@@ -1349,23 +1447,23 @@ export default function SuperAdminEmergencyControlCenter() {
                         </>
                       ) : candidateToErase.targetType === "user" && candidateToErase.user ? (
                         <>
-                          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                          <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
                             <div>
-                              <div className="font-bold text-white text-sm">{candidateToErase.user.name}</div>
-                              <div className="text-[11px] text-slate-400">{candidateToErase.user.email} • {candidateToErase.user.phone}</div>
+                              <div className="font-bold text-slate-900 dark:text-white text-sm">{candidateToErase.user.name}</div>
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400">{candidateToErase.user.email} • {candidateToErase.user.phone}</div>
                             </div>
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-slate-800 text-slate-300 border border-slate-700">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                               {candidateToErase.user.role}
                             </span>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400">
-                            <div>UID: <span className="font-mono text-slate-200">{candidateToErase.user.uid.substring(0, 12)}...</span></div>
-                            <div>School: <span className="text-slate-200">{candidateToErase.user.schoolName || candidateToErase.user.schoolId || "None"}</span></div>
+                          <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                            <div>UID: <span className="font-mono text-slate-800 dark:text-slate-200">{candidateToErase.user.uid.substring(0, 12)}...</span></div>
+                            <div>School: <span className="text-slate-800 dark:text-slate-200">{candidateToErase.user.schoolName || candidateToErase.user.schoolId || "None"}</span></div>
                           </div>
 
-                          <div className="pt-2 border-t border-slate-800/80 space-y-2">
-                            <label className="text-[11px] font-bold text-rose-400">Confirm with 6-Digit Master Security PIN:</label>
+                          <div className="pt-2 border-t border-slate-200 dark:border-slate-800/80 space-y-2">
+                            <label className="text-[11px] font-bold text-rose-600 dark:text-rose-400">Confirm with 6-Digit Master Security PIN:</label>
                             <div className="flex gap-2">
                               <input
                                 type="password"
@@ -1373,12 +1471,12 @@ export default function SuperAdminEmergencyControlCenter() {
                                 placeholder="••••••"
                                 value={eraseCandidatePinInput}
                                 onChange={(e) => setEraseCandidatePinInput(e.target.value.replace(/\D/g, ""))}
-                                className="flex-1 px-3 py-2 bg-slate-900 border border-rose-700/50 rounded-xl text-xs font-mono tracking-widest text-white text-center focus:outline-none placeholder:text-slate-600"
+                                className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-rose-300 dark:border-rose-700/50 rounded-xl text-xs font-mono tracking-widest text-slate-900 dark:text-white text-center focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:ring-1 focus:ring-rose-500"
                               />
                               <button
                                 onClick={handleEraseSingleUser}
                                 disabled={eraseCandidateLoading || eraseCandidatePinInput.length !== 6}
-                                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition shadow-lg shadow-rose-950 cursor-pointer"
+                                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer"
                               >
                                 {eraseCandidateLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                                 Permanently Erase User
@@ -1393,31 +1491,31 @@ export default function SuperAdminEmergencyControlCenter() {
               </div>
 
               {/* Option 2: Complete Platform Factory Reset (Nuke & Clean Start) */}
-              <div className="rounded-2xl bg-rose-950/20 border-2 border-rose-600/40 p-6 space-y-4">
-                <div className="flex items-center gap-2.5 text-rose-400">
+              <div className="rounded-2xl bg-rose-50/40 dark:bg-rose-950/20 border-2 border-rose-200 dark:border-rose-600/40 p-6 space-y-4 shadow-xs">
+                <div className="flex items-center gap-2.5 text-rose-600 dark:text-rose-400">
                   <Skull className="h-5 w-5" />
-                  <h3 className="text-base font-bold text-white">Full Platform Factory Reset</h3>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">Full Platform Factory Reset</h3>
                 </div>
-                <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-500/30 text-xs text-rose-200 space-y-1">
-                  <div className="font-bold flex items-center gap-1.5 text-rose-300">
-                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+                <div className="p-3 rounded-xl bg-rose-100/60 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-500/30 text-xs text-rose-900 dark:text-rose-200 space-y-1">
+                  <div className="font-bold flex items-center gap-1.5 text-rose-800 dark:text-rose-300">
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500 dark:text-amber-400" />
                     Destructive Action - Fresh Platform Start
                   </div>
-                  <p className="text-[11px] text-rose-200/90 leading-relaxed">
+                  <p className="text-[11px] text-rose-700 dark:text-rose-200/90 leading-relaxed">
                     Wipes all registered schools, students, teachers, fee ledgers, notices, inquiries, sessions, and activity records. <strong>Your Super Admin root account is strictly preserved</strong> so you can re-configure the system cleanly.
                   </p>
                 </div>
 
                 {portalWipeReport ? (
-                  <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-500/40 space-y-2">
-                    <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
+                  <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-500/40 space-y-2">
+                    <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-bold text-sm">
                       <CheckCircle2 className="h-5 w-5" />
                       Platform Successfully Reset to Factory State!
                     </div>
-                    <div className="grid grid-cols-2 gap-1 text-[11px] text-slate-300">
+                    <div className="grid grid-cols-2 gap-1 text-[11px] text-slate-700 dark:text-slate-300">
                       {Object.entries(portalWipeReport).map(([col, cnt]) => (
                         <div key={col} className="truncate">
-                          {col}: <span className="font-bold text-white">{cnt}</span> wiped
+                          {col}: <span className="font-bold text-slate-900 dark:text-white">{cnt}</span> wiped
                         </div>
                       ))}
                     </div>
@@ -1425,27 +1523,27 @@ export default function SuperAdminEmergencyControlCenter() {
                 ) : (
                   <div className="space-y-3">
                     <div>
-                      <label className="text-[11px] font-bold text-slate-400">
-                        Type confirmation phrase <span className="text-rose-400 font-mono">ERASE ENTIRE PORTAL DATA</span>:
+                      <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                        Type confirmation phrase <span className="text-rose-600 dark:text-rose-400 font-mono">ERASE ENTIRE PORTAL DATA</span>:
                       </label>
                       <input
                         type="text"
                         placeholder="ERASE ENTIRE PORTAL DATA"
                         value={portalConfirmPhrase}
                         onChange={(e) => setPortalConfirmPhrase(e.target.value)}
-                        className="w-full mt-1 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-mono text-white placeholder:text-slate-600 focus:outline-none focus:border-rose-500"
+                        className="w-full mt-1 px-3 py-2 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500"
                       />
                     </div>
 
                     <div>
-                      <label className="text-[11px] font-bold text-slate-400">6-Digit Master PIN:</label>
+                      <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400">6-Digit Master PIN:</label>
                       <input
                         type="password"
                         maxLength={6}
                         placeholder="••••••"
                         value={portalPinInput}
                         onChange={(e) => setPortalPinInput(e.target.value.replace(/\D/g, ""))}
-                        className="w-full mt-1 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-mono tracking-widest text-center text-white focus:outline-none focus:border-rose-500"
+                        className="w-full mt-1 px-3 py-2 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-mono tracking-widest text-center text-slate-900 dark:text-white focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500"
                       />
                     </div>
 
@@ -1457,7 +1555,7 @@ export default function SuperAdminEmergencyControlCenter() {
                         portalConfirmPhrase !== "ERASE ENTIRE PORTAL DATA" ||
                         portalPinInput.length !== 6
                       }
-                      className="w-full py-3 rounded-xl font-bold text-xs bg-red-600 hover:bg-red-500 disabled:opacity-30 text-white shadow-xl shadow-red-950 flex items-center justify-center gap-2 transition cursor-pointer"
+                      className="w-full py-3 rounded-xl font-bold text-xs bg-red-600 hover:bg-red-500 disabled:opacity-30 text-white shadow-md shadow-red-600/20 flex items-center justify-center gap-2 transition cursor-pointer"
                     >
                       {portalWipeLoading ? (
                         <>

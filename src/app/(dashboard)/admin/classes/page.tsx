@@ -18,6 +18,7 @@ import {
   Sparkles,
   ArrowLeft,
   X,
+  GraduationCap,
 } from "lucide-react";
 import {
   getAcademicYears,
@@ -31,8 +32,9 @@ import {
   createSection,
   deleteSection,
 } from "@/lib/services/academic.service";
+import { getTeachers } from "@/lib/services/teacher.service";
 import { checkPlanLimit } from "@/lib/billing";
-import type { AcademicYear, SchoolClass, Section, PlanLimitCheckResult } from "@/types";
+import type { AcademicYear, SchoolClass, Section, PlanLimitCheckResult, TeacherProfile } from "@/types";
 import { toast } from "sonner";
 
 import { useEntitlement } from "@/context/EntitlementContext";
@@ -44,6 +46,7 @@ export default function AdminClassesPage() {
   const { canAccess } = useEntitlement();
 
   const [classes, setClasses] = useState<SchoolClass[]>([]);
+  const [teachers, setTeachers] = useState<TeacherProfile[]>([]);
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [limitStatus, setLimitStatus] = useState<PlanLimitCheckResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -54,6 +57,7 @@ export default function AdminClassesPage() {
   const [classNameInput, setClassNameInput] = useState("");
   const [classOrderInput, setClassOrderInput] = useState(1);
   const [selectedAcademicYearId, setSelectedAcademicYearId] = useState("");
+  const [classTeacherIdInput, setClassTeacherIdInput] = useState("");
   const [monthlyFeeInput, setMonthlyFeeInput] = useState("");
   const [admissionFeeInput, setAdmissionFeeInput] = useState("");
   const [initialSectionsInput, setInitialSectionsInput] = useState("A, B");
@@ -79,14 +83,16 @@ export default function AdminClassesPage() {
     }
     setLoading(true);
     try {
-      const [years, cls, limitRes] = await Promise.all([
+      const [years, cls, limitRes, teacherList] = await Promise.all([
         getAcademicYears(schoolId),
         getClassesWithSections(schoolId),
         checkPlanLimit(schoolId, "classes"),
+        getTeachers(schoolId),
       ]);
       setAcademicYears(years);
       setClasses(cls);
       setLimitStatus(limitRes);
+      setTeachers(teacherList);
     } catch (err) {
       console.error("Failed to load academic data:", err);
       toast.error("Failed to load classes and academic years.");
@@ -111,6 +117,10 @@ export default function AdminClassesPage() {
     try {
       const monthlyFeeNum = monthlyFeeInput ? parseFloat(monthlyFeeInput) : 0;
       const admissionFeeNum = admissionFeeInput ? parseFloat(admissionFeeInput) : 0;
+      const selectedTeacher = teachers.find((t) => t.id === classTeacherIdInput);
+      const classTeacherName = selectedTeacher
+        ? (selectedTeacher.name || (selectedTeacher as any).fullName || "Teacher")
+        : "";
 
       if (editingClass) {
         // Edit
@@ -118,6 +128,8 @@ export default function AdminClassesPage() {
           name: classNameInput.trim(),
           order: classOrderInput,
           academicYearId: selectedAcademicYearId || undefined,
+          classTeacherId: classTeacherIdInput || "",
+          classTeacherName: classTeacherIdInput ? classTeacherName : "",
           monthlyFee: monthlyFeeNum,
           admissionFee: admissionFeeNum,
         });
@@ -133,6 +145,8 @@ export default function AdminClassesPage() {
           name: classNameInput.trim(),
           order: classOrderInput,
           academicYearId: selectedAcademicYearId || undefined,
+          classTeacherId: classTeacherIdInput || "",
+          classTeacherName: classTeacherIdInput ? classTeacherName : "",
           initialSections: sections.length > 0 ? sections : ["A"],
           monthlyFee: monthlyFeeNum,
           admissionFee: admissionFeeNum,
@@ -145,6 +159,7 @@ export default function AdminClassesPage() {
       setClassNameInput("");
       setMonthlyFeeInput("");
       setAdmissionFeeInput("");
+      setClassTeacherIdInput("");
       setInitialSectionsInput("A, B");
       loadData();
     } catch (err: any) {
@@ -298,6 +313,7 @@ export default function AdminClassesPage() {
                 setClassNameInput("");
                 setClassOrderInput(classes.length + 1);
                 setSelectedAcademicYearId(currentYear?.id || "");
+                setClassTeacherIdInput("");
                 setMonthlyFeeInput("");
                 setAdmissionFeeInput("");
                 setInitialSectionsInput("A, B");
@@ -319,17 +335,22 @@ export default function AdminClassesPage() {
       {limitStatus && !limitStatus.allowed && (
         <div className="rounded-2xl border border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/40 p-4 flex items-center justify-between gap-4 text-red-800 dark:text-red-300">
           <div className="flex items-center gap-3">
-            <XCircle className="h-5 w-5 text-red-600 shrink-0" />
-            <div className="text-xs sm:text-sm">
-              <span className="font-bold">Class Capacity Limit Reached ({limitStatus.current}/${limitStatus.limit}). </span>
-              <span>Your school has reached the maximum class limit for your current plan.</span>
+            <div className="h-9 w-9 rounded-xl bg-red-100 dark:bg-red-900/60 flex items-center justify-center shrink-0">
+              <BookOpen className="h-5 w-5 text-red-600 dark:text-red-400" />
+            </div>
+            <div>
+              <p className="text-sm font-bold">Class Capacity Limit Reached</p>
+              <p className="text-xs text-red-700 dark:text-red-400 mt-0.5">
+                Your school has reached the maximum of {limitStatus.limit} classes allowed on your current plan.
+              </p>
             </div>
           </div>
           <Link
             href="/admin/billing"
-            className="px-3.5 py-1.5 rounded-xl bg-red-600 text-white font-bold text-xs hover:bg-red-700 shrink-0 transition-all shadow-xs"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors shrink-0"
           >
-            Upgrade Plan
+            <Sparkles className="h-3.5 w-3.5" />
+            <span>Upgrade Plan</span>
           </Link>
         </div>
       )}
@@ -340,13 +361,15 @@ export default function AdminClassesPage() {
           <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
         </div>
       ) : classes.length === 0 ? (
-        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center dark:border-gray-800 dark:bg-gray-950">
-          <BookOpen className="mx-auto h-12 w-12 text-gray-400" />
-          <h3 className="mt-2 text-base font-semibold text-gray-900 dark:text-white">
-            No classes created yet
+        <div className="flex flex-col items-center justify-center min-h-[300px] rounded-2xl border-2 border-dashed border-gray-200 p-8 text-center dark:border-gray-800">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400 mb-3">
+            <BookOpen className="h-6 w-6" />
+          </div>
+          <h3 className="text-base font-semibold text-gray-900 dark:text-white">
+            No Classes Configured Yet
           </h3>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Get started by adding grade levels and section divisions.
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-sm">
+            Set up your grade levels, sections, and tuition fee structures to begin managing students and roll call.
           </p>
           <button
             onClick={() => {
@@ -354,19 +377,20 @@ export default function AdminClassesPage() {
               setClassNameInput("");
               setClassOrderInput(1);
               setSelectedAcademicYearId(currentYear?.id || "");
+              setClassTeacherIdInput("");
               setMonthlyFeeInput("");
               setAdmissionFeeInput("");
               setInitialSectionsInput("A, B");
               setIsClassModalOpen(true);
             }}
-            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-xs font-medium text-white shadow-sm hover:bg-blue-700"
           >
             <Plus className="h-4 w-4" />
-            Create First Class
+            <span>Create First Class</span>
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {classes.map((cls) => (
             <div
               key={cls.id}
@@ -400,6 +424,7 @@ export default function AdminClassesPage() {
                         setClassNameInput(cls.name);
                         setClassOrderInput(cls.order);
                         setSelectedAcademicYearId(cls.academicYearId || currentYear?.id || "");
+                        setClassTeacherIdInput(cls.classTeacherId || "");
                         setMonthlyFeeInput(cls.monthlyFee !== undefined ? cls.monthlyFee.toString() : "");
                         setAdmissionFeeInput(cls.admissionFee !== undefined ? cls.admissionFee.toString() : "");
                         setIsClassModalOpen(true);
@@ -433,6 +458,36 @@ export default function AdminClassesPage() {
                       ₹{cls.admissionFee !== undefined ? cls.admissionFee.toLocaleString("en-IN") : "0"}
                     </span>
                   </div>
+                </div>
+
+                {/* Class Teacher Info */}
+                <div className="py-2 px-3 my-2 rounded-lg bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/40 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <GraduationCap className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                    <div className="truncate">
+                      <span className="text-[10px] uppercase tracking-wider font-semibold text-indigo-500 dark:text-indigo-400 block">
+                        Class Teacher
+                      </span>
+                      <span className="font-semibold text-gray-900 dark:text-white truncate block">
+                        {cls.classTeacherName || (cls.classTeacherId ? "Assigned" : "Not Assigned")}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setEditingClass(cls);
+                      setClassNameInput(cls.name);
+                      setClassOrderInput(cls.order);
+                      setSelectedAcademicYearId(cls.academicYearId || currentYear?.id || "");
+                      setClassTeacherIdInput(cls.classTeacherId || "");
+                      setMonthlyFeeInput(cls.monthlyFee !== undefined ? cls.monthlyFee.toString() : "");
+                      setAdmissionFeeInput(cls.admissionFee !== undefined ? cls.admissionFee.toString() : "");
+                      setIsClassModalOpen(true);
+                    }}
+                    className="text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:underline shrink-0 ml-2"
+                  >
+                    {cls.classTeacherId ? "Change" : "Assign"}
+                  </button>
                 </div>
 
                 {/* Sections List */}
@@ -636,6 +691,27 @@ export default function AdminClassesPage() {
                   </select>
                 </div>
               )}
+
+              <div>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Assign Class Teacher
+                </label>
+                <select
+                  value={classTeacherIdInput}
+                  onChange={(e) => setClassTeacherIdInput(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                >
+                  <option value="">-- No Class Teacher Assigned --</option>
+                  {teachers.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name || (t as any).fullName || "Teacher"} {t.teacherCode ? `(${t.teacherCode})` : ""} {t.designation ? `• ${t.designation}` : t.subjects?.[0] ? `• ${t.subjects[0]}` : ""}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-gray-400 mt-0.5">
+                  Assigned class teacher has authorization to record attendance and manage this class.
+                </p>
+              </div>
 
               {!editingClass && (
                 <div>

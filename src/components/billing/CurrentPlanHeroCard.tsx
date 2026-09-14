@@ -29,9 +29,17 @@ export function CurrentPlanHeroCard({
   const priceRupees = isAnnual
     ? planVersion?.annualPrice
       ? Math.round(planVersion.annualPrice / 100)
+      : plan.slug === "base" || plan.id === "plan_base"
+      ? 299
+      : plan.slug === "starter"
+      ? 799
       : 1599
     : planVersion?.monthlyPrice
     ? Math.round(planVersion.monthlyPrice / 100)
+    : plan.slug === "base" || plan.id === "plan_base"
+    ? 399
+    : plan.slug === "starter"
+    ? 999
     : 1999;
 
   const startDateFormatted = new Date(subscription.startsAt).toLocaleDateString("en-IN", {

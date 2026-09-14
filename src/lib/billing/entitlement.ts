@@ -64,8 +64,22 @@ export async function getEffectiveEntitlement(schoolId: string): Promise<Effecti
   const classesLimit = buildLimitStatus("classes", effectiveMaxClasses);
   const staffLimit = buildLimitStatus("staff", effectiveMaxStaff);
 
-  const planName = planDoc?.name || (summary.planId === "plan_professional" ? "Professional Plan" : summary.planId === "plan_enterprise" ? "Enterprise Plan" : "Starter Plan");
-  const planSlug = planDoc?.slug || (summary.planId.replace("plan_", "") || "starter");
+  const planName =
+    planDoc?.name ||
+    (summary.planId === "plan_base"
+      ? "Base Plan"
+      : summary.planId === "plan_starter"
+      ? "Starter Plan"
+      : summary.planId === "plan_growth"
+      ? "Growth Plan"
+      : summary.planId === "plan_professional"
+      ? "Professional Plan"
+      : summary.planId === "plan_enterprise"
+      ? "Enterprise Plan"
+      : summary.planId === "plan_free"
+      ? "Free Plan"
+      : "Base Plan");
+  const planSlug = planDoc?.slug || (summary.planId ? summary.planId.replace("plan_", "") : "base");
 
   const isExpired = effectiveAccessMode === "RESTRICTED_ACCESS" || effectiveAccessMode === "NO_ACCESS";
   const isInGrace = effectiveAccessMode === "GRACE_ACCESS";

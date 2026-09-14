@@ -151,7 +151,7 @@ export async function GET(request: Request) {
         id: subscription.planId || "plan_starter",
         name:
           subscription.planId === "plan_base"
-            ? "Base"
+            ? "Base Plan"
             : subscription.planId === "plan_professional"
             ? "Professional Plan"
             : subscription.planId === "plan_enterprise"

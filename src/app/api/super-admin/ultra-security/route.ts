@@ -165,8 +165,10 @@ export async function POST(request: Request) {
             }
           }
         }
-      } else {
-        // Client DB fallback for school search
+      }
+
+      // 1b. Fallback to Client DB if not found via adminDb
+      if (!foundSchool) {
         try {
           const clientModule = await import("@/lib/firebase/client");
           const clientDb = clientModule.getFirebaseDb ? clientModule.getFirebaseDb() : null;
@@ -176,15 +178,38 @@ export async function POST(request: Request) {
             if (directSnap && directSnap.exists()) {
               foundSchool = { id: directSnap.id, ...directSnap.data() };
             } else {
-              const q = query(collection(clientDb, "schools"), where("email", "==", cleanQuery));
-              const esnap = await getDocs(q).catch(() => null);
-              if (esnap && !esnap.empty) {
-                foundSchool = { id: esnap.docs[0].id, ...esnap.docs[0].data() };
+              const lowerSnap = await getDoc(doc(clientDb, "schools", cleanQuery)).catch(() => null);
+              if (lowerSnap && lowerSnap.exists()) {
+                foundSchool = { id: lowerSnap.id, ...lowerSnap.data() };
+              } else {
+                const qCode = query(collection(clientDb, "schools"), where("code", "==", rawQuery));
+                const csnap = await getDocs(qCode).catch(() => null);
+                if (csnap && !csnap.empty) {
+                  foundSchool = { id: csnap.docs[0].id, ...csnap.docs[0].data() };
+                } else {
+                  const qEmail = query(collection(clientDb, "schools"), where("email", "==", cleanQuery));
+                  const esnap = await getDocs(qEmail).catch(() => null);
+                  if (esnap && !esnap.empty) {
+                    foundSchool = { id: esnap.docs[0].id, ...esnap.docs[0].data() };
+                  } else {
+                    // Check if users exist for this schoolId
+                    const qUsers = query(collection(clientDb, "users"), where("schoolId", "==", rawQuery));
+                    const usnap = await getDocs(qUsers).catch(() => null);
+                    if (usnap && !usnap.empty) {
+                      const uData = usnap.docs[0].data();
+                      foundSchool = {
+                        id: rawQuery,
+                        name: uData.schoolName || uData.school || "Lord Buddha Public School",
+                        status: "active",
+                      };
+                    }
+                  }
+                }
               }
             }
           }
         } catch (e) {
-          // Gracefully continue if clientDb is unavailable in node/server context
+          // Gracefully continue
         }
       }
 
@@ -207,6 +232,22 @@ export async function POST(request: Request) {
 
           const iSnap = await adminDb.collection("inquiries").where("schoolId", "==", foundSchool.id).get().catch(() => null);
           inquiryCount = iSnap ? iSnap.size : 0;
+        } else {
+          try {
+            const clientModule = await import("@/lib/firebase/client");
+            const clientDb = clientModule.getFirebaseDb ? clientModule.getFirebaseDb() : null;
+            if (clientDb) {
+              const { collection, getDocs } = await import("firebase/firestore");
+              const [sSnap, tSnap, cSnap] = await Promise.all([
+                getDocs(collection(clientDb, "schools", foundSchool.id, "students")).catch(() => null),
+                getDocs(collection(clientDb, "schools", foundSchool.id, "teachers")).catch(() => null),
+                getDocs(collection(clientDb, "schools", foundSchool.id, "classes")).catch(() => null),
+              ]);
+              studentCount = sSnap ? sSnap.size : 0;
+              teacherCount = tSnap ? tSnap.size : 0;
+              classCount = cSnap ? cSnap.size : 0;
+            }
+          } catch {}
         }
 
         return NextResponse.json({
@@ -268,8 +309,10 @@ export async function POST(request: Request) {
             }
           }
         }
-      } else {
-        // Client DB fallback for user search
+      }
+
+      // 2b. User Client DB Fallback
+      if (!foundUser) {
         try {
           const clientModule = await import("@/lib/firebase/client");
           const clientDb = clientModule.getFirebaseDb ? clientModule.getFirebaseDb() : null;
@@ -287,7 +330,7 @@ export async function POST(request: Request) {
             }
           }
         } catch (e) {
-          // Gracefully continue if clientDb is unavailable in node/server context
+          // Gracefully continue
         }
       }
 

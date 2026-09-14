@@ -11,6 +11,7 @@ import {
   deleteDoc,
   serverTimestamp,
   runTransaction,
+  writeBatch,
   type Timestamp,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -266,13 +267,43 @@ export async function assignTeacherToClass(
 ): Promise<void> {
   const db = getFirebaseDb();
   const teacherDocRef = doc(db, "schools", schoolId, "teachers", teacherId);
-  await updateDoc(teacherDocRef, {
+  const teacherSnap = await getDoc(teacherDocRef);
+  const teacherName = teacherSnap?.data()?.name || "Teacher";
+
+  const batch = writeBatch(db);
+
+  // 1. Update target teacher
+  batch.update(teacherDocRef, {
     assignedClassId: assignment.classId,
     assignedClassName: assignment.className,
     assignedSectionId: assignment.sectionId,
     assignedSectionName: assignment.sectionName,
     updatedAt: serverTimestamp(),
   });
+
+  // 2. If assigning to a class, update class record and check previous teacher
+  if (assignment.classId) {
+    const classDocRef = doc(db, "schools", schoolId, "classes", assignment.classId);
+    const classSnap = await getDoc(classDocRef).catch(() => null);
+    if (classSnap && classSnap.exists()) {
+      const prevTeacherId = classSnap.data()?.classTeacherId;
+      if (prevTeacherId && prevTeacherId !== teacherId) {
+        const prevTeacherRef = doc(db, "schools", schoolId, "teachers", prevTeacherId);
+        batch.update(prevTeacherRef, {
+          assignedClassId: "",
+          assignedClassName: "",
+          updatedAt: serverTimestamp(),
+        });
+      }
+      batch.update(classDocRef, {
+        classTeacherId: teacherId,
+        classTeacherName: teacherName,
+        updatedAt: serverTimestamp(),
+      });
+    }
+  }
+
+  await batch.commit();
 }
 
 /**

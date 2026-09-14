@@ -44,8 +44,22 @@ const FEATURE_KEY_ALIASES: Record<string, string[]> = {
   rules: ["rules_policies", "rules"],
   billing: ["billing", "subscription_billing"],
   subscription_billing: ["subscription_billing", "billing"],
-  fee_management: ["fee_management", "fees", "fee_collection_system"],
-  fees: ["fees", "fee_management"],
+  fee_management: [
+    "fee_management",
+    "fees",
+    "fee_collection",
+    "fee_collection_system",
+    "fee_dashboard",
+    "fee_structure",
+    "fees.collect",
+    "fees.structure",
+    "fees.payment",
+  ],
+  fees: ["fees", "fee_management", "fee_collection", "fees.collect"],
+  fee_collection: ["fee_collection", "fees.collect", "fees.payment", "fee_management", "fees"],
+  "fees.collect": ["fees.collect", "fee_collection", "fee_management", "fees"],
+  fee_dashboard: ["fee_dashboard", "fee_management", "fees", "fees.dashboard"],
+  fee_structure: ["fee_structure", "fees.structure", "fee_management", "fees"],
   inquiries: ["inquiries", "inquiries_portal", "leads"],
   inquiries_portal: ["inquiries_portal", "inquiries", "leads"],
 };
@@ -239,7 +253,9 @@ export async function getEffectiveFeatureAccessModes(
     }
 
     // 4. Plan-level deterministic hierarchical resolution (PLAN_DEFAULT / LIMITED_CONTROL)
-    resultModes[rawKey] = resolveInheritedPlanMode(canonical);
+    const resolvedMode = resolveInheritedPlanMode(canonical);
+    resultModes[rawKey] = resolvedMode;
+    resultModes[canonical] = resolvedMode;
   }
 
   return resultModes;
@@ -455,7 +471,22 @@ export async function canAccessFeature(
     }
 
     // 3. Check 3-way access mode (check canonical, raw, or default to HIDDEN)
-    const featureMode = effectiveModes[canonical] || effectiveModes[featureKey] || "HIDDEN";
+    let featureMode = effectiveModes[canonical] || effectiveModes[featureKey] || "HIDDEN";
+
+    // Dynamic Module & Alias Inheritance: If parent module is FULL_ACCESS or in allowedFeatures, grant FULL_ACCESS
+    if (featureMode === "HIDDEN" || featureMode === "SHOWCASE") {
+      const topKey = getParentFeatureKey(canonical);
+      if (topKey && (effectiveModes[topKey] === "FULL_ACCESS" || summary.allowedFeatures?.includes(topKey))) {
+        featureMode = "FULL_ACCESS";
+      }
+      const aliases = FEATURE_KEY_ALIASES[canonical] || FEATURE_KEY_ALIASES[featureKey] || [];
+      for (const a of aliases) {
+        if (effectiveModes[a] === "FULL_ACCESS" || summary.allowedFeatures?.includes(a)) {
+          featureMode = "FULL_ACCESS";
+          break;
+        }
+      }
+    }
 
     if (featureMode === "SHOWCASE") {
       const requiredPlan = await getRequiredPlanForFeature(canonical, summary.planId);

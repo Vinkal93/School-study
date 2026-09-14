@@ -46,7 +46,7 @@ export const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 const IMPERSONATION_STORAGE_KEY = "school_study_impersonation_user";
 const SESSION_LOGIN_TIME_KEY = "school_study_session_login_time";
-const SESSION_MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days (1 week)
+const SESSION_MAX_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days persistent session
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -74,22 +74,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (user) {
         setBootstrapState("AUTHENTICATED");
-        // Enforce 1-week maximum session duration
+        // Enforce 30-day maximum session duration unless manually logged out or revoked
         try {
           const storedLoginTime = localStorage.getItem(SESSION_LOGIN_TIME_KEY);
           if (storedLoginTime) {
             const loginTimestamp = parseInt(storedLoginTime, 10);
             if (!isNaN(loginTimestamp) && Date.now() - loginTimestamp > SESSION_MAX_DURATION_MS) {
-              console.warn("User session expired after 7 days.");
+              console.warn("User session expired after 30 days.");
               localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
               sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
+              sessionStorage.removeItem("ss_super_admin_verified");
+              localStorage.removeItem("ss_super_admin_verified");
               await signOutUser();
               setFirebaseUser(null);
               setOriginalProfile(null);
               setImpersonatedUser(null);
               setBootstrapState("UNAUTHENTICATED");
               setLoading(false);
-              toast.info("Your session has expired after 1 week. Please log in again to continue.");
+              toast.info("Your session has expired. Please log in again to continue.");
               router.push("/login");
               return;
             }
@@ -101,11 +103,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.warn("Storage check error:", storageErr);
         }
 
-        // Sync session cookie for serverless API authorization
+        // Sync session cookie for serverless API authorization (30 days)
         try {
           const token = await user.getIdToken();
           if (typeof document !== "undefined") {
-            document.cookie = `__session=${token}; path=/; max-age=604800; SameSite=Lax;`;
+            document.cookie = `__session=${token}; path=/; max-age=2592000; SameSite=Lax;`;
           }
         } catch (cookieErr) {
           console.warn("Could not sync session cookie:", cookieErr);
@@ -165,11 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setOriginalProfile(enhancedProfile);
           setBootstrapState("AUTHENTICATED_CONTEXT_READY");
         } catch (err: any) {
-          console.error("Failed to load user profile:", err);
-          await signOutUser();
-          setFirebaseUser(null);
-          setOriginalProfile(null);
-          setImpersonatedUser(null);
+          console.warn("Notice: Transient error loading user profile, preserving auth state:", err?.message || err);
           setBootstrapState("AUTH_ERROR");
         }
       } else {
@@ -179,6 +177,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
         try {
           sessionStorage.removeItem("ss_super_admin_verified");
+          localStorage.removeItem("ss_super_admin_verified");
           sessionStorage.removeItem("ss_super_admin_auth");
           localStorage.removeItem("ss_super_admin_auth");
           localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
@@ -417,6 +416,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
       sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
       sessionStorage.removeItem("ss_super_admin_verified");
+      localStorage.removeItem("ss_super_admin_verified");
       sessionStorage.removeItem("ss_super_admin_auth");
       localStorage.removeItem("ss_super_admin_auth");
       if (typeof document !== "undefined") {
@@ -441,14 +441,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (stored) {
           const loginTime = parseInt(stored, 10);
           if (!isNaN(loginTime) && Date.now() - loginTime > SESSION_MAX_DURATION_MS) {
-            console.warn("Active session expired after 7 days.");
+            console.warn("Active session expired after 30 days.");
             localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
             sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
+            sessionStorage.removeItem("ss_super_admin_verified");
+            localStorage.removeItem("ss_super_admin_verified");
             await signOutUser();
             setFirebaseUser(null);
             setOriginalProfile(null);
             setImpersonatedUser(null);
-            toast.info("Your session has expired after 1 week. Please log in again to continue.");
+            toast.info("Your session has expired. Please log in again to continue.");
             router.push("/login");
           }
         }

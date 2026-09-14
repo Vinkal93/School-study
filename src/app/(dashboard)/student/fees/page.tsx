@@ -263,6 +263,7 @@ export default function StudentFeePortalPage() {
       {/* Receipt Modal */}
       <FeeReceiptModal
         payment={selectedPayment}
+        schoolName={profile?.schoolName || ""}
         isOpen={showReceiptModal}
         onClose={() => setShowReceiptModal(false)}
       />

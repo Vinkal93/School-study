@@ -36,6 +36,7 @@ import {
   Award,
   Upload,
   ShieldCheck,
+  Database,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
@@ -129,6 +130,16 @@ const roleNavItems: Record<string, NavItem[]> = {
       icon: <Palette className="h-5 w-5 text-indigo-500" />,
     },
     {
+      label: "AI Management",
+      href: "/super-admin/ai",
+      icon: <Sparkles className="h-5 w-5 text-purple-500" />,
+    },
+    {
+      label: "Feature Showcase",
+      href: "/super-admin/showcase",
+      icon: <Sparkles className="h-5 w-5 text-amber-500" />,
+    },
+    {
       label: "Feature Control",
       href: "/super-admin/features",
       icon: <Sliders className="h-5 w-5 text-indigo-500" />,
@@ -144,6 +155,15 @@ const roleNavItems: Record<string, NavItem[]> = {
       icon: <ShieldCheck className="h-5 w-5 text-rose-500" />,
     },
     {
+      label: "Data Backup & Sync",
+      href: "/super-admin/backup",
+      icon: <Database className="h-5 w-5 text-emerald-500" />,
+      subItems: [
+        { label: "Google Sheets Mirror", href: "/super-admin/backup" },
+        { label: "Import Data", href: "/super-admin/import" },
+      ],
+    },
+    {
       label: "Settings",
       href: "/super-admin/settings",
       icon: <Settings className="h-5 w-5" />,
@@ -154,6 +174,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       label: "Dashboard",
       href: "/admin",
       icon: <LayoutDashboard className="h-5 w-5" />,
+    },
+    {
+      label: "AI Assistant",
+      href: "/admin/ai",
+      icon: <Sparkles className="h-5 w-5 text-purple-500" />,
     },
     {
       label: "Inquiries",
@@ -240,6 +265,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       icon: <LayoutDashboard className="h-5 w-5" />,
     },
     {
+      label: "AI Assistant",
+      href: "/teacher/ai",
+      icon: <Sparkles className="h-5 w-5 text-indigo-500" />,
+    },
+    {
       label: "My Classes",
       href: "/teacher/classes",
       icon: <BookOpen className="h-5 w-5 text-blue-500" />,
@@ -295,6 +325,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       label: "Dashboard",
       href: "/student",
       icon: <LayoutDashboard className="h-5 w-5" />,
+    },
+    {
+      label: "AI Study Buddy",
+      href: "/student/ai",
+      icon: <Sparkles className="h-5 w-5 text-purple-500" />,
     },
     {
       label: "My Profile",

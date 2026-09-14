@@ -89,11 +89,19 @@ export interface FeatureRegistryItem {
   sortOrder: number;
 }
 
+export type SubscriptionSource =
+  | "manual_admin"
+  | "self_onboarding"
+  | "system_trial"
+  | "renewal_payment"
+  | "upgrade_payment";
+
 export interface SchoolSubscription {
   id: string; // Same as schoolId
   schoolId: string;
   planId: string;
   planVersionId: string;
+  planName?: string;
   status: SubscriptionStatus;
   controlMode?: "PLAN_DEFAULT" | "FULL_CONTROL" | "LIMITED_CONTROL" | "CUSTOM_ACCESS";
   billingCycle: BillingCycle;
@@ -124,7 +132,10 @@ export interface SchoolSubscription {
   suspendedAt?: string | null;
   suspendedBy?: string | null;
   suspensionReason?: string | null;
-  source: "manual_admin" | "self_onboarding" | "system_trial" | "renewal_payment" | "upgrade_payment";
+  source: SubscriptionSource;
+  subscriptionSource?: string;
+  assignedBy?: string;
+  notes?: string;
   lastPaymentId: string | null;
   lastOrderId: string | null;
   createdAt: string;
@@ -568,6 +579,10 @@ export interface MonthLedgerItem {
   status: "PAID" | "PENDING" | "PARTIAL" | "OVERDUE";
   paymentIds?: string[];
   receiptNumbers?: string[];
+  isManuallyAdjusted?: boolean;
+  previousDuePaise?: number;
+  advancePaidPaise?: number;
+  adjustmentNote?: string;
 }
 
 export interface StudentFeeAssignment {
@@ -589,7 +604,40 @@ export interface StudentFeeAssignment {
   monthLedger: MonthLedgerItem[];
   status: "PAID" | "PENDING" | "PARTIAL" | "OVERDUE";
   lastPaymentDate?: string | null;
+  latestFollowUpStatus?: FeeFollowUpStatus;
+  lastFollowUpDate?: string;
+  nextFollowUpDate?: string;
+  lastFollowUpNotes?: string;
+  phone?: string;
+  parentPhone?: string;
   updatedAt: string;
+}
+
+export type FeeFollowUpStatus =
+  | "Pending"
+  | "Contacted"
+  | "Promised"
+  | "Partially Paid"
+  | "Paid"
+  | "No Response";
+
+export interface FeeFollowUp {
+  id: string;
+  schoolId: string;
+  studentId: string;
+  studentName: string;
+  admissionNumber: string;
+  className: string;
+  status: FeeFollowUpStatus;
+  contactChannel: "Call" | "WhatsApp" | "In-Person" | "SMS" | "Other";
+  contactPerson?: string;
+  contactPhone?: string;
+  promisedDate?: string;
+  nextFollowUpDate?: string;
+  notes: string;
+  recordedBy: string;
+  recordedAt: string;
+  createdAt: string;
 }
 
 export interface FeePayment {
@@ -608,14 +656,15 @@ export interface FeePayment {
   amountPaidPaise: number; // Integer PAISE
   discountPaise: number; // Integer PAISE
   lateFeePaise: number; // Integer PAISE
-  netAmountPaise: number; // Integer PAISE (amountPaidPaise + lateFeePaise - discountPaise)
+  netAmountPaise: number; // amountPaid + lateFee - discount
   paymentMethod: "Cash" | "UPI" | "Bank Transfer" | "Card" | "Cheque" | "Online Payment" | "Other";
   transactionRef?: string;
   remarks?: string;
-  paymentDate: string; // ISO String
-  collectedBy: string;
+  paymentDate: string; // ISO
+  collectedBy: string; // actorId
   collectedByName?: string;
-  status: "SUCCESS" | "REFUNDED" | "CANCELLED";
+  status: "SUCCESS" | "FAILED" | "REFUNDED";
+  remainingDuePaise?: number; // Integer PAISE remaining after this transaction
   createdAt: string;
 }
 
@@ -623,11 +672,9 @@ export interface FeeDiscount {
   id: string;
   schoolId: string;
   studentId: string;
-  studentName: string;
-  admissionNumber: string;
-  className: string;
-  feeType: FeeType;
-  discountType: "FIXED" | "PERCENTAGE" | "SCHOLARSHIP" | "CONCESSION" | "CUSTOM";
+  title: string;
+  type: "PERCENTAGE" | "FIXED";
+  value: number;
   amountPaise: number; // Integer PAISE or percentage value
   reason: string;
   appliedBy: string;
@@ -639,7 +686,18 @@ export interface FeeSettings {
   schoolId: string;
   currency: string; // "INR"
   receiptPrefix: string; // "REC"
-  feeDueDayOfMonth: number; // 5
+  feeDueDayOfMonth: number; // e.g. 10
+  academicSession?: string; // e.g. "2026-27"
+  feeStartMonth?: string; // e.g. "April"
+  billingFrequency?: "monthly" | "quarterly" | "annual";
+  schoolName?: string;
+  upiId?: string; // e.g. "school@upi"
+  upiNumber?: string; // e.g. "9876543210"
+  reminderSettings?: {
+    enabled: boolean;
+    daysBeforeDue: number;
+    customNote?: string;
+  };
   lateFeeRule: {
     enabled: boolean;
     graceDays: number; // 5

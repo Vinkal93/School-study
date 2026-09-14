@@ -21,6 +21,8 @@ const LiquidGlassLandingPage = dynamic(
   { ssr: true }
 );
 
+import { FeatureShowcaseBanner } from "@/components/showcase/FeatureShowcaseBanner";
+
 export interface LandingPageSwitchProps {
   initialVersion?: PortalUIVersion;
 }
@@ -36,13 +38,16 @@ export function LandingPageSwitch({ initialVersion }: LandingPageSwitchProps) {
     ? settings.landingPage
     : initialVersion || settings.landingPage || "new";
 
-  if (activeVersion === "liquid_glass") {
-    return <LiquidGlassLandingPage />;
-  }
-
-  if (activeVersion === "classic") {
-    return <ClassicLandingPage />;
-  }
-
-  return <ModernLandingPage />;
+  return (
+    <>
+      <FeatureShowcaseBanner />
+      {activeVersion === "liquid_glass" ? (
+        <LiquidGlassLandingPage />
+      ) : activeVersion === "classic" ? (
+        <ClassicLandingPage />
+      ) : (
+        <ModernLandingPage />
+      )}
+    </>
+  );
 }

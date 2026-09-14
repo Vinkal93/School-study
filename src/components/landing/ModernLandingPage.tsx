@@ -44,6 +44,8 @@ import { OurServicesSection } from "@/components/uitripled/our-services-section-
 import { FAQAccordionBlock } from "@/components/uitripled/faq-accordion-block-shadcnui";
 import { NewsletterSignupBlock } from "@/components/uitripled/newsletter-signup-block-shadcnui";
 import { ContactBlock } from "@/components/uitripled/contact-block-shadcnui";
+import { useAuth } from "@/hooks/use-auth";
+import { getRedirectByRole } from "@/lib/utils/redirect-by-role";
 
 const marqueeChipsRow1 = [
   { id: "sis", label: "Student Information System (SIS)", icon: <GraduationCap className="h-4 w-4 text-blue-500" /> },
@@ -69,6 +71,7 @@ const marqueeChipsRow2 = [
 
 export function ModernLandingPage() {
   const { theme, toggleTheme } = useTheme();
+  const { firebaseUser, profile } = useAuth();
   const [demoModalOpen, setDemoModalOpen] = useState(false);
   const [newsletterEmail, setNewsletterEmail] = useState("");
   const [newsletterSuccess, setNewsletterSuccess] = useState(false);
@@ -211,22 +214,32 @@ export function ModernLandingPage() {
               Request a Demo
             </button>
 
-            {/* Login Link */}
-            <Link
-              href="/login"
-              className="hidden sm:inline-flex items-center justify-center px-4 py-2 text-sm font-bold text-slate-700 dark:text-slate-200 hover:text-blue-600 transition-colors"
-            >
-              Login
-            </Link>
-
-            {/* Get Started Button */}
-            <Link
-              href="/register"
-              className="inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-md shadow-blue-600/25 transition-all hover:scale-105 active:scale-95"
-            >
-              <span>Get Started</span>
-              <ArrowRight className="h-4 w-4 stroke-[2.5]" />
-            </Link>
+            {/* Authentication Action Button: Go to Dashboard if logged in, otherwise Login & Get Started */}
+            {firebaseUser && profile?.role ? (
+              <Link
+                href={getRedirectByRole(profile.role) || "/login"}
+                className="inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-md shadow-blue-600/25 transition-all hover:scale-105 active:scale-95"
+              >
+                <span>Go to Dashboard</span>
+                <ArrowRight className="h-4 w-4 stroke-[2.5]" />
+              </Link>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="hidden sm:inline-flex items-center justify-center px-4 py-2 text-sm font-bold text-slate-700 dark:text-slate-200 hover:text-blue-600 transition-colors"
+                >
+                  Login
+                </Link>
+                <Link
+                  href="/register"
+                  className="inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-md shadow-blue-600/25 transition-all hover:scale-105 active:scale-95"
+                >
+                  <span>Get Started</span>
+                  <ArrowRight className="h-4 w-4 stroke-[2.5]" />
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </header>

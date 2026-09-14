@@ -61,7 +61,7 @@ export function Topbar({ variant = "classic" }: TopbarProps) {
               setActivePlanName(s.planName);
             } else if (s.planId || (s as any).plan) {
               const pid = String(s.planId || (s as any).plan).toLowerCase();
-              if (pid.includes("base")) setActivePlanName("Base");
+              if (pid.includes("base")) setActivePlanName("Base Plan");
               else if (pid.includes("growth")) setActivePlanName("Growth Plan");
               else if (pid.includes("pro")) setActivePlanName("Professional Plan");
               else if (pid.includes("enterprise")) setActivePlanName("Enterprise Plan");
@@ -84,7 +84,7 @@ export function Topbar({ variant = "classic" }: TopbarProps) {
               setActivePlanName(subData.planName);
             } else if (subData.planId) {
               const pid = String(subData.planId).toLowerCase();
-              if (pid.includes("base")) setActivePlanName("Base");
+              if (pid.includes("base")) setActivePlanName("Base Plan");
               else if (pid.includes("growth")) setActivePlanName("Growth Plan");
               else if (pid.includes("pro")) setActivePlanName("Professional Plan");
               else if (pid.includes("enterprise")) setActivePlanName("Enterprise Plan");

@@ -12,6 +12,7 @@ import {
   ArrowRight,
   ShieldCheck,
   Zap,
+  Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { safeFetchJson } from "@/lib/utils/safeFetch";
@@ -150,6 +151,16 @@ export function RechargeModal({
   const handleProceedToPayment = async () => {
     if (!schoolId || !userId) {
       toast.error("Authentication session missing. Please reload the page.");
+      return;
+    }
+
+    // Payment Gateway Temporary State: Online payments are currently Coming Soon
+    const isPaymentGatewayLive = process.env.NEXT_PUBLIC_PAYMENT_GATEWAY_LIVE === "true";
+    if (!isPaymentGatewayLive) {
+      toast.info(
+        "Online payments are coming soon! Payment gateway integration is currently being prepared. Please contact your Super Administrator for plan activation.",
+        { duration: 6000 }
+      );
       return;
     }
 
@@ -470,7 +481,17 @@ export function RechargeModal({
           </div>
 
           {/* Checkout CTA */}
-          <div className="pt-2">
+          <div className="pt-2 space-y-3">
+            <div className="rounded-2xl border border-blue-200 bg-blue-50/80 p-3.5 text-xs text-blue-900 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-300">
+              <div className="flex items-center gap-2 font-bold mb-1">
+                <Clock className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                <span>Online Payments Coming Soon</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-blue-700 dark:text-blue-300">
+                Payment gateway integration is currently being prepared. To activate or change your school plan immediately, please contact your Super Administrator.
+              </p>
+            </div>
+
             <button
               onClick={handleProceedToPayment}
               disabled={isCheckingOut || isCalculating}
@@ -483,14 +504,14 @@ export function RechargeModal({
                 </>
               ) : (
                 <>
-                  <ShieldCheck className="h-4 w-4" />
-                  <span>Pay {formatPaise(breakdown.finalAmount)} with Razorpay</span>
+                  <Clock className="h-4 w-4" />
+                  <span>Online Payments Coming Soon</span>
                   <ArrowRight className="h-4 w-4" />
                 </>
               )}
             </button>
-            <p className="mt-2 text-center text-[10px] text-slate-400">
-              🔒 256-bit Encrypted. Razorpay Verified Payment Gateway.
+            <p className="text-center text-[10px] text-slate-400">
+              🔒 Payment gateway is in preparation. Super Admin can manually assign any plan.
             </p>
           </div>
         </div>

@@ -78,6 +78,7 @@ export const DEFAULT_STATIC_PLANS: Plan[] = [
       "basic_attendance",
       "school_dashboard",
       "notices_announcements",
+      "fee_management",
       "subscription_billing",
     ],
     featureAccess: {
@@ -87,11 +88,11 @@ export const DEFAULT_STATIC_PLANS: Plan[] = [
       basic_attendance: "FULL_ACCESS",
       school_dashboard: "FULL_ACCESS",
       notices_announcements: "FULL_ACCESS",
+      fee_management: "FULL_ACCESS",
       inquiries_portal: "SHOWCASE",
       rules_policies: "SHOWCASE",
       timetable_bells: "SHOWCASE",
       advanced_reports: "SHOWCASE",
-      fee_management: "HIDDEN",
       attendance_automation: "HIDDEN",
       subscription_billing: "FULL_ACCESS",
     },
@@ -386,6 +387,7 @@ export const DEFAULT_STATIC_PLAN_VERSIONS: Record<string, PlanVersion> = {
       "basic_attendance",
       "school_dashboard",
       "notices_announcements",
+      "fee_management",
       "subscription_billing",
     ],
     limits: {
@@ -678,12 +680,41 @@ export async function initializeDefaultBillingCatalog(): Promise<void> {
   try {
     const defaultPlans: Plan[] = [
       {
+        id: "plan_base",
+        name: "Base Plan",
+        slug: "base",
+        description: "Core institution features for daily school administration.",
+        status: "ACTIVE",
+        displayOrder: 1,
+        isPopular: false,
+        publicVisible: true,
+        version: 1,
+        features: [
+          "student_management",
+          "teacher_management",
+          "class_management",
+          "basic_attendance",
+          "school_dashboard",
+          "notices_announcements",
+          "fee_management",
+          "subscription_billing",
+        ],
+        limits: {
+          maxStudents: 500,
+          maxTeachers: 20,
+          maxClasses: 15,
+          maxStaffAccounts: 2,
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
         id: "plan_starter",
         name: "Starter Plan",
         slug: "starter",
         description: "Essential school management tools for small institutions.",
         status: "ACTIVE",
-        displayOrder: 1,
+        displayOrder: 2,
         isPopular: false,
         publicVisible: true,
         version: 1,
@@ -709,7 +740,7 @@ export async function initializeDefaultBillingCatalog(): Promise<void> {
         slug: "professional",
         description: "Advanced controls & analytics for growing institutions.",
         status: "ACTIVE",
-        displayOrder: 2,
+        displayOrder: 3,
         isPopular: true,
         publicVisible: true,
         version: 1,
@@ -739,7 +770,7 @@ export async function initializeDefaultBillingCatalog(): Promise<void> {
         slug: "enterprise",
         description: "Custom limits and dedicated support for large networks.",
         status: "ACTIVE",
-        displayOrder: 3,
+        displayOrder: 4,
         isPopular: false,
         publicVisible: true,
         version: 1,
@@ -778,7 +809,10 @@ export async function initializeDefaultBillingCatalog(): Promise<void> {
         let monthlyPricePaise = 0;
         let annualPricePaise = 0;
 
-        if (p.slug === "starter") {
+        if (p.slug === "base") {
+          monthlyPricePaise = 39900;
+          annualPricePaise = 29900;
+        } else if (p.slug === "starter") {
           monthlyPricePaise = 99900;
           annualPricePaise = 79900;
         } else if (p.slug === "professional") {
@@ -872,18 +906,20 @@ export function broadcastPlanChange(planId?: string): void {
 export function normalizePlanId(planId?: string): string {
   if (!planId) return "plan_starter";
   const lower = planId.toLowerCase().trim();
-  if (lower === "growth" || lower === "plan_growth") return "plan_growth";
-  if (lower === "custom" || lower === "plan_custom") return "plan_custom";
-  if (lower === "free" || lower === "plan_free") return "plan_free";
-  if (lower === "starter" || lower === "plan_starter") return "plan_starter";
+  if (lower === "base" || lower === "plan_base" || lower === "base plan" || lower === "plan base") return "plan_base";
+  if (lower === "growth" || lower === "plan_growth" || lower === "growth plan") return "plan_growth";
+  if (lower === "custom" || lower === "plan_custom" || lower === "custom plan") return "plan_custom";
+  if (lower === "free" || lower === "plan_free" || lower === "free plan") return "plan_free";
+  if (lower === "starter" || lower === "plan_starter" || lower === "starter plan") return "plan_starter";
   if (
     lower === "professional" ||
     lower === "plan_professional" ||
+    lower === "professional plan" ||
     lower === "pro" ||
     lower === "plan_pro"
   )
     return "plan_professional";
-  if (lower === "enterprise" || lower === "plan_enterprise") return "plan_enterprise";
+  if (lower === "enterprise" || lower === "plan_enterprise" || lower === "enterprise plan") return "plan_enterprise";
   return lower.startsWith("plan_") ? lower : `plan_${lower}`;
 }
 
@@ -892,6 +928,26 @@ export async function getActivePlan(planId: string): Promise<Plan | null> {
   const cached = getCachedPlan(normId) || getCachedPlan(planId);
   if (cached && cached.status === "ACTIVE" && !cached.isArchived) {
     return cached;
+  }
+
+  if (typeof window === "undefined") {
+    try {
+      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+      const adminDb = getSafeAdminDb();
+      if (adminDb) {
+        let planSnap = await adminDb.collection(BILLING_COLLECTIONS.PLANS).doc(normId).get().catch(() => null);
+        if (!planSnap?.exists && planId && planId !== normId) {
+          planSnap = await adminDb.collection(BILLING_COLLECTIONS.PLANS).doc(planId).get().catch(() => null);
+        }
+        if (planSnap?.exists) {
+          const plan = { id: planSnap.id, ...planSnap.data() } as Plan;
+          if (plan.status === "ACTIVE" && !plan.isArchived) {
+            cachePlan(plan);
+            return plan;
+          }
+        }
+      }
+    } catch (adminErr) {}
   }
 
   const db = getFirebaseDb();
@@ -1033,10 +1089,10 @@ export async function getActivePlanVersion(planId: string): Promise<PlanVersion 
           const staticFallback = DEFAULT_STATIC_PLAN_VERSIONS[normId] || DEFAULT_STATIC_PLAN_VERSIONS[planId];
           if (!normId.includes("free")) {
             if (!v.monthlyPrice || v.monthlyPrice <= 0) {
-              v.monthlyPrice = staticFallback?.monthlyPrice || 99900;
+              v.monthlyPrice = staticFallback?.monthlyPrice || (normId.includes("base") ? 39900 : 99900);
             }
             if (!v.annualPrice || v.annualPrice <= 0) {
-              v.annualPrice = staticFallback?.annualPrice || 79900;
+              v.annualPrice = staticFallback?.annualPrice || (normId.includes("base") ? 29900 : 79900);
             }
           }
           return v;

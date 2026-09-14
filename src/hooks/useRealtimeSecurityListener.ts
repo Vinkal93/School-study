@@ -61,6 +61,9 @@ export function useRealtimeSecurityListener() {
             if (typeof window !== "undefined") {
               localStorage.removeItem("school_study_session_login_time");
               sessionStorage.removeItem("school_study_impersonation_user");
+              localStorage.removeItem("ss_super_admin_verified");
+              sessionStorage.removeItem("ss_super_admin_verified");
+              document.cookie = "__session=; path=/; max-age=0; SameSite=Lax;";
             }
             setTimeout(() => {
               window.location.href = "/login?reason=session_revoked";
@@ -93,6 +96,9 @@ export function useRealtimeSecurityListener() {
           if (typeof window !== "undefined") {
             localStorage.removeItem("school_study_session_login_time");
             sessionStorage.removeItem("school_study_impersonation_user");
+            localStorage.removeItem("ss_super_admin_verified");
+            sessionStorage.removeItem("ss_super_admin_verified");
+            document.cookie = "__session=; path=/; max-age=0; SameSite=Lax;";
           }
           setTimeout(() => {
             window.location.href = "/login?reason=account_suspended";
@@ -116,6 +122,9 @@ export function useRealtimeSecurityListener() {
           if (typeof window !== "undefined") {
             localStorage.removeItem("school_study_session_login_time");
             sessionStorage.removeItem("school_study_impersonation_user");
+            localStorage.removeItem("ss_super_admin_verified");
+            sessionStorage.removeItem("ss_super_admin_verified");
+            document.cookie = "__session=; path=/; max-age=0; SameSite=Lax;";
           }
           setTimeout(() => {
             window.location.href = "/login?reason=session_revoked";

@@ -17,6 +17,8 @@ export interface SchoolClass {
   name: string; // e.g. "Class 10"
   order: number; // e.g. 10
   status: "active" | "inactive";
+  classTeacherId?: string; // Teacher Profile ID or User UID
+  classTeacherName?: string; // Teacher display name
   monthlyFee?: number; // In INR (e.g. 1500)
   admissionFee?: number; // In INR (e.g. 3000)
   otherFee?: number;
@@ -213,9 +215,28 @@ export interface StudentProfile {
   guardianRelation?: string;
   bloodGroup?: string;
   status: "active" | "inactive" | "transferred" | "archived" | "deleted";
+  transferHistory?: StudentTransferRecord[];
   deletedAt?: string | Timestamp | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+}
+
+export interface StudentTransferRecord {
+  id: string;
+  fromClassId: string;
+  fromClassName: string;
+  fromSectionId: string;
+  fromSectionName: string;
+  fromRollNumber?: number;
+  toClassId: string;
+  toClassName: string;
+  toSectionId: string;
+  toSectionName: string;
+  toRollNumber: number;
+  transferDate: string;
+  reason?: string;
+  transferredBy?: string;
+  timestamp: string;
 }
 
 export interface CreateStudentInput {

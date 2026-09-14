@@ -33,6 +33,9 @@ export interface AuthenticatedUser {
   classId?: string | null;
   sectionId?: string | null;
   status: "active" | "suspended" | "disabled" | "restricted" | "inactive" | "blocked";
+  forceLogout?: boolean;
+  requireReLogin?: boolean;
+  forceLogoutAt?: number;
 }
 
 export interface AuthValidationResult {
@@ -120,7 +123,7 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
 
   // 2a. Admin SDK lookup (authoritative server-side bypass)
   try {
-    const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+    const { getSafeAdminAuth, getSafeAdminDb } = await import("@/lib/firebase/admin");
     const adminDb = getSafeAdminDb();
     if (adminDb) {
       const docSnap = await adminDb.collection("users").doc(resolvedUid).get();
@@ -137,6 +140,9 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
             classId: data.classId || null,
             sectionId: data.sectionId || null,
             status: data.status || "active",
+            forceLogout: Boolean(data.forceLogout),
+            requireReLogin: Boolean(data.requireReLogin),
+            forceLogoutAt: typeof data.forceLogoutAt === "number" ? data.forceLogoutAt : undefined,
           };
         }
       }
@@ -161,6 +167,9 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
             classId: data.classId || null,
             sectionId: data.sectionId || null,
             status: data.status || "active",
+            forceLogout: Boolean(data.forceLogout),
+            requireReLogin: Boolean(data.requireReLogin),
+            forceLogoutAt: typeof data.forceLogoutAt === "number" ? data.forceLogoutAt : undefined,
           };
         }
       }
@@ -189,6 +198,8 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
           classId: fields.classId?.stringValue || null,
           sectionId: fields.sectionId?.stringValue || null,
           status: (fields.status?.stringValue || "active") as any,
+          forceLogout: Boolean(fields.forceLogout?.booleanValue),
+          requireReLogin: Boolean(fields.requireReLogin?.booleanValue),
         };
       }
     } catch (restErr) {}
@@ -233,6 +244,17 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
       errorResponse: NextResponse.json(
         { error: `Account access revoked. Your account is ${dbUser.status}.` },
         { status: 403 }
+      ),
+    };
+  }
+
+  // 4. Force Logout & Session Revocation check
+  if (dbUser.forceLogout === true || dbUser.requireReLogin === true) {
+    return {
+      isAuthenticated: false,
+      errorResponse: NextResponse.json(
+        { error: "Your session has been terminated by an administrator. Please log in again.", code: "SESSION_REVOKED" },
+        { status: 401 }
       ),
     };
   }

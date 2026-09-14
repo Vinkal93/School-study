@@ -18,8 +18,9 @@ import {
 } from "lucide-react";
 import { ThemeToggle } from "@/components/common/theme-toggle";
 import { TextSizeToggle } from "@/components/common/TextSizeToggle";
-
 import { useSiteSettings } from "@/context/SiteSettingsContext";
+import { useAuth } from "@/hooks/use-auth";
+import { getRedirectByRole } from "@/lib/utils/redirect-by-role";
 
 interface MarketingHeaderProps {
   currentPath?: string;
@@ -27,6 +28,7 @@ interface MarketingHeaderProps {
 
 export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
   const { settings } = useSiteSettings();
+  const { firebaseUser, profile } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [megaMenuOpen, setMegaMenuOpen] = useState(false);
   const megaMenuRef = useRef<HTMLDivElement>(null);
@@ -175,23 +177,36 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
             </Link>
           )}
 
-          {/* Primary CTA / Login Button */}
-          {headerConfig.primaryCta?.enabled !== false && (
+          {/* Action Buttons: Go to Dashboard if logged in, otherwise Login & Register */}
+          {firebaseUser && profile?.role ? (
             <Link
-              href={headerConfig.primaryCta?.url || "/login"}
-              className="hidden sm:inline-flex items-center justify-center px-4 sm:px-5 py-2 text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-800/90 dark:border dark:border-white/15 rounded-full transition-all min-h-[38px] sm:min-h-[42px] shadow-xs"
+              href={getRedirectByRole(profile.role) || "/login"}
+              className="hidden sm:inline-flex items-center justify-center gap-1.5 px-4 sm:px-5 py-2 text-xs sm:text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-full transition-all min-h-[38px] sm:min-h-[42px] shadow-md shadow-blue-500/25 hover:scale-105 active:scale-95"
             >
-              {headerConfig.primaryCta?.label || "Login"}
+              <span>Go to Dashboard</span>
+              <ArrowRight className="h-4 w-4" />
             </Link>
-          )}
+          ) : (
+            <>
+              {/* Primary CTA / Login Button */}
+              {headerConfig.primaryCta?.enabled !== false && (
+                <Link
+                  href={headerConfig.primaryCta?.url || "/login"}
+                  className="hidden sm:inline-flex items-center justify-center px-4 sm:px-5 py-2 text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-800/90 dark:border dark:border-white/15 rounded-full transition-all min-h-[38px] sm:min-h-[42px] shadow-xs"
+                >
+                  {headerConfig.primaryCta?.label || "Login"}
+                </Link>
+              )}
 
-          {/* Register School / Get Started Free Button */}
-          <Link
-            href="/register"
-            className="hidden sm:inline-flex items-center justify-center px-4 sm:px-5 py-2 text-xs sm:text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-full transition-all min-h-[38px] sm:min-h-[42px] shadow-md shadow-blue-500/25 hover:scale-105 active:scale-95"
-          >
-            Get Started Free
-          </Link>
+              {/* Register School / Get Started Free Button */}
+              <Link
+                href="/register"
+                className="hidden sm:inline-flex items-center justify-center px-4 sm:px-5 py-2 text-xs sm:text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-full transition-all min-h-[38px] sm:min-h-[42px] shadow-md shadow-blue-500/25 hover:scale-105 active:scale-95"
+              >
+                Get Started Free
+              </Link>
+            </>
+          )}
 
           {/* Mobile Hamburger Toggle Button */}
           <button
@@ -490,20 +505,33 @@ export function MarketingHeader({ currentPath = "/" }: MarketingHeaderProps) {
             </nav>
 
             <div className="mt-6 pt-5 border-t border-slate-100 dark:border-white/10 flex flex-col gap-3">
-              <Link
-                href="/register"
-                onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center justify-center gap-2 w-full py-3 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md shadow-blue-500/25 min-h-[48px]"
-              >
-                <span>Register School (Get Started Free)</span>
-              </Link>
-              <Link
-                href="/login"
-                onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center justify-center gap-2 w-full py-3 text-sm font-bold text-slate-800 dark:text-slate-100 bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 rounded-xl min-h-[48px]"
-              >
-                <span>Login to Portals</span>
-              </Link>
+              {firebaseUser && profile?.role ? (
+                <Link
+                  href={getRedirectByRole(profile.role) || "/login"}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center justify-center gap-2 w-full py-3 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md shadow-blue-500/25 min-h-[48px]"
+                >
+                  <span>Go to Dashboard</span>
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              ) : (
+                <>
+                  <Link
+                    href="/register"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="flex items-center justify-center gap-2 w-full py-3 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md shadow-blue-500/25 min-h-[48px]"
+                  >
+                    <span>Register School (Get Started Free)</span>
+                  </Link>
+                  <Link
+                    href="/login"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="flex items-center justify-center gap-2 w-full py-3 text-sm font-bold text-slate-800 dark:text-slate-100 bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 rounded-xl min-h-[48px]"
+                  >
+                    <span>Login to Portals</span>
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         </div>

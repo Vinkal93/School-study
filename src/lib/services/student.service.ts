@@ -11,6 +11,7 @@ import {
   deleteDoc,
   serverTimestamp,
   runTransaction,
+  arrayUnion,
   type Timestamp,
 } from "firebase/firestore";
 import { initializeApp, getApps, deleteApp } from "firebase/app";
@@ -24,7 +25,7 @@ import {
   incrementSchoolUsage,
   decrementSchoolUsage,
 } from "@/lib/billing";
-import type { StudentProfile, CreateStudentInput } from "@/types";
+import type { StudentProfile, CreateStudentInput, StudentTransferRecord } from "@/types";
 import { compressImageToBase64 } from "@/lib/utils/image-compression";
 import { provisionStudentFeeAssignment, recalculateStudentFutureDues } from "./fee.service";
 
@@ -381,8 +382,10 @@ export async function updateStudent(
 
 /**
  * Transfers a student to a new class and section:
- * - Assigns next available roll number in the new class.
- * - Recalculates future dues from current date onwards.
+ * - Validates target class and section is different.
+ * - Assigns next available sequential roll number in the new class.
+ * - Stores immutable audit history in transferHistory array.
+ * - Recalculates future dues from transfer date onwards while preserving past paid receipts.
  * - Leaves past payments and historical attendance intact.
  */
 export async function transferStudentClass(
@@ -391,15 +394,45 @@ export async function transferStudentClass(
   newClassId: string,
   newClassName: string,
   newSectionId: string,
-  newSectionName: string
+  newSectionName: string,
+  transferDate?: string,
+  reason?: string,
+  actorId?: string
 ): Promise<{ newRollNumber: number }> {
   const db = getFirebaseDb();
+  if (!db || !schoolId || !studentId) throw new Error("Missing parameters.");
+
   const studentDocRef = doc(db, "schools", schoolId, "students", studentId);
   const snap = await getDoc(studentDocRef);
   if (!snap.exists()) throw new Error("Student not found.");
 
+  const currentData = snap.data() as StudentProfile;
+
+  // Validation: cannot transfer to identical class and section
+  if (currentData.classId === newClassId && currentData.sectionId === newSectionId) {
+    throw new Error("Student is already enrolled in this class and section.");
+  }
+
   // Allocate new roll number in target class
   const newRollNumber = await generateNextRollNumber(schoolId, newClassId);
+
+  const transferRecord: StudentTransferRecord = {
+    id: `tr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    fromClassId: currentData.classId || "",
+    fromClassName: currentData.className || "",
+    fromSectionId: currentData.sectionId || "",
+    fromSectionName: currentData.sectionName || "",
+    fromRollNumber: currentData.rollNumber,
+    toClassId: newClassId,
+    toClassName: newClassName,
+    toSectionId: newSectionId,
+    toSectionName: newSectionName,
+    toRollNumber: newRollNumber,
+    transferDate: transferDate || new Date().toISOString().split("T")[0],
+    reason: reason || "Class Transfer",
+    transferredBy: actorId || "admin",
+    timestamp: new Date().toISOString(),
+  };
 
   await updateDoc(studentDocRef, {
     classId: newClassId,
@@ -407,8 +440,21 @@ export async function transferStudentClass(
     sectionId: newSectionId,
     sectionName: newSectionName,
     rollNumber: newRollNumber,
+    transferHistory: arrayUnion(transferRecord),
     updatedAt: serverTimestamp(),
   });
+
+  // Also sync root collection student document if exists
+  const rootStudentRef = doc(db, "students", studentId);
+  await updateDoc(rootStudentRef, {
+    classId: newClassId,
+    className: newClassName,
+    sectionId: newSectionId,
+    sectionName: newSectionName,
+    rollNumber: newRollNumber,
+    transferHistory: arrayUnion(transferRecord),
+    updatedAt: serverTimestamp(),
+  }).catch(() => {});
 
   // Recalculate future dues for the new class fee structure
   try {
@@ -416,13 +462,53 @@ export async function transferStudentClass(
       schoolId,
       studentId,
       newClassName,
-      new Date().toISOString()
+      transferDate || new Date().toISOString()
     );
   } catch (recalcErr) {
     console.warn("Future dues recalculation notice:", recalcErr);
   }
 
   return { newRollNumber };
+}
+
+/**
+ * Loads a single student profile by ID with fallback to root collection.
+ */
+export async function getStudentById(
+  schoolId: string,
+  studentId: string
+): Promise<StudentProfile | null> {
+  const db = getFirebaseDb();
+  if (!db || !schoolId || !studentId) return null;
+
+  try {
+    const studentDocRef = doc(db, "schools", schoolId, "students", studentId);
+    const snap = await getDoc(studentDocRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      return {
+        id: snap.id,
+        ...data,
+        name: data.name || data.fullName || "Student",
+      } as StudentProfile;
+    }
+
+    // Check root collection fallback
+    const rootSnap = await getDoc(doc(db, "students", studentId));
+    if (rootSnap.exists()) {
+      const data = rootSnap.data();
+      return {
+        id: rootSnap.id,
+        ...data,
+        name: data.name || data.fullName || "Student",
+      } as StudentProfile;
+    }
+
+    return null;
+  } catch (err) {
+    console.error("getStudentById error:", err);
+    return null;
+  }
 }
 
 /**

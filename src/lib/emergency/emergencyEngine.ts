@@ -78,6 +78,8 @@ export interface UserSecurityControl {
   status: "ACTIVE" | "SUSPENDED" | "BLOCKED";
   requireReLogin: boolean;
   requirePasswordReset: boolean;
+  forceLogout?: boolean;
+  forceLogoutAt?: number;
   reason?: string;
   updatedAt: string;
   updatedBy?: string;

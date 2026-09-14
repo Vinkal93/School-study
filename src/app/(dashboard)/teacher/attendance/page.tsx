@@ -62,25 +62,42 @@ export default function TeacherAttendancePage() {
           getClassesWithSections(schoolId),
         ]);
 
-        setClasses(clsList);
-
+        let currentTch: TeacherProfile | null = null;
         if (!tchSnap.empty) {
-          const tch = {
+          currentTch = {
             id: tchSnap.docs[0].id,
             ...tchSnap.docs[0].data(),
           } as TeacherProfile;
-          setTeacherData(tch);
+          setTeacherData(currentTch);
+        }
 
-          if (tch.assignedClassId) {
-            setSelectedClassId(tch.assignedClassId);
-            setSelectedSectionId(tch.assignedSectionId || "");
-          } else if (clsList.length > 0) {
-            setSelectedClassId(clsList[0].id);
-            setSelectedSectionId(clsList[0].sections?.[0]?.id || "");
-          }
-        } else if (clsList.length > 0) {
-          setSelectedClassId(clsList[0].id);
-          setSelectedSectionId(clsList[0].sections?.[0]?.id || "");
+        // Authoritative Real-Data Filtering: Only show classes where this teacher is assigned
+        const isStaffAdmin = profile.role === "school_admin" || profile.role === "super_admin";
+        const authorizedClasses = isStaffAdmin
+          ? clsList
+          : clsList.filter((c) => {
+              if (currentTch) {
+                if (c.classTeacherId === currentTch.id || c.classTeacherId === profile.uid) return true;
+                if (currentTch.assignedClassId === c.id) return true;
+                if (currentTch.assignedClasses?.some((a) => a.classId === c.id)) return true;
+              }
+              return false;
+            });
+
+        setClasses(authorizedClasses);
+
+        if (authorizedClasses.length > 0) {
+          const defaultClass =
+            (currentTch?.assignedClassId &&
+              authorizedClasses.find((c) => c.id === currentTch!.assignedClassId)) ||
+            authorizedClasses[0];
+          setSelectedClassId(defaultClass.id);
+          setSelectedSectionId(
+            currentTch?.assignedSectionId || defaultClass.sections?.[0]?.id || ""
+          );
+        } else {
+          setSelectedClassId("");
+          setSelectedSectionId("");
         }
       } catch (err) {
         console.error("Failed to load initial data:", err);
@@ -94,7 +111,11 @@ export default function TeacherAttendancePage() {
   // 2. Load Students & Previous marks
   useEffect(() => {
     async function loadRosterAndMarks() {
-      if (!schoolId || !selectedClassId) return;
+      if (!schoolId || !selectedClassId) {
+        setStudents([]);
+        setAttendanceMap({});
+        return;
+      }
       setLoadingStudents(true);
       try {
         const [stuList, existingMarks] = await Promise.all([
@@ -151,24 +172,61 @@ export default function TeacherAttendancePage() {
         status: attendanceMap[s.id] || ("PRESENT" as AttendanceStatus),
       }));
 
-      await saveBatchAttendance(schoolId, {
-        classId: selectedClassId,
-        className: selectedClass?.name || "",
-        sectionId: selectedSectionId,
-        sectionName: selectedSection?.name || "",
-        teacherId: teacherData?.id || profile?.uid || "",
-        teacherName: teacherData?.name || profile?.name || "",
-        date: selectedDate,
-        records,
-      });
+      // 1. Authoritative API Call with Server-Side Class Teacher RBAC Validation
+      let apiSuccess = false;
+      try {
+        const res = await fetch("/api/teacher/attendance", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            schoolId,
+            classId: selectedClassId,
+            className: selectedClass?.name || "",
+            sectionId: selectedSectionId,
+            sectionName: selectedSection?.name || "",
+            date: selectedDate,
+            records,
+          }),
+        });
 
-      const presentCount = records.filter((r) => r.status === "PRESENT").length;
-      const absentCount = records.filter((r) => r.status === "ABSENT").length;
-      const lateCount = records.filter((r) => r.status === "LATE").length;
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
+          apiSuccess = true;
+          toast.success(
+            data.message ||
+              `Attendance recorded! (${data.counts?.present ?? 0} Present, ${data.counts?.absent ?? 0} Absent, ${data.counts?.late ?? 0} Late)`
+          );
+        } else if (data.error) {
+          throw new Error(data.error);
+        }
+      } catch (apiErr: any) {
+        if (apiErr?.message?.includes("Access Denied") || apiErr?.message?.includes("Class Teacher")) {
+          throw apiErr;
+        }
+        console.warn("API attendance attempt note, falling back to direct write:", apiErr?.message);
+      }
 
-      toast.success(
-        `Attendance recorded! (${presentCount} Present, ${absentCount} Absent, ${lateCount} Late)`
-      );
+      // 2. Direct client SDK write fallback
+      if (!apiSuccess) {
+        await saveBatchAttendance(schoolId, {
+          classId: selectedClassId,
+          className: selectedClass?.name || "",
+          sectionId: selectedSectionId,
+          sectionName: selectedSection?.name || "",
+          teacherId: teacherData?.id || profile?.uid || "",
+          teacherName: teacherData?.name || profile?.name || "",
+          date: selectedDate,
+          records,
+        });
+
+        const presentCount = records.filter((r) => r.status === "PRESENT").length;
+        const absentCount = records.filter((r) => r.status === "ABSENT").length;
+        const lateCount = records.filter((r) => r.status === "LATE").length;
+
+        toast.success(
+          `Attendance recorded! (${presentCount} Present, ${absentCount} Absent, ${lateCount} Late)`
+        );
+      }
     } catch (err: any) {
       console.error("Failed to save attendance:", err);
       toast.error(err.message || "Failed to submit attendance.");
@@ -225,16 +283,37 @@ export default function TeacherAttendancePage() {
         </div>
       </div>
 
-      {/* Controls Bar: Class, Section, Date */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
-        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-3">
-          {/* Class Selector */}
-          <div>
-            <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
-              Class / Grade:
-            </label>
-            <select
-              value={selectedClassId}
+      {/* When no classes are assigned */}
+      {!loading && classes.length === 0 ? (
+        <div className="p-12 text-center bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl space-y-3 shadow-xs">
+          <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-center justify-center text-amber-600 dark:text-amber-400">
+            <GraduationCap className="h-7 w-7" />
+          </div>
+          <h3 className="text-base font-bold text-gray-900 dark:text-white">No Classes Assigned Yet</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 max-w-md mx-auto leading-relaxed">
+            You are not currently assigned as a Class Teacher to any class. Please contact your School Administrator to assign you to your classroom roster.
+          </p>
+          <div className="pt-2">
+            <Link
+              href="/teacher"
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 rounded-xl transition"
+            >
+              Return to Dashboard
+            </Link>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Controls Bar: Class, Section, Date */}
+          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+            <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-3">
+              {/* Class Selector */}
+              <div>
+                <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
+                  Class / Grade:
+                </label>
+                <select
+                  value={selectedClassId}
               onChange={(e) => {
                 const newCId = e.target.value;
                 setSelectedClassId(newCId);
@@ -535,6 +614,8 @@ export default function TeacherAttendancePage() {
           )}
         </button>
       </div>
-    </div>
+    </>
+  )}
+</div>
   );
 }

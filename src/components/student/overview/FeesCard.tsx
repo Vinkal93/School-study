@@ -11,9 +11,9 @@ interface FeesCardProps {
 }
 
 export function FeesCard({ data, onClick }: FeesCardProps) {
-  const status = data?.status || "pending";
-  const dueAmount = data?.dueAmount ?? 1500;
-  const dueMonth = data?.dueMonth || "August";
+  const status = data?.status || (data === undefined ? "no_dues" : "pending");
+  const dueAmount = data?.dueAmount ?? 0;
+  const dueMonth = data?.dueMonth || "";
 
   // Indian currency formatting (e.g. ₹1,500, ₹10,000, ₹1,25,000)
   const formattedAmount = useMemo(() => {

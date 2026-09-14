@@ -22,6 +22,8 @@ import type {
   MonthLedgerItem,
   FeeType,
   FeeFrequency,
+  FeeFollowUp,
+  FeeFollowUpStatus,
 } from "@/types";
 import { createBillingAuditLog } from "@/lib/billing/audit";
 
@@ -41,8 +43,19 @@ export async function getFeeSettings(schoolId: string): Promise<FeeSettings> {
     currency: "INR",
     receiptPrefix: "REC",
     feeDueDayOfMonth: 10,
-    lateFeeRule: {
+    academicSession: "2026-27",
+    feeStartMonth: "April",
+    billingFrequency: "monthly",
+    schoolName: "",
+    upiId: "",
+    upiNumber: "",
+    reminderSettings: {
       enabled: true,
+      daysBeforeDue: 3,
+      customNote: "Kindly clear pending fee dues to avoid late fee penalties.",
+    },
+    lateFeeRule: {
+      enabled: false, // Strict: Default OFF!
       graceDays: 5,
       type: "FIXED",
       value: 50, // ₹50
@@ -58,7 +71,19 @@ export async function getFeeSettings(schoolId: string): Promise<FeeSettings> {
 
     const snap = await getDoc(doc(db, "feeSettings", schoolId));
     if (snap.exists()) {
-      return { ...defaultSettings, ...snap.data() } as FeeSettings;
+      const data = snap.data();
+      return {
+        ...defaultSettings,
+        ...data,
+        lateFeeRule: {
+          ...defaultSettings.lateFeeRule,
+          ...(data.lateFeeRule || {}),
+        },
+        reminderSettings: {
+          ...defaultSettings.reminderSettings,
+          ...(data.reminderSettings || {}),
+        },
+      } as FeeSettings;
     }
     return defaultSettings;
   } catch (err) {
@@ -77,6 +102,14 @@ export async function updateFeeSettings(
     ...current,
     ...input,
     schoolId,
+    lateFeeRule: {
+      ...current.lateFeeRule,
+      ...(input.lateFeeRule || {}),
+    },
+    reminderSettings: {
+      ...(current.reminderSettings || { enabled: true, daysBeforeDue: 3 }),
+      ...(input.reminderSettings || {}),
+    },
     updatedAt: new Date().toISOString(),
   };
 
@@ -312,9 +345,14 @@ export function calculateLateFee(
 
   let lateFeePaise = 0;
   if (settings.lateFeeRule.type === "FIXED") {
-    lateFeePaise = Math.round((settings.lateFeeRule.value || 50) * 100);
+    if (settings.lateFeeRule.amountPaise !== undefined) {
+      lateFeePaise = settings.lateFeeRule.amountPaise;
+    } else {
+      lateFeePaise = Math.round((settings.lateFeeRule.value || 50) * 100);
+    }
   } else {
-    lateFeePaise = Math.round(amountPaise * ((settings.lateFeeRule.value || 5) / 100));
+    const pct = settings.lateFeeRule.value !== undefined ? settings.lateFeeRule.value : (settings.lateFeeRule.amountPaise || 5);
+    lateFeePaise = Math.round(amountPaise * (pct / 100));
   }
 
   if (settings.lateFeeRule.maxLimitPaise && lateFeePaise > settings.lateFeeRule.maxLimitPaise) {
@@ -516,6 +554,11 @@ export async function getStudentFeeSummary(
     (s) => s.status === "ACTIVE" && matchesClass(s.className, student.className || "")
   );
 
+  if (assignment && assignment.totalAssignedPaise === 0 && classStructures.length > 0) {
+    const reconciled = await reconcileStudentFeeLedger(schoolId, student.id, academicYearId);
+    if (reconciled) assignment = reconciled;
+  }
+
   // Compute monthly rate
   let monthlyFeeRupees = 0;
   let isConfigured = classStructures.length > 0;
@@ -669,43 +712,32 @@ export async function provisionStudentFeeAssignment(
   },
   academicYearId: string = "ay_current"
 ): Promise<StudentFeeAssignment> {
-  const structures = await getFeeStructures(schoolId, academicYearId);
+  const [structures, settings] = await Promise.all([
+    getFeeStructures(schoolId, academicYearId),
+    getFeeSettings(schoolId),
+  ]);
+  const dueDay = settings?.feeDueDayOfMonth || 10;
   const applicableStructures = structures.filter(
     (s) => s.status === "ACTIVE" && matchesClass(s.className, student.className)
   );
 
   const monthLedger: MonthLedgerItem[] = [];
-  const currentYear = new Date().getFullYear();
+  const startSessionYear = parseInt(settings.academicSession?.slice(0, 4) || "") || new Date().getFullYear();
 
-  // Determine starting month from admissionDate (default to today if missing)
-  const admDate = student.admissionDate ? new Date(student.admissionDate) : new Date();
-  const admMonth = admDate.getMonth(); // 0 = Jan, 3 = Apr, etc.
-  // In our Indian school academic cycle: April (idx 0), May (1) ... March (11)
-  const calMonthToCycleIdx = (calMonth: number) => {
-    return calMonth >= 3 ? calMonth - 3 : calMonth + 9;
-  };
-  const startCycleIdx = Math.min(11, Math.max(0, calMonthToCycleIdx(admMonth)));
+  // Configured start month: default April
+  const configuredStartMonth = settings.feeStartMonth || "April";
+  const startCycleIdx = MONTH_NAMES.indexOf(configuredStartMonth) !== -1 ? MONTH_NAMES.indexOf(configuredStartMonth) : 0;
 
+  // Generate only months starting from the configured feeStartMonth
   MONTH_NAMES.forEach((m, idx) => {
-    const year = idx >= 9 ? currentYear + 1 : currentYear;
-    const dueDate = `${year}-${String(idx >= 9 ? idx - 8 : idx + 4).padStart(2, "0")}-10T00:00:00.000Z`;
-
-    // If month is before admission month, no dues applicable
+    // Do not generate or calculate months prior to configured start month
     if (idx < startCycleIdx) {
-      monthLedger.push({
-        month: `${m} ${year}`,
-        dueDate,
-        amountPaise: 0,
-        paidAmountPaise: 0,
-        discountPaise: 0,
-        lateFeePaise: 0,
-        pendingAmountPaise: 0,
-        status: "PAID",
-        paymentIds: [],
-        receiptNumbers: [],
-      });
       return;
     }
+
+    const year = idx >= 9 ? startSessionYear + 1 : startSessionYear;
+    const monthNumber = idx >= 9 ? idx - 8 : idx + 4; // April (idx 0 -> 4), Jan (idx 9 -> 1)
+    const dueDate = `${year}-${String(monthNumber).padStart(2, "0")}-${String(dueDay).padStart(2, "0")}T00:00:00.000Z`;
 
     let monthAmountPaise = 0;
     if (applicableStructures.length > 0) {
@@ -714,8 +746,6 @@ export async function provisionStudentFeeAssignment(
         else if (s.frequency === "one_time" && idx === startCycleIdx) monthAmountPaise += s.amountPaise;
         else if (s.frequency === "annual" && idx === startCycleIdx) monthAmountPaise += s.amountPaise;
       });
-    } else {
-      monthAmountPaise = 0;
     }
 
     monthLedger.push({
@@ -726,7 +756,7 @@ export async function provisionStudentFeeAssignment(
       discountPaise: 0,
       lateFeePaise: 0,
       pendingAmountPaise: monthAmountPaise,
-      status: "PENDING",
+      status: monthAmountPaise === 0 ? "PAID" : "PENDING",
       paymentIds: [],
       receiptNumbers: [],
     });
@@ -743,7 +773,7 @@ export async function provisionStudentFeeAssignment(
     className: student.className,
     sectionName: student.sectionName || "A",
     academicYearId,
-    academicYearName: `${currentYear}-${currentYear + 1}`,
+    academicYearName: settings.academicSession || `${startSessionYear}-${startSessionYear + 1}`,
     feeStructureIds: applicableStructures.map((s) => s.id),
     totalAssignedPaise,
     totalPaidPaise: 0,
@@ -765,8 +795,205 @@ export async function provisionStudentFeeAssignment(
 }
 
 /**
+ * Safely reconciles an existing student fee assignment:
+ * - If fee structure was added/updated after student assignment was created with 0 rates:
+ * - Updates only unadjusted, unpaid months with the actual fee structure amount.
+ * - NEVER alters months that have `isManuallyAdjusted: true` or `paidAmountPaise > 0` or verified receipts!
+ */
+export async function reconcileStudentFeeLedger(
+  schoolId: string,
+  studentId: string,
+  academicYearId: string = "ay_current"
+): Promise<StudentFeeAssignment | null> {
+  const db = getFirebaseDb();
+  if (!db) return null;
+
+  const docId = `${schoolId}_${studentId}_${academicYearId}`;
+  const assignRef = doc(db, "studentFeeAssignments", docId);
+  const snap = await getDoc(assignRef);
+  if (!snap.exists()) return null;
+
+  const current = snap.data() as StudentFeeAssignment;
+  const [structures, settings] = await Promise.all([
+    getFeeStructures(schoolId, academicYearId),
+    getFeeSettings(schoolId),
+  ]);
+
+  const applicableStructures = structures.filter(
+    (s) => s.status === "ACTIVE" && matchesClass(s.className, current.className)
+  );
+  if (applicableStructures.length === 0) {
+    return current;
+  }
+
+  let monthlyPaise = 0;
+  applicableStructures.forEach((s) => {
+    if (s.frequency === "monthly") monthlyPaise += s.amountPaise;
+  });
+
+  let hasModifications = false;
+  const updatedLedger = current.monthLedger.map((item) => {
+    // 1. Never overwrite if manually adjusted by School Admin
+    if (item.isManuallyAdjusted) return item;
+    // 2. Never overwrite if real payments or receipts exist
+    if (item.paidAmountPaise > 0 || (item.paymentIds && item.paymentIds.length > 0) || (item.receiptNumbers && item.receiptNumbers.length > 0)) {
+      return item;
+    }
+    // 3. If month was previously generated with 0 rate, update to the active fee rate
+    if (item.amountPaise === 0 && monthlyPaise > 0) {
+      hasModifications = true;
+      const discount = item.discountPaise || 0;
+      const pending = Math.max(0, monthlyPaise - discount);
+      return {
+        ...item,
+        amountPaise: monthlyPaise,
+        pendingAmountPaise: pending,
+        status: (pending === 0 ? "PAID" : "PENDING") as MonthLedgerItem["status"],
+      };
+    }
+    return item;
+  });
+
+  if (!hasModifications) return current;
+
+  const totalAssignedPaise = updatedLedger.reduce((sum, m) => sum + m.amountPaise, 0);
+  const totalPaidPaise = updatedLedger.reduce((sum, m) => sum + m.paidAmountPaise, 0);
+  const totalDiscountPaise = updatedLedger.reduce((sum, m) => sum + m.discountPaise, 0);
+  const totalLateFeePaise = updatedLedger.reduce((sum, m) => sum + m.lateFeePaise, 0);
+  const totalPendingPaise = updatedLedger.reduce((sum, m) => sum + m.pendingAmountPaise, 0);
+
+  const updated: StudentFeeAssignment = {
+    ...current,
+    monthLedger: updatedLedger,
+    feeStructureIds: applicableStructures.map((s) => s.id),
+    totalAssignedPaise,
+    totalPaidPaise,
+    totalDiscountPaise,
+    totalLateFeePaise,
+    totalPendingPaise,
+    status: totalPendingPaise === 0 ? "PAID" : totalPaidPaise > 0 ? "PARTIAL" : "PENDING",
+    updatedAt: new Date().toISOString(),
+  };
+
+  await setDoc(assignRef, updated, { merge: true });
+  return updated;
+}
+
+/**
+ * Initial Fee Setup & Admin Month Adjustment:
+ * Allows School Admin to manually set/correct:
+ * - Expected Fee
+ * - Paid Amount
+ * - Discount
+ * - Previous Due
+ * - Late Fee
+ * Sets `isManuallyAdjusted: true` on that month, ensuring future automated calculations
+ * NEVER overwrite this corrected state.
+ */
+export async function adjustStudentMonthLedger(
+  schoolId: string,
+  studentId: string,
+  monthName: string, // e.g. "April 2026"
+  adjustment: {
+    expectedFeeRupees: number;
+    paidAmountRupees: number;
+    discountRupees: number;
+    previousDueRupees?: number;
+    lateFeeRupees?: number;
+    notes?: string;
+  },
+  actorId: string = "school_admin",
+  academicYearId: string = "ay_current"
+): Promise<StudentFeeAssignment> {
+  const db = getFirebaseDb();
+  if (!db) throw new Error("Database not connected.");
+
+  const docId = `${schoolId}_${studentId}_${academicYearId}`;
+  const assignRef = doc(db, "studentFeeAssignments", docId);
+  const snap = await getDoc(assignRef);
+  if (!snap.exists()) {
+    throw new Error("Student fee assignment record not found.");
+  }
+
+  const current = snap.data() as StudentFeeAssignment;
+
+  const expectedPaise = Math.round(Math.max(0, adjustment.expectedFeeRupees) * 100);
+  const paidPaise = Math.round(Math.max(0, adjustment.paidAmountRupees) * 100);
+  const discountPaise = Math.round(Math.max(0, adjustment.discountRupees) * 100);
+  const lateFeePaise = Math.round(Math.max(0, adjustment.lateFeeRupees || 0) * 100);
+  const previousDuePaise = Math.round(Math.max(0, adjustment.previousDueRupees || 0) * 100);
+
+  const pendingPaise = Math.max(0, (expectedPaise + lateFeePaise + previousDuePaise) - (paidPaise + discountPaise));
+  let newStatus: MonthLedgerItem["status"] = "PENDING";
+  if (pendingPaise === 0) newStatus = "PAID";
+  else if (paidPaise > 0 || discountPaise > 0) newStatus = "PARTIAL";
+
+  let found = false;
+  const updatedLedger = current.monthLedger.map((item) => {
+    if (item.month === monthName) {
+      found = true;
+      return {
+        ...item,
+        amountPaise: expectedPaise,
+        paidAmountPaise: paidPaise,
+        discountPaise,
+        lateFeePaise,
+        previousDuePaise,
+        pendingAmountPaise: pendingPaise,
+        status: newStatus,
+        isManuallyAdjusted: true,
+        adjustmentNote: adjustment.notes || "Admin manual ledger adjustment",
+      };
+    }
+    return item;
+  });
+
+  if (!found) {
+    throw new Error(`Month "${monthName}" not found in student's fee ledger.`);
+  }
+
+  const totalAssignedPaise = updatedLedger.reduce((sum, m) => sum + m.amountPaise, 0);
+  const totalPaidPaise = updatedLedger.reduce((sum, m) => sum + m.paidAmountPaise, 0);
+  const totalDiscountPaise = updatedLedger.reduce((sum, m) => sum + m.discountPaise, 0);
+  const totalLateFeePaise = updatedLedger.reduce((sum, m) => sum + m.lateFeePaise, 0);
+  const totalPendingPaise = updatedLedger.reduce((sum, m) => sum + m.pendingAmountPaise, 0);
+
+  const updatedAssignment: StudentFeeAssignment = {
+    ...current,
+    monthLedger: updatedLedger,
+    totalAssignedPaise,
+    totalPaidPaise,
+    totalDiscountPaise,
+    totalLateFeePaise,
+    totalPendingPaise,
+    status: totalPendingPaise === 0 ? "PAID" : totalPaidPaise > 0 ? "PARTIAL" : "PENDING",
+    updatedAt: new Date().toISOString(),
+  };
+
+  await setDoc(assignRef, updatedAssignment, { merge: true });
+
+  await createBillingAuditLog({
+    actorId,
+    actorRole: "admin",
+    action: "SUBSCRIPTION_UPDATED",
+    targetType: "adjustment",
+    targetId: `${studentId}_${monthName}`,
+    metadata: {
+      schoolId,
+      studentId,
+      month: monthName,
+      adjustment,
+      totalPendingPaise,
+    },
+  }).catch(() => {});
+
+  return updatedAssignment;
+}
+
+/**
  * Recalculates future unpaid dues for a student (e.g. after class transfer or class fee modification).
- * CRITICAL RULE: NEVER alters or deletes past paid transactions, receipts, or PAID ledger months!
+ * CRITICAL RULE: NEVER alters or deletes past paid transactions, receipts, or PAID ledger months,
+ * and NEVER overwrites months that have `isManuallyAdjusted: true`!
  */
 export async function recalculateStudentFutureDues(
   schoolId: string,
@@ -795,8 +1022,8 @@ export async function recalculateStudentFutureDues(
   });
 
   const updatedLedger = currentAssignment.monthLedger.map((item) => {
-    // If month is already fully PAID, do not alter it!
-    if (item.status === "PAID") return item;
+    // If month is already fully PAID or manually adjusted by School Admin, do not alter it!
+    if (item.status === "PAID" || item.isManuallyAdjusted) return item;
 
     // Recalculate pending month with new class monthly fee
     const revisedAmount = newMonthlyFeePaise;
@@ -965,6 +1192,8 @@ export async function collectFeePayment(
   assignment.totalPendingPaise = Math.max(0, assignment.totalAssignedPaise - (assignment.totalPaidPaise + assignment.totalDiscountPaise));
   assignment.lastPaymentDate = nowIso;
   
+  payment.remainingDuePaise = assignment.totalPendingPaise;
+
   if (assignment.totalPendingPaise === 0) assignment.status = "PAID";
   else if (assignment.totalPaidPaise > 0) assignment.status = "PARTIAL";
 
@@ -1077,15 +1306,136 @@ export async function getFeeDashboardMetrics(schoolId: string) {
   const paidStudentsCount = transactions.map((t) => t.studentId).filter((v, i, a) => a.indexOf(v) === i).length;
   const defaultersCount = defaulters.length;
 
+  // 100% Real Database Calculation: Zero fake multipliers!
+  let realOverduePaise = 0;
+  let partialPaymentsCount = 0;
+
+  defaulters.forEach((d) => {
+    if (d.status === "PARTIAL" || (d.totalPaidPaise > 0 && d.totalPendingPaise > 0)) {
+      partialPaymentsCount++;
+    }
+
+    let studentOverdue = 0;
+    if (d.monthLedger && d.monthLedger.length > 0) {
+      d.monthLedger.forEach((m) => {
+        if (m.dueDate && m.dueDate.slice(0, 10) <= todayStr && m.pendingAmountPaise > 0) {
+          studentOverdue += m.pendingAmountPaise;
+        }
+      });
+    }
+    realOverduePaise += studentOverdue > 0 ? studentOverdue : d.totalPendingPaise;
+  });
+
+  const overdueAmountPaise = realOverduePaise;
+  const collectionRate = totalExpectedPaise > 0 ? Math.round((totalCollectedPaise / totalExpectedPaise) * 100) : 100;
+
   return {
     totalExpectedPaise,
     totalCollectedPaise,
     totalPendingPaise,
-    overdueAmountPaise: Math.round(totalPendingPaise * 0.6),
+    overdueAmountPaise,
     todayCollectionPaise,
     thisMonthCollectionPaise,
     paidStudentsCount,
     defaultersCount,
-    partialPaymentsCount: Math.round(paidStudentsCount * 0.2),
+    partialPaymentsCount,
+    collectionRate,
   };
+}
+
+// ==========================================
+// 8. FOLLOW-UP CRM TRACKING (Real Database Persistence)
+// ==========================================
+
+export async function recordFeeFollowUp(
+  schoolId: string,
+  input: {
+    studentId: string;
+    studentName: string;
+    admissionNumber: string;
+    className: string;
+    status: FeeFollowUpStatus;
+    contactChannel: FeeFollowUp["contactChannel"];
+    contactPerson?: string;
+    contactPhone?: string;
+    promisedDate?: string;
+    nextFollowUpDate?: string;
+    notes: string;
+  },
+  actorId: string = "admin"
+): Promise<FeeFollowUp> {
+  const db = getFirebaseDb();
+  if (!db) throw new Error("Database unavailable.");
+
+  const nowIso = new Date().toISOString();
+  const followUpId = `fup_${input.studentId}_${Date.now()}`;
+
+  const followUp: FeeFollowUp = {
+    id: followUpId,
+    schoolId,
+    studentId: input.studentId,
+    studentName: input.studentName,
+    admissionNumber: input.admissionNumber,
+    className: input.className,
+    status: input.status,
+    contactChannel: input.contactChannel,
+    contactPerson: input.contactPerson || "",
+    contactPhone: input.contactPhone || "",
+    promisedDate: input.promisedDate || "",
+    nextFollowUpDate: input.nextFollowUpDate || "",
+    notes: input.notes,
+    recordedBy: actorId,
+    recordedAt: nowIso,
+    createdAt: nowIso,
+  };
+
+  // Write follow-up document
+  await setDoc(doc(db, "schools", schoolId, "feeFollowUps", followUpId), followUp);
+
+  // Sync latest status to studentFeeAssignments document
+  try {
+    const qAssign = query(
+      collection(db, "studentFeeAssignments"),
+      where("schoolId", "==", schoolId),
+      where("studentId", "==", input.studentId)
+    );
+    const snap = await getDocs(qAssign);
+    if (!snap.empty) {
+      const assignRef = snap.docs[0].ref;
+      await updateDoc(assignRef, {
+        latestFollowUpStatus: input.status,
+        lastFollowUpDate: nowIso,
+        nextFollowUpDate: input.nextFollowUpDate || null,
+        lastFollowUpNotes: input.notes,
+        updatedAt: nowIso,
+      });
+    }
+  } catch (err) {
+    console.warn("Follow-up sync to assignment notice:", err);
+  }
+
+  return followUp;
+}
+
+export async function getFeeFollowUps(
+  schoolId: string,
+  studentId?: string
+): Promise<FeeFollowUp[]> {
+  const db = getFirebaseDb();
+  if (!db || !schoolId) return [];
+
+  try {
+    const coll = collection(db, "schools", schoolId, "feeFollowUps");
+    const q = studentId
+      ? query(coll, where("studentId", "==", studentId))
+      : query(coll, limit(100));
+
+    const snap = await getDocs(q);
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as FeeFollowUp));
+    list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return list;
+  } catch (err) {
+    console.warn("getFeeFollowUps notice:", err);
+    return [];
+  }
 }

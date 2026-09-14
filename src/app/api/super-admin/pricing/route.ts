@@ -29,8 +29,36 @@ export async function GET() {
           ...p,
           limits: {
             ...p.limits,
-            monthlyPrice: activeVersion?.monthlyPrice ?? (p.slug === "professional" ? 199900 : p.slug === "enterprise" ? 999900 : 99900),
-            annualPrice: activeVersion?.annualPrice ?? (p.slug === "professional" ? 159900 : p.slug === "enterprise" ? 799900 : 79900),
+            monthlyPrice:
+              activeVersion?.monthlyPrice ??
+              (p.slug === "base"
+                ? 39900
+                : p.slug === "starter"
+                ? 99900
+                : p.slug === "growth"
+                ? 149900
+                : p.slug === "professional"
+                ? 199900
+                : p.slug === "enterprise"
+                ? 999900
+                : p.slug === "free"
+                ? 0
+                : 39900),
+            annualPrice:
+              activeVersion?.annualPrice ??
+              (p.slug === "base"
+                ? 29900
+                : p.slug === "starter"
+                ? 79900
+                : p.slug === "growth"
+                ? 119900
+                : p.slug === "professional"
+                ? 159900
+                : p.slug === "enterprise"
+                ? 799900
+                : p.slug === "free"
+                ? 0
+                : 29900),
           },
           version: p.version || activeVersion?.version || 1,
           publicVisible: p.publicVisible !== undefined ? p.publicVisible : true,

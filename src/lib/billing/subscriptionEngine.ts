@@ -20,7 +20,7 @@ import type {
   Plan,
   PlanVersion,
 } from "@/types";
-import { BILLING_COLLECTIONS, getActivePlanVersion, getActivePlan } from "./plans";
+import { BILLING_COLLECTIONS, getActivePlanVersion, getActivePlan, normalizePlanId } from "./plans";
 import { calculateAccessMode } from "./accessEngine";
 import { DEFAULT_GLOBAL_ACCESS_POLICY } from "./accessPolicy";
 import { createBillingAuditLog } from "./audit";
@@ -227,12 +227,9 @@ export async function getCurrentSubscription(schoolId: string): Promise<SchoolSu
       }
     }
 
-    // Normalize plan ID from schoolSubscriptions or schools collection
-    const rawPlan = subData?.planId || schoolData?.planId || schoolData?.plan || schoolData?.subscriptionPlan || "plan_starter";
-    let normalizedPlan = rawPlan.toLowerCase().trim();
-    if (!normalizedPlan.startsWith("plan_")) {
-      normalizedPlan = `plan_${normalizedPlan}`;
-    }
+    // Normalize plan ID from schoolSubscriptions or schools collection using robust normalizer
+    const rawPlan = subData?.planId || schoolData?.planId || schoolData?.plan || schoolData?.subscriptionPlan || (schoolId ? "plan_base" : "plan_starter");
+    const normalizedPlan = normalizePlanId(rawPlan);
 
     if (subData) {
       const sub = {
@@ -274,7 +271,8 @@ export async function getCurrentSubscription(schoolId: string): Promise<SchoolSu
       return sub;
     }
 
-    // Persist default subscription if doc doesn't exist, adopting school's assigned plan
+    // If subData does not exist, build subscription state without destructive Firestore overwrite
+    const resolvedSource = schoolData?.subscriptionSource || (schoolData?.planId ? "manual_admin" : "system_trial");
     const newDefaultSub: SchoolSubscription = {
       id: schoolId,
       schoolId,
@@ -282,34 +280,35 @@ export async function getCurrentSubscription(schoolId: string): Promise<SchoolSu
       planVersionId: `${normalizedPlan}_v1`,
       status: schoolData?.subscriptionStatus || "ACTIVE",
       billingCycle: schoolData?.billingCycle || "monthly",
-      startsAt: now.toISOString(),
-      expiresAt: expiresAt.toISOString(),
-      currentPeriodStart: now.toISOString(),
-      currentPeriodEnd: expiresAt.toISOString(),
-      graceEndsAt: graceEndsAt.toISOString(),
+      startsAt: schoolData?.subscriptionStartsAt || now.toISOString(),
+      expiresAt: schoolData?.subscriptionExpiresAt || expiresAt.toISOString(),
+      currentPeriodStart: schoolData?.subscriptionStartsAt || now.toISOString(),
+      currentPeriodEnd: schoolData?.subscriptionExpiresAt || expiresAt.toISOString(),
+      graceEndsAt: schoolData?.subscriptionExpiresAt
+        ? new Date(new Date(schoolData.subscriptionExpiresAt).getTime() + 7 * 86400000).toISOString()
+        : graceEndsAt.toISOString(),
       cancelAtPeriodEnd: false,
       renewalStatus: "NONE",
-      source: "system_trial",
+      source: resolvedSource,
       lastPaymentId: null,
       lastOrderId: null,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
     };
 
-    const db = getFirebaseDb();
-    if (db) {
-      setDoc(doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, schoolId), newDefaultSub).catch(() => {});
-    }
-
     if (!g.__BILLING_SUBSCRIPTIONS_MAP__) g.__BILLING_SUBSCRIPTIONS_MAP__ = new Map();
     g.__BILLING_SUBSCRIPTIONS_MAP__.set(schoolId, newDefaultSub);
     return newDefaultSub;
   } catch (error) {
+    const g = globalThis as any;
+    if (g.__BILLING_SUBSCRIPTIONS_MAP__ && g.__BILLING_SUBSCRIPTIONS_MAP__.has(schoolId)) {
+      return g.__BILLING_SUBSCRIPTIONS_MAP__.get(schoolId);
+    }
     return {
       id: schoolId,
       schoolId,
-      planId: "plan_starter",
-      planVersionId: "plan_starter_v1",
+      planId: "plan_base",
+      planVersionId: "plan_base_v1",
       status: "ACTIVE",
       billingCycle: "monthly",
       startsAt: now.toISOString(),

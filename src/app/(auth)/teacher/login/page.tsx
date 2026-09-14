@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -27,8 +27,17 @@ export default function TeacherLoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [wrongRole, setWrongRole] = useState<UserRole | null>(null);
 
-  const { signIn, signOut } = useAuth();
+  const { signIn, signOut, firebaseUser, profile, loading } = useAuth();
   const router = useRouter();
+
+  // Auto-redirect if already logged in as teacher
+  useEffect(() => {
+    if (!loading && firebaseUser && profile) {
+      if (profile.role === "teacher") {
+        router.replace("/teacher");
+      }
+    }
+  }, [firebaseUser, profile, loading, router]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();

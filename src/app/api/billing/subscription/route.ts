@@ -19,14 +19,27 @@ export async function GET(request: Request) {
 
     if (!plan) {
       plan = {
-        id: subscription.planId || "plan_starter",
-        name: subscription.planId === "plan_professional" ? "Professional Plan" : subscription.planId === "plan_enterprise" ? "Enterprise Plan" : "Starter Plan",
-        slug: subscription.planId ? subscription.planId.replace("plan_", "") : "starter",
+        id: subscription.planId || "plan_base",
+        name:
+          subscription.planId === "plan_base"
+            ? "Base Plan"
+            : subscription.planId === "plan_starter"
+            ? "Starter Plan"
+            : subscription.planId === "plan_growth"
+            ? "Growth Plan"
+            : subscription.planId === "plan_professional"
+            ? "Professional Plan"
+            : subscription.planId === "plan_enterprise"
+            ? "Enterprise Plan"
+            : subscription.planId === "plan_free"
+            ? "Free Plan"
+            : "Base Plan",
+        slug: subscription.planId ? subscription.planId.replace("plan_", "") : "base",
         description: "Standard school management plan",
         status: "ACTIVE",
         displayOrder: 1,
         isPopular: subscription.planId === "plan_professional",
-        features: ["Student Management", "Teacher Management", "Classes", "Attendance"],
+        features: ["student_management", "teacher_management", "class_management", "basic_attendance", "school_dashboard"],
         limits: { maxStudents: 500, maxTeachers: 20, maxClasses: 15, maxStaffAccounts: 2 },
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -38,8 +51,8 @@ export async function GET(request: Request) {
         id: `${plan.id}_v1`,
         planId: plan.id,
         version: 1,
-        monthlyPrice: plan.slug === "professional" ? 199900 : 99900,
-        annualPrice: plan.slug === "professional" ? 159900 : 79900,
+        monthlyPrice: plan.slug === "base" ? 39900 : plan.slug === "professional" ? 199900 : plan.slug === "enterprise" ? 999900 : plan.slug === "growth" ? 149900 : plan.slug === "free" ? 0 : 99900,
+        annualPrice: plan.slug === "base" ? 29900 : plan.slug === "professional" ? 159900 : plan.slug === "enterprise" ? 799900 : plan.slug === "growth" ? 119900 : plan.slug === "free" ? 0 : 79900,
         currency: "INR",
         features: plan.features,
         limits: plan.limits,

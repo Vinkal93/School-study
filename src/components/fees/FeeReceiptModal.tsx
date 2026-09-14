@@ -138,6 +138,15 @@ export function FeeReceiptModal({ payment, schoolName = "School Study ERP", isOp
             </div>
           </div>
 
+          {payment.remainingDuePaise !== undefined && (
+            <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold">
+              <span className="text-slate-600 dark:text-slate-300">Remaining Outstanding Balance:</span>
+              <span className={`font-bold ${payment.remainingDuePaise > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                ₹{(payment.remainingDuePaise / 100).toFixed(2)}
+              </span>
+            </div>
+          )}
+
           {/* Authorized Signature & Disclaimer */}
           <div className="pt-8 flex items-end justify-between border-t border-slate-200 dark:border-slate-800 text-xs">
             <div>

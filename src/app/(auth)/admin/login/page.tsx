@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, type FormEvent } from "react";
+import { Suspense, useState, useEffect, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -27,10 +27,19 @@ function AdminLoginForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [wrongRole, setWrongRole] = useState<UserRole | null>(null);
 
-  const { signIn, signOut } = useAuth();
+  const { signIn, signOut, firebaseUser, profile, loading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectParam = searchParams.get("redirect");
+
+  // Auto-redirect if already logged in as school_admin
+  useEffect(() => {
+    if (!loading && firebaseUser && profile) {
+      if (profile.role === "school_admin") {
+        router.replace(redirectParam || "/admin");
+      }
+    }
+  }, [firebaseUser, profile, loading, redirectParam, router]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();

@@ -57,9 +57,10 @@ service cloud.firestore {
       return isAuthenticated() && (
         isSchoolAdmin(schoolId) ||
         (isSchoolMember(schoolId) && (
-          request.auth.token.get('role', '') == 'teacher' ||
+          request.auth.token.get('role', '') in ['teacher', 'TEACHER'] ||
           (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'teacher')
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') in ['teacher', 'TEACHER']) ||
+          exists(/databases/$(database)/documents/schools/$(schoolId)/teachers/$(request.auth.uid))
         ))
       );
     }
@@ -157,7 +158,8 @@ service cloud.firestore {
       );
       allow create, update: if isAuthenticated() && (
         isSuperAdmin() ||
-        isSchoolAdmin(request.resource.data.get('schoolId', ''))
+        isSchoolAdmin(request.resource.data.get('schoolId', '')) ||
+        isTeacher(request.resource.data.get('schoolId', ''))
       );
       allow delete: if isSuperAdmin();
     }
@@ -530,6 +532,119 @@ service cloud.firestore {
 
     match /platform_analytics/{docId} {
       allow read, write: if isSuperAdmin();
+    }
+
+    // ==========================================
+    // 9. BACKUP & CLOUD STORAGE
+    // ==========================================
+    match /backup_configs/{docId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    match /backup_sync_logs/{logId} {
+      allow read: if isSuperAdmin();
+      allow create: if true;
+      allow update, delete: if isSuperAdmin();
+    }
+
+    match /backup_snapshots/{snapId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    // ==========================================
+    // 10. AI WORKSPACE & INTELLIGENCE
+    // ==========================================
+    match /ai_conversations/{convId} {
+      allow read, delete, update: if isAuthenticated() && (resource == null || resource.data.get('userId', '') == request.auth.uid || isSuperAdmin());
+      allow create: if isAuthenticated() || isSuperAdmin();
+    }
+
+    match /ai_messages/{msgId} {
+      allow read, create: if isAuthenticated() || isSuperAdmin();
+      allow update, delete: if isSuperAdmin();
+    }
+
+    match /ai_usage/{usageId} {
+      allow read, create: if isAuthenticated() || isSuperAdmin();
+      allow update, delete: if isSuperAdmin();
+    }
+
+    match /siteSettings/{settingId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    // ==========================================
+    // 11. FEE MANAGEMENT & FINANCIAL LEDGERS
+    // ==========================================
+    match /feeSettings/{schoolId} {
+      allow read: if isAuthenticated() && (isSchoolMember(schoolId) || isSuperAdmin());
+      allow write: if isAuthenticated() && (isSchoolAdmin(schoolId) || isSuperAdmin());
+    }
+
+    match /feeStructures/{structureId} {
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
+      allow create, update, delete: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
+    }
+
+    match /studentFeeAssignments/{assignmentId} {
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        resource.data.get('studentId', '') == request.auth.uid ||
+        isSuperAdmin()
+      );
+      allow create, update, delete: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
+    }
+
+    match /feePayments/{paymentId} {
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        resource.data.get('studentId', '') == request.auth.uid ||
+        isSuperAdmin()
+      );
+      allow create, update, delete: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
+    }
+
+    match /feeDiscounts/{discountId} {
+      allow read, write: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
+    }
+
+    match /feeFollowUps/{followUpId} {
+      allow read, write: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
+    }
+
+    match /financeTransactions/{txnId} {
+      allow read, write: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
     }
 
     // Fallback: Disallow anything unspecified

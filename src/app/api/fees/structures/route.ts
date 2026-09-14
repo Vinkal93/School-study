@@ -56,6 +56,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, structure });
   } catch (err: any) {
+    console.error("POST /api/fees/structures error:", err);
     return NextResponse.json({ error: err.message || "Failed to create fee structure" }, { status: 500 });
   }
 }

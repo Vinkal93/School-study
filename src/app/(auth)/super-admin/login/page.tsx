@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -31,8 +31,24 @@ export default function SuperAdminLoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authenticatedUid, setAuthenticatedUid] = useState<string | null>(null);
 
-  const { signIn, signOut, firebaseUser } = useAuth();
+  const { signIn, signOut, firebaseUser, profile, loading } = useAuth();
   const router = useRouter();
+
+  // Auto-redirect if already authenticated and PIN verified; jump to PIN step if credentials already active
+  useEffect(() => {
+    if (!loading && firebaseUser && profile?.role === "super_admin") {
+      const isVerified =
+        typeof window !== "undefined" &&
+        (localStorage.getItem("ss_super_admin_verified") === "true" ||
+         sessionStorage.getItem("ss_super_admin_verified") === "true");
+      if (isVerified) {
+        router.replace("/super-admin");
+      } else if (step === "credentials") {
+        setAuthenticatedUid(firebaseUser.uid);
+        setStep("pin");
+      }
+    }
+  }, [firebaseUser, profile, loading, router, step]);
 
   // Step 1: Verify Email & Password. Only existing users manually assigned super_admin in Firestore are permitted.
   const handleCredentialsSubmit = async (e: FormEvent) => {
@@ -118,6 +134,7 @@ export default function SuperAdminLoginPage() {
 
       try {
         sessionStorage.setItem("ss_super_admin_verified", "true");
+        localStorage.setItem("ss_super_admin_verified", "true");
         sessionStorage.removeItem("ss_super_admin_auth");
         localStorage.removeItem("ss_super_admin_auth");
       } catch (e) {

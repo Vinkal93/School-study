@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, type FormEvent, type ChangeEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { useAppQuery, appQueryClient } from "@/lib/cache";
 import { useDebounce } from "@/hooks/use-debounce";
@@ -31,11 +32,14 @@ import {
   ArrowRightLeft,
   Crop,
   ShieldAlert,
+  Eye,
+  Share2,
 } from "lucide-react";
 import { ImageCropModal } from "@/components/common/ImageCropModal";
 import { RegisterComplaintModal } from "@/components/complaints/RegisterComplaintModal";
 import { ConfirmDeleteModal } from "@/components/common/ConfirmDeleteModal";
 import { ResponsiveActionMenu } from "@/components/common/ResponsiveActionMenu";
+import { ShareFeeModal } from "@/components/fees/ShareFeeModal";
 import {
   getStudents,
   createStudentWithAuth,
@@ -167,6 +171,9 @@ export default function AdminStudentsPage() {
   const [editPhotoFile, setEditPhotoFile] = useState<File | null>(null);
   const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null);
   const [isUpdatingPhoto, setIsUpdatingPhoto] = useState(false);
+
+  const router = useRouter();
+  const [shareFeeStudent, setShareFeeStudent] = useState<StudentProfile | null>(null);
 
   // Photo Cropping State
   const [rawImageForCrop, setRawImageForCrop] = useState<string | null>(null);
@@ -989,7 +996,9 @@ export default function AdminStudentsPage() {
                             </div>
                           </div>
                           <div>
-                            <p className="font-semibold text-gray-900 dark:text-white">{s.name}</p>
+                            <Link href={`/admin/students/${s.id}`} className="hover:underline">
+                              <p className="font-semibold text-gray-900 dark:text-white hover:text-blue-600 transition-colors cursor-pointer">{s.name}</p>
+                            </Link>
                             <p className="text-xs text-gray-500 dark:text-gray-400">{s.email}</p>
                           </div>
                         </div>
@@ -1075,6 +1084,16 @@ export default function AdminStudentsPage() {
                                 },
                               ]}
                               secondaryActions={[
+                                {
+                                  label: "View Full Profile",
+                                  icon: <Eye className="h-3.5 w-3.5 text-blue-600" />,
+                                  onClick: () => router.push(`/admin/students/${s.id}`),
+                                },
+                                {
+                                  label: "Share Fee Details",
+                                  icon: <Share2 className="h-3.5 w-3.5 text-emerald-600" />,
+                                  onClick: () => setShareFeeStudent(s),
+                                },
                                 {
                                   label: "Report Complaint",
                                   icon: <ShieldAlert className="h-3.5 w-3.5 text-rose-600" />,
@@ -1687,6 +1706,25 @@ export default function AdminStudentsPage() {
         isDeleting={isDeletingInProgress}
         message={`Are you sure you want to archive this student? Their account status will be set to deleted, their profile hidden from active rosters, and plan capacity freed.`}
       />
+
+      {/* Centralized Share Fee Details Modal */}
+      {shareFeeStudent && (
+        <ShareFeeModal
+          isOpen={Boolean(shareFeeStudent)}
+          onClose={() => setShareFeeStudent(null)}
+          schoolId={schoolId}
+          student={{
+            id: shareFeeStudent.id,
+            name: shareFeeStudent.name,
+            admissionNumber: shareFeeStudent.admissionNumber || shareFeeStudent.studentId,
+            rollNumber: shareFeeStudent.rollNumber,
+            className: shareFeeStudent.className,
+            sectionName: shareFeeStudent.sectionName,
+            phone: shareFeeStudent.phone,
+            parentPhone: shareFeeStudent.guardianPhone,
+          }}
+        />
+      )}
       </div>
     </EntitlementGate>
   );
