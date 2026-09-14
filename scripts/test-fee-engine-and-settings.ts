@@ -47,15 +47,15 @@ async function runTests() {
     lateFeeRule: {
       enabled: false,
       type: "FIXED",
-      amountPaise: 0,
+      value: 0,
       graceDays: 5,
+      maxLimitPaise: 0,
     },
     reminderSettings: {
-      sendBeforeDays: 3,
-      sendOnDueDay: true,
-      sendAfterDueDay: true,
-      channel: "whatsapp",
+      enabled: true,
+      daysBeforeDue: 3,
     },
+    paymentMethods: ["Cash", "UPI", "Bank Transfer", "Other"],
     updatedAt: new Date().toISOString(),
   };
 
@@ -158,7 +158,7 @@ async function runTests() {
     overdueDate,
     {
       ...defaultSettings,
-      lateFeeRule: { enabled: false, type: "FIXED", amountPaise: 10000, graceDays: 5 },
+      lateFeeRule: { enabled: false, type: "FIXED", value: 100, graceDays: 5, maxLimitPaise: 50000 },
     },
     now.getTime()
   );
@@ -170,7 +170,7 @@ async function runTests() {
     overdueDate,
     {
       ...defaultSettings,
-      lateFeeRule: { enabled: true, type: "FIXED", amountPaise: 10000, graceDays: 5 },
+      lateFeeRule: { enabled: true, type: "FIXED", value: 100, graceDays: 5, maxLimitPaise: 50000 },
     },
     now.getTime()
   );
@@ -182,7 +182,7 @@ async function runTests() {
     overdueDate,
     {
       ...defaultSettings,
-      lateFeeRule: { enabled: true, type: "PERCENTAGE", amountPaise: 10, graceDays: 5 }, // 10%
+      lateFeeRule: { enabled: true, type: "PERCENTAGE", value: 10, graceDays: 5, maxLimitPaise: 50000 }, // 10%
     },
     now.getTime()
   );
@@ -221,8 +221,7 @@ async function runTests() {
     className: "Class 10",
     sectionName: "A",
     academicYearId: "2026-27",
-    feeStructureId: "struct-1",
-    feeType: "tuition",
+    feeStructureIds: ["struct-1"],
     totalAssignedPaise: 220000,
     totalPaidPaise: 20000,
     totalDiscountPaise: 10000,
@@ -242,7 +241,6 @@ async function runTests() {
         dueDate: "2026-05-10",
       },
     ],
-    createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
 
@@ -279,7 +277,7 @@ async function runTests() {
   assert(upiLink.includes("am=1500.00"), "UPI amount (am) matches exact pending due of ₹1500.00");
   assert(upiLink.includes("cu=INR"), "UPI currency (cu) is INR");
 
-  const mockSummary = {
+  const mockSummary: any = {
     studentId: "student-1",
     totalFeeRupees: 3000,
     totalPaidRupees: 1500,

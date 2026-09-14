@@ -6,10 +6,12 @@ export type UserStatus = "active" | "inactive" | "restricted" | "suspended" | "d
 
 export interface AppUser {
   uid: string;
+  id?: string;
   name: string;
   email: string;
   role: UserRole;
   schoolId?: string; // null/undefined for super_admin
+  schoolName?: string;
   status: UserStatus;
   studentId?: string;
   userId?: string;
