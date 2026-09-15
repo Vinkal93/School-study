@@ -34,10 +34,16 @@ export function getFirebaseDb(): Firestore {
   if (!dbInstance) {
     const app = getFirebaseApp();
     try {
-      dbInstance = initializeFirestore(app, {
-        experimentalAutoDetectLongPolling: true,
-        ignoreUndefinedProperties: true,
-      });
+      if (typeof window !== "undefined") {
+        dbInstance = initializeFirestore(app, {
+          experimentalForceLongPolling: true,
+          ignoreUndefinedProperties: true,
+        });
+      } else {
+        dbInstance = initializeFirestore(app, {
+          ignoreUndefinedProperties: true,
+        });
+      }
     } catch {
       dbInstance = getFirestore(app);
     }
