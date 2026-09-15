@@ -146,6 +146,41 @@ export default function DashboardLayout({
     );
   }
 
+  // AI Mode is a dedicated desktop workspace (live phone on left, AI assistant on right)
+  const isAiRoute = pathname.endsWith("/ai") || pathname.includes("/ai/");
+
+  if (isAiRoute && !isEmbeddedIframe) {
+    return (
+      <PortalUIProvider>
+        <MobileNavProvider>
+          <EntitlementProvider>
+            <div className="h-screen h-[100dvh] w-screen overflow-hidden bg-slate-100/80 dark:bg-slate-950">
+              {children}
+            </div>
+          </EntitlementProvider>
+        </MobileNavProvider>
+      </PortalUIProvider>
+    );
+  }
+
+  if (isAiRoute && isEmbeddedIframe) {
+    return (
+      <div className="flex h-screen items-center justify-center p-6 text-center bg-white dark:bg-slate-900">
+        <div className="space-y-2">
+          <p className="text-sm font-bold text-slate-800 dark:text-slate-200">
+            AI Assistant is active on the right panel.
+          </p>
+          <a
+            href={profile?.role === "super_admin" ? "/super-admin" : "/admin"}
+            className="inline-block px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold"
+          >
+            Back to Dashboard
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <PortalUIProvider>
       <MobileNavProvider>

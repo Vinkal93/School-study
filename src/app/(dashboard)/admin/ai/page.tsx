@@ -8,10 +8,10 @@ export default function AdminAiPage() {
   const { profile } = useAuth();
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="h-full w-full overflow-hidden">
       <AiWorkspace
         portal="school_admin"
-        schoolName={profile?.schoolId ? "Your School" : undefined}
+        schoolName={profile?.schoolId ? profile?.name || "Your School" : undefined}
         userName={profile?.name}
       />
     </div>

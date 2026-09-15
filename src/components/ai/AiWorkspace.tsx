@@ -30,11 +30,13 @@ import {
   TrendingUp,
   Layers,
   ChevronRight,
+  ChevronLeft,
   Menu,
   Moon,
   Sun,
   Bell,
   Mic,
+  MicOff,
   Send,
   MoreVertical,
   BookOpen,
@@ -43,6 +45,9 @@ import {
   FileText,
   FileSpreadsheet,
   Zap,
+  Wifi,
+  Battery,
+  Maximize2,
 } from "lucide-react";
 import { AiConversationList } from "./AiConversationList";
 import type { AiPortalType, AiMessage, AiConversation } from "@/types/ai";
@@ -54,364 +59,210 @@ import { SystemMessage } from "@/components/prompt-kit/system-message";
 import { Button } from "@/components/ui/button";
 
 // ============================================================================
-// 1. LEFT SIDE: SMARTPHONE APP VIEW (MATCHING USER SCREENSHOT EXACTLY)
+// 1. LEFT SIDE: LIVE PHONE PORTAL VIEWPORT (REAL APP EMBEDDED)
 // ============================================================================
-interface PhonePortalViewProps {
+interface LivePhoneViewportProps {
   portal: AiPortalType;
-  schoolName?: string;
-  userName?: string;
-  schoolId?: string;
-  onAskAi: (prompt: string) => void;
+  currentUrl: string;
+  onNavigate: (url: string) => void;
+  iframeRef: React.RefObject<HTMLIFrameElement | null>;
 }
 
-function PhonePortalView({
+function LivePhoneViewport({
   portal,
-  schoolName = "happy",
-  userName = "Happy",
-  schoolId = "1oH1dTrFFyd...",
-  onAskAi,
-}: PhonePortalViewProps) {
-  const [copiedId, setCopiedId] = useState(false);
-  const [activeBottomTab, setActiveBottomTab] = useState<
-    "overview" | "students" | "teachers" | "attendance" | "reports"
-  >("overview");
+  currentUrl,
+  onNavigate,
+  iframeRef,
+}: LivePhoneViewportProps) {
+  const [displayPath, setDisplayPath] = useState(currentUrl);
+  const [currentTime, setCurrentTime] = useState("09:41");
+  const [isLoadingIframe, setIsLoadingIframe] = useState(false);
 
-  const handleCopyId = () => {
-    navigator.clipboard.writeText(schoolId);
-    setCopiedId(true);
-    setTimeout(() => setCopiedId(false), 2000);
+  // Live time in status bar
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date();
+      const hours = now.getHours().toString().padStart(2, "0");
+      const minutes = now.getMinutes().toString().padStart(2, "0");
+      setCurrentTime(`${hours}:${minutes}`);
+    };
+    updateTime();
+    const timer = setInterval(updateTime, 10000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Sync display path when currentUrl changes from parent
+  useEffect(() => {
+    setDisplayPath(currentUrl);
+  }, [currentUrl]);
+
+  // Handle iframe load event to extract real current pathname if navigated inside
+  const handleIframeLoad = () => {
+    setIsLoadingIframe(false);
+    try {
+      const win = iframeRef.current?.contentWindow;
+      if (win && win.location && win.location.pathname) {
+        setDisplayPath(win.location.pathname);
+      }
+    } catch {
+      // Cross-origin security safeguard (not expected in same-origin)
+    }
   };
 
-  // Today formatted date: e.g. Tuesday, 15 Sept 2026
-  const formattedDate = new Date().toLocaleDateString("en-US", {
-    weekday: "long",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  const handleRefresh = () => {
+    setIsLoadingIframe(true);
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.location.reload();
+    }
+  };
+
+  const handleGoBack = () => {
+    try {
+      if (iframeRef.current?.contentWindow) {
+        iframeRef.current.contentWindow.history.back();
+      }
+    } catch {
+      // Fallback
+    }
+  };
+
+  // Quick shortcuts based on portal
+  const quickLinks =
+    portal === "super_admin"
+      ? [
+          { label: "Dashboard", url: "/super-admin" },
+          { label: "Schools", url: "/super-admin/schools" },
+          { label: "Billing", url: "/super-admin/subscriptions" },
+        ]
+      : portal === "teacher"
+      ? [
+          { label: "Dashboard", url: "/teacher" },
+          { label: "Attendance", url: "/teacher/attendance" },
+          { label: "Homework", url: "/teacher/homework" },
+        ]
+      : portal === "student"
+      ? [
+          { label: "Dashboard", url: "/student" },
+          { label: "Fees", url: "/student/fees" },
+          { label: "Exams", url: "/student/exams" },
+        ]
+      : [
+          { label: "Dashboard", url: "/admin" },
+          { label: "Students", url: "/admin/students" },
+          { label: "Fees", url: "/admin/fees/student-fees" },
+          { label: "Attendance", url: "/admin/attendance" },
+          { label: "Classes", url: "/admin/classes" },
+          { label: "Backup", url: "/admin/backup" },
+        ];
 
   return (
-    <div className="w-full max-w-[390px] h-full bg-white dark:bg-slate-900 rounded-[32px] border border-slate-200 dark:border-slate-800 shadow-xl flex flex-col overflow-hidden font-sans select-none shrink-0 transition-all">
-      {/* 1.1 Phone Header */}
-      <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0 bg-white dark:bg-slate-900">
-        <div className="flex items-center gap-2 min-w-0">
-          <button
-            type="button"
-            className="p-1 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
-          <span className="font-extrabold text-sm text-slate-900 dark:text-white capitalize truncate max-w-[90px]">
-            {schoolName}
-          </span>
-          <button
-            onClick={handleCopyId}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition font-mono truncate max-w-[95px]"
-            title="Click to copy School ID"
-          >
-            <span>ID {schoolId.slice(0, 8)}...</span>
-            {copiedId ? (
-              <Check className="h-2.5 w-2.5 text-emerald-500" />
-            ) : (
-              <Copy className="h-2.5 w-2.5" />
-            )}
-          </button>
+    <div className="w-full max-w-[400px] min-w-[360px] h-full flex flex-col items-center justify-center select-none shrink-0 py-1">
+      {/* Smartphone Chassis Shell */}
+      <div className="w-full h-full max-h-[96vh] rounded-[44px] border-[6px] border-slate-800 dark:border-slate-700 bg-slate-950 shadow-2xl flex flex-col overflow-hidden relative ring-1 ring-white/10">
+        {/* Dynamic Island Notch & Speaker */}
+        <div className="pt-2 pb-1 px-5 flex items-center justify-between text-white text-[11px] font-semibold shrink-0 bg-slate-950 z-20">
+          <span className="font-mono tracking-tighter pl-1">{currentTime}</span>
+          {/* Dynamic Island Pill */}
+          <div className="h-5 w-24 bg-black rounded-full flex items-center justify-between px-2.5 shadow-inner">
+            <span className="h-2 w-2 rounded-full bg-blue-500/80 animate-pulse" />
+            <span className="h-2 w-2 rounded-full bg-slate-800" />
+          </div>
+          {/* Status Icons */}
+          <div className="flex items-center gap-1.5 text-white/80 pr-1">
+            <Wifi className="h-3 w-3" />
+            <Battery className="h-3.5 w-3.5" />
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            className="p-1 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white"
-          >
-            <Moon className="h-4 w-4" />
-          </button>
-          <div className="relative">
-            <Bell className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-            <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900" />
-          </div>
+        {/* Compact Phone Address / Navigation Bar */}
+        <div className="px-3 py-1.5 bg-slate-900/90 border-b border-slate-800/80 flex items-center justify-between gap-1.5 text-xs text-slate-300 shrink-0 z-20">
           <div className="flex items-center gap-1">
-            <div className="relative h-7 w-7 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 text-white font-bold text-xs flex items-center justify-center shadow-xs">
-              <span>{userName.charAt(0).toUpperCase()}</span>
-              <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900" />
-            </div>
-            <ChevronRight className="h-3 w-3 text-slate-400 rotate-90" />
-          </div>
-        </div>
-      </div>
-
-      {/* 1.2 Phone Scrollable Body */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/60 dark:bg-slate-950/40">
-        {/* Good Morning Greeting Card */}
-        <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-50/80 via-indigo-50/50 to-white dark:from-slate-900 dark:via-slate-900 dark:to-indigo-950/40 border border-blue-100/80 dark:border-slate-800 shadow-xs space-y-3">
-          <div>
-            <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-              Good Morning,
-            </div>
-            <div className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-1.5">
-              <span>{userName}</span>
-              <span>👋</span>
-            </div>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-              Here&apos;s what&apos;s happening at <strong className="text-slate-800 dark:text-slate-200">{schoolName}</strong> today.
-            </div>
+            <button
+              onClick={handleGoBack}
+              title="Go back inside mobile portal"
+              className="p-1 rounded-md hover:bg-slate-800 text-slate-400 hover:text-white transition"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={handleRefresh}
+              title="Reload mobile portal"
+              className="p-1 rounded-md hover:bg-slate-800 text-slate-400 hover:text-white transition"
+            >
+              <RotateCw
+                className={`h-3.5 w-3.5 ${isLoadingIframe ? "animate-spin text-blue-400" : ""}`}
+              />
+            </button>
           </div>
 
-          {/* Quick Status Badges */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-600 text-white text-[10px] font-bold shadow-xs">
-              <Zap className="h-3 w-3 fill-white" />
-              <span>Free Plan</span>
-            </span>
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-medium border border-slate-200 dark:border-slate-700 shadow-2xs">
-              <Calendar className="h-3 w-3 text-blue-500" />
-              <span>{formattedDate}</span>
-            </span>
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-medium border border-slate-200 dark:border-slate-700 shadow-2xs">
-              <span>☀️</span>
-              <span>28°C Sunny</span>
-            </span>
+          {/* Current Path Indicator */}
+          <div className="flex-1 mx-1 px-2 py-1 rounded-lg bg-slate-950/80 border border-slate-800 text-[11px] font-mono text-slate-300 truncate flex items-center gap-1.5">
+            <Globe className="h-3 w-3 text-blue-400 shrink-0" />
+            <span className="truncate">{displayPath}</span>
           </div>
 
-          {/* School Building Illustration Card */}
-          <div className="pt-2 flex flex-col items-center justify-center">
-            {/* SVG School Illustration */}
-            <div className="w-full max-w-[240px] h-[100px] flex items-center justify-center relative">
-              <svg viewBox="0 0 260 110" className="w-full h-full drop-shadow-sm">
-                {/* Grass Hill */}
-                <ellipse cx="130" cy="100" rx="120" ry="12" fill="#86efac" />
-                <ellipse cx="130" cy="102" rx="105" ry="8" fill="#4ade80" />
-
-                {/* Left Tree */}
-                <rect x="38" y="65" width="6" height="25" fill="#a16207" rx="2" />
-                <circle cx="41" cy="55" r="16" fill="#22c55e" />
-                <circle cx="32" cy="62" r="10" fill="#16a34a" />
-
-                {/* Left Shrub */}
-                <circle cx="68" cy="88" r="9" fill="#10b981" />
-
-                {/* Right Tree */}
-                <rect x="216" y="65" width="6" height="25" fill="#a16207" rx="2" />
-                <circle cx="219" cy="55" r="16" fill="#22c55e" />
-                <circle cx="228" cy="62" r="10" fill="#16a34a" />
-
-                {/* Right Shrub */}
-                <circle cx="192" cy="88" r="9" fill="#10b981" />
-
-                {/* Main Building Body */}
-                <rect x="70" y="48" width="120" height="42" fill="#fb923c" rx="3" />
-                <rect x="74" y="52" width="112" height="36" fill="#fed7aa" rx="2" />
-
-                {/* Roof Trim */}
-                <rect x="67" y="45" width="126" height="5" fill="#ea580c" rx="2" />
-
-                {/* Center Clock Tower */}
-                <rect x="114" y="24" width="32" height="30" fill="#fb923c" />
-                <rect x="117" y="27" width="26" height="24" fill="#fed7aa" />
-                {/* Tower Gable Roof */}
-                <polygon points="112,24 130,10 148,24" fill="#c2410c" />
-                {/* Clock */}
-                <circle cx="130" cy="36" r="6.5" fill="#ffffff" stroke="#ea580c" strokeWidth="1.5" />
-                <line x1="130" y1="36" x2="130" y2="32" stroke="#ea580c" strokeWidth="1" />
-                <line x1="130" y1="36" x2="133" y2="36" stroke="#ea580c" strokeWidth="1" />
-
-                {/* Flagpole & Red Flag */}
-                <line x1="130" y1="10" x2="130" y2="2" stroke="#64748b" strokeWidth="1.5" />
-                <polygon points="130,2 140,5 130,8" fill="#ef4444" />
-
-                {/* Windows on Left Wing */}
-                <rect x="80" y="56" width="9" height="11" fill="#38bdf8" rx="1.5" />
-                <rect x="94" y="56" width="9" height="11" fill="#38bdf8" rx="1.5" />
-                <rect x="80" y="71" width="9" height="11" fill="#38bdf8" rx="1.5" />
-                <rect x="94" y="71" width="9" height="11" fill="#38bdf8" rx="1.5" />
-
-                {/* Windows on Right Wing */}
-                <rect x="156" y="56" width="9" height="11" fill="#38bdf8" rx="1.5" />
-                <rect x="170" y="56" width="9" height="11" fill="#38bdf8" rx="1.5" />
-                <rect x="156" y="71" width="9" height="11" fill="#38bdf8" rx="1.5" />
-                <rect x="170" y="71" width="9" height="11" fill="#38bdf8" rx="1.5" />
-
-                {/* Center Entrance Door */}
-                <rect x="122" y="68" width="16" height="22" fill="#c2410c" rx="2" />
-                <rect x="124" y="70" width="12" height="20" fill="#9a3412" rx="1" />
-                <line x1="130" y1="70" x2="130" y2="90" stroke="#fbcfe8" strokeWidth="0.75" />
-                <circle cx="128" cy="80" r="1" fill="#fbbf24" />
-              </svg>
-            </div>
-
-            <p className="text-center text-[11px] font-bold text-blue-700 dark:text-blue-400 italic tracking-wide mt-1">
-              &ldquo;Better Education Brighter Futures&rdquo;
-            </p>
-          </div>
+          <a
+            href={displayPath}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open in new browser tab"
+            className="p-1 rounded-md hover:bg-slate-800 text-slate-400 hover:text-white transition"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
         </div>
 
-        {/* 1.3 4 Key Metric Cards (2x2 Grid) */}
-        <div className="grid grid-cols-2 gap-3">
-          {/* 1. Students Card */}
-          <div
-            onClick={() => onAskAi("Kitne total students enrolled hain aur class-wise breakdown kya hai?")}
-            className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-2xs hover:border-indigo-300 dark:hover:border-indigo-700 transition cursor-pointer group"
-          >
-            <div className="flex items-center gap-2">
-              <div className="h-7 w-7 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 flex items-center justify-center shrink-0">
-                <Users className="h-4 w-4" />
-              </div>
-              <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                Students
-              </span>
-            </div>
-            <div className="text-xl font-black text-slate-900 dark:text-white mt-2">
-              1,248
-            </div>
-            <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5 mt-0.5">
-              <span>↑ 12%</span>
-              <span className="text-slate-400 font-normal">vs last month</span>
-            </div>
-          </div>
-
-          {/* 2. Teachers Card */}
-          <div
-            onClick={() => onAskAi("School me kitne teachers aur staff active hain?")}
-            className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-2xs hover:border-indigo-300 dark:hover:border-indigo-700 transition cursor-pointer group"
-          >
-            <div className="flex items-center gap-2">
-              <div className="h-7 w-7 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center shrink-0">
-                <GraduationCap className="h-4 w-4" />
-              </div>
-              <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                Teachers
-              </span>
-            </div>
-            <div className="text-xl font-black text-slate-900 dark:text-white mt-2">
-              46
-            </div>
-            <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5 mt-0.5">
-              <span>↑ 4%</span>
-              <span className="text-slate-400 font-normal">vs last month</span>
-            </div>
-          </div>
-
-          {/* 3. Classes Card */}
-          <div
-            onClick={() => onAskAi("Classes aur sections ki details dikhao")}
-            className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-2xs hover:border-indigo-300 dark:hover:border-indigo-700 transition cursor-pointer group"
-          >
-            <div className="flex items-center gap-2">
-              <div className="h-7 w-7 rounded-lg bg-purple-50 dark:bg-purple-950/60 text-purple-600 flex items-center justify-center shrink-0">
-                <BookOpen className="h-4 w-4" />
-              </div>
-              <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                Classes
-              </span>
-            </div>
-            <div className="text-xl font-black text-slate-900 dark:text-white mt-2">
-              28
-            </div>
-            <div className="text-[10px] font-medium text-slate-500 flex items-center gap-0.5 mt-0.5">
-              <span>↑ 0%</span>
-              <span className="text-slate-400 font-normal">vs last month</span>
-            </div>
-          </div>
-
-          {/* 4. Attendance Card */}
-          <div
-            onClick={() => onAskAi("Aaj kitne students present aur absent hain?")}
-            className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-2xs hover:border-indigo-300 dark:hover:border-indigo-700 transition cursor-pointer group"
-          >
-            <div className="flex items-center gap-2">
-              <div className="h-7 w-7 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-600 flex items-center justify-center shrink-0">
-                <Clock className="h-4 w-4" />
-              </div>
-              <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                Attendance
-              </span>
-            </div>
-            <div className="text-xl font-black text-slate-900 dark:text-white mt-2">
-              92%
-            </div>
-            <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5 mt-0.5">
-              <span>↑ 3%</span>
-              <span className="text-slate-400 font-normal">vs last month</span>
-            </div>
-          </div>
+        {/* Horizontal Quick Jump Tabs */}
+        <div className="px-2.5 py-1 bg-slate-950 border-b border-slate-800/60 flex items-center gap-1 overflow-x-auto scrollbar-none shrink-0 z-20">
+          {quickLinks.map((item) => {
+            const isActive = displayPath === item.url;
+            return (
+              <button
+                key={item.url}
+                onClick={() => onNavigate(item.url)}
+                className={`px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap transition ${
+                  isActive
+                    ? "bg-blue-600 text-white shadow-xs"
+                    : "bg-slate-900 text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                }`}
+              >
+                {item.label}
+              </button>
+            );
+          })}
         </div>
-      </div>
 
-      {/* 1.4 Phone Bottom Navigation Bar */}
-      <div className="px-3 py-2 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex items-center justify-around shrink-0 text-slate-400">
-        <button
-          onClick={() => setActiveBottomTab("overview")}
-          className={`flex flex-col items-center gap-1 transition ${
-            activeBottomTab === "overview"
-              ? "text-blue-600 dark:text-blue-400 font-bold"
-              : "hover:text-slate-600"
-          }`}
-        >
-          <Layers className="h-4 w-4" />
-          <span className="text-[9px]">Overview</span>
-        </button>
-        <button
-          onClick={() => {
-            setActiveBottomTab("students");
-            onAskAi("Show students list and details");
-          }}
-          className={`flex flex-col items-center gap-1 transition ${
-            activeBottomTab === "students"
-              ? "text-blue-600 dark:text-blue-400 font-bold"
-              : "hover:text-slate-600"
-          }`}
-        >
-          <GraduationCap className="h-4 w-4" />
-          <span className="text-[9px]">Students</span>
-        </button>
-        <button
-          onClick={() => {
-            setActiveBottomTab("teachers");
-            onAskAi("Show teachers directory and duty roster");
-          }}
-          className={`flex flex-col items-center gap-1 transition ${
-            activeBottomTab === "teachers"
-              ? "text-blue-600 dark:text-blue-400 font-bold"
-              : "hover:text-slate-600"
-          }`}
-        >
-          <Users className="h-4 w-4" />
-          <span className="text-[9px]">Teachers</span>
-        </button>
-        <button
-          onClick={() => {
-            setActiveBottomTab("attendance");
-            onAskAi("Check today's attendance summary and absentees");
-          }}
-          className={`flex flex-col items-center gap-1 transition ${
-            activeBottomTab === "attendance"
-              ? "text-blue-600 dark:text-blue-400 font-bold"
-              : "hover:text-slate-600"
-          }`}
-        >
-          <ClipboardCheck className="h-4 w-4" />
-          <span className="text-[9px]">Attendance</span>
-        </button>
-        <button
-          onClick={() => {
-            setActiveBottomTab("reports");
-            onAskAi("Generate fee and school performance reports");
-          }}
-          className={`flex flex-col items-center gap-1 transition ${
-            activeBottomTab === "reports"
-              ? "text-blue-600 dark:text-blue-400 font-bold"
-              : "hover:text-slate-600"
-          }`}
-        >
-          <FileText className="h-4 w-4" />
-          <span className="text-[9px]">Reports</span>
-        </button>
+        {/* Live Interactive Application Viewport */}
+        <div className="relative flex-1 w-full bg-white dark:bg-slate-950 overflow-hidden">
+          {isLoadingIframe && (
+            <div className="absolute inset-0 bg-white/70 dark:bg-slate-950/70 backdrop-blur-xs flex items-center justify-center z-10">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 shadow-md text-xs font-semibold text-slate-700 dark:text-slate-200">
+                <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-500" />
+                <span>Loading portal...</span>
+              </div>
+            </div>
+          )}
+
+          <iframe
+            ref={iframeRef}
+            src={currentUrl}
+            title="Live School Study Portal Viewport"
+            className="w-full h-full border-0 bg-white dark:bg-slate-950"
+            onLoad={handleIframeLoad}
+          />
+        </div>
+
+        {/* Bottom Phone Home Gesture Indicator */}
+        <div className="py-1.5 bg-slate-950 flex items-center justify-center shrink-0 z-20">
+          <div className="w-28 h-1 bg-slate-600/70 rounded-full" />
+        </div>
       </div>
     </div>
   );
 }
 
 // ============================================================================
-// 2. MAIN AI WORKSPACE COMPONENT (EXACT MATCH WITH SCREENSHOT)
+// 2. MAIN AI WORKSPACE COMPONENT (WHATSAPP WEB STYLE SPLIT WORKSPACE)
 // ============================================================================
 export interface AiWorkspaceProps {
   portal: AiPortalType;
@@ -428,6 +279,20 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
   const [conversations, setConversations] = useState<AiConversation[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [isListening, setIsListening] = useState(false);
+
+  // Phone Navigation & Viewport State
+  const defaultRoute =
+    portal === "super_admin"
+      ? "/super-admin"
+      : portal === "teacher"
+      ? "/teacher"
+      : portal === "student"
+      ? "/student"
+      : "/admin";
+
+  const [phoneUrl, setPhoneUrl] = useState<string>(defaultRoute);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   // Mobile layout switcher: [📱 School App] or [✨ AI Assistant]
   const [activeMobileTab, setActiveMobileTab] = useState<"screen" | "ai">("ai");
@@ -437,6 +302,7 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const speechRecognitionRef = useRef<any>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -495,12 +361,25 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
     setActiveToolPart(null);
   };
 
-  const handleSendMessage = async (promptToSend?: string) => {
+  // Navigates the live phone iframe
+  const handleNavigatePhone = (path: string) => {
+    setPhoneUrl(path);
+    if (iframeRef.current) {
+      iframeRef.current.src = path;
+    }
+  };
+
+  const handleSendMessage = async (promptToSend?: string, targetPhoneRoute?: string) => {
     const text = (promptToSend || inputPrompt).trim();
     if (!text || loading) return;
 
     // Switch to AI tab if on mobile
     setActiveMobileTab("ai");
+
+    // If a target phone route was requested, also navigate the left phone
+    if (targetPhoneRoute) {
+      handleNavigatePhone(targetPhoneRoute);
+    }
 
     const userMessage: AiMessage = {
       id: `msg_${Date.now()}_user`,
@@ -561,6 +440,11 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
       if (data.conversationId) {
         setConversationId(data.conversationId);
       }
+
+      // If AI intent suggested a page navigation, automatically navigate the phone viewport
+      if (data.metadata?.targetRoute) {
+        handleNavigatePhone(data.metadata.targetRoute);
+      }
     } catch (err: any) {
       const errorMessage: AiMessage = {
         id: `msg_${Date.now()}_err`,
@@ -576,13 +460,58 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
     }
   };
 
+  // Speech to text toggle
+  const handleToggleSpeech = () => {
+    if (isListening) {
+      if (speechRecognitionRef.current) {
+        speechRecognitionRef.current.stop();
+      }
+      setIsListening(false);
+      return;
+    }
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert("Speech Recognition is not supported in this browser. Please use Chrome or Edge.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = "en-IN";
+
+    recognition.onstart = () => {
+      setIsListening(true);
+    };
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setInputPrompt((prev) => (prev ? `${prev} ${transcript}` : transcript));
+      setIsListening(false);
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    speechRecognitionRef.current = recognition;
+    recognition.start();
+  };
+
   const copyToClipboard = (text: string, index: number) => {
     navigator.clipboard.writeText(text);
     setCopiedIndex(index);
     setTimeout(() => setCopiedIndex(null), 2000);
   };
 
-  // Full Markdown + Table Renderer
+  // Full Markdown + Table Renderer with interactive phone navigation
   const renderMessageContent = (content: string) => {
     const lines = content.split("\n");
     const elements: React.ReactNode[] = [];
@@ -597,7 +526,10 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
       inTable = false;
 
       return (
-        <div key={`table_${key}`} className="my-3 overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-800 shadow-xs">
+        <div
+          key={`table_${key}`}
+          className="my-3 overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-800 shadow-xs"
+        >
           <table className="w-full text-left text-xs">
             <thead className="bg-gray-100/80 dark:bg-gray-800/90 text-gray-700 dark:text-gray-200 font-bold border-b border-gray-200 dark:border-gray-800">
               <tr>
@@ -647,7 +579,10 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
 
       if (line.startsWith("## ")) {
         elements.push(
-          <h3 key={i} className="text-base sm:text-lg font-black text-gray-900 dark:text-white mt-4 mb-2 tracking-tight">
+          <h3
+            key={i}
+            className="text-base sm:text-lg font-black text-gray-900 dark:text-white mt-4 mb-2 tracking-tight"
+          >
             {line.replace("## ", "")}
           </h3>
         );
@@ -661,12 +596,20 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
         const item = line.replace(/^[•-]\s*/, "");
         elements.push(
           <div key={i} className="flex items-start gap-2 pl-1 py-0.5">
-            <span className="text-indigo-500 font-bold">•</span>
+            <span className="text-blue-500 font-bold">•</span>
             <span className="text-xs sm:text-sm">{renderFormattedText(item)}</span>
           </div>
         );
-      } else if (line.startsWith("> [!IMPORTANT]") || line.startsWith("> [!TIP]") || line.startsWith("> [!NOTE]")) {
-        const type = line.includes("IMPORTANT") ? "action" : line.includes("TIP") ? "warning" : "info";
+      } else if (
+        line.startsWith("> [!IMPORTANT]") ||
+        line.startsWith("> [!TIP]") ||
+        line.startsWith("> [!NOTE]")
+      ) {
+        const type = line.includes("IMPORTANT")
+          ? "action"
+          : line.includes("TIP")
+          ? "warning"
+          : "info";
         elements.push(
           <SystemMessage key={i} variant={type as any} fill className="my-2">
             {lines[i + 1] ? renderFormattedText(lines[i + 1].replace(/^>\s*/, "")) : ""}
@@ -677,7 +620,7 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
         elements.push(
           <blockquote
             key={i}
-            className="pl-3 border-l-2 border-indigo-400 text-gray-600 dark:text-gray-300 italic text-xs my-1.5"
+            className="pl-3 border-l-2 border-blue-400 text-gray-600 dark:text-gray-300 italic text-xs my-1.5"
           >
             {renderFormattedText(line.replace(/^>\s*/, ""))}
           </blockquote>
@@ -687,7 +630,11 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
       } else if (line.trim() === "") {
         elements.push(<div key={i} className="h-1" />);
       } else {
-        elements.push(<p key={i} className="text-xs sm:text-sm">{renderFormattedText(line)}</p>);
+        elements.push(
+          <p key={i} className="text-xs sm:text-sm">
+            {renderFormattedText(line)}
+          </p>
+        );
       }
     }
 
@@ -710,15 +657,39 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
       }
       const label = match[1];
       const href = match[2];
-      parts.push(
-        <Link
-          key={match.index}
-          href={href}
-          className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 font-bold hover:underline"
-        >
-          {label} <ArrowRight className="h-3 w-3 inline" />
-        </Link>
-      );
+
+      // Internal app links navigate the phone viewport on click!
+      const isInternalLink =
+        href.startsWith("/admin") ||
+        href.startsWith("/super-admin") ||
+        href.startsWith("/teacher") ||
+        href.startsWith("/student");
+
+      if (isInternalLink) {
+        parts.push(
+          <button
+            key={match.index}
+            onClick={() => handleNavigatePhone(href)}
+            className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 font-bold hover:underline cursor-pointer bg-blue-50 dark:bg-blue-950/60 px-1.5 py-0.5 rounded-md text-xs border border-blue-200 dark:border-blue-900"
+            title={`Navigate left phone view to ${href}`}
+          >
+            <span>📱 {label}</span>
+            <ArrowRight className="h-3 w-3 inline" />
+          </button>
+        );
+      } else {
+        parts.push(
+          <Link
+            key={match.index}
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 font-bold hover:underline"
+          >
+            {label} <ArrowRight className="h-3 w-3 inline" />
+          </Link>
+        );
+      }
       lastIndex = match.index + match[0].length;
     }
     if (lastIndex < text.length) {
@@ -748,27 +719,28 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
     if (lastIndex < text.length) {
       parts.push(text.substring(lastIndex));
     }
+
     return parts.length > 0 ? parts : text;
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] max-h-[100dvh] bg-slate-100/70 dark:bg-slate-950 p-2 sm:p-4 rounded-3xl overflow-hidden font-sans">
-      {/* Mobile Top Segmented Bar (< 1024px) */}
-      <div className="lg:hidden flex items-center justify-between pb-2">
+    <div className="flex flex-col h-screen h-[100dvh] w-screen overflow-hidden bg-slate-100/80 dark:bg-slate-950 p-2 sm:p-3 font-sans">
+      {/* Mobile Screen Segmented Switcher (< 1024px) */}
+      <div className="lg:hidden flex items-center justify-between pb-2 shrink-0">
         <div className="flex items-center bg-white dark:bg-slate-900 p-1 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 text-xs font-bold">
           <button
             onClick={() => setActiveMobileTab("screen")}
-            className={`py-1 px-3 rounded-lg transition ${
+            className={`py-1.5 px-3.5 rounded-lg transition ${
               activeMobileTab === "screen"
                 ? "bg-blue-600 text-white shadow-xs"
                 : "text-slate-500"
             }`}
           >
-            📱 School App
+            📱 Mobile Portal
           </button>
           <button
             onClick={() => setActiveMobileTab("ai")}
-            className={`py-1 px-3 rounded-lg transition ${
+            className={`py-1.5 px-3.5 rounded-lg transition ${
               activeMobileTab === "ai"
                 ? "bg-blue-600 text-white shadow-xs"
                 : "text-slate-500"
@@ -778,45 +750,52 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
           </button>
         </div>
 
-        <button
-          onClick={() => setShowHistory(true)}
-          className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300"
-          title="History"
-        >
-          <History className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-1.5">
+          <Link
+            href={defaultRoute}
+            className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold"
+          >
+            Exit AI
+          </Link>
+          <button
+            onClick={() => setShowHistory(true)}
+            className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300"
+            title="History"
+          >
+            <History className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
-      {/* Main Container: Split-View on PC, Tabbed on Mobile */}
-      <div className="flex-1 flex gap-4 overflow-hidden relative">
+      {/* Main Split View: Left Phone Viewport + Right AI Assistant */}
+      <div className="flex-1 flex gap-3 sm:gap-4 overflow-hidden relative">
         {/* ============================================================ */}
-        {/* LEFT SECTION: PHONE PORTAL APP VIEW (MATCHING USER IMAGE)   */}
+        {/* LEFT SECTION: REAL LIVE PHONE PORTAL VIEWPORT                */}
         {/* ============================================================ */}
         <div
-          className={`shrink-0 flex items-center justify-center ${
+          className={`shrink-0 items-center justify-center ${
             activeMobileTab === "screen" ? "flex w-full" : "hidden lg:flex"
           }`}
         >
-          <PhonePortalView
+          <LivePhoneViewport
             portal={portal}
-            schoolName={schoolName || "happy"}
-            userName={userName || "Happy"}
-            onAskAi={(prompt) => handleSendMessage(prompt)}
+            currentUrl={phoneUrl}
+            onNavigate={handleNavigatePhone}
+            iframeRef={iframeRef}
           />
         </div>
 
         {/* ============================================================ */}
-        {/* RIGHT SECTION: AI ASSISTANT (EXACT MATCH WITH USER IMAGE)    */}
+        {/* RIGHT SECTION: MODERN AI ASSISTANT WORKSPACE (FLEX: 1)       */}
         {/* ============================================================ */}
         <div
           className={`flex-1 flex flex-col bg-white dark:bg-slate-900 rounded-[32px] border border-slate-200/80 dark:border-slate-800 shadow-xl overflow-hidden min-w-0 ${
             activeMobileTab === "ai" ? "flex" : "hidden lg:flex"
           }`}
         >
-          {/* 2.1 AI Assistant Header Bar */}
-          <div className="px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0 bg-white dark:bg-slate-900">
+          {/* Top Bar Header */}
+          <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0 bg-white dark:bg-slate-900">
             <div className="flex items-center gap-3">
-              {/* Cute Robot Avatar Icon */}
               <div className="h-10 w-10 rounded-2xl bg-gradient-to-tr from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20 shrink-0">
                 <span className="text-xl">🤖</span>
               </div>
@@ -830,19 +809,31 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
                     Online
                   </span>
                 </div>
-                <p className="text-xs text-slate-400">Your smart school assistant</p>
+                <p className="text-xs text-slate-400">
+                  {schoolName ? `${schoolName} • ` : ""}Interactive School Assistant
+                </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
+              <Link
+                href={defaultRoute}
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 transition"
+                title="Exit AI Mode to full desktop dashboard"
+              >
+                <ArrowRight className="h-3.5 w-3.5 rotate-180" />
+                <span>Exit AI Mode</span>
+              </Link>
+
               <button
                 onClick={handleClearChat}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 transition"
                 title="Clear current chat"
               >
                 <Trash2 className="h-3.5 w-3.5 text-slate-400" />
-                <span>Clear Chat</span>
+                <span className="hidden md:inline">Clear Chat</span>
               </button>
+
               <button
                 onClick={() => setShowHistory(true)}
                 className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition"
@@ -853,39 +844,52 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
             </div>
           </div>
 
-          {/* 2.2 Middle Area: Hero with Robot OR Message Stream */}
+          {/* Chat Stream / Empty Hero State */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
             {activeToolPart && (
               <Tool toolPart={activeToolPart} className="max-w-md mx-auto" />
             )}
 
             {messages.length === 0 ? (
-              /* ====================================================== */
-              /* HERO EMPTY STATE: FRIENDLY 3D ROBOT + ORBITING CHIPS  */
-              /* ====================================================== */
+              /* Hero Empty State: 3D Robot + Floating Chips */
               <div className="max-w-2xl mx-auto flex flex-col items-center justify-center py-2 sm:py-6 text-center">
                 {/* 3D Friendly Robot Illustration with Floating Badges */}
                 <div className="relative w-72 h-56 flex items-center justify-center my-2">
                   {/* Floating Chips Left */}
                   <button
-                    onClick={() => handleSendMessage("Kitne total students enrolled hain aur class-wise breakdown kya hai?")}
-                    className="absolute top-4 left-0 flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-white dark:bg-slate-800 shadow-lg border border-slate-100 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:scale-105 transition-transform"
+                    onClick={() =>
+                      handleSendMessage(
+                        "Kitne total students enrolled hain aur class-wise breakdown kya hai?",
+                        "/admin/students"
+                      )
+                    }
+                    className="absolute top-4 left-0 flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-white dark:bg-slate-800 shadow-lg border border-slate-100 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:scale-105 transition-transform cursor-pointer"
                   >
                     <span className="text-blue-500">👥</span>
                     <span>Students</span>
                   </button>
 
                   <button
-                    onClick={() => handleSendMessage("Current fee collection and pending dues status kya hai?")}
-                    className="absolute top-20 left-4 flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-white dark:bg-slate-800 shadow-lg border border-slate-100 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:scale-105 transition-transform"
+                    onClick={() =>
+                      handleSendMessage(
+                        "Current fee collection and pending dues status kya hai?",
+                        "/admin/fees/student-fees"
+                      )
+                    }
+                    className="absolute top-20 left-4 flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-white dark:bg-slate-800 shadow-lg border border-slate-100 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:scale-105 transition-transform cursor-pointer"
                   >
                     <span className="text-emerald-500">₹</span>
                     <span>Fees</span>
                   </button>
 
                   <button
-                    onClick={() => handleSendMessage("School overall academic and fee report dikhao")}
-                    className="absolute bottom-4 left-2 flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-white dark:bg-slate-800 shadow-lg border border-slate-100 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:scale-105 transition-transform"
+                    onClick={() =>
+                      handleSendMessage(
+                        "School overall academic and fee report dikhao",
+                        "/admin/reports"
+                      )
+                    }
+                    className="absolute bottom-4 left-2 flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-white dark:bg-slate-800 shadow-lg border border-slate-100 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:scale-105 transition-transform cursor-pointer"
                   >
                     <span className="text-purple-500">📊</span>
                     <span>Reports</span>
@@ -893,24 +897,39 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
 
                   {/* Floating Chips Right */}
                   <button
-                    onClick={() => handleSendMessage("Aaj kitne students present aur absent hain?")}
-                    className="absolute top-4 right-0 flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-white dark:bg-slate-800 shadow-lg border border-slate-100 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:scale-105 transition-transform"
+                    onClick={() =>
+                      handleSendMessage(
+                        "Aaj kitne students present aur absent hain?",
+                        "/admin/attendance"
+                      )
+                    }
+                    className="absolute top-4 right-0 flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-white dark:bg-slate-800 shadow-lg border border-slate-100 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:scale-105 transition-transform cursor-pointer"
                   >
                     <span className="text-blue-500">📅</span>
                     <span>Attendance</span>
                   </button>
 
                   <button
-                    onClick={() => handleSendMessage("Class 8th ka timetable create karne ka process batao")}
-                    className="absolute top-20 right-4 flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-white dark:bg-slate-800 shadow-lg border border-slate-100 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:scale-105 transition-transform"
+                    onClick={() =>
+                      handleSendMessage(
+                        "Class 8th ka timetable create karne ka process batao",
+                        "/admin/timetable"
+                      )
+                    }
+                    className="absolute top-20 right-4 flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-white dark:bg-slate-800 shadow-lg border border-slate-100 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:scale-105 transition-transform cursor-pointer"
                   >
                     <span className="text-amber-500">🕒</span>
                     <span>Timetable</span>
                   </button>
 
                   <button
-                    onClick={() => handleSendMessage("Exams and test schedules ki list dikhao")}
-                    className="absolute bottom-4 right-2 flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-white dark:bg-slate-800 shadow-lg border border-slate-100 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:scale-105 transition-transform"
+                    onClick={() =>
+                      handleSendMessage(
+                        "Exams and test schedules ki list dikhao",
+                        "/admin/exams"
+                      )
+                    }
+                    className="absolute bottom-4 right-2 flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-white dark:bg-slate-800 shadow-lg border border-slate-100 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:scale-105 transition-transform cursor-pointer"
                   >
                     <span className="text-blue-500">📄</span>
                     <span>Exams</span>
@@ -935,11 +954,28 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
                       </defs>
 
                       {/* Head Antenna */}
-                      <line x1="80" y1="26" x2="80" y2="12" stroke="#cbd5e1" strokeWidth="3" strokeLinecap="round" />
+                      <line
+                        x1="80"
+                        y1="26"
+                        x2="80"
+                        y2="12"
+                        stroke="#cbd5e1"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                      />
                       <circle cx="80" cy="11" r="5" fill="#f59e0b" />
 
-                      {/* Robot Head (Rounded Pill) */}
-                      <rect x="36" y="24" width="88" height="66" rx="32" fill="url(#bodyGrad)" stroke="#cbd5e1" strokeWidth="2" />
+                      {/* Robot Head */}
+                      <rect
+                        x="36"
+                        y="24"
+                        width="88"
+                        height="66"
+                        rx="32"
+                        fill="url(#bodyGrad)"
+                        stroke="#cbd5e1"
+                        strokeWidth="2"
+                      />
 
                       {/* Ear Pods */}
                       <rect x="30" y="44" width="8" height="22" rx="4" fill="#3b82f6" />
@@ -948,28 +984,51 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
                       {/* Visor Screen */}
                       <rect x="44" y="34" width="72" height="42" rx="18" fill="url(#visorGrad)" />
 
-                      {/* Cheerful Digital Eyes */}
+                      {/* Digital Eyes */}
                       <circle cx="64" cy="52" r="8" fill="url(#blueGlow)" />
                       <circle cx="67" cy="49" r="2.5" fill="#ffffff" />
                       <circle cx="96" cy="52" r="8" fill="url(#blueGlow)" />
                       <circle cx="99" cy="49" r="2.5" fill="#ffffff" />
 
-                      {/* Smile Line */}
-                      <path d="M 72 64 Q 80 70 88 64" stroke="#60a5fa" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+                      {/* Smile */}
+                      <path
+                        d="M 72 64 Q 80 70 88 64"
+                        stroke="#60a5fa"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        fill="none"
+                      />
 
-                      {/* Body Neck & Chest */}
+                      {/* Neck & Chest */}
                       <rect x="68" y="90" width="24" height="8" fill="#94a3b8" rx="2" />
-                      <path d="M 50 98 Q 80 94 110 98 L 118 136 Q 80 144 42 136 Z" fill="url(#bodyGrad)" stroke="#cbd5e1" strokeWidth="2" />
+                      <path
+                        d="M 50 98 Q 80 94 110 98 L 118 136 Q 80 144 42 136 Z"
+                        fill="url(#bodyGrad)"
+                        stroke="#cbd5e1"
+                        strokeWidth="2"
+                      />
 
-                      {/* Chest Light Badge */}
+                      {/* Chest Light */}
                       <circle cx="80" cy="114" r="7" fill="#3b82f6" opacity="0.9" />
                       <circle cx="80" cy="114" r="4" fill="#ffffff" />
 
-                      {/* Left Arm (Resting) */}
-                      <path d="M 44 104 Q 30 115 36 130" stroke="url(#bodyGrad)" strokeWidth="9" strokeLinecap="round" fill="none" />
+                      {/* Left Arm */}
+                      <path
+                        d="M 44 104 Q 30 115 36 130"
+                        stroke="url(#bodyGrad)"
+                        strokeWidth="9"
+                        strokeLinecap="round"
+                        fill="none"
+                      />
 
-                      {/* Right Arm (Waving Hand!) */}
-                      <path d="M 116 104 Q 134 96 142 80" stroke="url(#bodyGrad)" strokeWidth="9" strokeLinecap="round" fill="none" />
+                      {/* Right Arm Waving */}
+                      <path
+                        d="M 116 104 Q 134 96 142 80"
+                        stroke="url(#bodyGrad)"
+                        strokeWidth="9"
+                        strokeLinecap="round"
+                        fill="none"
+                      />
                       <circle cx="143" cy="78" r="6" fill="#3b82f6" />
                     </svg>
                   </div>
@@ -977,20 +1036,23 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
 
                 {/* Hero Greeting Text */}
                 <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-1">
-                  Hello! 👋
+                  Hello{userName ? `, ${userName}` : ""}! 👋
                 </h1>
                 <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white mt-0.5">
                   I&apos;m your AI School Assistant
                 </h2>
                 <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-lg leading-relaxed">
-                  Ask me anything about your school. I can help you with students, fees, reports, attendance, timetables and much more.
+                  Ask me anything about your school. Both the AI workspace and the phone on your
+                  left work together in real time!
                 </p>
 
                 {/* 4 Action Cards in a 4-column Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 w-full mt-6 text-left">
                   {/* Card 1: Student Information */}
                   <div
-                    onClick={() => handleSendMessage("Show students with pending fees")}
+                    onClick={() =>
+                      handleSendMessage("Show students with pending fees", "/admin/students")
+                    }
                     className="p-3.5 rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 shadow-xs hover:shadow-md hover:border-blue-400 transition cursor-pointer flex flex-col justify-between"
                   >
                     <div>
@@ -1004,14 +1066,22 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
                         &ldquo;Show students with pending fees&rdquo;
                       </p>
                     </div>
-                    <div className="flex justify-end pt-2">
+                    <div className="flex items-center justify-between pt-2">
+                      <span className="text-[10px] text-blue-500 font-semibold">
+                        Opens /students
+                      </span>
                       <ChevronRight className="h-4 w-4 text-slate-400" />
                     </div>
                   </div>
 
                   {/* Card 2: Fee Reports */}
                   <div
-                    onClick={() => handleSendMessage("Generate this month's collection report")}
+                    onClick={() =>
+                      handleSendMessage(
+                        "Generate this month's collection report",
+                        "/admin/fees/student-fees"
+                      )
+                    }
                     className="p-3.5 rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 shadow-xs hover:shadow-md hover:border-emerald-400 transition cursor-pointer flex flex-col justify-between"
                   >
                     <div>
@@ -1025,14 +1095,22 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
                         &ldquo;Generate this month&apos;s collection report&rdquo;
                       </p>
                     </div>
-                    <div className="flex justify-end pt-2">
+                    <div className="flex items-center justify-between pt-2">
+                      <span className="text-[10px] text-emerald-500 font-semibold">
+                        Opens /fees
+                      </span>
                       <ChevronRight className="h-4 w-4 text-slate-400" />
                     </div>
                   </div>
 
                   {/* Card 3: Attendance */}
                   <div
-                    onClick={() => handleSendMessage("Show today's attendance summary")}
+                    onClick={() =>
+                      handleSendMessage(
+                        "Show today's attendance summary",
+                        "/admin/attendance"
+                      )
+                    }
                     className="p-3.5 rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 shadow-xs hover:shadow-md hover:border-purple-400 transition cursor-pointer flex flex-col justify-between"
                   >
                     <div>
@@ -1046,14 +1124,19 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
                         &ldquo;Show today&apos;s attendance summary&rdquo;
                       </p>
                     </div>
-                    <div className="flex justify-end pt-2">
+                    <div className="flex items-center justify-between pt-2">
+                      <span className="text-[10px] text-purple-500 font-semibold">
+                        Opens /attendance
+                      </span>
                       <ChevronRight className="h-4 w-4 text-slate-400" />
                     </div>
                   </div>
 
                   {/* Card 4: Create Timetable */}
                   <div
-                    onClick={() => handleSendMessage("Make a timetable for class 8")}
+                    onClick={() =>
+                      handleSendMessage("Make a timetable for class 8", "/admin/timetable")
+                    }
                     className="p-3.5 rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 shadow-xs hover:shadow-md hover:border-amber-400 transition cursor-pointer flex flex-col justify-between"
                   >
                     <div>
@@ -1067,7 +1150,10 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
                         &ldquo;Make a timetable for class 8&rdquo;
                       </p>
                     </div>
-                    <div className="flex justify-end pt-2">
+                    <div className="flex items-center justify-between pt-2">
+                      <span className="text-[10px] text-amber-500 font-semibold">
+                        Opens /timetable
+                      </span>
                       <ChevronRight className="h-4 w-4 text-slate-400" />
                     </div>
                   </div>
@@ -1102,23 +1188,24 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
                           {renderMessageContent(msg.content)}
 
                           {/* Metric Cards if present */}
-                          {msg.metadata?.metrics && Object.keys(msg.metadata.metrics).length > 0 && (
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-700/60">
-                              {Object.entries(msg.metadata.metrics).map(([label, val]) => (
-                                <div
-                                  key={label}
-                                  className="bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-lg border border-slate-200/60 dark:border-slate-700/60"
-                                >
-                                  <div className="text-[9px] sm:text-[10px] text-slate-400 uppercase font-bold">
-                                    {label}
+                          {msg.metadata?.metrics &&
+                            Object.keys(msg.metadata.metrics).length > 0 && (
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-700/60">
+                                {Object.entries(msg.metadata.metrics).map(([label, val]) => (
+                                  <div
+                                    key={label}
+                                    className="bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-lg border border-slate-200/60 dark:border-slate-700/60"
+                                  >
+                                    <div className="text-[9px] sm:text-[10px] text-slate-400 uppercase font-bold">
+                                      {label}
+                                    </div>
+                                    <div className="text-xs sm:text-sm font-black text-slate-900 dark:text-white mt-0.5">
+                                      {val}
+                                    </div>
                                   </div>
-                                  <div className="text-xs sm:text-sm font-black text-slate-900 dark:text-white mt-0.5">
-                                    {val}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                                ))}
+                              </div>
+                            )}
 
                           {/* Message Footer */}
                           <div className="flex items-center justify-between mt-2 pt-1 text-[10px] sm:text-[11px] text-slate-400">
@@ -1162,7 +1249,7 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
             <div ref={messagesEndRef} />
           </div>
 
-          {/* 2.3 Bottom Floating Input & Suggestion Chips (Screenshot Match) */}
+          {/* Bottom Floating Input & Suggestion Chips */}
           <div className="p-3 sm:p-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 shrink-0 space-y-2.5">
             {/* Attached Files Pill */}
             {attachedFiles.length > 0 && (
@@ -1202,7 +1289,7 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
               className="hidden"
             />
 
-            {/* Input Bar matching screenshot */}
+            {/* Main Input Composer */}
             <div className="relative flex items-center rounded-2xl bg-slate-50 dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700/80 px-3.5 py-2 shadow-xs focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 transition">
               <Sparkles className="h-4 w-4 text-blue-500 shrink-0 mr-2.5" />
               <input
@@ -1215,7 +1302,11 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
                     handleSendMessage();
                   }
                 }}
-                placeholder="Type your question here..."
+                placeholder={
+                  isListening
+                    ? "Listening... Please speak your question"
+                    : "Ask anything about your school..."
+                }
                 disabled={loading}
                 className="w-full bg-transparent text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none"
               />
@@ -1231,10 +1322,15 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
                 </button>
                 <button
                   type="button"
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
-                  title="Voice input"
+                  onClick={handleToggleSpeech}
+                  className={`p-1.5 rounded-lg transition ${
+                    isListening
+                      ? "text-red-500 bg-red-50 dark:bg-red-950 animate-pulse"
+                      : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  }`}
+                  title={isListening ? "Stop listening" : "Voice input"}
                 >
-                  <Mic className="h-4 w-4" />
+                  {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                 </button>
                 <button
                   type="button"
@@ -1251,49 +1347,77 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
               </div>
             </div>
 
-            {/* Quick Chips matching screenshot below input */}
+            {/* Suggestion Chips with Direct Phone Linkages */}
             <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5 text-slate-600 dark:text-slate-300">
               <button
-                onClick={() => handleSendMessage("Show total students count and details")}
+                onClick={() =>
+                  handleSendMessage("Show total students count and details", "/admin/students")
+                }
                 className="inline-flex items-center gap-1 py-1 px-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 text-[11px] font-medium whitespace-nowrap hover:bg-slate-50 transition shrink-0"
               >
                 <span>✨ Show total students</span>
               </button>
               <button
-                onClick={() => handleSendMessage("Generate fee report for current month")}
+                onClick={() =>
+                  handleSendMessage(
+                    "Generate fee report for current month",
+                    "/admin/fees/student-fees"
+                  )
+                }
                 className="inline-flex items-center gap-1 py-1 px-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 text-[11px] font-medium whitespace-nowrap hover:bg-slate-50 transition shrink-0"
               >
                 <span>📄 Generate fee report</span>
               </button>
               <button
-                onClick={() => handleSendMessage("Today's attendance status and absentees")}
+                onClick={() =>
+                  handleSendMessage(
+                    "Today's attendance status and absentees",
+                    "/admin/attendance"
+                  )
+                }
                 className="inline-flex items-center gap-1 py-1 px-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 text-[11px] font-medium whitespace-nowrap hover:bg-slate-50 transition shrink-0"
               >
                 <span>📅 Today&apos;s attendance</span>
               </button>
               <button
-                onClick={() => handleSendMessage("Create exam schedule or check upcoming tests")}
+                onClick={() =>
+                  handleSendMessage(
+                    "Create exam schedule or check upcoming tests",
+                    "/admin/exams"
+                  )
+                }
                 className="inline-flex items-center gap-1 py-1 px-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 text-[11px] font-medium whitespace-nowrap hover:bg-slate-50 transition shrink-0"
               >
                 <span>📋 Create exam</span>
               </button>
               <button
-                onClick={() => handleSendMessage("Show fee defaulters list with pending balances")}
+                onClick={() =>
+                  handleSendMessage(
+                    "Show fee defaulters list with pending balances",
+                    "/admin/fees/defaulters"
+                  )
+                }
                 className="inline-flex items-center gap-1 py-1 px-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 text-[11px] font-medium whitespace-nowrap hover:bg-slate-50 transition shrink-0"
               >
                 <span>⚠️ Show defaulters</span>
               </button>
               <button
-                onClick={() => handleSendMessage("Flipkart mini printer se fee receipt kaise print kare aur setup kare?")}
+                onClick={() =>
+                  handleSendMessage(
+                    "Flipkart mini printer se fee receipt kaise print kare aur setup kare?",
+                    "/admin/fees/receipts"
+                  )
+                }
                 className="inline-flex items-center gap-1 py-1 px-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 text-[11px] font-medium whitespace-nowrap hover:bg-slate-50 transition shrink-0"
               >
-                <span>🖨️ Mini Printer</span>
+                <span>🖨️ Mini Printer Setup</span>
               </button>
             </div>
 
-            {/* Disclaimer Footnote */}
+            {/* Footnote */}
             <p className="text-[10px] text-slate-400 text-center">
-              AI can make mistakes. Please verify important information.
+              AI assistant with NLP engine. Click any blue link or card to navigate the live phone
+              on the left.
             </p>
           </div>
         </div>
