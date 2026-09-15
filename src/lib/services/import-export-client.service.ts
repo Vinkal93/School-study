@@ -14,6 +14,7 @@ import {
   getDocs,
   writeBatch,
   doc,
+  setDoc,
   serverTimestamp,
 } from "firebase/firestore";
 import type { SupportedImportModule, ImportExecutionResult } from "@/types/backup";
@@ -314,67 +315,66 @@ export async function importSchoolDataClient(
     return clean;
   };
 
-  // Process in safe batch chunks of 200 (well within Firestore's 500 writes limit, including dual writes)
-  const BATCH_SIZE = 200;
-  for (let i = 0; i < records.length; i += BATCH_SIZE) {
-    const chunk = records.slice(i, i + BATCH_SIZE);
-    const batch = writeBatch(db);
+  // Process in concurrent pools of 15 using setDoc to avoid Firestore's 10-get batch security rule limit
+  const CONCURRENCY = 15;
+  const errors: string[] = [];
 
-    for (const rec of chunk) {
-      if (rec._hasErrors) {
-        skippedCount++;
-        continue;
-      }
+  for (let i = 0; i < records.length; i += CONCURRENCY) {
+    const chunk = records.slice(i, i + CONCURRENCY);
 
-      const admNo = String(rec.admissionNumber || rec.studentId || "").trim().toLowerCase();
-      const existingId = (admNo && existingMap.get(`adm:${admNo}`)) || (rec.id && existingMap.get(`id:${rec.id}`));
-      const isUpdate = Boolean(existingId || (rec._isDuplicate && rec._existingId));
-      const docId = existingId || rec._existingId || rec.id || doc(collection(db, "schools", schoolId, targetModule)).id;
-
-      const cleanData = sanitizeClientRecord(rec);
-
-      if (targetModule === "students") {
-        cleanData.studentId = cleanData.admissionNumber || cleanData.studentId || docId;
-        if (cleanData.rollNumber !== undefined && cleanData.rollNumber !== "") {
-          cleanData.rollNumber = Number(cleanData.rollNumber) || 0;
+    await Promise.all(
+      chunk.map(async (rec) => {
+        if (rec._hasErrors) {
+          skippedCount++;
+          return;
         }
-        if (cleanData.parentName && !cleanData.guardianName) cleanData.guardianName = cleanData.parentName;
-        if (cleanData.guardianName && !cleanData.parentName) cleanData.parentName = cleanData.guardianName;
-        if (cleanData.parentPhone && !cleanData.guardianPhone) cleanData.guardianPhone = cleanData.parentPhone;
-        if (cleanData.guardianPhone && !cleanData.parentPhone) cleanData.parentPhone = cleanData.guardianPhone;
-        if (cleanData.section && !cleanData.sectionName) cleanData.sectionName = cleanData.section;
-        if (!cleanData.status) cleanData.status = "active";
-        if (!cleanData.admissionDate) cleanData.admissionDate = new Date().toISOString().split("T")[0];
-      }
 
-      const schoolDocRef = doc(db, "schools", schoolId, targetModule, docId);
+        const admNo = String(rec.admissionNumber || rec.studentId || "").trim().toLowerCase();
+        const existingId = (admNo && existingMap.get(`adm:${admNo}`)) || (rec.id && existingMap.get(`id:${rec.id}`));
+        const isUpdate = Boolean(existingId || (rec._isDuplicate && rec._existingId));
+        const docId = existingId || rec._existingId || rec.id || doc(collection(db, "schools", schoolId, targetModule)).id;
 
-      if (isUpdate) {
-        batch.set(schoolDocRef, { ...cleanData, updatedAt: serverTimestamp() }, { merge: true });
+        const cleanData = sanitizeClientRecord(rec);
+
         if (targetModule === "students") {
-          const topStudentRef = doc(db, "students", docId);
-          batch.set(topStudentRef, { ...cleanData, schoolId, updatedAt: serverTimestamp() }, { merge: true });
+          cleanData.studentId = cleanData.admissionNumber || cleanData.studentId || docId;
+          if (cleanData.rollNumber !== undefined && cleanData.rollNumber !== "") {
+            cleanData.rollNumber = Number(cleanData.rollNumber) || 0;
+          }
+          if (cleanData.parentName && !cleanData.guardianName) cleanData.guardianName = cleanData.parentName;
+          if (cleanData.guardianName && !cleanData.parentName) cleanData.parentName = cleanData.guardianName;
+          if (cleanData.parentPhone && !cleanData.guardianPhone) cleanData.guardianPhone = cleanData.parentPhone;
+          if (cleanData.guardianPhone && !cleanData.parentPhone) cleanData.parentPhone = cleanData.guardianPhone;
+          if (cleanData.section && !cleanData.sectionName) cleanData.sectionName = cleanData.section;
+          if (!cleanData.status) cleanData.status = "active";
+          if (!cleanData.admissionDate) cleanData.admissionDate = new Date().toISOString().split("T")[0];
         }
-        updatedCount++;
-      } else {
-        const fullDoc = {
-          id: docId,
-          schoolId,
-          ...cleanData,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        };
-        batch.set(schoolDocRef, fullDoc);
-        if (targetModule === "students") {
-          const topStudentRef = doc(db, "students", docId);
-          batch.set(topStudentRef, fullDoc);
-        }
-        importedCount++;
-        if (admNo) existingMap.set(`adm:${admNo}`, docId);
-      }
-    }
 
-    await batch.commit();
+        const schoolDocRef = doc(db, "schools", schoolId, targetModule, docId);
+
+        try {
+          if (isUpdate) {
+            await setDoc(schoolDocRef, { ...cleanData, updatedAt: serverTimestamp() }, { merge: true });
+            updatedCount++;
+          } else {
+            const fullDoc = {
+              id: docId,
+              schoolId,
+              ...cleanData,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            };
+            await setDoc(schoolDocRef, fullDoc);
+            importedCount++;
+            if (admNo) existingMap.set(`adm:${admNo}`, docId);
+          }
+        } catch (itemErr: any) {
+          console.error(`[Client Import] Item error on record ${docId}:`, itemErr?.message);
+          errors.push(itemErr?.message || "Write error");
+        }
+      })
+    );
+
     if (onProgress) {
       onProgress(Math.min(i + chunk.length, records.length), records.length);
     }
@@ -391,8 +391,9 @@ export async function importSchoolDataClient(
       created: importedCount,
       updated: updatedCount,
       skipped: skippedCount,
-      failed: 0,
+      failed: errors.length,
     },
+    errors: errors.length > 0 ? errors : undefined,
   };
 }
 

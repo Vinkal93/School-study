@@ -163,7 +163,7 @@ test("Sanitization removes undefined values to prevent Firestore driver errors",
 test("importSchoolDataClient is exported from import-export-client.service.ts", () => {
   const clientFile = fs.readFileSync("src/lib/services/import-export-client.service.ts", "utf-8");
   assert(clientFile.includes("export async function importSchoolDataClient"));
-  assert(clientFile.includes("writeBatch(db)"));
+  assert(clientFile.includes("setDoc(schoolDocRef"));
 });
 
 // 7. Route check

@@ -142,6 +142,7 @@ export default function AdminBackupPage() {
   const [importModule, setImportModule] = useState<SupportedImportModule>("students");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isParsing, setIsParsing] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [previewResult, setPreviewResult] = useState<ImportPreviewResult | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [importCompleted, setImportCompleted] = useState<any>(null);
@@ -151,6 +152,51 @@ export default function AdminBackupPage() {
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    setSelectedFile(file);
+    setPreviewResult(null);
+    setImportCompleted(null);
+    await processFilePreview(file, importModule);
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDragging) setIsDragging(true);
+  };
+
+  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    const name = file.name.toLowerCase();
+    if (
+      !name.endsWith(".xlsx") &&
+      !name.endsWith(".xls") &&
+      !name.endsWith(".csv") &&
+      !name.endsWith(".json")
+    ) {
+      toast.error("Please drop an Excel (.xlsx, .xls), CSV (.csv), or JSON (.json) file.");
+      return;
+    }
 
     setSelectedFile(file);
     setPreviewResult(null);
@@ -243,14 +289,23 @@ export default function AdminBackupPage() {
 
       // 2. Client-side fallback if server execution didn't complete (e.g. dev environment without Admin SDK)
       if (!executed) {
+        const effectiveSchoolId =
+          schoolId ||
+          profile?.schoolId ||
+          (typeof window !== "undefined" ? localStorage.getItem("currentSchoolId") || "" : "");
+
+        if (!effectiveSchoolId) {
+          throw new Error("School ID not found. Please re-login to your school account.");
+        }
+
         toast.loading(`Importing ${recordsToExecute.length} records via client pipeline...`, { id: toastId });
         const { importSchoolDataClient } = await import("@/lib/services/import-export-client.service");
         resultData = await importSchoolDataClient(
-          schoolId,
+          effectiveSchoolId,
           importModule,
           recordsToExecute,
           (processed, total) => {
-            toast.loading(`Importing batch: ${processed} of ${total} records...`, { id: toastId });
+            toast.loading(`Importing: ${processed} of ${total} records...`, { id: toastId });
           }
         );
         executed = resultData.success;
@@ -623,7 +678,18 @@ export default function AdminBackupPage() {
           </div>
 
           {/* Drag & Drop Upload Zone */}
-          <div className="p-6 sm:p-8 rounded-2xl bg-white dark:bg-gray-900 border-2 border-dashed border-gray-300 dark:border-gray-700 text-center hover:border-indigo-500 transition">
+          <div
+            onDragOver={handleDragOver}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+            className={`p-6 sm:p-8 rounded-2xl text-center cursor-pointer transition-all duration-200 border-2 border-dashed ${
+              isDragging
+                ? "border-indigo-600 bg-indigo-50/80 dark:bg-indigo-950/60 scale-[1.01] ring-4 ring-indigo-500/20 shadow-xl"
+                : "border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-indigo-500 hover:bg-gray-50/40 dark:hover:bg-gray-800/40"
+            }`}
+          >
             <input
               ref={fileInputRef}
               type="file"
@@ -632,27 +698,33 @@ export default function AdminBackupPage() {
               className="hidden"
             />
 
-            <div className="max-w-md mx-auto space-y-3">
-              <div className="h-12 w-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950 text-indigo-600 mx-auto flex items-center justify-center">
-                <Upload className="h-6 w-6" />
+            <div className="max-w-md mx-auto space-y-3 pointer-events-none">
+              <div
+                className={`h-14 w-14 rounded-2xl mx-auto flex items-center justify-center transition-all ${
+                  isDragging
+                    ? "bg-indigo-600 text-white scale-110 shadow-md shadow-indigo-600/30 animate-bounce"
+                    : "bg-indigo-50 dark:bg-indigo-950 text-indigo-600"
+                }`}
+              >
+                <Upload className="h-7 w-7" />
               </div>
               <div>
-                <h4 className="text-sm font-bold text-gray-900 dark:text-white">
-                  Upload file for {importModule}
+                <h4 className="text-sm sm:text-base font-bold text-gray-900 dark:text-white">
+                  {isDragging
+                    ? "Drop your spreadsheet file here!"
+                    : `Upload or Drag & Drop file for ${importModule}`}
                 </h4>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Supports Excel (.xlsx, .xls), Comma-Separated (.csv), or JSON (.json) files
+                  Drag & drop Excel (.xlsx, .xls), CSV (.csv), or JSON (.json) here, or click to browse
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isParsing}
-                className="py-2 px-5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition"
-              >
-                {isParsing ? "Reading & Analyzing File..." : "Browse File on Device"}
-              </button>
+              <div className="pt-1 flex items-center justify-center gap-2">
+                <span className="py-2 px-5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition inline-flex items-center gap-1.5">
+                  <Upload className="h-3.5 w-3.5" />
+                  {isParsing ? "Reading & Analyzing File..." : "Browse File on Device"}
+                </span>
+              </div>
 
               {selectedFile && (
                 <div className="pt-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 flex items-center justify-center gap-1.5">
