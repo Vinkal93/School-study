@@ -51,12 +51,46 @@ export async function POST(req: NextRequest) {
     }
 
     // 4. Parse request payload
-    const body = await req.json().catch(() => ({}));
-    const userPrompt = (body.prompt || body.message || "").trim();
+    let body: any = {};
+    try {
+      const contentType = req.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        body = await req.json();
+      } else {
+        const raw = await req.text();
+        try {
+          body = JSON.parse(raw);
+        } catch {
+          body = { prompt: raw };
+        }
+      }
+    } catch (parseErr) {
+      console.warn("[API: AI Chat] Error parsing request body:", parseErr);
+      body = {};
+    }
+
+    const userPrompt = (
+      body.prompt ||
+      body.message ||
+      body.query ||
+      body.question ||
+      body.text ||
+      body.input ||
+      body.content ||
+      ""
+    ).trim();
+
     let conversationId = body.conversationId;
 
     if (!userPrompt) {
-      return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
+      console.warn("[API: AI Chat] 400 Bad Request: Prompt is empty. Received body keys:", Object.keys(body));
+      return NextResponse.json(
+        {
+          error: "Prompt is required. Please provide a prompt or message.",
+          receivedKeys: Object.keys(body),
+        },
+        { status: 400 }
+      );
     }
 
     const now = new Date().toISOString();

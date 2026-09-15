@@ -51,6 +51,7 @@ import {
 } from "lucide-react";
 import { AiConversationList } from "./AiConversationList";
 import type { AiPortalType, AiMessage, AiConversation } from "@/types/ai";
+import { useAuth } from "@/hooks/use-auth";
 
 // Prompt Kit components
 import { ThinkingBar } from "@/components/prompt-kit/thinking-bar";
@@ -271,6 +272,7 @@ export interface AiWorkspaceProps {
 }
 
 export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) {
+  const { firebaseUser } = useAuth();
   const [messages, setMessages] = useState<AiMessage[]>([]);
   const [inputPrompt, setInputPrompt] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
@@ -314,11 +316,23 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
 
   useEffect(() => {
     fetchConversations();
-  }, [portal]);
+  }, [portal, firebaseUser]);
+
+  const getAuthHeaders = async (): Promise<Record<string, string>> => {
+    const headers: Record<string, string> = {};
+    try {
+      const token = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+    } catch {}
+    return headers;
+  };
 
   const fetchConversations = async () => {
     try {
-      const res = await fetch("/api/ai/conversations");
+      const authHeaders = await getAuthHeaders();
+      const res = await fetch("/api/ai/conversations", { headers: authHeaders });
       if (res.ok) {
         const data = await res.json();
         setConversations(data.conversations || []);
@@ -329,7 +343,8 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
   const loadConversation = async (id: string) => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/ai/conversations/${id}`);
+      const authHeaders = await getAuthHeaders();
+      const res = await fetch(`/api/ai/conversations/${id}`, { headers: authHeaders });
       if (res.ok) {
         const data = await res.json();
         setConversationId(data.conversation.id);
@@ -343,7 +358,11 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
 
   const deleteConversation = async (id: string) => {
     try {
-      const res = await fetch(`/api/ai/conversations/${id}`, { method: "DELETE" });
+      const authHeaders = await getAuthHeaders();
+      const res = await fetch(`/api/ai/conversations/${id}`, {
+        method: "DELETE",
+        headers: authHeaders,
+      });
       if (res.ok) {
         setConversations((prev) => prev.filter((c) => c.id !== id));
         if (conversationId === id) {
@@ -402,12 +421,18 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
     });
 
     try {
+      const authHeaders = await getAuthHeaders();
       const response = await fetch("/api/ai/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
         body: JSON.stringify({
           prompt: text,
           message: text,
+          query: text,
+          question: text,
           conversationId,
           portal,
         }),
