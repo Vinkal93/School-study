@@ -527,6 +527,7 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          prompt: text,
           message: text,
           conversationId,
           portal,
@@ -534,7 +535,8 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
       });
 
       if (!response.ok) {
-        throw new Error("Chat request failed");
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Request failed with status ${response.status}`);
       }
 
       const data = await response.json();
@@ -547,12 +549,12 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
       });
 
       const assistantMessage: AiMessage = {
-        id: data.messageId || `msg_${Date.now()}_assistant`,
+        id: data.assistantMessage?.id || data.messageId || `msg_${Date.now()}_assistant`,
         conversationId: data.conversationId || conversationId || "active",
         role: "assistant",
-        content: data.message,
+        content: data.assistantMessage?.content || data.message || "",
         createdAt: new Date().toISOString(),
-        metadata: data.metadata,
+        metadata: data.assistantMessage?.metadata || data.metadata,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);

@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
 
     // 4. Parse request payload
     const body = await req.json().catch(() => ({}));
-    const userPrompt = (body.prompt || "").trim();
+    const userPrompt = (body.prompt || body.message || "").trim();
     let conversationId = body.conversationId;
 
     if (!userPrompt) {
@@ -205,6 +205,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       conversationId,
+      message: assistantMsg.content,
+      messageId: assistantMsgId,
+      metadata: assistantMsg.metadata,
       userMessage: { id: userMsgId, ...userMsg },
       assistantMessage: { id: assistantMsgId, ...assistantMsg },
     });
