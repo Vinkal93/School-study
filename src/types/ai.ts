@@ -137,6 +137,8 @@ export interface FeatureShowcase {
   targetPlans: string[]; // ["ALL"] or specific plan IDs
   targetPortals: AiPortalType[];
   frequency: ShowcaseFrequency;
+  maxImpressions?: number; // Maximum times to show per user (e.g. 1, 2, 3)
+  enabled?: boolean;
   status: "DRAFT" | "PUBLISHED" | "PAUSED" | "ARCHIVED";
   startDate?: string;
   endDate?: string;

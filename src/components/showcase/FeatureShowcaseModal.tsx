@@ -10,12 +10,44 @@ export function FeatureShowcaseModal() {
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
+    // Suppress popups inside embedded iframes (e.g. AI phone preview)
+    if (typeof window !== "undefined" && window.self !== window.top) {
+      return;
+    }
+
     fetch("/api/feature-showcase/active?context=dashboard")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data?.activeShowcase) {
-          setShowcase(data.activeShowcase);
-          setIsOpen(true);
+        const item: FeatureShowcase | undefined = data?.activeShowcase;
+        if (!item) return;
+
+        // 1. Check if disabled or paused
+        if (item.enabled === false || item.status === "PAUSED" || item.status === "ARCHIVED") {
+          return;
+        }
+
+        // 2. Check local dismissal state
+        const dismissKey = `feature_showcase_dismissed_${item.id}_${item.version || "1.0"}`;
+        if (typeof window !== "undefined" && localStorage.getItem(dismissKey) === "true") {
+          return;
+        }
+
+        // 3. Check impression count against maxImpressions / frequency
+        const impressionKey = `feature_showcase_impressions_${item.id}_${item.version || "1.0"}`;
+        const currentImpressions = typeof window !== "undefined"
+          ? parseInt(localStorage.getItem(impressionKey) || "0", 10)
+          : 0;
+
+        const maxAllowed = item.maxImpressions ?? (item.frequency === "ONCE" ? 1 : 3);
+        if (currentImpressions >= maxAllowed) {
+          return;
+        }
+
+        // Show modal and increment impression count
+        setShowcase(item);
+        setIsOpen(true);
+        if (typeof window !== "undefined") {
+          localStorage.setItem(impressionKey, String(currentImpressions + 1));
         }
       })
       .catch(() => {});
@@ -24,6 +56,10 @@ export function FeatureShowcaseModal() {
   const handleDismiss = async () => {
     if (!showcase) return;
     setIsOpen(false);
+    if (typeof window !== "undefined") {
+      const dismissKey = `feature_showcase_dismissed_${showcase.id}_${showcase.version || "1.0"}`;
+      localStorage.setItem(dismissKey, "true");
+    }
     try {
       await fetch("/api/feature-showcase/active", {
         method: "POST",
@@ -41,6 +77,10 @@ export function FeatureShowcaseModal() {
   const handleClickCta = async () => {
     if (!showcase) return;
     setIsOpen(false);
+    if (typeof window !== "undefined") {
+      const dismissKey = `feature_showcase_dismissed_${showcase.id}_${showcase.version || "1.0"}`;
+      localStorage.setItem(dismissKey, "true");
+    }
     try {
       await fetch("/api/feature-showcase/active", {
         method: "POST",

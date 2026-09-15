@@ -100,37 +100,71 @@ export default function SuperAdminAiPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800 p-1.5 rounded-xl text-xs font-semibold">
-          <button
-            onClick={() => setActiveTab("workspace")}
-            className={`py-1.5 px-3.5 rounded-lg transition ${
-              activeTab === "workspace"
-                ? "bg-white dark:bg-gray-900 text-purple-600 dark:text-purple-400 shadow-xs"
-                : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
-            }`}
-          >
-            Assistant Workspace
-          </button>
-          <button
-            onClick={() => setActiveTab("settings")}
-            className={`py-1.5 px-3.5 rounded-lg transition ${
-              activeTab === "settings"
-                ? "bg-white dark:bg-gray-900 text-purple-600 dark:text-purple-400 shadow-xs"
-                : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
-            }`}
-          >
-            Access Control
-          </button>
-          <button
-            onClick={() => setActiveTab("analytics")}
-            className={`py-1.5 px-3.5 rounded-lg transition ${
-              activeTab === "analytics"
-                ? "bg-white dark:bg-gray-900 text-purple-600 dark:text-purple-400 shadow-xs"
-                : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
-            }`}
-          >
-            Usage Analytics
-          </button>
+        <div className="flex items-center gap-3">
+          {/* Quick 1-Click Global AI Feature Master Toggle */}
+          {settings && (
+            <div className="flex items-center gap-2.5 px-3 py-1 rounded-xl border border-purple-200 dark:border-purple-800/60 bg-purple-50/70 dark:bg-purple-950/40">
+              <span className="text-xs font-bold text-purple-900 dark:text-purple-200 hidden sm:inline">
+                Global AI Feature:
+              </span>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={async () => {
+                  const nextState = !settings.enabledGlobally;
+                  const updated = { ...settings, enabledGlobally: nextState };
+                  setSettings(updated);
+                  try {
+                    await fetch("/api/super-admin/ai/settings", {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(updated),
+                    });
+                  } catch {}
+                }}
+                className={`px-3 py-1 rounded-lg text-xs font-black transition cursor-pointer shadow-xs ${
+                  settings.enabledGlobally
+                    ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                    : "bg-rose-600 hover:bg-rose-700 text-white"
+                }`}
+              >
+                {settings.enabledGlobally ? "ENABLED (ON)" : "DISABLED (OFF)"}
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800 p-1.5 rounded-xl text-xs font-semibold">
+            <button
+              onClick={() => setActiveTab("workspace")}
+              className={`py-1.5 px-3.5 rounded-lg transition ${
+                activeTab === "workspace"
+                  ? "bg-white dark:bg-gray-900 text-purple-600 dark:text-purple-400 shadow-xs"
+                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
+              }`}
+            >
+              Assistant Workspace
+            </button>
+            <button
+              onClick={() => setActiveTab("settings")}
+              className={`py-1.5 px-3.5 rounded-lg transition ${
+                activeTab === "settings"
+                  ? "bg-white dark:bg-gray-900 text-purple-600 dark:text-purple-400 shadow-xs"
+                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
+              }`}
+            >
+              Access Control
+            </button>
+            <button
+              onClick={() => setActiveTab("analytics")}
+              className={`py-1.5 px-3.5 rounded-lg transition ${
+                activeTab === "analytics"
+                  ? "bg-white dark:bg-gray-900 text-purple-600 dark:text-purple-400 shadow-xs"
+                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
+              }`}
+            >
+              Usage Analytics
+            </button>
+          </div>
         </div>
       </div>
 

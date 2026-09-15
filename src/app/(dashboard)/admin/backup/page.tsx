@@ -71,8 +71,30 @@ export default function AdminBackupPage() {
     try {
       let downloaded = false;
 
-      // 1. Try server-side export first with Bearer token
+      // 1. Direct client-side export (Immediate, uses active browser authentication, zero 500 errors)
       try {
+        const { exportSchoolDataClient } = await import("@/lib/services/import-export-client.service");
+        const { blob, filename } = await exportSchoolDataClient(schoolId, mod, fmt, {
+          classId: exportClassId || undefined,
+        });
+
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = downloadUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(downloadUrl);
+
+        toast.success(`Successfully downloaded ${filename}!`);
+        downloaded = true;
+      } catch (clientErr) {
+        console.warn("Notice: Client export issue, falling back to server API:", clientErr);
+      }
+
+      // 2. Server-side API export fallback
+      if (!downloaded) {
         const token = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
         const url = `/api/admin/backup/export?module=${mod}&format=${fmt}${
           mod === "students" && exportClassId ? `&classId=${exportClassId}` : ""
@@ -101,29 +123,10 @@ export default function AdminBackupPage() {
           window.URL.revokeObjectURL(downloadUrl);
 
           toast.success(`Successfully downloaded ${filename}!`);
-          downloaded = true;
+        } else {
+          const errJson = await res.json().catch(() => ({}));
+          throw new Error(errJson.error || `Server export failed with status ${res.status}`);
         }
-      } catch (srvErr) {
-        console.warn("Notice: Server export unready, falling back to direct browser export:", srvErr);
-      }
-
-      // 2. Direct client-side export fallback (100% resilient with active browser auth)
-      if (!downloaded) {
-        const { exportSchoolDataClient } = await import("@/lib/services/import-export.service");
-        const { blob, filename } = await exportSchoolDataClient(schoolId, mod, fmt, {
-          classId: exportClassId || undefined,
-        });
-
-        const downloadUrl = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = downloadUrl;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.URL.revokeObjectURL(downloadUrl);
-
-        toast.success(`Successfully downloaded ${filename}!`);
       }
     } catch (err: any) {
       console.error("Export error:", err);

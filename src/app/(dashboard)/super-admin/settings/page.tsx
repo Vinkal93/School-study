@@ -29,6 +29,7 @@ import {
   Layers,
   Sparkles,
   Video,
+  ChevronRight,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { updateSuperAdminPin } from "@/lib/services/security-pin.service";
@@ -63,12 +64,18 @@ export default function PlatformSettingsPage() {
     | "systemDefaults"
     | "developer"
     | "securityPin"
+    | "ai"
   >("general");
 
   // Platform Settings State
   const [settings, setSettings] = useState<PlatformSettingsDoc>(DEFAULT_PLATFORM_SETTINGS);
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
+
+  // AI & Showcase Settings State
+  const [aiSettings, setAiSettings] = useState<any>(null);
+  const [showcases, setShowcases] = useState<any[]>([]);
+  const [savingAi, setSavingAi] = useState(false);
 
   // Security PIN State
   const [currentPin, setCurrentPin] = useState("");
@@ -100,14 +107,24 @@ export default function PlatformSettingsPage() {
   useEffect(() => {
     async function loadAllSettings() {
       try {
-        const [settingsRes, policyRes, rzpRes] = await Promise.all([
+        const [settingsRes, policyRes, rzpRes, aiRes, scRes] = await Promise.all([
           fetch("/api/super-admin/settings").then((r) => (r.ok ? r.json() : null)),
           getGlobalAccessPolicy().catch(() => null),
           fetch("/api/super-admin/payment-settings").then((r) => (r.ok ? r.json() : null)),
+          fetch("/api/super-admin/ai/settings").then((r) => (r.ok ? r.json() : null)),
+          fetch("/api/super-admin/feature-showcase").then((r) => (r.ok ? r.json() : null)),
         ]);
 
         if (settingsRes && settingsRes.settings) {
           setSettings(settingsRes.settings);
+        }
+
+        if (aiRes && aiRes.settings) {
+          setAiSettings(aiRes.settings);
+        }
+
+        if (scRes && scRes.showcases) {
+          setShowcases(scRes.showcases);
         }
 
         if (policyRes) {
@@ -284,6 +301,7 @@ export default function PlatformSettingsPage() {
       <div className="flex flex-wrap gap-1.5 p-1.5 bg-gray-100/60 dark:bg-gray-900/40 rounded-xl border border-gray-200/50 dark:border-gray-800/50 text-xs font-medium">
         {[
           { id: "general", label: "General", icon: Globe },
+          { id: "ai", label: "AI & Updates", icon: Sparkles },
           { id: "security", label: "Security & Passwords", icon: Shield },
           { id: "auth", label: "Authentication", icon: Lock },
           { id: "sessions", label: "Sessions", icon: Clock },
@@ -1239,6 +1257,286 @@ export default function PlatformSettingsPage() {
               {savingPin ? "Updating PIN..." : "Update Security PIN"}
             </button>
           </form>
+        </div>
+      )}
+
+      {/* Tab 14: AI Platform Intelligence & Update Popups */}
+      {activeTab === "ai" && (
+        <div className="space-y-6">
+          {/* Card 1: AI Platform Master Controls */}
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 space-y-6 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-gray-100 dark:border-gray-800">
+              <div>
+                <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                  Global AI Mode & Assistant Controls
+                </h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Platform-wide switch to activate or deactivate AI features for all schools and portals.
+                </p>
+              </div>
+
+              {aiSettings && (
+                <button
+                  type="button"
+                  disabled={savingAi}
+                  onClick={async () => {
+                    const nextState = !aiSettings.enabledGlobally;
+                    const updated = { ...aiSettings, enabledGlobally: nextState };
+                    setAiSettings(updated);
+                    setSavingAi(true);
+                    try {
+                      const res = await fetch("/api/super-admin/ai/settings", {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(updated),
+                      });
+                      if (res.ok) {
+                        toast.success(`Global AI Feature ${nextState ? "ENABLED (ON)" : "DISABLED (OFF)"} successfully!`);
+                      } else {
+                        toast.error("Failed to update AI settings");
+                      }
+                    } catch {
+                      toast.error("Network error updating AI switch");
+                    } finally {
+                      setSavingAi(false);
+                    }
+                  }}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-sm cursor-pointer ${
+                    aiSettings.enabledGlobally
+                      ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                      : "bg-rose-600 hover:bg-rose-700 text-white"
+                  }`}
+                >
+                  {aiSettings.enabledGlobally ? "GLOBAL AI: ACTIVE (ON)" : "GLOBAL AI: DISABLED (OFF)"}
+                </button>
+              )}
+            </div>
+
+            {aiSettings ? (
+              <div className="space-y-4 text-sm">
+                <div className="p-4 rounded-xl bg-purple-50/50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/40 flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-gray-900 dark:text-white text-xs">
+                      Master AI Feature Status
+                    </h3>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                      {aiSettings.enabledGlobally
+                        ? "AI Assistant, NLP queries, and smart attendance/fee summaries are accessible according to portal permissions."
+                        : "AI Assistant is suspended platform-wide across all user accounts immediately."}
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(aiSettings.enabledGlobally)}
+                      onChange={(e) =>
+                        setAiSettings({ ...aiSettings, enabledGlobally: e.target.checked })
+                      }
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                  </label>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                    Portal Access Permissions
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                    {[
+                      { key: "school_admin", label: "School Admin" },
+                      { key: "teacher", label: "Teachers & Faculty" },
+                      { key: "student", label: "Students" },
+                      { key: "parent", label: "Parents" },
+                      { key: "accountant", label: "Accountants" },
+                      { key: "super_admin", label: "Super Admin" },
+                    ].map(({ key, label }) => {
+                      const isAllowed = aiSettings.portalAccess?.[key] ?? true;
+                      return (
+                        <div
+                          key={key}
+                          onClick={() =>
+                            setAiSettings({
+                              ...aiSettings,
+                              portalAccess: {
+                                ...aiSettings.portalAccess,
+                                [key]: !isAllowed,
+                              },
+                            })
+                          }
+                          className={`p-3 rounded-xl border cursor-pointer transition flex items-center justify-between ${
+                            isAllowed
+                              ? "border-purple-200 dark:border-purple-800 bg-purple-50/40 dark:bg-purple-950/20"
+                              : "border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/40 opacity-60"
+                          }`}
+                        >
+                          <span className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                            {label}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              isAllowed
+                                ? "bg-purple-100 text-purple-700 dark:bg-purple-900/60 dark:text-purple-300"
+                                : "bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
+                            }`}
+                          >
+                            {isAllowed ? "Allowed" : "Blocked"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-3">
+                  <button
+                    type="button"
+                    disabled={savingAi}
+                    onClick={async () => {
+                      setSavingAi(true);
+                      try {
+                        const res = await fetch("/api/super-admin/ai/settings", {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify(aiSettings),
+                        });
+                        if (res.ok) {
+                          toast.success("AI platform settings saved successfully!");
+                        } else {
+                          toast.error("Failed to save settings");
+                        }
+                      } catch {
+                        toast.error("Network error saving AI settings");
+                      } finally {
+                        setSavingAi(false);
+                      }
+                    }}
+                    className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition shadow-xs"
+                  >
+                    {savingAi ? "Saving..." : "Save AI Permissions"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="text-xs text-gray-400 py-4 text-center">Loading AI settings...</div>
+            )}
+          </div>
+
+          {/* Card 2: New Update / Feature Spotlight Popup Controls */}
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 space-y-6 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-gray-100 dark:border-gray-800">
+              <div>
+                <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  <Bell className="w-5 h-5 text-amber-500" />
+                  New Update Announcement & Feature Spotlight Popup
+                </h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Control whether the popup dialog appears on user login/dashboard, and how many times it displays.
+                </p>
+              </div>
+
+              <a
+                href="/super-admin/showcase"
+                className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+              >
+                <span>Manage Announcements</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </a>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/30 space-y-2">
+                <h4 className="font-bold text-gray-900 dark:text-white text-xs flex items-center justify-between">
+                  <span>Popup Master State</span>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      showcases.some((s) => s.status === "PUBLISHED")
+                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
+                        : "bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
+                    }`}
+                  >
+                    {showcases.some((s) => s.status === "PUBLISHED") ? "ENABLED (ON)" : "PAUSED (OFF)"}
+                  </span>
+                </h4>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                  Toggle all spotlight update modals across the platform on or off in one click.
+                </p>
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const allPublished = showcases.some((s) => s.status === "PUBLISHED");
+                      const targetStatus = allPublished ? "PAUSED" : "PUBLISHED";
+                      try {
+                        for (const s of showcases) {
+                          await fetch("/api/super-admin/feature-showcase", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ ...s, status: targetStatus }),
+                          });
+                        }
+                        const res = await fetch("/api/super-admin/feature-showcase");
+                        if (res.ok) {
+                          const data = await res.json();
+                          setShowcases(data.showcases || []);
+                        }
+                        toast.success(
+                          targetStatus === "PAUSED"
+                            ? "All update popups paused (turned off)!"
+                            : "Update popups published (active)!"
+                        );
+                      } catch {
+                        toast.error("Failed to toggle update popup state");
+                      }
+                    }}
+                    className={`w-full py-2 rounded-lg text-xs font-bold text-white transition shadow-xs ${
+                      showcases.some((s) => s.status === "PUBLISHED")
+                        ? "bg-amber-600 hover:bg-amber-700"
+                        : "bg-emerald-600 hover:bg-emerald-700"
+                    }`}
+                  >
+                    {showcases.some((s) => s.status === "PUBLISHED")
+                      ? "Turn All Popups OFF"
+                      : "Turn Update Popups ON"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/30 space-y-2">
+                <h4 className="font-bold text-gray-900 dark:text-white text-xs">
+                  Frequency & Max Impressions
+                </h4>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                  Set how many times a user sees the announcement popup before it auto-dismisses forever.
+                </p>
+                <select
+                  defaultValue="1"
+                  onChange={async (e) => {
+                    const maxVal = parseInt(e.target.value, 10);
+                    try {
+                      for (const s of showcases) {
+                        await fetch("/api/super-admin/feature-showcase", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ ...s, maxImpressions: maxVal, frequency: maxVal === 1 ? "ONCE" : "UNTIL_DISMISSED" }),
+                        });
+                      }
+                      toast.success(`Max impressions set to ${maxVal} time(s) per user!`);
+                    } catch {
+                      toast.error("Failed to update impressions limit");
+                    }
+                  }}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 font-medium text-gray-800 dark:text-gray-200 mt-2"
+                >
+                  <option value="1">Show 1 Time Only (Once per user) — Recommended</option>
+                  <option value="2">Show Max 2 Times per user</option>
+                  <option value="3">Show Max 3 Times per user</option>
+                  <option value="5">Show Max 5 Times per user</option>
+                </select>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

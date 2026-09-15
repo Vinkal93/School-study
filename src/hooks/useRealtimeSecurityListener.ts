@@ -24,6 +24,11 @@ export function useRealtimeSecurityListener() {
       return;
     }
 
+    // Super Admins manage the entire security architecture and must never be auto-terminated
+    if (profile?.role === "super_admin") {
+      return;
+    }
+
     if (!userId) return;
     const db = getFirebaseDb();
     if (!db) return;
@@ -156,7 +161,7 @@ export function useRealtimeSecurityListener() {
           const loginTime = storedLoginTime ? parseInt(storedLoginTime, 10) : mountTimeRef.current;
           const updateTime = data.updatedAt ? new Date(data.updatedAt).getTime() : 0;
 
-          if (data.forceReLogin === true && updateTime >= loginTime) {
+          if (data.forceReLogin === true && updateTime >= loginTime && loginTime > 0 && updateTime > 0) {
             console.warn("[RealtimeSecurity] Global forceReLogin active. Logging out...");
             toast.error("System security update initiated. All sessions reset. Please log in again.");
             const auth = getFirebaseAuth();
@@ -172,8 +177,11 @@ export function useRealtimeSecurityListener() {
           }
 
           if (initialGlobalVersionRef.current === null) {
-            initialGlobalVersionRef.current = data.globalSecurityVersion || 1;
-          } else if (
+            initialGlobalVersionRef.current = typeof data.globalSecurityVersion === "number" ? data.globalSecurityVersion : 1;
+            return; // Never trigger on initial load or mount
+          }
+          
+          if (
             typeof data.globalSecurityVersion === "number" &&
             data.globalSecurityVersion > initialGlobalVersionRef.current
           ) {
@@ -200,7 +208,7 @@ export function useRealtimeSecurityListener() {
 
     // 3. Listen to School Emergency Controls document
     let unsubSchool: (() => void) | undefined;
-    if (profile?.schoolId && profile?.role !== "super_admin") {
+    if (profile?.schoolId) {
       unsubSchool = onSnapshot(
         doc(db, "schoolEmergency", profile.schoolId),
         (snapshot) => {

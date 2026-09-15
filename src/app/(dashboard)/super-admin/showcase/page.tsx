@@ -96,6 +96,52 @@ export default function SuperAdminShowcasePage() {
         </button>
       </div>
 
+      {/* Master Popup Controller Banner */}
+      <div className="p-5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-purple-500/10 to-indigo-500/10 border border-amber-200/80 dark:border-amber-800/40 flex flex-wrap items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            <span className="font-bold text-sm text-gray-900 dark:text-white">
+              Platform New Update / Spotlight Popups
+            </span>
+          </div>
+          <p className="text-xs text-gray-600 dark:text-gray-400">
+            Control whether users see the update announcement modal and configure how many times it displays before auto-dismissing.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={async () => {
+              const allPublished = showcases.some((s) => s.status === "PUBLISHED");
+              const targetStatus = allPublished ? "PAUSED" : "PUBLISHED";
+              setSaving(true);
+              try {
+                for (const s of showcases) {
+                  await fetch("/api/super-admin/feature-showcase", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ ...s, status: targetStatus }),
+                  });
+                }
+                await fetchShowcases();
+              } finally {
+                setSaving(false);
+              }
+            }}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer ${
+              showcases.some((s) => s.status === "PUBLISHED")
+                ? "bg-amber-600 hover:bg-amber-700 text-white"
+                : "bg-emerald-600 hover:bg-emerald-700 text-white"
+            }`}
+          >
+            {showcases.some((s) => s.status === "PUBLISHED")
+              ? "Pause All Update Popups (OFF)"
+              : "Enable Update Popups (ON)"}
+          </button>
+        </div>
+      </div>
+
       {/* Showcases Table */}
       <div className="p-6 rounded-2xl bg-white dark:bg-gray-900 border border-gray-200/80 dark:border-gray-800 shadow-xs">
         <h3 className="text-base font-bold text-gray-900 dark:text-white mb-4">
@@ -288,6 +334,50 @@ export default function SuperAdminShowcasePage() {
                     }
                     className="w-full px-3 py-2 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                    Max Impressions (How many times to show)
+                  </label>
+                  <select
+                    value={editingShowcase.maxImpressions ?? (editingShowcase.frequency === "ONCE" ? 1 : 1)}
+                    onChange={(e) =>
+                      setEditingShowcase({
+                        ...editingShowcase,
+                        maxImpressions: parseInt(e.target.value, 10),
+                      })
+                    }
+                    className="w-full px-3 py-2 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 font-medium"
+                  >
+                    <option value={1}>1 Time Only (Recommended)</option>
+                    <option value={2}>Max 2 Times per User</option>
+                    <option value={3}>Max 3 Times per User</option>
+                    <option value={5}>Max 5 Times per User</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                    Popup Status
+                  </label>
+                  <select
+                    value={editingShowcase.status}
+                    onChange={(e) =>
+                      setEditingShowcase({
+                        ...editingShowcase,
+                        status: e.target.value as any,
+                      })
+                    }
+                    className="w-full px-3 py-2 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 font-medium"
+                  >
+                    <option value="PUBLISHED">PUBLISHED (Active / Visible)</option>
+                    <option value="PAUSED">PAUSED (Turned Off)</option>
+                    <option value="DRAFT">DRAFT (Hidden)</option>
+                    <option value="ARCHIVED">ARCHIVED (Deleted)</option>
+                  </select>
                 </div>
               </div>
 
