@@ -1,88 +1,195 @@
+import natural from "natural";
 import nlp from "compromise";
 import type { AiPortalType } from "@/types/ai";
 
+export type NlpIntent =
+  | "fees_defaulters"
+  | "fees_collection"
+  | "fees_how_to_collect"
+  | "receipt_printer"
+  | "attendance_summary"
+  | "attendance_low"
+  | "attendance_how_to_mark"
+  | "students_roster"
+  | "students_how_to_add"
+  | "teachers_roster"
+  | "timetable_schedule"
+  | "exams_results"
+  | "notices_circular"
+  | "backup_sheets"
+  | "greeting_help"
+  | "general_summary";
+
 export interface NlpAnalysisResult {
-  intent:
-    | "fees"
-    | "attendance"
-    | "students"
-    | "teachers"
-    | "homework"
-    | "exams"
-    | "timetable"
-    | "notices"
-    | "summary"
-    | "comparison"
-    | "greeting"
-    | "general";
-  isDefaulterQuery: boolean;
-  isLowAttendanceQuery: boolean;
-  isComparisonQuery: boolean;
+  intent: NlpIntent;
+  isHinglish: boolean;
   targetClass?: string;
   extractedKeywords: string[];
+  confidence: number;
 }
 
+const tokenizer = new natural.WordTokenizer();
+
+/**
+ * Detects whether the user is typing in Hindi / Hinglish (Latin transliterated Hindi).
+ */
+export function detectIsHinglish(text: string): boolean {
+  const lower = text.toLowerCase();
+  const hinglishMarkers = [
+    /\b(hai|hain|kya|kaise|kitna|kitne|kitni|kiska|kisko|kon|kaun|bache|bacho|bachhe|vidyarthi|chhatra)\b/,
+    /\b(paisa|paise|baki|baaki|jama|kist|chhoot|rasid|haziri|upsthiti|aaj|kal|chhutti|pariksha|shikshak)\b/,
+    /\b(karo|batao|dikhao|bhejo|bolo|karna|lena|dena|chahiye|raha|rahe|karein|kare|hoga|hogi)\b/,
+    /\b(namaste|pranam|shukriya|dhanyawad|haal|theek|sahi|acche|achha)\b/,
+    /\b(nahi|mat|bhi|aur|lekin|par|se|ko|ka|ki|ke|me|mein|pe)\b/,
+  ];
+
+  return hinglishMarkers.some((pattern) => pattern.test(lower));
+}
+
+/**
+ * Intelligent Multi-Lingual Intent & Entity Analyzer.
+ * Combines natural tokenization/stemming with compromise and custom school NLP dictionaries.
+ */
 export function analyzePromptNlp(userPrompt: string): NlpAnalysisResult {
-  const doc = nlp(userPrompt.toLowerCase().trim());
+  const cleanPrompt = userPrompt.trim();
+  const lower = cleanPrompt.toLowerCase();
+  const isHinglish = detectIsHinglish(cleanPrompt);
 
-  const hasFees =
-    doc.has("(fee|fees|dues|payment|payments|paid|pending|balance|collect|collection|defaulter|defaulters|money|rupees|rs|cost|invoice)");
-  const hasAttendance =
-    doc.has("(attendance|present|absent|leave|leaves|percentage|bunk|attend|presence)");
-  const hasStudents =
-    doc.has("(student|students|admission|admissions|enrolled|classmate|children|kids|learners)");
-  const hasTeachers =
-    doc.has("(teacher|teachers|faculty|staff|sir|madam|educator|instructor)");
-  const hasHomework =
-    doc.has("(homework|assignment|assignments|task|tasks|study|notes|project|submission)");
-  const hasExams =
-    doc.has("(exam|exams|examination|test|tests|marks|result|results|grade|grades|score|scores|report card|unit test)");
-  const hasTimetable =
-    doc.has("(timetable|schedule|period|periods|routine|bell|bells|timing|timings)");
-  const hasNotices =
-    doc.has("(notice|notices|circular|circulars|announcement|announcements|news|event|events)");
-  const hasSummary =
-    doc.has("(summary|overview|dashboard|report|status|kya chal raha|update|stats|statistics|all)");
-  const hasGreeting =
-    doc.has("(hi|hello|hey|namaste|good morning|good afternoon|good evening|who are you|kya haal hai)");
+  const tokens = tokenizer.tokenize(lower) || [];
 
-  const isDefaulterQuery = doc.has("(defaulter|defaulters|unpaid|dues|pending fee|arrears|baki)");
-  const isLowAttendanceQuery = doc.has("(low attendance|kam attendance|shortage|below|under 75|absentee|absentees)");
-  const isComparisonQuery = doc.has("(compare|comparison|highest|lowest|maximum|minimum|best|worst|top|rank)");
-
-  // Extract class numbers if present (e.g. class 10, class 9th)
+  // 1. Target Class Extraction (e.g. Class 10, Grade 9, 8th, 10th A, nursery, ukg)
   let targetClass: string | undefined;
-  const matchClass = userPrompt.match(/(?:class|grade|standard|std)\s*(\d+[a-zA-Z]?)/i);
-  if (matchClass) {
-    targetClass = `Class ${matchClass[1].toUpperCase()}`;
+  const classMatch = lower.match(
+    /\b(?:class|grade|standard|std|kaksha)\s*(\d{1,2}|nursery|lkg|ukg|kg)(?:[\s-]*([a-zA-Z]))?\b/i
+  ) || lower.match(/\b(\d{1,2})(?:st|nd|rd|th)\s*(?:class|grade|kaksha)?\b/i);
+
+  if (classMatch) {
+    const clsNum = classMatch[1].toUpperCase();
+    const section = classMatch[2] ? `-${classMatch[2].toUpperCase()}` : "";
+    targetClass = `Class ${clsNum}${section}`;
   }
 
-  let intent: NlpAnalysisResult["intent"] = "general";
-  if (hasFees) intent = "fees";
-  else if (hasAttendance) intent = "attendance";
-  else if (hasHomework) intent = "homework";
-  else if (hasExams) intent = "exams";
-  else if (hasTimetable) intent = "timetable";
-  else if (hasStudents) intent = "students";
-  else if (hasTeachers) intent = "teachers";
-  else if (hasNotices) intent = "notices";
-  else if (hasSummary) intent = "summary";
-  else if (hasGreeting) intent = "greeting";
+  // 2. Keyword & Pattern Matching
+  const isReceiptPrinter =
+    /\b(printer|print|receipt|rasid|thermal|58mm|mini printer|flipkart|pos|bluetooth|wifi print|slip)\b/i.test(lower);
 
-  const extractedKeywords = doc.nouns().out("array").slice(0, 5);
+  const isFeeHowTo =
+    /\b(fee|fees|paisa|payment)\b/i.test(lower) &&
+    /\b(kaise|how|step|steps|procedure|jama kare|collect|entry|bharo|tarika)\b/i.test(lower);
+
+  const isFeeDefaulters =
+    /\b(defaulter|defaulters|baki|baaki|unpaid|pending|arrear|arrears|dues|balance|kiska baki|baki fee|overdue)\b/i.test(lower);
+
+  const isFeeCollection =
+    /\b(collection|collected|jama hua|aaj kitna aaya|total collection|recovery|paid|income|revenue|fees summary)\b/i.test(lower) ||
+    (/\b(fee|fees|paisa|paise)\b/i.test(lower) && /\b(total|aaj|kitna|aaya|jama)\b/i.test(lower));
+
+  const isAttendanceHowTo =
+    /\b(attendance|haziri|upsthiti)\b/i.test(lower) &&
+    /\b(kaise|how|mark|lagaye|bhare|entry|tarika|step)\b/i.test(lower);
+
+  const isAttendanceLow =
+    /\b(low attendance|kam haziri|kam attendance|absent|absentees|bunk|below 75|shortage|kon nahi aaya|kon absent|anupasthit)\b/i.test(lower);
+
+  const isAttendanceSummary =
+    /\b(attendance|haziri|upsthiti|present|presence|percentage|aaj kitne aaye|daily attendance)\b/i.test(lower);
+
+  const isStudentHowTo =
+    /\b(admission|dakhila|student|bache|bachhe|vidyarthi)\b/i.test(lower) &&
+    /\b(kaise|how|naya|new|add|register|form|enroll|kare|tarika)\b/i.test(lower);
+
+  const isStudentRoster =
+    /\b(student|students|bache|bachhe|vidyarthi|chhatra|roster|strength|enrollment|admissions)\b/i.test(lower) ||
+    /\b(kitne bache|kitne student|total students|student list)\b/i.test(lower);
+
+  const isTeacher =
+    /\b(teacher|teachers|faculty|staff|shikshak|adhyapak|sir|madam|instructor|educator)\b/i.test(lower);
+
+  const isTimetable =
+    /\b(timetable|time table|schedule|period|periods|routine|bell|bells|samay|timing)\b/i.test(lower);
+
+  const isExams =
+    /\b(exam|exams|pariksha|test|tests|marks|number|result|grade|report card|topper|fail|pass|score)\b/i.test(lower);
+
+  const isNotices =
+    /\b(notice|notices|suchna|circular|announcement|announcements|chhutti|holiday|event|broadcast)\b/i.test(lower);
+
+  const isBackup =
+    /\b(backup|google sheet|sheets|sync|export|restore|excel)\b/i.test(lower);
+
+  const isGreeting =
+    /\b(hi|hello|hey|namaste|pranam|kaun ho|who are you|kya kar sakte|help|madad|kya haal|good morning|good evening)\b/i.test(lower);
+
+  const isSummary =
+    /\b(summary|overview|kya chal raha|report|status|dashboard|sab batao|all update)\b/i.test(lower);
+
+  let intent: NlpIntent = "general_summary";
+  let confidence = 0.85;
+
+  if (isReceiptPrinter) {
+    intent = "receipt_printer";
+    confidence = 0.95;
+  } else if (isFeeHowTo) {
+    intent = "fees_how_to_collect";
+    confidence = 0.94;
+  } else if (isFeeDefaulters) {
+    intent = "fees_defaulters";
+    confidence = 0.93;
+  } else if (isFeeCollection) {
+    intent = "fees_collection";
+    confidence = 0.92;
+  } else if (isAttendanceHowTo) {
+    intent = "attendance_how_to_mark";
+    confidence = 0.93;
+  } else if (isAttendanceLow) {
+    intent = "attendance_low";
+    confidence = 0.93;
+  } else if (isAttendanceSummary) {
+    intent = "attendance_summary";
+    confidence = 0.91;
+  } else if (isStudentHowTo) {
+    intent = "students_how_to_add";
+    confidence = 0.93;
+  } else if (isStudentRoster) {
+    intent = "students_roster";
+    confidence = 0.91;
+  } else if (isTeacher) {
+    intent = "teachers_roster";
+    confidence = 0.92;
+  } else if (isTimetable) {
+    intent = "timetable_schedule";
+    confidence = 0.92;
+  } else if (isExams) {
+    intent = "exams_results";
+    confidence = 0.92;
+  } else if (isNotices) {
+    intent = "notices_circular";
+    confidence = 0.91;
+  } else if (isBackup) {
+    intent = "backup_sheets";
+    confidence = 0.94;
+  } else if (isGreeting) {
+    intent = "greeting_help";
+    confidence = 0.96;
+  } else if (isSummary) {
+    intent = "general_summary";
+    confidence = 0.90;
+  }
+
+  const extractedKeywords = tokens.filter((t) => t.length > 3).slice(0, 5);
 
   return {
     intent,
-    isDefaulterQuery,
-    isLowAttendanceQuery,
-    isComparisonQuery,
+    isHinglish,
     targetClass,
     extractedKeywords,
+    confidence,
   };
 }
 
 /**
- * Generates rich, ChatGPT-style markdown responses with tables, headings, bold metrics, and tips.
+ * Generates direct, accurate, rich markdown responses responding directly to the user's specific request.
+ * Adapts natural conversational tone (fluent Hinglish or crisp English) based on user prompt language.
  */
 export function synthesizeRichNlpResponse(params: {
   portal: AiPortalType;
@@ -95,479 +202,946 @@ export function synthesizeRichNlpResponse(params: {
   metrics: Record<string, string | number>;
 } {
   const { portal, userPrompt, contextData } = params;
-  const nlpResult = analyzePromptNlp(userPrompt);
+  const analysis = analyzePromptNlp(userPrompt);
+  const isH = analysis.isHinglish;
+
+  const schoolName = contextData.schoolInfo?.name || "Your Institution";
+  const sStats = contextData.studentStatistics || {};
+  const fStats = contextData.feeStatistics || {};
+  const totalStudents = sStats.totalStudents || 0;
+  const activeStudents = sStats.activeStudents || totalStudents;
+  const totalTeachers = contextData.teacherStatistics?.totalTeachers || 0;
+  const pendingFees = fStats.totalPending || 0;
+  const collectedFees = fStats.totalCollected || 0;
+  const totalExpected = fStats.totalExpected || collectedFees + pendingFees;
+  const defaultersCount = fStats.defaultersCount || 0;
+  const attendanceRate = contextData.attendanceStatistics?.overallAttendanceRate || "94.8%";
+  const byClass = sStats.byClass || {};
+
+  const recoveryPct = totalExpected > 0 ? Math.round((collectedFees / totalExpected) * 100) : 100;
   const metrics: Record<string, string | number> = {};
   let quickLinks: Array<{ label: string; href: string }> = [];
   let suggestedFollowUps: string[] = [];
   let content = "";
 
-  // -------------------------------------------------------------------------
-  // 1. SUPER ADMIN INTELLIGENCE
-  // -------------------------------------------------------------------------
-  if (portal === "super_admin") {
-    const totalSchools = contextData.totalSchools || (contextData.schoolsList?.length ?? 0);
-    const schoolsList = contextData.schoolsList || [];
-    const aiUsage = contextData.aiUsageSummary || { totalRequestsThisMonth: 0, activeUsers: 0 };
+  // 1. PRINTER SETUP & 58MM THERMAL RECEIPT
+  if (analysis.intent === "receipt_printer") {
+    metrics["Printer Format"] = "58mm Thermal";
+    metrics["Protocol"] = "Wi-Fi / Bluetooth / USB";
+    metrics["Slip Width"] = "48mm printable";
 
     quickLinks = [
-      { label: "Manage Institutions", href: "/super-admin/schools" },
-      { label: "Google Sheets Backup", href: "/super-admin/backup" },
-      { label: "Subscription Plans", href: "/super-admin/pricing" },
-      { label: "AI Management Console", href: "/super-admin/ai" },
+      { label: "Fee Receipts History", href: "/admin/fees/receipts" },
+      { label: "Collect Fee & Print Slip", href: "/admin/fees/collect" },
+      { label: "Fee Settings", href: "/admin/fees/settings" },
     ];
 
-    metrics["Total Schools"] = totalSchools;
-    metrics["Active Plans"] = "Active";
-    metrics["AI Usage"] = aiUsage.totalRequestsThisMonth || 1;
+    if (isH) {
+      content = `## 🖨️ Flipkart Mini Thermal Wi-Fi / Bluetooth Printer Setup (58mm)
 
-    const schoolRows = schoolsList.length > 0
-      ? schoolsList.slice(0, 5).map((s: any) => `| **${s.name}** | ${s.code || "N/A"} | ${s.plan || "Starter"} | 🟢 ${s.status || "active"} |`).join("\n")
-      : "| **Registered Schools** | SCH-001 | Active | 🟢 Online |";
+School Study software mein aapke Flipkart / Amazon wale **₹500 - ₹1000 ke 58mm Mini Thermal Printer** ke liye automatic print support fully ready hai!
 
-    content = `## 🌐 Super Admin Platform Overview & Telemetry
+### ⚙️ Printer Ko Setup Aur Print Karne Ka Tarika:
 
-**Platform:** School Study Multi-Tenant Cloud  
-**Audit Timestamp:** ${new Date().toLocaleDateString(undefined, { dateStyle: "full" })}
-
-Here is the live status of all registered institutions across the platform:
-
-### 🏛️ Institution Directory Summary
-
-| School Name | Code | Subscription Plan | Health Status |
-| :--- | :--- | :--- | :--- |
-${schoolRows}
-
----
-
-### 🛡️ Platform Integrity & Cloud Sync
-• **Google Sheets Backup:** Automated tenant mirroring with multi-tab structure (Students, Teachers, Attendance, Fee Ledger) is configured.
-• **AI Multi-Tenant Engine:** Contextual knowledge retrieval scoped per institution.
-• **Data Isolation:** Hardened Firestore security rules active across all collections.
+1. **Paper Roll Lagayein:**
+   - Mini printer mein standard **58mm Thermal Paper Roll** lagayein (isme ink ya cartridge ki zaroorat nahi hoti).
+2. **Printer Ko Connect Karein:**
+   - **Mobile Phone par:** Phone ke **Bluetooth Settings** mein jakar printer ko search karke pair karein (Default Pairing PIN aksar \`0000\` ya \`1234\` hota hai).
+   - **Wi-Fi Model par:** Printer ke Wi-Fi network se phone ya laptop ko connect karein.
+   - **PC / Laptop (USB) par:** USB cable lagayein aur Windows print dialog mein **POS-58** ya **Generic Text Printer** select karein.
+3. **Receipt Print Karein:**
+   - Fee jama karne ke baad screen par **Print Receipt** par click karein.
+   - Print window mein Destination: Apna **58mm Thermal Printer** chunein.
+   - Margins: **None** / Paper Size: **58mm (2 Inch)** chunein.
+   - **Print** dabate hi turant official school header, student roll number, fee months aur unique receipt number ke sath clean slip print ho jayegi!
 
 > [!TIP]
-> Use the **Backup System** in Super Admin to trigger a real-time sync of any institution to Google Sheets or verify live connectivity.
+> Software ka receipt layout standard **58mm POS thermal format** par designed hai taaki koi bhi text cut na ho aur paper waste zero rahe!
 
-[View All Registered Schools →](/super-admin/schools)  
-[Configure Google Sheets Backup →](/super-admin/backup)  
-[Manage Pricing & Plans →](/super-admin/pricing)`;
+[👉 Abhi Nayi Fee Receipt Banayein →](/admin/fees/collect)  
+[🧾 Purani Receipts Check Karein →](/admin/fees/receipts)`;
 
-    suggestedFollowUps = [
-      "Show all registered schools",
-      "Check Google Sheets backup status",
-      "Manage AI quota and pricing plans",
-    ];
+      suggestedFollowUps = [
+        "Fee kaise jama kare?",
+        "Total pending dues kitne hai?",
+        "Defaulters list dikhao",
+      ];
+    } else {
+      content = `## 🖨️ 58mm Mini Thermal Wi-Fi & Bluetooth Printer Integration
+
+Your School Study portal is pre-configured with a native **58mm thermal POS receipt layout** compatible with standard portable mini printers (Wi-Fi, Bluetooth, and USB).
+
+### ⚙️ Quick Setup Guide:
+
+1. **Load Thermal Roll:**
+   - Insert standard 58mm thermal paper roll into your mini printer.
+2. **Pair Device:**
+   - **Via Bluetooth:** Turn on printer, open Bluetooth settings on your tablet/phone/PC, and pair with the device (Default PIN: \`0000\` or \`1234\`).
+   - **Via Wi-Fi / USB:** Connect to printer's local network or plug USB cable directly into your computer.
+3. **Print Verified Receipt:**
+   - After collecting a fee in **Collect Fee**, click **Print Receipt**.
+   - In browser print preview, choose your **58mm Thermal POS Printer** as Destination and set Margins to **None**.
+   - Press **Print** to instantly output the official branded slip!
+
+> [!IMPORTANT]
+> The receipt template automatically scales to 58mm continuous roll width, including student ID, fee heads breakdown, and payment timestamp.
+
+[Open Fee Receipts Console →](/admin/fees/receipts)  
+[Record Payment & Test Print →](/admin/fees/collect)`;
+
+      suggestedFollowUps = [
+        "How to collect a fee payment?",
+        "Show current pending fee dues",
+        "View defaulters list",
+      ];
+    }
   }
 
-  // -------------------------------------------------------------------------
-  // 2. SCHOOL ADMIN & ACCOUNTANT INTELLIGENCE
-  // -------------------------------------------------------------------------
-  else if (portal === "school_admin" || portal === "accountant") {
-    const sStats = contextData.studentStatistics || {};
-    const fStats = contextData.feeStatistics || {};
-    const totalStudents = sStats.totalStudents || 0;
-    const activeStudents = sStats.activeStudents || totalStudents;
-    const totalTeachers = contextData.teacherStatistics?.totalTeachers || 0;
-    const pendingFees = fStats.totalPending || 0;
-    const collectedFees = fStats.totalCollected || 0;
-    const totalExpected = fStats.totalExpected || collectedFees + pendingFees;
-    const defaultersCount = fStats.defaultersCount || 0;
-    const attendanceRate = contextData.attendanceStatistics?.overallAttendanceRate || "93.4%";
-    const schoolName = contextData.schoolInfo?.name || "School Study Institution";
+  // 2. HOW TO COLLECT FEES
+  else if (analysis.intent === "fees_how_to_collect") {
+    metrics["Collect Fee Desk"] = "Live";
+    metrics["Payment Modes"] = "Cash, UPI, Cheque, Bank";
 
     quickLinks = [
-      { label: "Fee Ledger & Defaulters", href: "/admin/fees/defaulters" },
-      { label: "Attendance Dashboard", href: "/admin/attendance" },
-      { label: "Student Directory", href: "/admin/students" },
-      { label: "Reports & Exports", href: "/admin/reports" },
+      { label: "Collect Fee Now", href: "/admin/fees/collect" },
+      { label: "Defaulters Ledger", href: "/admin/fees/defaulters" },
+      { label: "Fee Structures", href: "/admin/fees/structures" },
     ];
 
-    if (nlpResult.intent === "fees" || nlpResult.isDefaulterQuery) {
-      metrics["Collected"] = `₹${collectedFees.toLocaleString()}`;
-      metrics["Pending Dues"] = `₹${pendingFees.toLocaleString()}`;
-      metrics["Defaulters"] = defaultersCount;
-      metrics["Recovery Rate"] = totalExpected > 0 ? `${Math.round((collectedFees / totalExpected) * 100)}%` : "100%";
+    if (isH) {
+      content = `## 💳 Fee Jama (Collect) Karne Ka Step-by-Step Tarika
 
-      content = `## 💰 Comprehensive Fee Collection & Ledger Audit
+School Study software mein fee lena bohot aasan hai:
 
-**Institution:** ${schoolName}  
-**Audit Timestamp:** ${new Date().toLocaleDateString(undefined, { dateStyle: "full" })}
+### 📝 Step-by-Step Process:
+1. **Collect Fee Screen par jayein:**
+   - Sidebar se **Fee Management → Collect Fee** par click karein.
+2. **Student Select karein:**
+   - Class select karein ya student ka naam / Admission number type karein.
+3. **Months / Fee Heads Chunein:**
+   - Jin months ki fee jama karni hai (e.g., April, May, Tuition Fee, Exam Fee) unke checkbox par tick karein. Total amount automatically calculate ho jayega.
+4. **Discount / Concession:**
+   - Yadi student ko concession ya discount mila hai, toh amount adjust karein.
+5. **Payment Method Select karein:**
+   - Cash, UPI (Google Pay, PhonePe, Paytm), ya Bank Transfer chunein.
+6. **Save & Print:**
+   - **Submit Payment** dabayein. Turant transaction record ho jayegi aur 58mm thermal slip print ho jayegi!
 
-Here is the real-time financial breakdown calculated directly from your authoritative fee ledger:
+> [!TIP]
+> Agar kisi student ki aadhi (partial) payment aayi hai, toh paid amount enter karein. Baaki bachi hui rashi automatically **Dues / Defaulter** section mein add ho jayegi.
 
-### 📊 Financial Overview Table
+[👉 Abhi Student Fee Jama Karein →](/admin/fees/collect)  
+[📊 Defaulters List Check Karein →](/admin/fees/defaulters)`;
 
-| Financial Metric | Amount / Metric | Status & Health |
+      suggestedFollowUps = [
+        "Receipt print kaise hogi?",
+        "Aaj kitna collection hua?",
+        "Defaulters list dikhao",
+      ];
+    } else {
+      content = `## 💳 How to Record and Collect Student Fees
+
+Follow these steps to process fee collections and issue receipts:
+
+### 📝 Step-by-Step Instructions:
+1. **Navigate to Collect Fee:** Go to **Fee Management → Collect Fee** from your dashboard sidebar.
+2. **Lookup Student:** Search by Student Name, Admission Number, or filter by Class and Section.
+3. **Select Fee Periods:** Check the applicable months or fee heads (Tuition, Transport, Examination).
+4. **Apply Concessions (Optional):** Enter any authorized scholarship or sibling discounts.
+5. **Select Payment Mode:** Choose Cash, UPI / QR, Cheque, or Direct Bank Transfer.
+6. **Finalize & Print Receipt:** Click **Submit Payment**. The transaction is ledger-locked and an instant 58mm verified receipt is generated for printing.
+
+[Open Collect Fee Desk →](/admin/fees/collect)  
+[Review Fee Defaulters →](/admin/fees/defaulters)`;
+
+      suggestedFollowUps = [
+        "How to setup mini thermal printer?",
+        "What is total pending dues?",
+        "Export fee transactions report",
+      ];
+    }
+  }
+
+  // 3. FEES DEFAULTERS & PENDING DUES
+  else if (analysis.intent === "fees_defaulters") {
+    metrics["Total Pending Dues"] = `₹${pendingFees.toLocaleString()}`;
+    metrics["Defaulter Accounts"] = defaultersCount;
+    metrics["Recovery Rate"] = `${recoveryPct}%`;
+
+    quickLinks = [
+      { label: "Defaulters Management", href: "/admin/fees/defaulters" },
+      { label: "Fee Structures", href: "/admin/fees/structures" },
+      { label: "Fee Reports", href: "/admin/fees/reports" },
+    ];
+
+    if (isH) {
+      content = `## ⚠️ Pending Fees Aur Defaulters Report
+
+**School:** ${schoolName}  
+**Live Status:** Authoritative Ledger Sync Active
+
+Aapke school ke fee ledger ka live hisab-kitab:
+
+### 📊 Dues & Defaulters Summary Table:
+
+| Metric | Amount / Count | Status |
 | :--- | :--- | :--- |
-| **Total Invoiced / Expected** | ₹${totalExpected.toLocaleString()} | 100% Total Billed |
-| **Total Fees Collected** | ₹${collectedFees.toLocaleString()} | ✅ Received in Bank/Cash |
-| **Total Pending Receivables** | ₹${pendingFees.toLocaleString()} | ⚠️ Outstanding Balance |
-| **Recovery Percentage** | **${totalExpected > 0 ? Math.round((collectedFees / totalExpected) * 100) : 100}%** | Target: >95% |
-| **Unpaid Accounts (Defaulters)**| **${defaultersCount} students** | Overdue Reminders Active |
+| **Total Pending Dues (Baki Rashi)** | **₹${pendingFees.toLocaleString()}** | ⚠️ Recovery Pending |
+| **Defaulter Students** | **${defaultersCount} bache** | Unpaid Accounts |
+| **Total Invoiced Amount** | ₹${totalExpected.toLocaleString()} | Current Session Billed |
+| **Total Collected (Jama)** | ₹${collectedFees.toLocaleString()} | ✅ Received in Bank/Cash |
+| **Recovery Percentage** | **${recoveryPct}%** | Target: >95% |
 
 ---
 
-### 🔍 Key Operational Insights & Defaulters Breakdown
-• **Pending Dues Concentration:** ₹${pendingFees.toLocaleString()} is currently outstanding across **${defaultersCount} student accounts**.
-• **Top Action Priority:** Issue automated WhatsApp & SMS circulars for payment clearance before the term-end examinations.
-• **Instant Receipts Available:** All completed payments have official verified receipts ready for PDF download.
+### 🚀 Immediate Action Recommendations:
+• **WhatsApp Payment Reminders:** Defaulters page par jakar 1-click me un sabhi parents ko WhatsApp reminder message bhejein jinki fees overdue hai.
+• **Exam Clearance Gate:** Pariksha se pehle pending dues clear karwane ke liye notice jari karein.
 
-> [!IMPORTANT]
-> **Actionable Next Step:** Head over to the Defaulters Management module to dispatch instant bulk WhatsApp payment links to all registered guardians.
-
-[View Outstanding Defaulters List →](/admin/fees/defaulters)  
-[Open Fee Settings & Structures →](/admin/fees/structures)`;
+[👉 Defaulters List Dekhein Aur Remind Karein →](/admin/fees/defaulters)  
+[💰 Nayi Fee Jama Karein →](/admin/fees/collect)`;
 
       suggestedFollowUps = [
-        "Which classes have the highest pending fees?",
-        "Send WhatsApp payment reminders",
-        "Show today's attendance summary",
+        "Aaj kitna collection hua?",
+        "Fee kaise jama kare?",
+        "Receipt print karne ka tarika?",
       ];
-    } else if (nlpResult.intent === "attendance" || nlpResult.isLowAttendanceQuery) {
-      metrics["Attendance Rate"] = attendanceRate;
-      metrics["Active Learners"] = activeStudents;
-      metrics["Faculty Count"] = totalTeachers;
+    } else {
+      content = `## ⚠️ Outstanding Fee Dues & Defaulters Audit
 
-      content = `## 📋 School Attendance & Daily Presence Report
+**Institution:** ${schoolName}  
+**Status:** Live Synchronized Fee Ledger
+
+### 📊 Accounts Receivable Breakdown:
+
+| Financial Metric | Metric Value | Health Indicator |
+| :--- | :--- | :--- |
+| **Total Pending Receivables** | **₹${pendingFees.toLocaleString()}** | ⚠️ Outstanding Dues |
+| **Defaulter Accounts** | **${defaultersCount} students** | Action Required |
+| **Total Fees Invoiced** | ₹${totalExpected.toLocaleString()} | Academic Term Billed |
+| **Total Fees Collected** | ₹${collectedFees.toLocaleString()} | ✅ Verified Received |
+| **Collection Efficiency** | **${recoveryPct}%** | Goal: >95% |
+
+[Open Defaulters Management Console →](/admin/fees/defaulters)  
+[Download Outstanding Balances Sheet →](/admin/fees/reports)`;
+
+      suggestedFollowUps = [
+        "How to collect a fee payment?",
+        "Send WhatsApp payment reminders",
+        "View today's collection summary",
+      ];
+    }
+  }
+
+  // 4. FEES COLLECTION SUMMARY
+  else if (analysis.intent === "fees_collection") {
+    metrics["Total Collected"] = `₹${collectedFees.toLocaleString()}`;
+    metrics["Recovery Rate"] = `${recoveryPct}%`;
+    metrics["Total Expected"] = `₹${totalExpected.toLocaleString()}`;
+
+    quickLinks = [
+      { label: "Fee Transactions Log", href: "/admin/fees/transactions" },
+      { label: "Financial Reports", href: "/admin/fees/reports" },
+      { label: "Collect Fee Desk", href: "/admin/fees/collect" },
+    ];
+
+    if (isH) {
+      content = `## 💰 Total Fee Collection & Income Summary
+
+**School:** ${schoolName}  
+**Date:** ${new Date().toLocaleDateString(undefined, { dateStyle: "full" })}
+
+### 📈 Collection Performance Table:
+
+| Financial Head | Value | Remarks |
+| :--- | :--- | :--- |
+| **Total Collected (Jama Rashi)** | **₹${collectedFees.toLocaleString()}** | Bank + Cash Received |
+| **Total Expected (Kul Bill)** | ₹${totalExpected.toLocaleString()} | Total Billed Fees |
+| **Pending Receivables (Baki Dues)** | ₹${pendingFees.toLocaleString()} | ${defaultersCount} Defaulters |
+| **Recovery Rate** | **${recoveryPct}%** | Overall Efficiency |
+
+---
+
+• Sabhi verified transactions ki audit trail receipts ke sath save hai.
+• Daily cash summary dekhne ke liye Fee Transactions log check karein.
+
+[👉 Fee Transactions Log Dekhein →](/admin/fees/transactions)  
+[📊 Financial Reports Download Karein →](/admin/fees/reports)`;
+
+      suggestedFollowUps = [
+        "Defaulters list dikhao",
+        "Receipt kaise print kare?",
+        "Aaj ki attendance report do",
+      ];
+    } else {
+      content = `## 💰 Total Fee Collection & Revenue Audit
+
+**Institution:** ${schoolName}  
+**Timestamp:** ${new Date().toLocaleDateString(undefined, { dateStyle: "full" })}
+
+### 📈 Verified Collections Table:
+
+| Metric | Amount | Status |
+| :--- | :--- | :--- |
+| **Total Collected Amount** | **₹${collectedFees.toLocaleString()}** | ✅ Bank & Cash Locked |
+| **Total Invoiced Amount** | ₹${totalExpected.toLocaleString()} | Full Academic Fee Billing |
+| **Total Pending Receivables** | ₹${pendingFees.toLocaleString()} | ${defaultersCount} Accounts Due |
+| **Recovery Efficiency** | **${recoveryPct}%** | Current Target Progress |
+
+[View Transactions Ledger →](/admin/fees/transactions)  
+[Export Financial Reports →](/admin/fees/reports)`;
+
+      suggestedFollowUps = [
+        "View outstanding defaulters list",
+        "How to print thermal receipt?",
+        "Check today's attendance summary",
+      ];
+    }
+  }
+
+  // 5. ATTENDANCE HOW TO MARK
+  else if (analysis.intent === "attendance_how_to_mark") {
+    metrics["Attendance Desk"] = "Live";
+    metrics["Register Type"] = "Section & Daily Roll Call";
+
+    quickLinks = [
+      { label: "Mark Daily Attendance", href: "/admin/attendance" },
+      { label: "Attendance Reports", href: "/admin/reports" },
+      { label: "Student Roster", href: "/admin/students" },
+    ];
+
+    if (isH) {
+      content = `## 📋 Attendance (Haziri) Kaise Lagayein
+
+School Study mein attendance lagana bohot aasan aur fast hai:
+
+### 📝 Steps to Mark Attendance:
+1. **Attendance Menu mein jayein:** Sidebar se **Attendance** par click karein.
+2. **Date & Class Chunein:** Jis date aur class (jaise Class 10-A) ki haziri lagani hai wo select karein.
+3. **Default Present:** Sabhi bache by default **Present (P)** marked hote hain, aapko sirf absent bacho par **Absent (A)** ya **Leave (L)** click karna hota hai.
+4. **Save Attendance:** Bottom par **Submit / Save Attendance** dabayein.
+5. **Parent Notification (Optional):** Absent bacho ke parents ko turant automated SMS/WhatsApp absent notice chala jata hai!
+
+[👉 Abhi Class Ki Attendance Lagayein →](/admin/attendance)  
+[📊 Attendance Percentage Report Dekhein →](/admin/reports)`;
+
+      suggestedFollowUps = [
+        "Aaj kon absent hai?",
+        "Low attendance wale bache?",
+        "Total students kitne hai?",
+      ];
+    } else {
+      content = `## 📋 How to Take Daily Class Attendance
+
+### 📝 Step-by-Step Instructions:
+1. **Open Attendance Register:** Go to **Attendance** from the sidebar navigation.
+2. **Select Class & Section:** Pick your division (e.g. Class 10-A) and select the date.
+3. **Toggle Status:** All enrolled learners default to **Present (P)**. Tap once to mark **Absent (A)** or **Leave (L)**.
+4. **Save & Sync:** Click **Save Attendance**. The cloud updates in real-time and updates parent notifications.
+
+[Open Attendance Register →](/admin/attendance)  
+[View Low Attendance Defaulters →](/admin/reports)`;
+
+      suggestedFollowUps = [
+        "Which students have low attendance?",
+        "Today's campus attendance rate?",
+        "Show student enrollment strength",
+      ];
+    }
+  }
+
+  // 6. ATTENDANCE LOW / ABSENTEES
+  else if (analysis.intent === "attendance_low") {
+    metrics["Attendance Rate"] = attendanceRate;
+    metrics["Status Alert"] = "Attention Required";
+
+    quickLinks = [
+      { label: "Attendance Dashboard", href: "/admin/attendance" },
+      { label: "Attendance Reports", href: "/admin/reports" },
+      { label: "Send Absence Notices", href: "/admin/notices" },
+    ];
+
+    if (isH) {
+      content = `## ⚠️ Kam Haziri (Low Attendance) Aur Absentee Report
+
+**School:** ${schoolName}  
+**Overall Campus Rate:** **${attendanceRate}**
+
+### 📌 Low Attendance Observations:
+• **State Statutory Requirement:** Board guidelines ke mutabiq har student ki minimum **75% attendance** honi anivarya hai.
+• **Absentee Notice:** Lagatar 3 din se absent bacho ke parents ko inquiry notice bhejein.
+• **High Performing Classes:** Class 10-A aur Class 8-B me 95%+ attendance chal rahi hai.
+
+> [!WARNING]
+> Jin bacho ki attendance 75% se kam ho, unka list Attendance Reports module se export karke unke guardians ko inform karein.
+
+[👉 Daily Attendance Register Check Karein →](/admin/attendance)  
+[📋 Low Attendance Export Sheet Nikalein →](/admin/reports)`;
+
+      suggestedFollowUps = [
+        "Aaj ki attendance report do",
+        "Attendance kaise lagaye?",
+        "Student directory dikhao",
+      ];
+    } else {
+      content = `## ⚠️ Low Attendance & Consecutive Absentee Audit
+
+**Institution:** ${schoolName}  
+**Campus Average Attendance:** **${attendanceRate}**
+
+• **Mandatory Threshold:** Statutory compliance requires maintaining above **75% cumulative attendance**.
+• **Immediate Actions:** Flag students exceeding 3 consecutive unexcused absences and issue notice to guardians.
+
+[Open Attendance Dashboard →](/admin/attendance)  
+[Download Attendance Compliance Sheet →](/admin/reports)`;
+
+      suggestedFollowUps = [
+        "Today's attendance breakdown",
+        "How to record roll call?",
+        "Show student roster",
+      ];
+    }
+  }
+
+  // 7. ATTENDANCE TODAY / SUMMARY
+  else if (analysis.intent === "attendance_summary") {
+    metrics["Campus Rate"] = attendanceRate;
+    metrics["Total Learners"] = totalStudents;
+    metrics["Faculty On Duty"] = totalTeachers;
+
+    quickLinks = [
+      { label: "Live Attendance Register", href: "/admin/attendance" },
+      { label: "Attendance Summary Report", href: "/admin/reports" },
+    ];
+
+    if (isH) {
+      content = `## 📋 School Attendance & Haziri Live Status
+
+**School:** ${schoolName}  
+**Date:** ${new Date().toLocaleDateString(undefined, { dateStyle: "full" })}
+
+### 📈 Attendance Summary Table:
+
+| Metric | Details | Evaluation |
+| :--- | :--- | :--- |
+| **Overall Campus Presence** | **${attendanceRate}** | 🟢 Healthy Presence |
+| **Total Registered Students** | ${totalStudents} bache | Verified Active Roster |
+| **Approx Present Students** | ~${Math.round(totalStudents * 0.94)} bache | Classes in Session |
+| **Teachers On Duty** | ${totalTeachers} teachers | Complete Faculty Attendance |
+
+[👉 Daily Attendance Register Kholein →](/admin/attendance)  
+[📊 Attendance Export Sheet Nikalein →](/admin/reports)`;
+
+      suggestedFollowUps = [
+        "Low attendance wale bache kon hai?",
+        "Fee collection kitna hua?",
+        "Total students kitne hai?",
+      ];
+    } else {
+      content = `## 📋 School Attendance & Daily Presence Telemetry
 
 **Institution:** ${schoolName}  
 **Date:** ${new Date().toLocaleDateString(undefined, { dateStyle: "full" })}
 
-### 📈 Attendance Summary Breakdown
-
-| Division / Metric | Rate / Count | Evaluation |
+| Field | Figure | Remarks |
 | :--- | :--- | :--- |
-| **Campus Attendance Rate** | **${attendanceRate}** | 🟢 Healthy Attendance |
-| **Total Enrolled Learners** | ${totalStudents} | Roster Verified |
-| **Active Learners Present** | ~${Math.round(totalStudents * 0.93)} students | Present in class |
-| **Faculty On-Duty** | ${totalTeachers} teachers | Complete Faculty Attendance |
+| **Campus Attendance Rate** | **${attendanceRate}** | 🟢 Optimal Attendance |
+| **Total Enrolled Learners** | ${totalStudents} | Verified Profiles |
+| **Estimated Present** | ~${Math.round(totalStudents * 0.94)} | Active in Class |
+| **Active Faculty** | ${totalTeachers} teachers | On-Duty Attendance |
 
----
-
-### 📌 Class-Wise Attendance Trends
-• **High Performing Classes:** Class 10-A, Class 8-B, and Class 6 maintain over **95% presence**.
-• **Attention Required:** Check any students with consecutive absentees exceeding 3 school days.
-• **Biometric / Register Status:** Class attendance for morning periods is synchronized with the administrative portal.
-
-> [!TIP]
-> Keep attendance above 75% across all classes to satisfy statutory state education department compliance.
-
-[Open Daily Attendance Register →](/admin/attendance)  
-[Generate Attendance Export Sheet →](/admin/reports)`;
+[View Live Daily Register →](/admin/attendance)  
+[Export Attendance Reports →](/admin/reports)`;
 
       suggestedFollowUps = [
-        "Show students with attendance below 75%",
-        "What is the total pending fee?",
-        "Summarize today's school activity",
+        "Show students with attendance <75%",
+        "What is total pending fee?",
+        "Class-wise student strength breakdown",
       ];
-    } else if (nlpResult.intent === "students") {
-      metrics["Total Students"] = totalStudents;
-      metrics["Active Learners"] = activeStudents;
+    }
+  }
 
-      const byClass = sStats.byClass || {};
-      const classRows = Object.entries(byClass).length > 0
-        ? Object.entries(byClass)
-            .map(([cls, cnt]) => `| **${cls}** | ${cnt} | Verified |`)
-            .join("\n")
-        : `| **Class 10** | ${Math.round(totalStudents * 0.3)} | Active |\n| **Class 9** | ${Math.round(totalStudents * 0.35)} | Active |\n| **Class 8** | ${Math.round(totalStudents * 0.35)} | Active |`;
+  // 8. HOW TO ADD STUDENT / ADMISSION
+  else if (analysis.intent === "students_how_to_add") {
+    metrics["Admissions"] = "Open";
+    metrics["Student ID"] = "Auto-Generated";
 
-      content = `## 🎓 Student Directory & Enrollment Distribution
+    quickLinks = [
+      { label: "Student Directory", href: "/admin/students" },
+      { label: "Fee Structures", href: "/admin/fees/structures" },
+    ];
 
-**Total Registered Students:** **${totalStudents}**  
-**Active Enrollment:** **${activeStudents} learners**
+    if (isH) {
+      content = `## 🎓 Naya Student Admission Kaise Karein
 
-### 🏫 Class-Wise Enrollment Table
+Software mein naya student add karne ka process bohot simple hai:
 
-| Class / Standard | Student Strength | Roster Status |
+### 📝 Step-by-Step Admission Process:
+1. **Students Menu par jayein:**
+   - Sidebar se **Students** par click karein.
+2. **Add Student Button dabayein:**
+   - Top right corner par **+ Add Student** button par click karein.
+3. **Student Details Bharein:**
+   - Student ka Pura Naam, DOB, Gender, aur Blood Group enter karein.
+4. **Class & Section Chunein:**
+   - Kis class mein admission ho raha hai (e.g. Class 10-A) select karein.
+   - Roll number enter karein (ya system auto-assign karega).
+5. **Guardian (Mata-Pita) Details:**
+   - Father's name, Mother's name, aur WhatsApp contact mobile number dalein.
+6. **Save Admission:**
+   - **Save & Register** par click karein! Student ko automatically ek unique **Student ID (e.g. STU-001)** mil jayegi aur unka fee account create ho jayega!
+
+[👉 Naya Student Register Karein →](/admin/students)  
+[💰 Student Ka Fee Assign Karein →](/admin/fees/structures)`;
+
+      suggestedFollowUps = [
+        "School me kul kitne bache hai?",
+        "Fee kaise jama kare?",
+        "Receipt kaise print hogi?",
+      ];
+    } else {
+      content = `## 🎓 How to Register a New Student Admission
+
+### 📝 Step-by-Step Admission Walkthrough:
+1. **Navigate to Students:** Open **Students** from your dashboard navigation menu.
+2. **Click Add Student:** Press the **+ Add Student** button in the top right header.
+3. **Fill Personal Information:** Enter Student Name, Date of Birth, Gender, and Blood Group.
+4. **Assign Class & Division:** Select target Class & Section (e.g. Class 10th - Section A).
+5. **Enter Guardian Information:** Provide Father/Mother Name and valid WhatsApp mobile number.
+6. **Submit Registration:** Click **Save**. An authoritative Student ID is auto-minted and the student's fee ledger account is initialized.
+
+[Open Student Directory →](/admin/students)  
+[Configure Class Fee Allocation →](/admin/fees/structures)`;
+
+      suggestedFollowUps = [
+        "How many total students are enrolled?",
+        "How to collect fees for this student?",
+        "View class-wise strength table",
+      ];
+    }
+  }
+
+  // 9. STUDENTS ROSTER & STRENGTH
+  else if (analysis.intent === "students_roster") {
+    metrics["Total Students"] = totalStudents;
+    metrics["Active Enrollment"] = activeStudents;
+
+    quickLinks = [
+      { label: "Student Directory", href: "/admin/students" },
+      { label: "Attendance", href: "/admin/attendance" },
+      { label: "Defaulters List", href: "/admin/fees/defaulters" },
+    ];
+
+    const classEntries = Object.entries(byClass);
+    const classRows = classEntries.length > 0
+      ? classEntries.map(([cls, cnt]) => `| **${cls}** | ${cnt} bache | Verified |`).join("\n")
+      : `| **Class 10** | ~${Math.round(totalStudents * 0.35)} | Active |\n| **Class 9** | ~${Math.round(totalStudents * 0.35)} | Active |\n| **Class 8** | ~${Math.round(totalStudents * 0.3)} | Active |`;
+
+    if (isH) {
+      content = `## 🎓 School Me Kul Kitne Student Hain? (Strength Breakdown)
+
+**School:** ${schoolName}  
+**Total Enrolled Students (Kul Vidyarthi):** **${totalStudents}**  
+**Active Students:** **${activeStudents}**
+
+### 🏫 Class-Wise Student Strength Table:
+
+| Class / Standard | Student Strength | Status |
 | :--- | :--- | :--- |
 ${classRows}
 
 ---
 
-### 💡 Administrative Highlights
-• All student profiles have unique registration identifiers (e.g. \`STU...\`).
-• Parent contact numbers and emergency contacts are cataloged in Firestore.
-• Roll numbers and section allocations are updated for the academic year.
+• Sabhi students ke profile verified hain aur unique Student ID assigned hai.
+• Naye admissions lene ke liye Student Directory par jayein.
 
-[Manage Student Directory →](/admin/students)  
-[Register New Student Admission →](/admin/students)`;
+[👉 Student Directory Kholein →](/admin/students)  
+[💰 Students Ki Pending Fee Dekhein →](/admin/fees/defaulters)`;
 
       suggestedFollowUps = [
-        "How many fees are pending for Class 10?",
-        "Show students with low attendance",
-        "Give me today's school summary",
+        "Naya student admission kaise kare?",
+        "Pending fee kitni hai?",
+        "Aaj ki attendance report do",
       ];
-    } else if (nlpResult.intent === "teachers") {
-      metrics["Total Faculty"] = totalTeachers;
-      metrics["Status"] = "Full Complement";
-
-      content = `## 👨‍🏫 Faculty & Teaching Staff Directory
+    } else {
+      content = `## 🎓 Student Directory & Enrollment Strength
 
 **Institution:** ${schoolName}  
-**Total Faculty Members:** **${totalTeachers}**
+**Total Enrolled Students:** **${totalStudents}**  
+**Active Enrollment:** **${activeStudents} learners**
 
-### 📋 Departmental Breakdown
+### 🏫 Class-Wise Enrollment Roster:
 
-| Department / Role | Teacher Allocation | Status |
+| Class / Division | Enrollment Strength | Roster Health |
 | :--- | :--- | :--- |
-| **Mathematics & Physics** | Full Department | Classes 8 to 12 Covered |
-| **Biology & Chemistry** | Science Wing | Lab Periods Active |
-| **Languages & Humanities** | English, Hindi & Social | Daily Periods Scheduled |
-| **Sports & Physical Ed.** | Physical Faculty | Ground Activities Assigned |
+${classRows}
 
----
-
-### 💡 Staff Management Highlights
-• Subject-teacher periods are mapped in the active Timetable module.
-• Teacher attendance registers are synchronized daily.
-
-[Manage Faculty Directory →](/admin/teachers)  
-[View Class Timetable & Bells →](/admin/timetable)`;
+[Manage Student Directory →](/admin/students)  
+[View Class Defaulters →](/admin/fees/defaulters)`;
 
       suggestedFollowUps = [
-        "Check today's class timetable",
-        "Give me today's school summary",
-        "Show pending fees",
-      ];
-    } else {
-      // General / Executive Summary
-      metrics["Total Students"] = totalStudents;
-      metrics["Faculty Count"] = totalTeachers;
-      metrics["Pending Dues"] = `₹${pendingFees.toLocaleString()}`;
-      metrics["Attendance"] = attendanceRate;
-
-      content = `## 🏫 Executive Operational Summary: ${schoolName}
-
-Welcome to the School Study Command Center. Here is your real-time campus briefing:
-
-### 📊 Campus Performance Scorecard
-
-| Key Operational Pillar | Current Metric | Status & Analysis |
-| :--- | :--- | :--- |
-| **Student Body** | **${totalStudents} Students** | Active & Enrolled |
-| **Teaching Faculty** | **${totalTeachers} Teachers** | All Classes Covered |
-| **Daily Attendance Rate** | **${attendanceRate}** | 🟢 Healthy Presence |
-| **Fee Collection Recovery**| **₹${collectedFees.toLocaleString()}** | Collected this session |
-| **Outstanding Balance** | **₹${pendingFees.toLocaleString()}** | Across ${defaultersCount} accounts |
-| **Latest Circular** | ${contextData.recentNotices?.[0]?.title || "Regular Academic Session"} | Dispatched to Parents |
-
----
-
-### 🚀 Immediate Recommended Actions
-• **Review Defaulters:** ${defaultersCount} students have pending fees. Dispatch notification reminders.
-• **Attendance Validation:** Ensure morning period attendance is verified for all sections.
-• **Timetable Integrity:** All period bells and faculty substitutions are active.
-
-> [!TIP]
-> Use the phone preview on the left to verify how students and teachers experience the portal on their mobile devices.
-
-[View Fee Reports →](/admin/fees/reports)  
-[Manage Attendance →](/admin/attendance)  
-[Student Records →](/admin/students)`;
-
-      suggestedFollowUps = [
-        "What is the total pending fee?",
-        "Show students with low attendance",
-        "Show Class 10 student roster",
+        "How to admit a new student?",
+        "What is total pending dues?",
+        "Today's attendance summary",
       ];
     }
   }
 
-  // -------------------------------------------------------------------------
-  // 2. TEACHER PORTAL INTELLIGENCE
-  // -------------------------------------------------------------------------
-  else if (portal === "teacher") {
-    const classes = contextData.assignedClasses || ["Class 10-A", "Class 9-B"];
-    const hwList = contextData.activeHomeworks || [];
+  // 10. TEACHERS ROSTER
+  else if (analysis.intent === "teachers_roster") {
+    metrics["Total Faculty"] = totalTeachers;
+    metrics["Faculty Status"] = "Active";
 
     quickLinks = [
-      { label: "Daily Attendance", href: "/teacher/attendance" },
-      { label: "Homework Manager", href: "/teacher/homework" },
-      { label: "Class Timetable", href: "/teacher/timetable" },
+      { label: "Teacher Directory", href: "/admin/teachers" },
+      { label: "Class Timetable", href: "/admin/timetable" },
     ];
 
-    if (nlpResult.intent === "homework") {
-      metrics["Active Assignments"] = hwList.length;
+    if (isH) {
+      content = `## 👨‍🏫 School Ke Shikshak (Teachers) Ki Jankari
 
-      const hwRows = hwList.length > 0
-        ? hwList.map((h: any) => `| **${h.title}** | ${h.subject || "Academic"} | ${h.dueDate || "This week"} | Active |`).join("\n")
-        : `| **Trigonometry Problem Set** | Mathematics | Friday | Submissions Open |\n| **Light & Reflection Lab** | Physics | Monday | Submissions Open |`;
+**School:** ${schoolName}  
+**Total Faculty Strength:** **${totalTeachers} Teachers**
 
-      content = `## 📚 Teacher Homework & Assignments Desk
+### 📌 Faculty Highlights:
+• Sabhi faculty members classes aur subjects ke sath assigned hain.
+• Timetable ke anusar har teacher ke periods structured hain.
+• Teacher attendance aur substitutes manage karne ke liye Teacher directory check karein.
 
-Here is the status of active assignments published for your students:
-
-### 📝 Assignment Schedule Table
-
-| Assignment Title | Subject | Due Date | Submissions |
-| :--- | :--- | :--- | :--- |
-${hwRows}
-
----
-
-### 💡 Suggestions for Faculty
-• Grade submitted PDF problem sets directly from the homework portal.
-• Remind students who have not yet submitted before the deadline.
-
-[Open Homework & Submissions Manager →](/teacher/homework)`;
+[👉 Teachers Directory Dekhein →](/admin/teachers)  
+[📅 Timetable & Bells Setup Karein →](/admin/timetable)`;
 
       suggestedFollowUps = [
-        "Check class attendance status",
-        "What's on my timetable today?",
-        "Show student performance",
+        "Total students kitne hai?",
+        "Today's attendance report?",
+        "Timetable schedule dikhao",
       ];
     } else {
-      metrics["Classes Assigned"] = classes.join(", ");
-      metrics["Homework Count"] = hwList.length;
+      content = `## 👨‍🏫 Faculty & Staff Directory Telemetry
 
-      content = `## 👨‍🏫 Teacher Academic Command Desk
+**Institution:** ${schoolName}  
+**Total Registered Teachers:** **${totalTeachers}**
 
-**Faculty Member:** ${contextData.name || "Respected Teacher"}  
-**Assigned Divisions:** ${classes.join(", ")}
+• Faculty period assignments and substitution tables are synchronized.
+• All staff credentials and lecture routines are active.
 
-### 📅 Daily Academic Schedule
-
-| Period / Class | Assigned Subject | Attendance Status |
-| :--- | :--- | :--- |
-| **Period 1 (Class 10-A)** | Mathematics | ✅ Marked |
-| **Period 3 (Class 9-B)** | Physics | ✅ Marked |
-| **Period 5 (Class 10-A)** | Lab Practice | Submissions Pending |
-
----
-
-### 📌 Teaching Reminders
-• **Daily Attendance:** Ensure period attendance is verified for ${classes[0]}.
-• **Active Homework:** You currently have **${hwList.length} active assignment(s)** published.
-
-[Mark Attendance →](/teacher/attendance)  
-[View My Timetable →](/teacher/timetable)`;
+[Open Teacher Directory →](/admin/teachers)  
+[Review Period Schedules →](/admin/timetable)`;
 
       suggestedFollowUps = [
-        "Show my active homework assignments",
-        "Which students have low attendance?",
-        "Check tomorrow's schedule",
+        "How many students are enrolled?",
+        "Today's attendance summary",
+        "View timetable bell routines",
       ];
     }
   }
 
-  // -------------------------------------------------------------------------
-  // 3. STUDENT PORTAL INTELLIGENCE
-  // -------------------------------------------------------------------------
-  else if (portal === "student") {
-    const prof = contextData.profile || {};
-    const att = contextData.attendance || {};
-    const fee = contextData.fees || {};
-    const exams = contextData.upcomingExams || [];
+  // 11. TIMETABLE & ROUTINE
+  else if (analysis.intent === "timetable_schedule") {
+    metrics["Timetable"] = "Active";
+    metrics["Bells Routine"] = "Synchronized";
 
     quickLinks = [
-      { label: "My Attendance", href: "/student/attendance" },
-      { label: "Pending Homework", href: "/student/homework" },
-      { label: "Fee Receipts", href: "/student/fees" },
-      { label: "Timetable & Study", href: "/student/study" },
+      { label: "Timetable & Bells", href: "/admin/timetable" },
+      { label: "Classrooms", href: "/admin/classes" },
     ];
 
-    if (nlpResult.intent === "attendance") {
-      metrics["My Attendance"] = att.percentage || "94.5%";
-      metrics["Days Present"] = att.presentDays || 45;
-      metrics["Days Absent"] = att.absentDays || 3;
+    if (isH) {
+      content = `## 📅 School Ka Timetable Aur Periods Schedule
 
-      content = `## 🎓 Your Personal Attendance Report Card
+Aapke school ka daily academic routine:
 
-**Student:** ${prof.name || "Learner"} (${prof.className || "Class 10"}-${prof.section || "A"})  
-**Status:** 🟢 Excellent Standing (Above 75% Requirement)
+### ⏰ Sample Period Routine:
+• **Assembly & Roll Call:** 08:30 AM - 08:50 AM
+• **Period 1:** 08:50 AM - 09:35 AM (Mathematics / English)
+• **Period 2:** 09:35 AM - 10:20 AM (Science / Hindi)
+• **Short Break:** 10:20 AM - 10:35 AM
+• **Period 3 & 4:** 10:35 AM - 12:00 PM (Social Science / Computer)
+• **Lunch Recess:** 12:00 PM - 12:35 PM
+• **Period 5 & 6:** 12:35 PM - 02:00 PM (Revision & Activity)
 
-### 📊 Attendance Ledger
-
-| Record Metric | Value | Department Benchmark |
-| :--- | :--- | :--- |
-| **Total Working Days** | ${att.totalWorkingDays || 48} days | Current Term |
-| **Days Attended** | **${att.presentDays || 45} days** | Present in Class |
-| **Days Absent** | **${att.absentDays || 3} days** | Excused / Leave |
-| **Current Attendance %** | **${att.percentage || "94.5%"}** | **Required: >= 75%** |
-
----
-
-> [!NOTE]
-> Great job maintaining over **90% attendance**! You are eligible for all upcoming term examinations.
-
-[View Attendance Calendar →](/student/attendance)`;
+[👉 Timetable Setup Kholein →](/admin/timetable)  
+[📋 Daily Attendance Mark Karein →](/admin/attendance)`;
 
       suggestedFollowUps = [
-        "Do I have any pending fees?",
-        "When is my next examination?",
-        "Show homework due this week",
-      ];
-    } else if (nlpResult.intent === "fees") {
-      metrics["Pending Amount"] = `₹${(fee.pendingAmount || 0).toLocaleString()}`;
-      metrics["Payment Status"] = fee.status || "Paid";
-
-      content = `## 💳 Student Fee Clearance & Receipts
-
-**Student Name:** ${prof.name || "Student"}  
-**Admission No:** ${prof.admissionNo || "ADM2026"}
-
-### 📋 Fee Breakdown Table
-
-| Fee Component | Billed Amount | Paid Amount | Balance Due |
-| :--- | :--- | :--- | :--- |
-| **Term Tuition Fee** | ₹12,000 | ₹12,000 | **₹0** |
-| **Computer & Lab Fee** | ₹2,000 | ₹2,000 | **₹0** |
-| **Library & Activity** | ₹1,000 | ₹1,000 | **₹0** |
-| **Net Balance Due** | **₹15,000** | **₹15,000** | **₹${(fee.pendingAmount || 0).toLocaleString()}** |
-
----
-
-> [!TIP]
-> You can download your official tax-deductible fee receipts with QR codes directly from the Fees tab.
-
-[Download Official Fee Receipts →](/student/fees)`;
-
-      suggestedFollowUps = [
-        "Check my attendance percentage",
-        "Upcoming exams schedule",
-        "Check daily timetable",
+        "Aaj ki attendance report do",
+        "Teacher directory dikhao",
+        "Pending fees kitni hai?",
       ];
     } else {
-      metrics["Attendance"] = att.percentage || "94.5%";
-      metrics["Class"] = `${prof.className || "Class 10"}-${prof.section || "A"}`;
-      metrics["Pending Fees"] = `₹${fee.pendingAmount || 0}`;
+      content = `## 📅 Academic Timetable & Period Schedule
 
-      content = `## 🎒 Welcome to Your Student AI Study Buddy!
+Class periods, bell timings, and room allocations are synchronized across the timetable engine.
 
-Hello **${prof.name || "Student"}**! Here is your daily academic status:
-
-### 📌 Quick Overview
-
-| Study Area | Current Status | Remarks |
-| :--- | :--- | :--- |
-| **Attendance %** | **${att.percentage || "94.5%"}** | 🟢 Eligible for Exams |
-| **Fee Dues** | **₹${fee.pendingAmount || 0}** | All receipts cleared |
-| **Next Exam** | ${exams[0]?.name || "Mid-Term Assessment"} | Starting ${exams[0]?.date || "Soon"} |
-| **Today's Classes** | Maths, Physics, English | Check periods timetable |
-
----
-
-### 💡 Study Buddy Tip
-Ask me anything: *"Explain trigonometry formulas"*, *"Check my attendance"*, or *"Do I have homework due?"*.
-
-[Open Homework Section →](/student/homework)  
-[Check Class Timetable →](/student/study)`;
+[Manage Timetable & Bells →](/admin/timetable)  
+[Classroom Allocations →](/admin/classes)`;
 
       suggestedFollowUps = [
-        "What is my attendance percentage?",
-        "Check my fee balance",
-        "When is the next exam?",
+        "View today's attendance summary",
+        "Teacher staff directory",
+        "View fee collection report",
       ];
     }
   }
 
-  // Fallback
+  // 12. EXAMS & RESULTS
+  else if (analysis.intent === "exams_results") {
+    metrics["Exams Module"] = "Ready";
+    metrics["Grading System"] = "CBSE / State Standard";
+
+    quickLinks = [
+      { label: "Academic Reports", href: "/admin/reports" },
+      { label: "Class Management", href: "/admin/classes" },
+    ];
+
+    if (isH) {
+      content = `## 📝 Pariksha (Exams) Aur Marks Entry
+
+### 📊 Examination Highlights:
+• Unit Tests, Mid-Terms, aur Annual Board Examinations ke marks directly enter kiye ja sakte hain.
+• Students ke official Report Cards 1-click me generate hokar PDF print ke liye ready rehte hain.
+• Toppers list aur subject-wise weak students ki analysis automatically ban jati hai.
+
+[👉 Reports & Marksheets Module →](/admin/reports)`;
+
+      suggestedFollowUps = [
+        "Student directory dikhao",
+        "Defaulters list check karein",
+        "School ka overall summary do",
+      ];
+    } else {
+      content = `## 📝 Examination & Gradebook Management
+
+Configure term exams, enter subject-wise marks, and generate official student report cards.
+
+[Open Reports & Marksheet Console →](/admin/reports)`;
+
+      suggestedFollowUps = [
+        "View student roster",
+        "Check fee defaulters",
+        "Show today's attendance summary",
+      ];
+    }
+  }
+
+  // 13. NOTICES & CIRCULARS
+  else if (analysis.intent === "notices_circular") {
+    metrics["Notice Board"] = "Active";
+
+    quickLinks = [
+      { label: "Notices & Announcements", href: "/admin/notices" },
+    ];
+
+    if (isH) {
+      content = `## 📢 Notices Aur Circulars Kaise Bhejein
+
+Aap school ke sabhi parents, teachers, ya students ko turant notice bhej sakte hain:
+
+### 📝 Notice Bhejne Ka Tarika:
+1. Sidebar se **Notices** par click karein.
+2. **+ Create Notice** button dabayein.
+3. Title aur Notice ka sandesh likhein (jaise Chhutti ka circular, Exam date sheet, ya Fees reminder).
+4. Target Audience chunein: **All**, **Parents**, **Teachers**, ya **Students**.
+5. **Publish** dabate hi notice portal aur mobile app par turant live ho jayega!
+
+[👉 Notice Board Kholein →](/admin/notices)`;
+
+      suggestedFollowUps = [
+        "Defaulters ko notice kaise bheje?",
+        "Fee collection summary do",
+        "Aaj ki attendance report do",
+      ];
+    } else {
+      content = `## 📢 School Notices & Broadcast Circulars
+
+Publish notices, holiday advisories, and exam schedules to Parents, Teachers, or Students in real-time.
+
+[Open Notice Management Board →](/admin/notices)`;
+
+      suggestedFollowUps = [
+        "Send fee reminders to parents",
+        "Today's attendance summary",
+        "Show student roster",
+      ];
+    }
+  }
+
+  // 14. GOOGLE SHEETS BACKUP
+  else if (analysis.intent === "backup_sheets") {
+    metrics["Cloud Backup"] = "Google Sheets Mirror";
+    metrics["Sync Format"] = "Multi-Tab XLSX/Sheets";
+
+    quickLinks = [
+      { label: "Backup & Sync Console", href: "/super-admin/backup" },
+      { label: "Reports & Exports", href: "/admin/reports" },
+    ];
+
+    if (isH) {
+      content = `## ☁️ Google Sheets Mirroring Aur Data Backup
+
+Aapke school ka data safe aur secure rakhne ke liye automated Google Sheets mirror setup hai:
+
+### 🛡️ Backup Features:
+• **Multi-Tab Mirroring:** Students, Teachers, Attendance, aur Fee Ledger ka alag-alag tabs me real-time backup banta hai.
+• **1-Click Sync:** Super Admin backup console se aap kisi bhi time live sync trigger kar sakte hain.
+• **Excel / PDF Download:** Sabhi modules se kabhi bhi raw data download kiya ja sakta hai.
+
+[👉 Google Sheets Backup Console Kholein →](/super-admin/backup)`;
+
+      suggestedFollowUps = [
+        "School ka overall summary do",
+        "Fee transactions log dikhao",
+        "Student directory dekhein",
+      ];
+    } else {
+      content = `## ☁️ Automated Google Sheets Mirroring & Cloud Backup
+
+Automated data replication to Google Sheets with dedicated tabs for Students, Teachers, Daily Attendance, and Fee Ledger.
+
+[Open Backup Console →](/super-admin/backup)`;
+
+      suggestedFollowUps = [
+        "Show overall school summary",
+        "View fee transactions log",
+        "Check student directory",
+      ];
+    }
+  }
+
+  // 15. GREETING & COPILOT CAPABILITIES
+  else if (analysis.intent === "greeting_help") {
+    metrics["AI Copilot"] = "Ready";
+    metrics["Language Engine"] = "Hindi / Hinglish / English NLP";
+
+    quickLinks = [
+      { label: "Collect Fee", href: "/admin/fees/collect" },
+      { label: "Defaulters List", href: "/admin/fees/defaulters" },
+      { label: "Attendance", href: "/admin/attendance" },
+      { label: "Students", href: "/admin/students" },
+    ];
+
+    if (isH) {
+      content = `## 🙏 Namaste! Main Aapka School Study AI Copilot Hoon
+
+Aap mujhse apne school ke kisi bhi hisab-kitab, attendance, bacho ki sankhya, ya software ke setup ke baare me seedhe Hindi ya English me pooch sakte hain:
+
+### 💡 Aap Mujhse Kya-Kya Pooch Sakte Hain:
+• **Fee aur Dues:** "Kul baki fee kitni hai?", "Aaj kitna collection hua?", "Fee kaise jama karein?"
+• **Mini Printer Setup:** "Flipkart wale mini printer se receipt kaise niklegi?", "58mm printer setup kaise karein?"
+• **Attendance (Haziri):** "Aaj ki attendance kitni hai?", "Kon kon bacha absent hai?", "Haziri kaise bharein?"
+• **Students aur Admission:** "School me kitne bache hain?", "Naya admission kaise karein?", "Class 10 me kitne student hain?"
+• **Teachers aur Timetable:** "Total kitne teacher hain?", "Time table kya hai?"
+• **Notices aur Backup:** "Chhutti ka notice kaise bhejein?", "Google sheets me backup kaise lein?"
+
+Aap bas neeche apna sawal type karein ya suggestion chips par click karein!`;
+
+      suggestedFollowUps = [
+        "Kul baki fee kitni hai?",
+        "Receipt print karne ka tarika?",
+        "Aaj ki attendance report do",
+        "Naya student admission kaise kare?",
+      ];
+    } else {
+      content = `## 👋 Hello! I Am Your School Study AI Copilot
+
+I am your intelligent school administration assistant connected directly to your live school data. You can ask me questions in English or Hinglish anytime:
+
+### 💡 What You Can Ask Me:
+• **Fees & Ledger:** "What are the total pending fee dues?", "How to collect fees?", "Show defaulters list"
+• **Thermal Mini-Printer:** "How to print 58mm receipts with Bluetooth/Wi-Fi mini printer?"
+• **Attendance:** "What is today's campus attendance rate?", "Which students are absent?"
+• **Students & Admissions:** "How many students are enrolled?", "How to admit a new student?"
+• **Faculty & Timetable:** "How many teachers are on duty?", "What is the class schedule?"
+
+Type your question below or click any suggestion chip to get started!`;
+
+      suggestedFollowUps = [
+        "What is today's school summary?",
+        "How to setup 58mm mini printer?",
+        "Show pending fees and defaulters",
+        "How to take daily attendance?",
+      ];
+    }
+  }
+
+  // 16. GENERAL SCHOOL OVERVIEW & AUDIT SUMMARY (Default Fallback)
   else {
-    content = `## 🤖 School Study AI Intelligence Layer
+    metrics["Enrolled Learners"] = totalStudents;
+    metrics["Faculty On Duty"] = totalTeachers;
+    metrics["Collected Fees"] = `₹${collectedFees.toLocaleString()}`;
+    metrics["Pending Receivables"] = `₹${pendingFees.toLocaleString()}`;
 
-Operating within verified authorized portal: **${portal}**.  
-All responses are synthesized from live institution data.
+    quickLinks = [
+      { label: "Collect Fee", href: "/admin/fees/collect" },
+      { label: "Defaulters Ledger", href: "/admin/fees/defaulters" },
+      { label: "Attendance Desk", href: "/admin/attendance" },
+      { label: "Student Roster", href: "/admin/students" },
+    ];
 
-[Open Portal Dashboard →](/admin)`;
+    if (isH) {
+      content = `## 🏫 School Ka Live Summary Aur Health Report
+
+**School:** ${schoolName}  
+**Date:** ${new Date().toLocaleDateString(undefined, { dateStyle: "full" })}
+
+Yahan aapke school ka live snapshot hai:
+
+### 📊 School Performance & Ledger Table:
+
+| Head / Department | Live Metric | Health Status |
+| :--- | :--- | :--- |
+| **Total Registered Students** | **${totalStudents} bache** | ✅ Active Enrollment |
+| **Faculty On Duty** | **${totalTeachers} teachers** | Complete Staff Presence |
+| **Today's Attendance Rate** | **${attendanceRate}** | 🟢 Optimal Attendance |
+| **Fees Collected (Jama)** | **₹${collectedFees.toLocaleString()}** | Received in Bank/Cash |
+| **Fees Pending (Baki Dues)** | **₹${pendingFees.toLocaleString()}** | ⚠️ ${defaultersCount} Defaulters |
+| **Fee Recovery Rate** | **${recoveryPct}%** | Target: >95% |
+
+---
+
+### 🚀 Immediate Recommended Actions:
+• **Fee Dues Reminder:** ₹${pendingFees.toLocaleString()} baki hai across ${defaultersCount} bacho me. Defaulters section me jakar reminders bhejein.
+• **58mm Mini Printer:** Naye payments ke liye 58mm thermal receipt print karein.
+• **Attendance Check:** Sabhi sections ki morning roll call verified hai.
+
+[👉 Defaulters List Dekhein →](/admin/fees/defaulters)  
+[💰 Nayi Fee Jama Karein →](/admin/fees/collect)  
+[📋 Daily Attendance Check Karein →](/admin/attendance)`;
+
+      suggestedFollowUps = [
+        "Defaulters list dikhao",
+        "Receipt print karne ka tarika?",
+        "Aaj ki attendance report do",
+        "Naya student admission kaise kare?",
+      ];
+    } else {
+      content = `## 🏫 Comprehensive School Health & Telemetry Audit
+
+**Institution:** ${schoolName}  
+**Date:** ${new Date().toLocaleDateString(undefined, { dateStyle: "full" })}
+
+### 📊 Administrative Metrics:
+
+| Department | Key Metric | Health Indicator |
+| :--- | :--- | :--- |
+| **Total Enrolled Learners** | **${totalStudents}** | ✅ Authoritative Directory |
+| **Active Faculty Members** | **${totalTeachers}** | Full Staff On-Duty |
+| **Campus Attendance Rate** | **${attendanceRate}** | 🟢 Healthy Presence |
+| **Total Fees Collected** | **₹${collectedFees.toLocaleString()}** | Received into Bank & Cash |
+| **Total Outstanding Dues** | **₹${pendingFees.toLocaleString()}** | ⚠️ ${defaultersCount} Defaulter Accounts |
+| **Recovery Efficiency** | **${recoveryPct}%** | Current Target Progress |
+
+[View Fee Defaulters →](/admin/fees/defaulters)  
+[Collect Student Fees →](/admin/fees/collect)  
+[Daily Attendance Register →](/admin/attendance)`;
+
+      suggestedFollowUps = [
+        "Show outstanding defaulters list",
+        "How to setup 58mm mini printer?",
+        "Today's attendance breakdown",
+        "How to add a new student?",
+      ];
+    }
   }
 
   return {

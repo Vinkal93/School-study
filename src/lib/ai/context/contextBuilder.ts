@@ -131,86 +131,155 @@ async function buildSchoolAdminContext(adminDb: any, schoolId: string) {
     recentNotices: [],
   };
 
-  if (!adminDb || !schoolId) return summary;
+  if (!schoolId) return summary;
 
-  try {
-    // 1. School Info
-    const schoolDoc = await adminDb.collection("schools").doc(schoolId).get();
-    if (schoolDoc.exists) {
-      const sData = schoolDoc.data();
-      summary.schoolInfo = {
-        name: sData.name,
-        code: sData.code,
-        email: sData.email,
-        phone: sData.phone,
-        address: sData.address,
+  if (adminDb) {
+    try {
+      // 1. School Info
+      const schoolDoc = await adminDb.collection("schools").doc(schoolId).get();
+      if (schoolDoc.exists) {
+        const sData = schoolDoc.data();
+        summary.schoolInfo = {
+          name: sData.name,
+          code: sData.code,
+          email: sData.email,
+          phone: sData.phone,
+          address: sData.address,
+        };
+      }
+
+      // 2. Students Count & Class Breakdown
+      const studentsSnap = await adminDb
+        .collection("students")
+        .where("schoolId", "==", schoolId)
+        .limit(300)
+        .get();
+      summary.studentStatistics.totalStudents = studentsSnap.size;
+      let activeStudents = 0;
+      const byClass: Record<string, number> = {};
+
+      studentsSnap.docs.forEach((doc: any) => {
+        const data = doc.data();
+        if (data.status !== "inactive" && data.status !== "deleted") activeStudents++;
+        const className = data.className || data.class || "Unassigned";
+        byClass[className] = (byClass[className] || 0) + 1;
+      });
+      summary.studentStatistics.activeStudents = activeStudents;
+      summary.studentStatistics.byClass = byClass;
+
+      // 3. Teachers
+      const teachersSnap = await adminDb
+        .collection("teachers")
+        .where("schoolId", "==", schoolId)
+        .limit(100)
+        .get();
+      summary.teacherStatistics.totalTeachers = teachersSnap.size;
+
+      // 4. Fees Summary
+      const feesSnap = await adminDb
+        .collection("fees")
+        .where("schoolId", "==", schoolId)
+        .limit(200)
+        .get();
+      let totalExpected = 0;
+      let totalCollected = 0;
+      let defaulters = 0;
+
+      feesSnap.docs.forEach((d: any) => {
+        const data = d.data();
+        const amount = Number(data.amount || data.totalAmount || 0);
+        const paid = Number(data.paidAmount || 0);
+        totalExpected += amount;
+        totalCollected += paid;
+        if (amount > paid) defaulters++;
+      });
+
+      summary.feeStatistics = {
+        totalExpected,
+        totalCollected,
+        totalPending: Math.max(0, totalExpected - totalCollected),
+        defaultersCount: defaulters,
       };
-    }
 
-    // 2. Students Count & Class Breakdown
-    const studentsSnap = await adminDb
-      .collection("students")
-      .where("schoolId", "==", schoolId)
-      .limit(300)
-      .get();
-    summary.studentStatistics.totalStudents = studentsSnap.size;
-    let activeStudents = 0;
-    const byClass: Record<string, number> = {};
+      // 5. Notices
+      const noticesSnap = await adminDb
+        .collection("notices")
+        .where("schoolId", "==", schoolId)
+        .limit(10)
+        .get();
+      summary.recentNotices = noticesSnap.docs.map((d: any) => {
+        const n = d.data();
+        return { title: n.title, targetAudience: n.targetAudience, date: n.date || n.createdAt };
+      });
+    } catch (e) {}
+  } else {
+    // Client-side Firestore fallback when server-side Admin SDK is not initialized
+    try {
+      const clientDb = getFirebaseDb();
+      if (clientDb) {
+        try {
+          const schoolDoc = await getDoc(doc(clientDb, "schools", schoolId));
+          if (schoolDoc.exists()) {
+            const sData = schoolDoc.data();
+            summary.schoolInfo = {
+              name: sData.name,
+              code: sData.code,
+              email: sData.email,
+              phone: sData.phone,
+              address: sData.address,
+            };
+          }
+        } catch (e) {}
 
-    studentsSnap.docs.forEach((doc: any) => {
-      const data = doc.data();
-      if (data.status !== "inactive" && data.status !== "deleted") activeStudents++;
-      const className = data.className || data.class || "Unassigned";
-      byClass[className] = (byClass[className] || 0) + 1;
-    });
-    summary.studentStatistics.activeStudents = activeStudents;
-    summary.studentStatistics.byClass = byClass;
+        try {
+          const studentsSnap = await getDocs(
+            query(collection(clientDb, "students"), where("schoolId", "==", schoolId), limit(300))
+          );
+          summary.studentStatistics.totalStudents = studentsSnap.size;
+          let activeStudents = 0;
+          const byClass: Record<string, number> = {};
+          studentsSnap.docs.forEach((doc) => {
+            const data = doc.data();
+            if (data.status !== "inactive" && data.status !== "deleted") activeStudents++;
+            const className = data.className || data.class || "Unassigned";
+            byClass[className] = (byClass[className] || 0) + 1;
+          });
+          summary.studentStatistics.activeStudents = activeStudents;
+          summary.studentStatistics.byClass = byClass;
+        } catch (e) {}
 
-    // 3. Teachers
-    const teachersSnap = await adminDb
-      .collection("teachers")
-      .where("schoolId", "==", schoolId)
-      .limit(100)
-      .get();
-    summary.teacherStatistics.totalTeachers = teachersSnap.size;
+        try {
+          const teachersSnap = await getDocs(
+            query(collection(clientDb, "teachers"), where("schoolId", "==", schoolId), limit(100))
+          );
+          summary.teacherStatistics.totalTeachers = teachersSnap.size;
+        } catch (e) {}
 
-    // 4. Fees Summary
-    const feesSnap = await adminDb
-      .collection("fees")
-      .where("schoolId", "==", schoolId)
-      .limit(200)
-      .get();
-    let totalExpected = 0;
-    let totalCollected = 0;
-    let defaulters = 0;
-
-    feesSnap.docs.forEach((d: any) => {
-      const data = d.data();
-      const amount = Number(data.amount || data.totalAmount || 0);
-      const paid = Number(data.paidAmount || 0);
-      totalExpected += amount;
-      totalCollected += paid;
-      if (amount > paid) defaulters++;
-    });
-
-    summary.feeStatistics = {
-      totalExpected,
-      totalCollected,
-      totalPending: Math.max(0, totalExpected - totalCollected),
-      defaultersCount: defaulters,
-    };
-
-    // 5. Notices
-    const noticesSnap = await adminDb
-      .collection("notices")
-      .where("schoolId", "==", schoolId)
-      .limit(10)
-      .get();
-    summary.recentNotices = noticesSnap.docs.map((d: any) => {
-      const n = d.data();
-      return { title: n.title, targetAudience: n.targetAudience, date: n.date || n.createdAt };
-    });
-  } catch (e) {}
+        try {
+          const feesSnap = await getDocs(
+            query(collection(clientDb, "fees"), where("schoolId", "==", schoolId), limit(200))
+          );
+          let totalExpected = 0;
+          let totalCollected = 0;
+          let defaulters = 0;
+          feesSnap.docs.forEach((d) => {
+            const data = d.data();
+            const amount = Number(data.amount || data.totalAmount || 0);
+            const paid = Number(data.paidAmount || 0);
+            totalExpected += amount;
+            totalCollected += paid;
+            if (amount > paid) defaulters++;
+          });
+          summary.feeStatistics = {
+            totalExpected,
+            totalCollected,
+            totalPending: Math.max(0, totalExpected - totalCollected),
+            defaultersCount: defaulters,
+          };
+        } catch (e) {}
+      }
+    } catch (e) {}
+  }
 
   return summary;
 }
