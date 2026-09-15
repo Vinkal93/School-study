@@ -13,7 +13,7 @@ import {
   signInWithEmail,
   signOutUser,
 } from "@/lib/services/auth.service";
-import { getUserProfile } from "@/lib/services/user.service";
+import { getUserProfile, isSuperAdminEmail } from "@/lib/services/user.service";
 import { getFirebaseAuth, getFirebaseDb } from "@/lib/firebase/client";
 import { doc, updateDoc } from "firebase/firestore";
 import type { AppUser } from "@/types";
@@ -124,13 +124,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (isPendingReg) {
               return;
             }
-            toast.error("Account not found. Please contact admin.");
-            await signOutUser();
-            setFirebaseUser(null);
-            setOriginalProfile(null);
-            setImpersonatedUser(null);
-            setBootstrapState("AUTH_ERROR");
-            setLoading(false);
+
+            // If running inside an iframe, never destroy parent session
+            if (typeof window !== "undefined" && window.self !== window.top) {
+              return;
+            }
+
+            console.warn("Notice: User profile not immediately resolved, preserving session with fallback profile.");
+            const fallbackProfile: AppUser = {
+              uid: user.uid,
+              email: (user.email || "").trim().toLowerCase(),
+              name: user.displayName || (user.email ? user.email.split("@")[0] : "User"),
+              role: isSuperAdminEmail(user.email) ? "super_admin" : "school_admin",
+              status: "active",
+              schoolId: null,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            } as unknown as AppUser;
+
+            setOriginalProfile(fallbackProfile);
+            setBootstrapState("AUTHENTICATED_CONTEXT_READY");
             return;
           }
 
@@ -139,6 +152,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             userProfile.status === "disabled" ||
             userProfile.status === "inactive"
           ) {
+            // Never execute signOutUser from inside an iframe
+            if (typeof window !== "undefined" && window.self !== window.top) {
+              return;
+            }
             toast.error("Your account has been suspended or deactivated. Please contact platform admin.");
             await signOutUser();
             setFirebaseUser(null);

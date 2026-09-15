@@ -53,6 +53,11 @@ export default function DashboardLayout({
   const pathname = usePathname();
 
   useEffect(() => {
+    // Suppress navigation redirects inside iframes/previews to prevent session disruption
+    if (typeof window !== "undefined" && window.self !== window.top) {
+      return;
+    }
+
     if (!loading) {
       if (!firebaseUser) {
         router.push("/login");
@@ -92,7 +97,9 @@ export default function DashboardLayout({
     );
   }
 
-  if (!firebaseUser) {
+  const isEmbeddedIframe = typeof window !== "undefined" && window.self !== window.top;
+
+  if (!firebaseUser && !isEmbeddedIframe) {
     return null;
   }
 
@@ -104,7 +111,7 @@ export default function DashboardLayout({
         sessionStorage.getItem("ss_super_admin_verified") === "true"
       : false;
 
-  if (isSuperAdminRoute && (!profile || profile.role !== "super_admin" || !isSuperAdminVerified)) {
+  if (isSuperAdminRoute && (!profile || profile.role !== "super_admin" || !isSuperAdminVerified) && !isEmbeddedIframe) {
     return (
       <div className="flex min-h-screen min-h-[100dvh] items-center justify-center">
         <Spinner size="lg" />

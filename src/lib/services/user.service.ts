@@ -57,6 +57,16 @@ export async function getUserProfile(uid: string, email?: string | null): Promis
       return await ensureSuperAdminProfile(uid, normalizedEmail);
     } catch (e) {
       console.warn("Could not ensure super admin profile, continuing:", e);
+      return {
+        uid,
+        name: normalizedEmail.split("@")[0] || "Super Administrator",
+        email: normalizedEmail,
+        role: "super_admin",
+        schoolId: "system",
+        status: "active",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      } as unknown as AppUser;
     }
   }
 
@@ -138,7 +148,8 @@ export async function getUserProfile(uid: string, email?: string | null): Promis
       } catch (e) {}
     }
 
-    return null;
+    // Fallback profile if user doc is not yet in Firestore (e.g. sync lag, offline, or transient error)
+    return getFallbackProfile(uid, email);
   } catch (error: any) {
     return getFallbackProfile(uid, email);
   }

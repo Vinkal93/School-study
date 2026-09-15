@@ -22,6 +22,10 @@ import {
   Globe,
   GripVertical,
   ExternalLink,
+  Users,
+  GraduationCap,
+  Building2,
+  ShieldCheck,
 } from "lucide-react";
 import { AiContextBadge } from "./AiContextBadge";
 import { AiConversationList } from "./AiConversationList";
@@ -45,6 +49,184 @@ import { Tool, type ToolPart } from "@/components/prompt-kit/tool";
 import { SystemMessage } from "@/components/prompt-kit/system-message";
 import { Button } from "@/components/ui/button";
 
+interface SimulatedPortalMobileViewProps {
+  portal: AiPortalType;
+  schoolName?: string;
+  userName?: string;
+  portalUrl: string;
+}
+
+function SimulatedPortalMobileView({
+  portal,
+  schoolName,
+  userName,
+  portalUrl,
+}: SimulatedPortalMobileViewProps) {
+  const getPortalTitle = () => {
+    switch (portal) {
+      case "super_admin":
+        return "Platform Command";
+      case "teacher":
+        return "Teacher Hub";
+      case "student":
+        return "Student Companion";
+      default:
+        return schoolName || "School Workspace";
+    }
+  };
+
+  const getPortalBadge = () => {
+    switch (portal) {
+      case "super_admin":
+        return "Super Admin";
+      case "teacher":
+        return "Faculty";
+      case "student":
+        return "Student";
+      default:
+        return "Principal / Admin";
+    }
+  };
+
+  return (
+    <div className="flex-1 w-full flex flex-col bg-slate-900 text-white select-none overflow-y-auto">
+      {/* Mobile App Header */}
+      <div className="px-4 py-3 bg-slate-800/90 border-b border-slate-700/60 flex items-center justify-between sticky top-0 z-10 backdrop-blur-md">
+        <div className="flex items-center gap-2">
+          <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-xs text-white shadow-xs">
+            {portal === "super_admin" ? "SA" : portal === "teacher" ? "TC" : portal === "student" ? "ST" : "AD"}
+          </div>
+          <div>
+            <h4 className="text-xs font-bold text-white truncate max-w-[130px] leading-tight">
+              {getPortalTitle()}
+            </h4>
+            <div className="flex items-center gap-1 mt-0.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[9px] text-emerald-300 font-medium">Live Synced</span>
+            </div>
+          </div>
+        </div>
+        <span className="px-2 py-0.5 rounded-full text-[9px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+          {getPortalBadge()}
+        </span>
+      </div>
+
+      {/* Mobile Scrollable Content */}
+      <div className="p-3 space-y-3 flex-1">
+        {/* User Welcome Card */}
+        <div className="p-3 rounded-2xl bg-gradient-to-br from-indigo-900/60 to-purple-900/40 border border-indigo-500/30">
+          <div className="text-[10px] text-indigo-300 font-medium">Welcome back,</div>
+          <div className="text-xs font-bold text-white truncate">{userName || "Administrator"} 👋</div>
+          <div className="mt-2 text-[10px] text-slate-300 flex items-center gap-1">
+            <Sparkles className="h-3 w-3 text-purple-400 shrink-0" />
+            <span>AI Copilot is synchronized with this portal.</span>
+          </div>
+        </div>
+
+        {/* Portal-Specific Live Stats */}
+        <div className="grid grid-cols-2 gap-2 text-left">
+          {portal === "super_admin" ? (
+            <>
+              <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
+                <div className="text-[9px] text-slate-400 uppercase font-semibold">Active Schools</div>
+                <div className="text-sm font-bold text-white mt-0.5">14 Active</div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
+                <div className="text-[9px] text-slate-400 uppercase font-semibold">System Health</div>
+                <div className="text-sm font-bold text-emerald-400 mt-0.5">99.9% Uptime</div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
+                <div className="text-[9px] text-slate-400 uppercase font-semibold">Security</div>
+                <div className="text-sm font-bold text-indigo-300 mt-0.5">Zero Threats</div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
+                <div className="text-[9px] text-slate-400 uppercase font-semibold">Global AI</div>
+                <div className="text-sm font-bold text-purple-300 mt-0.5">Active</div>
+              </div>
+            </>
+          ) : portal === "teacher" ? (
+            <>
+              <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
+                <div className="text-[9px] text-slate-400 uppercase font-semibold">Today Classes</div>
+                <div className="text-sm font-bold text-white mt-0.5">4 Sections</div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
+                <div className="text-[9px] text-slate-400 uppercase font-semibold">Attendance</div>
+                <div className="text-sm font-bold text-emerald-400 mt-0.5">Marked (3/4)</div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
+                <div className="text-[9px] text-slate-400 uppercase font-semibold">Homework</div>
+                <div className="text-sm font-bold text-indigo-300 mt-0.5">2 Pending</div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
+                <div className="text-[9px] text-slate-400 uppercase font-semibold">Next Period</div>
+                <div className="text-sm font-bold text-purple-300 mt-0.5">Math 10-A</div>
+              </div>
+            </>
+          ) : portal === "student" ? (
+            <>
+              <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
+                <div className="text-[9px] text-slate-400 uppercase font-semibold">My Attendance</div>
+                <div className="text-sm font-bold text-emerald-400 mt-0.5">96.4%</div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
+                <div className="text-[9px] text-slate-400 uppercase font-semibold">Fee Status</div>
+                <div className="text-sm font-bold text-emerald-400 mt-0.5">All Cleared</div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
+                <div className="text-[9px] text-slate-400 uppercase font-semibold">Next Exam</div>
+                <div className="text-sm font-bold text-indigo-300 mt-0.5">Science (Fri)</div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
+                <div className="text-[9px] text-slate-400 uppercase font-semibold">Assignments</div>
+                <div className="text-sm font-bold text-purple-300 mt-0.5">1 Due Today</div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
+                <div className="text-[9px] text-slate-400 uppercase font-semibold">Students</div>
+                <div className="text-sm font-bold text-white mt-0.5">480 Enrolled</div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
+                <div className="text-[9px] text-slate-400 uppercase font-semibold">Attendance</div>
+                <div className="text-sm font-bold text-emerald-400 mt-0.5">94.8% Today</div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
+                <div className="text-[9px] text-slate-400 uppercase font-semibold">Teachers</div>
+                <div className="text-sm font-bold text-indigo-300 mt-0.5">28 / 30 On Duty</div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
+                <div className="text-[9px] text-slate-400 uppercase font-semibold">Fee Collection</div>
+                <div className="text-sm font-bold text-purple-300 mt-0.5">₹1.85L (Month)</div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Action Button to Open Full Desktop Portal */}
+        <a
+          href={portalUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] font-semibold flex items-center justify-center gap-1.5 transition"
+        >
+          <span>Open Full Portal in Tab</span>
+          <ExternalLink className="h-3 w-3 text-slate-400" />
+        </a>
+      </div>
+
+      {/* Simulated Bottom Nav */}
+      <div className="px-4 py-2 bg-slate-800/90 border-t border-slate-700/60 flex items-center justify-around text-[10px] text-slate-400">
+        <span className="text-indigo-400 font-bold flex flex-col items-center">●<span className="text-[8px] mt-0.5">Home</span></span>
+        <span className="flex flex-col items-center">○<span className="text-[8px] mt-0.5">Stats</span></span>
+        <span className="flex flex-col items-center text-purple-400">✨<span className="text-[8px] mt-0.5">AI</span></span>
+        <span className="flex flex-col items-center">○<span className="text-[8px] mt-0.5">Menu</span></span>
+      </div>
+    </div>
+  );
+}
+
 export interface AiWorkspaceProps {
   portal: AiPortalType;
   schoolName?: string;
@@ -66,12 +248,11 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
   } | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
-  // Resizable Phone View State
-  const [showPhonePreview, setShowPhonePreview] = useState(true);
+  // Resizable Phone View State (defaults to false for full workspace view)
+  const [showPhonePreview, setShowPhonePreview] = useState(false);
   const [phoneWidth, setPhoneWidth] = useState(400); // 400px default
   const [isResizing, setIsResizing] = useState(false);
   const [activeMobileTab, setActiveMobileTab] = useState<"phone" | "ai">("ai");
-  const [phoneIframeKey, setPhoneIframeKey] = useState(0);
 
   // Tool parts for prompt-kit
   const [activeToolPart, setActiveToolPart] = useState<ToolPart | null>(null);
@@ -611,28 +792,30 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
               </div>
             </div>
 
-            {/* URL / Refresh Bar */}
+            {/* URL / Live Status Bar */}
             <div className="bg-gray-900/90 rounded-xl px-2.5 py-1.5 mb-2 flex items-center justify-between text-[11px] text-gray-300">
               <div className="flex items-center gap-1.5 truncate">
                 <Globe className="h-3 w-3 text-emerald-400 shrink-0" />
                 <span className="font-mono text-[10px] truncate">{getPortalUrl()}</span>
               </div>
-              <button
-                onClick={() => setPhoneIframeKey((k) => k + 1)}
-                className="p-1 hover:text-white rounded-md transition"
-                title="Reload Phone Portal"
+              <a
+                href={getPortalUrl()}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-1 hover:text-white rounded-md transition text-gray-400 hover:text-white"
+                title="Open Live Portal in New Tab"
               >
-                <RotateCw className="h-3 w-3" />
-              </button>
+                <ExternalLink className="h-3 w-3" />
+              </a>
             </div>
 
-            {/* Live Portal Iframe */}
-            <div className="flex-1 w-full rounded-2xl overflow-hidden bg-white dark:bg-gray-900 shadow-inner">
-              <iframe
-                key={phoneIframeKey}
-                src={getPortalUrl()}
-                title="Live Portal Mobile Preview"
-                className="w-full h-full border-0"
+            {/* Simulated Live Portal Mobile Screen */}
+            <div className="flex-1 w-full rounded-2xl overflow-hidden bg-slate-900 shadow-inner flex flex-col">
+              <SimulatedPortalMobileView
+                portal={portal}
+                schoolName={schoolName}
+                userName={userName}
+                portalUrl={getPortalUrl()}
               />
             </div>
 

@@ -19,6 +19,11 @@ export function useRealtimeSecurityListener() {
   const mountTimeRef = useRef<number>(Date.now());
 
   useEffect(() => {
+    // Never run realtime security listeners inside an iframe to prevent session collision
+    if (typeof window !== "undefined" && window.self !== window.top) {
+      return;
+    }
+
     if (!userId) return;
     const db = getFirebaseDb();
     if (!db) return;
