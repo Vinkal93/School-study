@@ -191,8 +191,14 @@ export async function POST(request: Request) {
       existingBells = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
     } else {
       const db = getFirebaseDb();
-      const snap = await getDocs(collection(db, "schools", schoolId, "bells"));
-      existingBells = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as ClassBell[];
+      if (db) {
+        try {
+          const snap = await getDocs(collection(db, "schools", schoolId, "bells"));
+          existingBells = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as ClassBell[];
+        } catch (fetchErr) {
+          console.warn("Notice: could not query existing bells on server:", fetchErr);
+        }
+      }
     }
 
     // Filter out the bell being edited

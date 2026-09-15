@@ -29,6 +29,9 @@ import {
   subscribeToClassBells,
   getCurrentDayOfWeek,
   calculateBellStatus,
+  saveClassBell,
+  deleteClassBell,
+  copyBellsToOtherDays,
   type BellLiveStatus,
 } from "@/lib/services/timetable.service";
 import type { SchoolClass, TeacherProfile } from "@/types";
@@ -236,21 +239,8 @@ export default function AdminTimetablePage() {
         isBreak,
       };
 
-      // Direct API call to guarantee backend persistence & validation
-      const res = await fetch("/api/timetable", {
-        method: "POST",
-        headers: await getAuthHeaders(),
-        body: JSON.stringify({
-          schoolId,
-          bellId: editingBellId || undefined,
-          ...input,
-        }),
-      });
-
-      const resData = await res.json();
-      if (!res.ok || !resData.success) {
-        throw new Error(resData.error || "Failed to save period.");
-      }
+      // Save period using resilient service (API with client-side Firestore fallback)
+      await saveClassBell(schoolId, input, editingBellId || undefined);
 
       toast.success(editingBellId ? "Period updated successfully!" : "Period added successfully!");
 
@@ -289,14 +279,7 @@ export default function AdminTimetablePage() {
   const handleDeleteBell = async (bellId: string) => {
     if (!confirm("Are you sure you want to remove this period? This cannot be undone.")) return;
     try {
-      const res = await fetch(`/api/timetable?schoolId=${encodeURIComponent(schoolId)}&bellId=${encodeURIComponent(bellId)}`, {
-        method: "DELETE",
-        headers: await getAuthHeaders(),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Failed to delete period.");
-      }
+      await deleteClassBell(schoolId, bellId);
       toast.success("Period deleted successfully.");
     } catch (err: any) {
       toast.error(err.message || "Failed to delete period.");
@@ -320,24 +303,15 @@ export default function AdminTimetablePage() {
 
     setIsCopying(true);
     try {
-      const res = await fetch("/api/timetable/apply-all", {
-        method: "POST",
-        headers: await getAuthHeaders(),
-        body: JSON.stringify({
-          schoolId,
-          classId: selectedClassId,
-          sectionId: selectedSectionId !== "all" ? selectedSectionId : undefined,
-          sourceDay: selectedDay,
-          targetDays: otherDays,
-        }),
-      });
+      await copyBellsToOtherDays(
+        schoolId,
+        selectedClassId,
+        selectedDay,
+        otherDays,
+        selectedSectionId !== "all" ? selectedSectionId : undefined
+      );
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Failed to copy schedule.");
-      }
-
-      toast.success(data.message || `Copied timetable from ${selectedDay} to all weekdays!`);
+      toast.success(`Copied timetable from ${selectedDay} to all weekdays!`);
     } catch (err: any) {
       toast.error(err.message || "Failed to copy timetable.");
     } finally {

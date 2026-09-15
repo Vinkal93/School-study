@@ -36,7 +36,7 @@ export default function AdminBackupPage() {
   const searchParams = useSearchParams();
   const initialTab = searchParams.get("tab") === "import" ? "import" : "export";
 
-  const { profile } = useAuth();
+  const { profile, firebaseUser } = useAuth();
   const schoolId = profile?.schoolId || "";
 
   const [activeTab, setActiveTab] = useState<"export" | "import">(initialTab);
@@ -63,37 +63,68 @@ export default function AdminBackupPage() {
     mod: SupportedImportModule | "all" = exportModule,
     fmt: "xlsx" | "csv" | "json" = exportFormat
   ) => {
+    if (!schoolId) {
+      toast.error("School ID not found.");
+      return;
+    }
     setIsExporting(true);
     try {
-      const url = `/api/admin/backup/export?module=${mod}&format=${fmt}${
-        mod === "students" && exportClassId ? `&classId=${exportClassId}` : ""
-      }`;
+      let downloaded = false;
 
-      const res = await fetch(url);
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.error || "Failed to download backup file.");
+      // 1. Try server-side export first with Bearer token
+      try {
+        const token = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
+        const url = `/api/admin/backup/export?module=${mod}&format=${fmt}${
+          mod === "students" && exportClassId ? `&classId=${exportClassId}` : ""
+        }`;
+
+        const res = await fetch(url, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+
+        if (res.ok) {
+          const blob = await res.blob();
+          const disposition = res.headers.get("Content-Disposition");
+          let filename = `school_${mod}_backup.${fmt}`;
+          if (disposition && disposition.includes("filename=")) {
+            const match = disposition.match(/filename="?([^"]+)"?/);
+            if (match && match[1]) filename = match[1];
+          }
+
+          const downloadUrl = window.URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = downloadUrl;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.URL.revokeObjectURL(downloadUrl);
+
+          toast.success(`Successfully downloaded ${filename}!`);
+          downloaded = true;
+        }
+      } catch (srvErr) {
+        console.warn("Notice: Server export unready, falling back to direct browser export:", srvErr);
       }
 
-      // Convert response to blob and trigger browser download
-      const blob = await res.blob();
-      const disposition = res.headers.get("Content-Disposition");
-      let filename = `school_${mod}_backup.${fmt}`;
-      if (disposition && disposition.includes("filename=")) {
-        const match = disposition.match(/filename="?([^"]+)"?/);
-        if (match && match[1]) filename = match[1];
+      // 2. Direct client-side export fallback (100% resilient with active browser auth)
+      if (!downloaded) {
+        const { exportSchoolDataClient } = await import("@/lib/services/import-export.service");
+        const { blob, filename } = await exportSchoolDataClient(schoolId, mod, fmt, {
+          classId: exportClassId || undefined,
+        });
+
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = downloadUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(downloadUrl);
+
+        toast.success(`Successfully downloaded ${filename}!`);
       }
-
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = downloadUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(downloadUrl);
-
-      toast.success(`Successfully downloaded ${filename}!`);
     } catch (err: any) {
       console.error("Export error:", err);
       toast.error(err.message || "Failed to generate backup.");
