@@ -161,12 +161,14 @@ export default function AdminBackupPage() {
   const processFilePreview = async (file: File, module: SupportedImportModule) => {
     setIsParsing(true);
     try {
+      const token = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
       const formData = new FormData();
       formData.append("file", file);
       formData.append("targetModule", module);
 
       const res = await fetch("/api/admin/backup/import/preview", {
         method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,
       });
 
@@ -187,43 +189,86 @@ export default function AdminBackupPage() {
   const handleExecuteImport = async () => {
     if (!previewResult || !selectedFile) return;
 
-    const validRows = previewResult.previewData.filter((r) => !r._hasErrors);
-    if (validRows.length === 0) {
+    // Use full list of valid records from allValidRecords if available, else filter previewData
+    const recordsToExecute =
+      previewResult.allValidRecords && previewResult.allValidRecords.length > 0
+        ? previewResult.allValidRecords
+        : previewResult.previewData.filter((r) => !r._hasErrors);
+
+    if (recordsToExecute.length === 0) {
       toast.error("There are no valid rows to import.");
       return;
     }
 
     if (
       !confirm(
-        `Are you sure you want to import ${validRows.length} ${importModule} records into your school database?`
+        `Are you sure you want to import ${recordsToExecute.length} ${importModule} records into your school database?`
       )
     ) {
       return;
     }
 
     setIsImporting(true);
-    try {
-      const res = await fetch("/api/admin/backup/import/execute", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          targetModule: importModule,
-          records: previewResult.previewData,
-        }),
-      });
+    const toastId = toast.loading(`Preparing to import ${recordsToExecute.length} records...`);
 
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.success) {
-        setImportCompleted(data);
+    try {
+      const token = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
+      let executed = false;
+      let resultData: any = null;
+
+      // 1. Try server execution
+      try {
+        const res = await fetch("/api/admin/backup/import/execute", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            targetModule: importModule,
+            records: recordsToExecute,
+          }),
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
+          resultData = data;
+          executed = true;
+        } else if (data.fallbackToClient) {
+          console.log("Server indicated client-side execution fallback.");
+        }
+      } catch (serverErr) {
+        console.warn("Server import route encountered issue, activating client execution:", serverErr);
+      }
+
+      // 2. Client-side fallback if server execution didn't complete (e.g. dev environment without Admin SDK)
+      if (!executed) {
+        toast.loading(`Importing ${recordsToExecute.length} records via client pipeline...`, { id: toastId });
+        const { importSchoolDataClient } = await import("@/lib/services/import-export-client.service");
+        resultData = await importSchoolDataClient(
+          schoolId,
+          importModule,
+          recordsToExecute,
+          (processed, total) => {
+            toast.loading(`Importing batch: ${processed} of ${total} records...`, { id: toastId });
+          }
+        );
+        executed = resultData.success;
+      }
+
+      if (executed && resultData) {
+        setImportCompleted(resultData);
         toast.success(
-          `Import complete! ${data.importedCount} created, ${data.updatedCount} updated.`
+          `Import complete! ${resultData.importedCount} created, ${resultData.updatedCount} updated.`,
+          { id: toastId }
         );
         confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } });
       } else {
-        toast.error(data.error || "Failed to execute import.");
+        toast.error(resultData?.error?.message || "Failed to execute import.", { id: toastId });
       }
     } catch (err: any) {
-      toast.error(err.message || "Import execution error.");
+      console.error("Import execution error:", err);
+      toast.error(err.message || "Import execution error.", { id: toastId });
     } finally {
       setIsImporting(false);
     }
@@ -686,24 +731,35 @@ export default function AdminBackupPage() {
                   <table className="w-full text-left text-xs">
                     <thead className="bg-gray-50 dark:bg-gray-800/80 text-gray-700 dark:text-gray-300 font-bold border-b border-gray-200 dark:border-gray-800">
                       <tr>
-                        <th className="py-2.5 px-3">#</th>
-                        {previewResult.detectedColumns.slice(0, 6).map((col) => (
-                          <th key={col} className="py-2.5 px-3">
+                        <th className="py-2.5 px-3 whitespace-nowrap">#</th>
+                        {previewResult.detectedColumns.slice(0, 8).map((col) => (
+                          <th key={col} className="py-2.5 px-3 whitespace-nowrap">
                             {col}
                           </th>
                         ))}
-                        <th className="py-2.5 px-3">Status</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap">Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-800 text-gray-600 dark:text-gray-300">
                       {previewResult.previewData.slice(0, 5).map((row, idx) => (
                         <tr key={idx} className="hover:bg-gray-50/60 dark:hover:bg-gray-800/40">
                           <td className="py-2 px-3 font-mono text-[11px]">{idx + 1}</td>
-                          {previewResult.detectedColumns.slice(0, 6).map((col) => (
-                            <td key={col} className="py-2 px-3 truncate max-w-[120px]">
-                              {String(row[col] ?? "")}
-                            </td>
-                          ))}
+                          {previewResult.detectedColumns.slice(0, 8).map((col) => {
+                            const mappedKey = previewResult.mappedFields[col];
+                            const cellVal =
+                              row[col] !== undefined && row[col] !== ""
+                                ? row[col]
+                                : (mappedKey && row[mappedKey] !== undefined ? row[mappedKey] : "");
+                            return (
+                              <td
+                                key={col}
+                                className="py-2 px-3 truncate max-w-[140px]"
+                                title={String(cellVal ?? "")}
+                              >
+                                {String(cellVal ?? "")}
+                              </td>
+                            );
+                          })}
                           <td className="py-2 px-3">
                             {row._hasErrors ? (
                               <span className="text-[10px] font-bold text-rose-600 bg-rose-50 dark:bg-rose-950/60 px-2 py-0.5 rounded">

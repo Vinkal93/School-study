@@ -7,8 +7,16 @@
  */
 
 import { getFirebaseDb } from "@/lib/firebase/client";
-import { collection, query, where, getDocs } from "firebase/firestore";
-import type { SupportedImportModule } from "@/types/backup";
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  writeBatch,
+  doc,
+  serverTimestamp,
+} from "firebase/firestore";
+import type { SupportedImportModule, ImportExecutionResult } from "@/types/backup";
 
 export async function exportSchoolDataClient(
   schoolId: string,
@@ -230,3 +238,161 @@ export async function exportSchoolDataClient(
     filename: `school_${targetModule}_${dateTag}.xlsx`,
   };
 }
+
+/**
+ * PURE CLIENT-SIDE DATA IMPORT SERVICE
+ * 
+ * Directly executes chunked batch imports in the browser using the active Firebase Auth user.
+ * Guarantees zero 500 server errors, works seamlessly without serverless service account keys,
+ * and reports progress in real time.
+ */
+export async function importSchoolDataClient(
+  schoolId: string,
+  targetModule: SupportedImportModule,
+  records: Record<string, any>[],
+  onProgress?: (processed: number, total: number) => void
+): Promise<ImportExecutionResult> {
+  const db = getFirebaseDb();
+  if (!db) {
+    throw new Error("Client Firestore database is not initialized.");
+  }
+  if (!schoolId) {
+    throw new Error("School ID is required for import.");
+  }
+  if (!records || records.length === 0) {
+    return {
+      success: false,
+      importedCount: 0,
+      updatedCount: 0,
+      skippedCount: 0,
+      preImportSnapshotId: "",
+      summary: { total: 0, created: 0, updated: 0, skipped: 0, failed: 0 },
+      error: { code: "NO_RECORDS", message: "No valid records provided for import." },
+    };
+  }
+
+  // 1. Fetch existing identity keys to differentiate creates from updates
+  const existingMap = new Map<string, string>();
+  try {
+    const snap = await getDocs(collection(db, "schools", schoolId, targetModule)).catch(async () => {
+      if (targetModule === "students") {
+        return await getDocs(query(collection(db, "students"), where("schoolId", "==", schoolId)));
+      }
+      return { docs: [] } as any;
+    });
+
+    snap.docs.forEach((d: any) => {
+      const data = d.data();
+      existingMap.set(`id:${d.id}`, d.id);
+      if (data.admissionNumber) existingMap.set(`adm:${String(data.admissionNumber).trim().toLowerCase()}`, d.id);
+      if (data.studentId) existingMap.set(`adm:${String(data.studentId).trim().toLowerCase()}`, d.id);
+      if (data.email) existingMap.set(`email:${String(data.email).trim().toLowerCase()}`, d.id);
+      if (data.teacherCode) existingMap.set(`code:${String(data.teacherCode).trim().toLowerCase()}`, d.id);
+    });
+  } catch (err) {
+    console.warn("[Client Import] Notice: Preload existing keys failed, proceeding with fresh IDs:", err);
+  }
+
+  let importedCount = 0;
+  let updatedCount = 0;
+  let skippedCount = 0;
+
+  // Helper to sanitize each record
+  const sanitizeClientRecord = (rec: Record<string, any>) => {
+    const clean: Record<string, any> = {};
+    for (const [k, v] of Object.entries(rec)) {
+      if (k.startsWith("_")) continue;
+      if (v === undefined) continue;
+      if (v === null) {
+        clean[k] = null;
+      } else if (typeof v === "string") {
+        clean[k] = v.trim();
+      } else {
+        clean[k] = v;
+      }
+    }
+    return clean;
+  };
+
+  // Process in safe batch chunks of 200 (well within Firestore's 500 writes limit, including dual writes)
+  const BATCH_SIZE = 200;
+  for (let i = 0; i < records.length; i += BATCH_SIZE) {
+    const chunk = records.slice(i, i + BATCH_SIZE);
+    const batch = writeBatch(db);
+
+    for (const rec of chunk) {
+      if (rec._hasErrors) {
+        skippedCount++;
+        continue;
+      }
+
+      const admNo = String(rec.admissionNumber || rec.studentId || "").trim().toLowerCase();
+      const existingId = (admNo && existingMap.get(`adm:${admNo}`)) || (rec.id && existingMap.get(`id:${rec.id}`));
+      const isUpdate = Boolean(existingId || (rec._isDuplicate && rec._existingId));
+      const docId = existingId || rec._existingId || rec.id || doc(collection(db, "schools", schoolId, targetModule)).id;
+
+      const cleanData = sanitizeClientRecord(rec);
+
+      if (targetModule === "students") {
+        cleanData.studentId = cleanData.admissionNumber || cleanData.studentId || docId;
+        if (cleanData.rollNumber !== undefined && cleanData.rollNumber !== "") {
+          cleanData.rollNumber = Number(cleanData.rollNumber) || 0;
+        }
+        if (cleanData.parentName && !cleanData.guardianName) cleanData.guardianName = cleanData.parentName;
+        if (cleanData.guardianName && !cleanData.parentName) cleanData.parentName = cleanData.guardianName;
+        if (cleanData.parentPhone && !cleanData.guardianPhone) cleanData.guardianPhone = cleanData.parentPhone;
+        if (cleanData.guardianPhone && !cleanData.parentPhone) cleanData.parentPhone = cleanData.guardianPhone;
+        if (cleanData.section && !cleanData.sectionName) cleanData.sectionName = cleanData.section;
+        if (!cleanData.status) cleanData.status = "active";
+        if (!cleanData.admissionDate) cleanData.admissionDate = new Date().toISOString().split("T")[0];
+      }
+
+      const schoolDocRef = doc(db, "schools", schoolId, targetModule, docId);
+
+      if (isUpdate) {
+        batch.set(schoolDocRef, { ...cleanData, updatedAt: serverTimestamp() }, { merge: true });
+        if (targetModule === "students") {
+          const topStudentRef = doc(db, "students", docId);
+          batch.set(topStudentRef, { ...cleanData, schoolId, updatedAt: serverTimestamp() }, { merge: true });
+        }
+        updatedCount++;
+      } else {
+        const fullDoc = {
+          id: docId,
+          schoolId,
+          ...cleanData,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        };
+        batch.set(schoolDocRef, fullDoc);
+        if (targetModule === "students") {
+          const topStudentRef = doc(db, "students", docId);
+          batch.set(topStudentRef, fullDoc);
+        }
+        importedCount++;
+        if (admNo) existingMap.set(`adm:${admNo}`, docId);
+      }
+    }
+
+    await batch.commit();
+    if (onProgress) {
+      onProgress(Math.min(i + chunk.length, records.length), records.length);
+    }
+  }
+
+  return {
+    success: true,
+    importedCount,
+    updatedCount,
+    skippedCount,
+    preImportSnapshotId: "",
+    summary: {
+      total: records.length,
+      created: importedCount,
+      updated: updatedCount,
+      skipped: skippedCount,
+      failed: 0,
+    },
+  };
+}
+

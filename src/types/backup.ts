@@ -81,6 +81,7 @@ export interface ImportPreviewResult {
   detectedColumns: string[];
   mappedFields: Record<string, string>;
   previewData: Record<string, any>[];
+  allValidRecords?: Record<string, any>[];
   validationErrors: ImportValidationError[];
   duplicates: Array<{ rowNumber: number; keyField: string; keyValue: string; existingRecordId: string }>;
 }
@@ -91,5 +92,18 @@ export interface ImportExecutionResult {
   updatedCount: number;
   skippedCount: number;
   preImportSnapshotId: string;
+  fallbackToClient?: boolean;
+  summary?: {
+    total: number;
+    created: number;
+    updated: number;
+    skipped: number;
+    failed: number;
+  };
+  error?: {
+    code?: string;
+    message: string;
+    details?: any;
+  };
   errors?: string[];
 }

@@ -31,17 +31,77 @@ import type {
  */
 const FIELD_ALIASES: Record<SupportedImportModule, Record<string, string[]>> = {
   students: {
-    admissionNumber: ["admission number", "adm no", "admission no", "adm_no", "admission_no", "student code"],
-    rollNumber: ["roll number", "roll no", "roll_no"],
-    name: ["student name", "name", "full name", "fullname", "student_name"],
-    className: ["class", "grade", "classname", "class name", "standard"],
-    section: ["section", "division", "sec"],
+    admissionNumber: ["admission number", "adm no", "admission no", "adm_no", "admission_no", "student code", "admissionno", "student id", "student_id", "adm num"],
+    rollNumber: ["roll number", "roll no", "roll_no", "roll", "rollno", "class roll"],
+    name: ["student name", "name", "full name", "fullname", "student_name", "studentname", "candidate name"],
+    className: ["class", "grade", "classname", "class name", "standard", "std"],
+    section: ["section", "division", "sec", "section name", "section_name", "sec name"],
     gender: ["gender", "sex"],
-    phone: ["phone", "mobile", "contact", "student phone", "phone number"],
-    email: ["email", "student email", "email address"],
-    parentName: ["parent name", "father name", "guardian name", "parent_name", "father_name"],
-    parentPhone: ["parent phone", "father phone", "guardian phone", "parent_phone"],
-    status: ["status", "active status"],
+    phone: ["phone", "mobile", "contact", "student phone", "phone number", "mobile number", "contact number"],
+    email: ["email", "student email", "email address", "email id"],
+    parentName: [
+      "parent / guardian name",
+      "parent/guardian name",
+      "parent guardian name",
+      "parent name",
+      "father name",
+      "mother name",
+      "guardian name",
+      "guardian",
+      "parent_name",
+      "father_name",
+      "parent/guardian",
+    ],
+    guardianName: [
+      "parent / guardian name",
+      "parent/guardian name",
+      "parent guardian name",
+      "parent name",
+      "father name",
+      "mother name",
+      "guardian name",
+      "guardian",
+      "parent_name",
+      "father_name",
+      "parent/guardian",
+    ],
+    parentPhone: [
+      "parent phone",
+      "father phone",
+      "guardian phone",
+      "parent_phone",
+      "guardian_phone",
+      "parent mobile",
+      "guardian mobile",
+      "emergency phone",
+      "emergency contact",
+    ],
+    guardianPhone: [
+      "parent phone",
+      "father phone",
+      "guardian phone",
+      "parent_phone",
+      "guardian_phone",
+      "parent mobile",
+      "guardian mobile",
+      "emergency phone",
+      "emergency contact",
+    ],
+    address: ["address", "residential address", "home address", "permanent address", "location", "full address", "city"],
+    admissionDate: [
+      "admission date",
+      "date of admission",
+      "joining date",
+      "admission_date",
+      "adm date",
+      "admissiondate",
+      "date of join",
+      "doj",
+      "enrolled date",
+    ],
+    status: ["status", "active status", "student status"],
+    dob: ["dob", "date of birth", "birth date", "birthdate"],
+    bloodGroup: ["blood group", "blood_group", "bloodgroup"],
   },
   teachers: {
     teacherCode: ["teacher code", "employee id", "emp id", "emp_id", "teacher id", "staff id"],
@@ -129,9 +189,20 @@ export function autoDetectColumnMappings(
   const aliasMap = FIELD_ALIASES[targetModule] || {};
 
   detectedColumns.forEach((col) => {
-    const normalized = col.trim().toLowerCase().replace(/[_\s]+/g, " ");
+    const normalized = col.trim().toLowerCase().replace(/[_\s\-\/]+/g, " ");
+    const collapsed = normalized.replace(/\s+/g, "");
+
     for (const [targetKey, aliases] of Object.entries(aliasMap)) {
-      if (normalized === targetKey.toLowerCase() || aliases.includes(normalized)) {
+      const targetLower = targetKey.toLowerCase();
+      if (
+        normalized === targetLower ||
+        collapsed === targetLower ||
+        aliases.some((a) => {
+          const normA = a.toLowerCase().replace(/[_\s\-\/]+/g, " ");
+          const collA = normA.replace(/\s+/g, "");
+          return normalized === normA || collapsed === collA;
+        })
+      ) {
         mappings[col] = targetKey;
         break;
       }
@@ -139,6 +210,26 @@ export function autoDetectColumnMappings(
   });
 
   return mappings;
+}
+
+/**
+ * Sanitizes a record object to be strictly Firestore-compatible.
+ * Removes any temporary _ keys and ensures undefined values are omitted.
+ */
+function sanitizeRecordForFirestore(rec: Record<string, any>): Record<string, any> {
+  const clean: Record<string, any> = {};
+  for (const [key, val] of Object.entries(rec)) {
+    if (key.startsWith("_")) continue;
+    if (val === undefined) continue;
+    if (val === null) {
+      clean[key] = null;
+    } else if (typeof val === "string") {
+      clean[key] = val.trim();
+    } else {
+      clean[key] = val;
+    }
+  }
+  return clean;
 }
 
 /**
@@ -159,6 +250,7 @@ export async function validateAndPreviewImport(
       detectedColumns: [],
       mappedFields: {},
       previewData: [],
+      allValidRecords: [],
       validationErrors: [],
       duplicates: [],
     };
@@ -171,6 +263,7 @@ export async function validateAndPreviewImport(
   const existingKeys = await loadExistingKeys(schoolId, targetModule);
 
   const previewData: Record<string, any>[] = [];
+  const allValidRecords: Record<string, any>[] = [];
   const validationErrors: ImportValidationError[] = [];
   const duplicates: Array<{ rowNumber: number; keyField: string; keyValue: string; existingRecordId: string }> = [];
 
@@ -203,7 +296,8 @@ export async function validateAndPreviewImport(
       if (!mappedRecord.className && !mappedRecord.classId) {
         rowErrors.push("Class name or class ID is required.");
       }
-      // Check duplicate admission number or email
+
+      // Check duplicate admission number
       const admNo = String(mappedRecord.admissionNumber || "").trim().toLowerCase();
       if (admNo && existingKeys.has(`adm:${admNo}`)) {
         const existingId = existingKeys.get(`adm:${admNo}`)!;
@@ -212,6 +306,18 @@ export async function validateAndPreviewImport(
         mappedRecord._existingId = existingId;
         dupCount++;
       }
+
+      // Intelligent field normalization
+      if (mappedRecord.parentName && !mappedRecord.guardianName) mappedRecord.guardianName = mappedRecord.parentName;
+      if (mappedRecord.guardianName && !mappedRecord.parentName) mappedRecord.parentName = mappedRecord.guardianName;
+      if (mappedRecord.parentPhone && !mappedRecord.guardianPhone) mappedRecord.guardianPhone = mappedRecord.parentPhone;
+      if (mappedRecord.guardianPhone && !mappedRecord.parentPhone) mappedRecord.parentPhone = mappedRecord.guardianPhone;
+      if (mappedRecord.section && !mappedRecord.sectionName) mappedRecord.sectionName = mappedRecord.section;
+      if (mappedRecord.rollNumber !== undefined && mappedRecord.rollNumber !== "") {
+        mappedRecord.rollNumber = Number(mappedRecord.rollNumber) || 0;
+      }
+      if (!mappedRecord.status) mappedRecord.status = "active";
+      if (!mappedRecord.admissionDate) mappedRecord.admissionDate = new Date().toISOString().split("T")[0];
     } else if (targetModule === "teachers") {
       if (!mappedRecord.name || String(mappedRecord.name).trim().length < 2) {
         rowErrors.push("Teacher name is required.");
@@ -227,10 +333,12 @@ export async function validateAndPreviewImport(
         mappedRecord._existingId = existingId;
         dupCount++;
       }
+      if (!mappedRecord.status) mappedRecord.status = "active";
     } else if (targetModule === "classes") {
       if (!mappedRecord.name || String(mappedRecord.name).trim().length === 0) {
         rowErrors.push("Class name is required.");
       }
+      if (!mappedRecord.status) mappedRecord.status = "active";
     } else if (targetModule === "fees") {
       if (!mappedRecord.studentId && !mappedRecord.studentName) {
         rowErrors.push("Student ID or Student Name is required.");
@@ -250,11 +358,19 @@ export async function validateAndPreviewImport(
       });
     } else {
       validCount++;
+      allValidRecords.push({
+        _rowNumber: rowNumber,
+        ...mappedRecord,
+      });
     }
 
-    // Keep first 50 rows for preview UI
+    // Keep first 50 rows for preview UI, preserving BOTH raw column keys AND mapped model keys
     if (previewData.length < 50) {
-      previewData.push({ _rowNumber: rowNumber, ...mappedRecord });
+      previewData.push({
+        _rowNumber: rowNumber,
+        ...raw, // Contains original sheet column headers (e.g. "Admission Number", "Student Name")
+        ...mappedRecord, // Contains normalized canonical keys (e.g. "admissionNumber", "name")
+      });
     }
   }
 
@@ -267,6 +383,7 @@ export async function validateAndPreviewImport(
     detectedColumns,
     mappedFields,
     previewData,
+    allValidRecords,
     validationErrors,
     duplicates,
   };
@@ -289,6 +406,17 @@ export async function executeControlledImport(
       updatedCount: 0,
       skippedCount: 0,
       preImportSnapshotId: "",
+      summary: {
+        total: 0,
+        created: 0,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+      },
+      error: {
+        code: "NO_RECORDS",
+        message: "No valid records provided for import.",
+      },
       errors: ["No valid records provided for import."],
     };
   }
@@ -303,20 +431,43 @@ export async function executeControlledImport(
   }
 
   const adminDb = getSafeAdminDb();
-  const clientDb = getFirebaseDb();
-  const errors: string[] = [];
 
+  // If Firebase Admin SDK is not available on server, indicate client fallback
+  if (!adminDb) {
+    return {
+      success: false,
+      importedCount: 0,
+      updatedCount: 0,
+      skippedCount: 0,
+      preImportSnapshotId,
+      fallbackToClient: true,
+      summary: {
+        total: validRecords.length,
+        created: 0,
+        updated: 0,
+        skipped: 0,
+        failed: validRecords.length,
+      },
+      error: {
+        code: "FIREBASE_ADMIN_UNAVAILABLE",
+        message: "Server lacks Firebase Admin Service Account credentials. Automatic client fallback enabled.",
+      },
+      errors: ["Server lacks Firebase Admin Service Account credentials."],
+    };
+  }
+
+  const errors: string[] = [];
   let importedCount = 0;
   let updatedCount = 0;
   let skippedCount = 0;
 
-  // Process in chunks of 450 to stay safely within Firestore batch limits of 500
-  const CHUNK_SIZE = 400;
-  for (let i = 0; i < validRecords.length; i += CHUNK_SIZE) {
-    const chunk = validRecords.slice(i, i + CHUNK_SIZE);
-
-    if (adminDb) {
+  try {
+    // Process in chunks of 200 to stay safely within Firestore batch limits of 500 (especially with dual-writes)
+    const CHUNK_SIZE = 200;
+    for (let i = 0; i < validRecords.length; i += CHUNK_SIZE) {
+      const chunk = validRecords.slice(i, i + CHUNK_SIZE);
       const batch = adminDb.batch();
+
       for (const rec of chunk) {
         if (rec._hasErrors) {
           skippedCount++;
@@ -324,90 +475,107 @@ export async function executeControlledImport(
         }
 
         const isUpdate = Boolean(rec._isDuplicate && rec._existingId);
-        const docId = isUpdate ? rec._existingId : (rec.id || adminDb.collection("schools").doc(schoolId).collection(targetModule).doc().id);
+        const docId = isUpdate
+          ? rec._existingId
+          : (rec.id || adminDb.collection("schools").doc(schoolId).collection(targetModule).doc().id);
 
-        const cleanData = { ...rec };
-        delete cleanData._rowNumber;
-        delete cleanData._hasErrors;
-        delete cleanData._errorReasons;
-        delete cleanData._isDuplicate;
-        delete cleanData._existingId;
+        const cleanData = sanitizeRecordForFirestore(rec);
 
-        const docRef = adminDb.collection("schools").doc(schoolId).collection(targetModule).doc(docId);
+        if (targetModule === "students") {
+          cleanData.studentId = cleanData.admissionNumber || cleanData.studentId || docId;
+          if (cleanData.rollNumber !== undefined && cleanData.rollNumber !== "") {
+            cleanData.rollNumber = Number(cleanData.rollNumber) || 0;
+          }
+          if (cleanData.parentName && !cleanData.guardianName) cleanData.guardianName = cleanData.parentName;
+          if (cleanData.guardianName && !cleanData.parentName) cleanData.parentName = cleanData.guardianName;
+          if (cleanData.parentPhone && !cleanData.guardianPhone) cleanData.guardianPhone = cleanData.parentPhone;
+          if (cleanData.guardianPhone && !cleanData.parentPhone) cleanData.parentPhone = cleanData.guardianPhone;
+          if (cleanData.section && !cleanData.sectionName) cleanData.sectionName = cleanData.section;
+          if (!cleanData.status) cleanData.status = "active";
+          if (!cleanData.admissionDate) cleanData.admissionDate = new Date().toISOString().split("T")[0];
+        }
+
+        const schoolDocRef = adminDb.collection("schools").doc(schoolId).collection(targetModule).doc(docId);
 
         if (isUpdate) {
-          batch.set(docRef, { ...cleanData, updatedAt: new Date().toISOString() }, { merge: true });
+          batch.set(schoolDocRef, { ...cleanData, updatedAt: new Date().toISOString() }, { merge: true });
+          if (targetModule === "students") {
+            const topStudentRef = adminDb.collection("students").doc(docId);
+            batch.set(topStudentRef, { ...cleanData, schoolId, updatedAt: new Date().toISOString() }, { merge: true });
+          }
           updatedCount++;
         } else {
-          batch.set(docRef, {
+          const fullRecord = {
             id: docId,
             schoolId,
             ...cleanData,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-          });
+          };
+          batch.set(schoolDocRef, fullRecord);
+          if (targetModule === "students") {
+            const topStudentRef = adminDb.collection("students").doc(docId);
+            batch.set(topStudentRef, fullRecord);
+          }
           importedCount++;
         }
       }
-      await batch.commit();
-    } else if (clientDb) {
-      const batch = writeBatch(clientDb);
-      for (const rec of chunk) {
-        if (rec._hasErrors) {
-          skippedCount++;
-          continue;
-        }
 
-        const isUpdate = Boolean(rec._isDuplicate && rec._existingId);
-        const docRef = isUpdate
-          ? doc(clientDb, "schools", schoolId, targetModule, rec._existingId)
-          : doc(collection(clientDb, "schools", schoolId, targetModule));
-
-        const cleanData = { ...rec };
-        delete cleanData._rowNumber;
-        delete cleanData._hasErrors;
-        delete cleanData._errorReasons;
-        delete cleanData._isDuplicate;
-        delete cleanData._existingId;
-
-        if (isUpdate) {
-          batch.set(docRef, { ...cleanData, updatedAt: serverTimestamp() }, { merge: true });
-          updatedCount++;
-        } else {
-          batch.set(docRef, {
-            id: docRef.id,
-            schoolId,
-            ...cleanData,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          });
-          importedCount++;
-        }
-      }
       await batch.commit();
     }
+
+    // Record audit log
+    await logAuditEvent({
+      actorId,
+      actorRole: "super_admin",
+      action: "DATA_IMPORT_EXECUTED",
+      entityType: "school",
+      entityId: schoolId,
+      targetSchoolId: schoolId,
+      reason: `Imported ${importedCount} new, updated ${updatedCount} existing ${targetModule} records. Pre-import snapshot: ${preImportSnapshotId}`,
+    }).catch(() => {});
+
+    return {
+      success: true,
+      importedCount,
+      updatedCount,
+      skippedCount,
+      preImportSnapshotId,
+      summary: {
+        total: validRecords.length,
+        created: importedCount,
+        updated: updatedCount,
+        skipped: skippedCount,
+        failed: 0,
+      },
+      errors: errors.length > 0 ? errors : undefined,
+    };
+  } catch (err: any) {
+    console.error("executeControlledImport batch commit error:", err);
+    return {
+      success: false,
+      importedCount,
+      updatedCount,
+      skippedCount,
+      preImportSnapshotId,
+      fallbackToClient: true,
+      summary: {
+        total: validRecords.length,
+        created: importedCount,
+        updated: updatedCount,
+        skipped: skippedCount,
+        failed: validRecords.length - (importedCount + updatedCount + skippedCount),
+      },
+      error: {
+        code: err?.code || "BATCH_COMMIT_FAILED",
+        message: err?.message || "Failed to commit import records.",
+        details: err?.stack,
+      },
+      errors: [err?.message || "Batch commit failed."],
+    };
   }
-
-  // Record audit log
-  await logAuditEvent({
-    actorId,
-    actorRole: "super_admin",
-    action: "DATA_IMPORT_EXECUTED",
-    entityType: "school",
-    entityId: schoolId,
-    targetSchoolId: schoolId,
-    reason: `Imported ${importedCount} new, updated ${updatedCount} existing ${targetModule} records. Pre-import snapshot: ${preImportSnapshotId}`,
-  }).catch(() => {});
-
-  return {
-    success: true,
-    importedCount,
-    updatedCount,
-    skippedCount,
-    preImportSnapshotId,
-    errors: errors.length > 0 ? errors : undefined,
-  };
 }
+
 
 /**
  * Loads existing identity keys for duplicate prevention.
