@@ -78,9 +78,32 @@ const FIELD_ALIASES: Record<SupportedImportModule, Record<string, string[]>> = {
 };
 
 /**
- * Parses binary buffer of .xlsx, .xls or .csv into array of objects.
+ * Parses binary buffer of .xlsx, .xls, .csv, or .json into array of objects.
  */
 export async function parseImportFile(fileBuffer: ArrayBuffer): Promise<Record<string, any>[]> {
+  // 1. Try decoding as JSON
+  try {
+    const textDecoder = new TextDecoder("utf-8");
+    const text = textDecoder.decode(fileBuffer);
+    const trimmed = text.trim();
+    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      } else if (parsed && typeof parsed === "object") {
+        if (Array.isArray(parsed.data)) return parsed.data;
+        if (Array.isArray(parsed.records)) return parsed.records;
+        if (Array.isArray(parsed.students)) return parsed.students;
+        if (Array.isArray(parsed.teachers)) return parsed.teachers;
+        if (Array.isArray(parsed.classes)) return parsed.classes;
+        if (Array.isArray(parsed.fees)) return parsed.fees;
+      }
+    }
+  } catch (e) {
+    // Not valid JSON, proceed to XLSX/CSV
+  }
+
+  // 2. Parse as XLSX or CSV
   const XLSX = await import("xlsx");
   const workbook = XLSX.read(fileBuffer, { type: "array" });
   const firstSheetName = workbook.SheetNames[0];
@@ -420,3 +443,326 @@ async function loadExistingKeys(schoolId: string, module: SupportedImportModule)
 
   return map;
 }
+
+/**
+ * Exports school data in XLSX, CSV, or JSON format.
+ */
+export async function exportSchoolData(
+  schoolId: string,
+  targetModule: SupportedImportModule | "all",
+  format: "xlsx" | "csv" | "json",
+  filterOptions?: { classId?: string; academicYearId?: string }
+): Promise<{
+  data: any;
+  contentType: string;
+  filename: string;
+}> {
+  const XLSX = await import("xlsx");
+  const adminDb = getSafeAdminDb();
+  const clientDb = getFirebaseDb();
+
+  const fetchCollection = async (collName: string) => {
+    let rows: Record<string, any>[] = [];
+    if (adminDb) {
+      const snap = await adminDb.collection("schools").doc(schoolId).collection(collName).get();
+      rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    } else if (clientDb) {
+      const snap = await getDocs(collection(clientDb, "schools", schoolId, collName));
+      rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    }
+    return rows;
+  };
+
+  const sanitizeValue = (val: any) => {
+    if (val === null || val === undefined) return "";
+    if (typeof val === "object") {
+      if (val.toDate && typeof val.toDate === "function") {
+        return val.toDate().toISOString();
+      }
+      return JSON.stringify(val);
+    }
+    return val;
+  };
+
+  const flattenRecords = (records: Record<string, any>[], moduleName: string) => {
+    return records.map((r) => {
+      const out: Record<string, any> = {};
+      if (moduleName === "students") {
+        out["Admission Number"] = r.admissionNumber || r.studentId || "";
+        out["Roll Number"] = r.rollNumber ?? "";
+        out["Student Name"] = r.name || "";
+        out["Class"] = r.className || "";
+        out["Section"] = r.sectionName || "";
+        out["Gender"] = r.gender || "";
+        out["Phone"] = r.phone || "";
+        out["Email"] = r.email || "";
+        out["Parent / Guardian Name"] = r.guardianName || "";
+        out["Parent Phone"] = r.guardianPhone || "";
+        out["Address"] = r.address || "";
+        out["Status"] = r.status || "active";
+        out["Admission Date"] = r.admissionDate || "";
+      } else if (moduleName === "teachers") {
+        out["Teacher Code"] = r.teacherCode || r.employeeId || "";
+        out["Teacher Name"] = r.name || "";
+        out["Email"] = r.email || "";
+        out["Phone"] = r.phone || "";
+        out["Designation"] = r.designation || "";
+        out["Qualification"] = r.qualification || "";
+        out["Assigned Class"] = r.assignedClassName || "";
+        out["Status"] = r.status || "active";
+      } else if (moduleName === "classes") {
+        out["Class Name"] = r.name || "";
+        out["Order"] = r.order ?? 1;
+        out["Sections"] = Array.isArray(r.sections)
+          ? r.sections.map((s: any) => s.name || s).join(", ")
+          : r.sections || "";
+        out["Monthly Fee"] = r.monthlyFee ?? 0;
+        out["Admission Fee"] = r.admissionFee ?? 0;
+        out["Status"] = r.status || "active";
+      } else if (moduleName === "fees") {
+        out["Student ID"] = r.studentId || "";
+        out["Student Name"] = r.studentName || "";
+        out["Class"] = r.className || "";
+        out["Fee Type"] = r.feeType || "tuition";
+        out["Total Amount"] = r.amountRupees ?? r.totalAmount ?? 0;
+        out["Paid Amount"] = r.paidAmount ?? 0;
+        out["Pending Balance"] = r.pendingAmount ?? 0;
+        out["Payment Status"] = r.status || "pending";
+      } else {
+        Object.keys(r).forEach((k) => {
+          if (!k.startsWith("_")) {
+            out[k] = sanitizeValue(r[k]);
+          }
+        });
+      }
+      return out;
+    });
+  };
+
+  const dateTag = new Date().toISOString().split("T")[0];
+
+  // 1. JSON Export
+  if (format === "json") {
+    let payload: any;
+    if (targetModule === "all") {
+      const [students, teachers, classes, fees] = await Promise.all([
+        fetchCollection("students"),
+        fetchCollection("teachers"),
+        fetchCollection("classes"),
+        fetchCollection("fees"),
+      ]);
+      payload = {
+        schoolId,
+        backupDate: new Date().toISOString(),
+        version: "2.0",
+        students: flattenRecords(students, "students"),
+        teachers: flattenRecords(teachers, "teachers"),
+        classes: flattenRecords(classes, "classes"),
+        fees: flattenRecords(fees, "fees"),
+      };
+    } else {
+      const records = await fetchCollection(targetModule);
+      payload = {
+        schoolId,
+        module: targetModule,
+        backupDate: new Date().toISOString(),
+        totalRecords: records.length,
+        records: flattenRecords(records, targetModule),
+      };
+    }
+    const jsonString = JSON.stringify(payload, null, 2);
+    return {
+      data: jsonString,
+      contentType: "application/json",
+      filename: `school_${targetModule}_backup_${dateTag}.json`,
+    };
+  }
+
+  // 2. XLSX or CSV Export
+  const workbook = XLSX.utils.book_new();
+
+  if (targetModule === "all") {
+    const [students, teachers, classes, fees] = await Promise.all([
+      fetchCollection("students"),
+      fetchCollection("teachers"),
+      fetchCollection("classes"),
+      fetchCollection("fees"),
+    ]);
+
+    const sSheet = XLSX.utils.json_to_sheet(flattenRecords(students, "students"));
+    const tSheet = XLSX.utils.json_to_sheet(flattenRecords(teachers, "teachers"));
+    const cSheet = XLSX.utils.json_to_sheet(flattenRecords(classes, "classes"));
+    const fSheet = XLSX.utils.json_to_sheet(flattenRecords(fees, "fees"));
+
+    XLSX.utils.book_append_sheet(workbook, sSheet, "Students");
+    XLSX.utils.book_append_sheet(workbook, tSheet, "Teachers");
+    XLSX.utils.book_append_sheet(workbook, cSheet, "Classes");
+    XLSX.utils.book_append_sheet(workbook, fSheet, "Fees");
+
+    if (format === "csv") {
+      const csvOutput = XLSX.utils.sheet_to_csv(sSheet);
+      return {
+        data: csvOutput,
+        contentType: "text/csv",
+        filename: `school_full_backup_${dateTag}.csv`,
+      };
+    }
+
+    const xlsxBuffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+    return {
+      data: xlsxBuffer,
+      contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      filename: `school_master_backup_${dateTag}.xlsx`,
+    };
+  }
+
+  // Single module
+  let rawRecords = await fetchCollection(targetModule);
+  if (targetModule === "students" && filterOptions?.classId) {
+    rawRecords = rawRecords.filter((r) => r.classId === filterOptions.classId);
+  }
+
+  const flattened = flattenRecords(rawRecords, targetModule);
+  const sheet = XLSX.utils.json_to_sheet(flattened);
+  XLSX.utils.book_append_sheet(workbook, sheet, targetModule);
+
+  if (format === "csv") {
+    const csvOutput = XLSX.utils.sheet_to_csv(sheet);
+    return {
+      data: csvOutput,
+      contentType: "text/csv",
+      filename: `school_${targetModule}_${dateTag}.csv`,
+    };
+  }
+
+  const xlsxBuffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+  return {
+    data: xlsxBuffer,
+    contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    filename: `school_${targetModule}_${dateTag}.xlsx`,
+  };
+}
+
+/**
+ * Generates sample import templates with proper columns and sample rows.
+ */
+export async function generateSampleTemplate(
+  module: SupportedImportModule,
+  format: "xlsx" | "csv" = "xlsx"
+): Promise<{
+  data: any;
+  contentType: string;
+  filename: string;
+}> {
+  const XLSX = await import("xlsx");
+  const workbook = XLSX.utils.book_new();
+
+  let sampleData: Record<string, any>[] = [];
+
+  if (module === "students") {
+    sampleData = [
+      {
+        "Admission Number": "ADM2026001",
+        "Roll Number": 1,
+        "Student Name": "Aarav Sharma",
+        "Class": "Class 10",
+        "Section": "A",
+        "Gender": "Male",
+        "Phone": "9876543210",
+        "Email": "aarav.sharma@example.com",
+        "Parent / Guardian Name": "Rajesh Sharma",
+        "Parent Phone": "9876543211",
+        "Address": "Civil Lines, New Delhi",
+        "Status": "active",
+      },
+      {
+        "Admission Number": "ADM2026002",
+        "Roll Number": 2,
+        "Student Name": "Diya Patel",
+        "Class": "Class 10",
+        "Section": "A",
+        "Gender": "Female",
+        "Phone": "9876543212",
+        "Email": "diya.patel@example.com",
+        "Parent / Guardian Name": "Kiran Patel",
+        "Parent Phone": "9876543213",
+        "Address": "Sector 14, Gurugram",
+        "Status": "active",
+      },
+    ];
+  } else if (module === "teachers") {
+    sampleData = [
+      {
+        "Teacher Code": "TCH001",
+        "Teacher Name": "Sunita Verma",
+        "Email": "sunita.verma@example.com",
+        "Phone": "9876543220",
+        "Designation": "Senior PGT Mathematics",
+        "Qualification": "M.Sc, B.Ed",
+        "Assigned Class": "Class 10-A",
+        "Status": "active",
+      },
+      {
+        "Teacher Code": "TCH002",
+        "Teacher Name": "Rakesh Kumar",
+        "Email": "rakesh.kumar@example.com",
+        "Phone": "9876543221",
+        "Designation": "TGT Science",
+        "Qualification": "B.Sc, B.Ed",
+        "Assigned Class": "Class 9-B",
+        "Status": "active",
+      },
+    ];
+  } else if (module === "classes") {
+    sampleData = [
+      {
+        "Class Name": "Class 1",
+        "Order": 1,
+        "Sections": "A, B",
+        "Monthly Fee": 1500,
+        "Admission Fee": 5000,
+        "Status": "active",
+      },
+      {
+        "Class Name": "Class 2",
+        "Order": 2,
+        "Sections": "A, B",
+        "Monthly Fee": 1600,
+        "Admission Fee": 5000,
+        "Status": "active",
+      },
+    ];
+  } else if (module === "fees") {
+    sampleData = [
+      {
+        "Student ID": "ADM2026001",
+        "Student Name": "Aarav Sharma",
+        "Class": "Class 10",
+        "Fee Type": "Tuition",
+        "Amount": 2000,
+        "Payment Mode": "Cash",
+        "Transaction Ref": "TXN_CASH_001",
+      },
+    ];
+  }
+
+  const sheet = XLSX.utils.json_to_sheet(sampleData);
+  XLSX.utils.book_append_sheet(workbook, sheet, module);
+
+  if (format === "csv") {
+    const csvOutput = XLSX.utils.sheet_to_csv(sheet);
+    return {
+      data: csvOutput,
+      contentType: "text/csv",
+      filename: `sample_${module}_template.csv`,
+    };
+  }
+
+  const xlsxBuffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+  return {
+    data: xlsxBuffer,
+    contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    filename: `sample_${module}_template.xlsx`,
+  };
+}
+

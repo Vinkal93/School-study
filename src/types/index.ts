@@ -7,6 +7,7 @@ export type {
   TeacherProfile,
   StudentProfile,
   StudentTransferRecord,
+  TransferStudentsInput,
   CreateTeacherInput,
   CreateStudentInput,
   Gender,

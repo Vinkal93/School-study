@@ -283,7 +283,14 @@ export default function AdminClassesPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <Link
+              href="/admin/classes/transfer"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white shadow-xs hover:bg-emerald-700 transition"
+            >
+              <GraduationCap className="h-4 w-4" />
+              <span>Promote / Transfer</span>
+            </Link>
             <button
               onClick={() => {
                 if (profile?.role !== "super_admin" && !canAccess("class_management")) {

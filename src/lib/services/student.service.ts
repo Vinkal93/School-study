@@ -11,6 +11,7 @@ import {
   deleteDoc,
   serverTimestamp,
   runTransaction,
+  writeBatch,
   arrayUnion,
   type Timestamp,
 } from "firebase/firestore";
@@ -25,7 +26,7 @@ import {
   incrementSchoolUsage,
   decrementSchoolUsage,
 } from "@/lib/billing";
-import type { StudentProfile, CreateStudentInput, StudentTransferRecord } from "@/types";
+import type { StudentProfile, CreateStudentInput, StudentTransferRecord, TransferStudentsInput } from "@/types";
 import { compressImageToBase64 } from "@/lib/utils/image-compression";
 import { provisionStudentFeeAssignment, recalculateStudentFutureDues } from "./fee.service";
 
@@ -601,3 +602,161 @@ export async function restoreStudent(
   // Increment active usage count atomically
   await incrementSchoolUsage(schoolId, "students", 1);
 }
+
+/**
+ * Retrieves all active students for a given class, section and academic year.
+ */
+export async function getStudentsByClassSection(
+  schoolId: string,
+  classId: string,
+  sectionId?: string,
+  academicYearId?: string
+): Promise<StudentProfile[]> {
+  const db = getFirebaseDb();
+  if (!db) return [];
+
+  const constraints: any[] = [
+    where("classId", "==", classId),
+    where("status", "==", "active"),
+  ];
+  if (sectionId && sectionId !== "all") {
+    constraints.push(where("sectionId", "==", sectionId));
+  }
+  if (academicYearId) {
+    constraints.push(where("academicYearId", "==", academicYearId));
+  }
+
+  const q = query(
+    collection(db, "schools", schoolId, "students"),
+    ...constraints
+  );
+  const snap = await getDocs(q);
+  const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as StudentProfile));
+  return list.sort((a, b) => (a.rollNumber || 0) - (b.rollNumber || 0));
+}
+
+/**
+ * Promotes, transfers or graduates students in bulk across classes and sections.
+ * Automatically updates roll numbers, logs transfer history on each student,
+ * and optionally provisions the target class fee structure for the new academic year.
+ */
+export async function transferStudentsBulk(
+  schoolId: string,
+  input: TransferStudentsInput,
+  actorId: string
+): Promise<{ success: boolean; transferredCount: number; errors?: string[] }> {
+  const db = getFirebaseDb();
+  if (!db) throw new Error("Database offline.");
+  if (!input.studentIds || input.studentIds.length === 0) {
+    return { success: true, transferredCount: 0 };
+  }
+
+  // 1. If sequential roll number mode, find current max roll number in target class
+  let currentTargetRoll = 0;
+  if (input.rollNumberMode === "sequential" && input.actionType !== "graduate") {
+    try {
+      const q = query(
+        collection(db, "schools", schoolId, "students"),
+        where("classId", "==", input.targetClassId),
+        where("status", "==", "active")
+      );
+      const snap = await getDocs(q);
+      snap.docs.forEach((d) => {
+        const roll = d.data().rollNumber;
+        if (typeof roll === "number" && roll > currentTargetRoll) {
+          currentTargetRoll = roll;
+        }
+      });
+    } catch (e) {
+      console.warn("Could not find max roll number in target class:", e);
+    }
+  }
+
+  // 2. Fetch and prepare updates in batch chunks
+  const nowIso = new Date().toISOString();
+  const chunks: string[][] = [];
+  for (let i = 0; i < input.studentIds.length; i += 250) {
+    chunks.push(input.studentIds.slice(i, i + 250));
+  }
+
+  let transferredCount = 0;
+
+  for (const chunk of chunks) {
+    const batch = writeBatch(db);
+
+    for (const studentId of chunk) {
+      const studentRef = doc(db, "schools", schoolId, "students", studentId);
+      const studentSnap = await getDoc(studentRef);
+      if (!studentSnap.exists()) continue;
+
+      const studentData = studentSnap.data() as StudentProfile;
+      const prevRollNumber = studentData.rollNumber || 0;
+
+      let nextRollNumber = prevRollNumber;
+      if (input.rollNumberMode === "sequential" && input.actionType !== "graduate") {
+        currentTargetRoll += 1;
+        nextRollNumber = currentTargetRoll;
+      }
+
+      const transferRecord: StudentTransferRecord = {
+        id: `tx_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        fromClassId: input.sourceClassId,
+        fromClassName: input.sourceClassName,
+        fromSectionId: input.sourceSectionId,
+        fromSectionName: input.sourceSectionName,
+        fromRollNumber: prevRollNumber,
+        toClassId: input.targetClassId,
+        toClassName: input.targetClassName,
+        toSectionId: input.targetSectionId,
+        toSectionName: input.targetSectionName,
+        toRollNumber: nextRollNumber,
+        transferDate: nowIso.split("T")[0],
+        reason: input.reason || (input.actionType === "promote" ? "Annual Academic Promotion" : input.actionType === "graduate" ? "Graduation" : "Class/Section Transfer"),
+        transferredBy: actorId,
+        timestamp: nowIso,
+      };
+
+      const updatePayload: any = {
+        updatedAt: serverTimestamp(),
+        transferHistory: arrayUnion(transferRecord),
+      };
+
+      if (input.actionType === "graduate") {
+        updatePayload.status = "archived";
+      } else {
+        updatePayload.classId = input.targetClassId;
+        updatePayload.className = input.targetClassName;
+        updatePayload.sectionId = input.targetSectionId;
+        updatePayload.sectionName = input.targetSectionName;
+        updatePayload.rollNumber = nextRollNumber;
+        if (input.targetAcademicYearId) {
+          updatePayload.academicYearId = input.targetAcademicYearId;
+        }
+      }
+
+      batch.update(studentRef, updatePayload);
+      transferredCount++;
+
+      // If autoAssignFees is enabled and not graduated, provision fee assignment for target class
+      if (input.autoAssignFees && input.actionType !== "graduate") {
+        await provisionStudentFeeAssignment(
+          schoolId,
+          {
+            id: studentId,
+            name: studentData.name,
+            admissionNumber: studentData.admissionNumber || studentId,
+            className: input.targetClassName,
+            sectionName: input.targetSectionName,
+            admissionDate: studentData.admissionDate,
+          },
+          input.targetAcademicYearId || "ay_current"
+        ).catch(() => {});
+      }
+    }
+
+    await batch.commit();
+  }
+
+  return { success: true, transferredCount };
+}
+

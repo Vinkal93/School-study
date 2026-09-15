@@ -209,6 +209,19 @@ const roleNavItems: Record<string, NavItem[]> = {
       href: "/admin/classes",
       featureKey: "class_management",
       icon: <BookOpen className="h-5 w-5" />,
+      subItems: [
+        { label: "All Classes", href: "/admin/classes" },
+        { label: "Promote / Transfer", href: "/admin/classes/transfer" },
+      ],
+    },
+    {
+      label: "Data Backup & Sync",
+      href: "/admin/backup",
+      icon: <Database className="h-5 w-5 text-emerald-500" />,
+      subItems: [
+        { label: "Export & Backup", href: "/admin/backup?tab=export" },
+        { label: "Import Data", href: "/admin/backup?tab=import" },
+      ],
     },
     {
       label: "Timetable / Bells",

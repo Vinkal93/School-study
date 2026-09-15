@@ -263,3 +263,21 @@ export interface CreateStudentInput {
   academicYearId?: string;
   admissionDate?: string;
 }
+
+export interface TransferStudentsInput {
+  sourceClassId: string;
+  sourceClassName: string;
+  sourceSectionId: string;
+  sourceSectionName: string;
+  sourceAcademicYearId?: string;
+  targetClassId: string;
+  targetClassName: string;
+  targetSectionId: string;
+  targetSectionName: string;
+  targetAcademicYearId?: string;
+  studentIds: string[];
+  actionType: "promote" | "transfer" | "graduate";
+  rollNumberMode: "keep" | "sequential";
+  reason?: string;
+  autoAssignFees?: boolean;
+}
