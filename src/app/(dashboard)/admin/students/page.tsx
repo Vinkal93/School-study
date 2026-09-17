@@ -49,6 +49,7 @@ import { repairSchoolClassesAndStudentsClient } from "@/lib/services/student-cla
 import { ImageCropModal } from "@/components/common/ImageCropModal";
 import { RegisterComplaintModal } from "@/components/complaints/RegisterComplaintModal";
 import { ConfirmDeleteModal } from "@/components/common/ConfirmDeleteModal";
+import { BulkDeleteStudentsModal } from "@/components/student/BulkDeleteStudentsModal";
 import { ResponsiveActionMenu } from "@/components/common/ResponsiveActionMenu";
 import { ShareFeeModal } from "@/components/fees/ShareFeeModal";
 import {
@@ -59,6 +60,7 @@ import {
   restoreStudent,
   transferStudentClass,
   updateStudent,
+  bulkDeleteStudents,
 } from "@/lib/services/student.service";
 import { uploadStudentPhoto } from "@/lib/services/storage.service";
 import { getClassesWithSections } from "@/lib/services/academic.service";
@@ -216,6 +218,21 @@ export default function AdminStudentsPage() {
   const [isDeletingInProgress, setIsDeletingInProgress] = useState(false);
 
   // Column width resize state with persistence
+  // Bulk selection & Pagination State
+  const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
+  const [isAllFilteredSelected, setIsAllFilteredSelected] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+
+  // Safely clear selection and reset page when filters change
+  useEffect(() => {
+    setSelectedStudentIds(new Set());
+    setIsAllFilteredSelected(false);
+    setCurrentPage(1);
+  }, [selectedClassFilter, selectedSectionFilter, statusFilter, debouncedSearch]);
+
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -610,6 +627,95 @@ export default function AdminStudentsPage() {
       return matchesSearch && matchesClass && matchesSection && matchesStatus;
     });
   }, [students, debouncedSearch, selectedClassFilter, selectedClass, selectedSectionFilter, availableSectionsForFilter, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredStudents.length / pageSize));
+  const paginatedStudents = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredStudents.slice(start, start + pageSize);
+  }, [filteredStudents, currentPage, pageSize]);
+
+  // Selection helpers
+  const areAllOnPageSelected = useMemo(() => {
+    if (paginatedStudents.length === 0) return false;
+    return paginatedStudents.every((s) => selectedStudentIds.has(s.id));
+  }, [paginatedStudents, selectedStudentIds]);
+
+  const areSomeOnPageSelected = useMemo(() => {
+    return paginatedStudents.some((s) => selectedStudentIds.has(s.id)) && !areAllOnPageSelected;
+  }, [paginatedStudents, selectedStudentIds, areAllOnPageSelected]);
+
+  const effectiveSelectedCount = isAllFilteredSelected ? filteredStudents.length : selectedStudentIds.size;
+
+  const handleToggleSelectStudent = (id: string) => {
+    setIsAllFilteredSelected(false);
+    setSelectedStudentIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleToggleSelectPage = () => {
+    setIsAllFilteredSelected(false);
+    setSelectedStudentIds((prev) => {
+      const next = new Set(prev);
+      if (areAllOnPageSelected) {
+        paginatedStudents.forEach((s) => next.delete(s.id));
+      } else {
+        paginatedStudents.forEach((s) => next.add(s.id));
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllFiltered = () => {
+    setIsAllFilteredSelected(true);
+    const allIds = new Set(filteredStudents.map((s) => s.id));
+    setSelectedStudentIds(allIds);
+  };
+
+  const handleClearSelection = () => {
+    setIsAllFilteredSelected(false);
+    setSelectedStudentIds(new Set());
+  };
+
+  const handleConfirmBulkDelete = async (permanent: boolean) => {
+    if (effectiveSelectedCount === 0) return;
+    setIsBulkDeleting(true);
+    try {
+      const res = await bulkDeleteStudents({
+        studentIds: isAllFilteredSelected ? undefined : Array.from(selectedStudentIds),
+        allFiltered: isAllFilteredSelected,
+        filters: isAllFilteredSelected
+          ? {
+              classId: selectedClassFilter,
+              sectionId: selectedSectionFilter,
+              status: statusFilter,
+              searchQuery: debouncedSearch,
+            }
+          : undefined,
+        permanent,
+        targetSchoolId: schoolId,
+      });
+
+      toast.success(res.message || `Successfully deleted ${res.deletedCount} students.`);
+      handleClearSelection();
+      setIsBulkDeleteModalOpen(false);
+
+      appQueryClient.invalidateCache(`students:${schoolId}`);
+      appQueryClient.invalidateCache(`planLimit:${schoolId}:*`);
+      appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
+      await Promise.all([refetchStudents(true), refetchLimit(true)]);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete students.");
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
 
   const nonDeletedStudents = useMemo(
     () => students.filter((s) => s.status !== "deleted"),

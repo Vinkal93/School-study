@@ -40,6 +40,7 @@ const testSuites = [
   { name: "Unique Identity & Authoritative ID System", file: "scripts/test-identity-system.mjs" },
   { name: "Class-Wise Fee Resolution & Server Validation", file: "scripts/test-class-wise-fees.mjs" },
   { name: "Auth Bootstrap State & Anti-Flicker Skeleton", file: "scripts/test-auth-bootstrap-flicker.mjs" },
+  { name: "Secure Bulk Delete & Batch Limit Enforcement", file: "scripts/test-bulk-delete-students.mjs" },
 ];
 
 console.log("==================================================");

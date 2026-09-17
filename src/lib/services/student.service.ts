@@ -17,7 +17,7 @@ import {
 } from "firebase/firestore";
 import { initializeApp, getApps, deleteApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
-import { getFirebaseDb } from "@/lib/firebase/client";
+import { getFirebaseDb, getFirebaseAuth } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/utils/constants";
 import { firebaseClientConfig } from "@/lib/firebase/config";
 import {
@@ -773,5 +773,54 @@ export async function transferStudentsBulk(
   }
 
   return { success: true, transferredCount };
+}
+
+export interface BulkDeleteStudentsOptions {
+  studentIds?: string[];
+  allFiltered?: boolean;
+  filters?: {
+    classId?: string;
+    sectionId?: string;
+    status?: string;
+    searchQuery?: string;
+  };
+  permanent?: boolean;
+  targetSchoolId?: string;
+}
+
+export interface BulkDeleteStudentsResult {
+  success: boolean;
+  deletedCount: number;
+  failedCount: number;
+  activeFreedCount?: number;
+  permanent?: boolean;
+  message?: string;
+}
+
+/**
+ * Calls authoritative server-side API to bulk delete or archive students.
+ * Enforces zero-trust server validation and Firestore batch limits.
+ */
+export async function bulkDeleteStudents(
+  options: BulkDeleteStudentsOptions
+): Promise<BulkDeleteStudentsResult> {
+  const auth = getFirebaseAuth();
+  const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => "") : "";
+
+  const res = await fetch("/api/admin/students/bulk-delete", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(options),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(data.error?.message || data.message || "Bulk student deletion failed.");
+  }
+
+  return data;
 }
 
