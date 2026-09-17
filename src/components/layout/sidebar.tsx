@@ -37,6 +37,7 @@ import {
   Upload,
   ShieldCheck,
   Database,
+  Megaphone,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
@@ -123,6 +124,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       label: "Site Settings (CMS)",
       href: "/super-admin/site-settings",
       icon: <LayoutDashboard className="h-5 w-5 text-purple-500" />,
+    },
+    {
+      label: "Announcements",
+      href: "/super-admin/announcements",
+      icon: <Megaphone className="h-5 w-5 text-rose-500" />,
     },
     {
       label: "Portal UI/UX",

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useSiteSettings } from "@/context/SiteSettingsContext";
 import { useAuth } from "@/hooks/use-auth";
@@ -16,6 +16,10 @@ export function AnnouncementBanner({ area = "ALL", previewAnnouncement }: Announ
   const { settings } = useSiteSettings();
   const { profile } = useAuth();
   const [dismissedId, setDismissedId] = useState<string | null>(null);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [isOverflowing, setIsOverflowing] = useState(false);
 
   const announcements = settings?.announcements || [];
   const nowMs = Date.now();
@@ -61,6 +65,32 @@ export function AnnouncementBanner({ area = "ALL", previewAnnouncement }: Announ
     }
   }, [activeAnnouncement?.id]);
 
+  // Dynamic overflow detection: checks if content width exceeds container width
+  useEffect(() => {
+    const checkOverflow = () => {
+      if (containerRef.current && contentRef.current) {
+        const availableWidth = containerRef.current.clientWidth;
+        const contentWidth = contentRef.current.scrollWidth;
+        setIsOverflowing(contentWidth > availableWidth);
+      }
+    };
+
+    const rafId = requestAnimationFrame(checkOverflow);
+    window.addEventListener("resize", checkOverflow);
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined" && containerRef.current) {
+      resizeObserver = new ResizeObserver(() => checkOverflow());
+      resizeObserver.observe(containerRef.current);
+    }
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", checkOverflow);
+      if (resizeObserver) resizeObserver.disconnect();
+    };
+  }, [activeAnnouncement?.title, activeAnnouncement?.message, activeAnnouncement?.linkUrl, activeAnnouncement?.id]);
+
   if (!activeAnnouncement) return null;
   if (!previewAnnouncement && dismissedId === activeAnnouncement.id) return null;
 
@@ -97,20 +127,21 @@ export function AnnouncementBanner({ area = "ALL", previewAnnouncement }: Announ
   }[activeAnnouncement.type || "INFO"];
 
   const Icon = typeConfig.icon;
-  const isMarquee = activeAnnouncement.marquee ?? true;
+  // Run marquee if explicitly configured ON or if the text exceeds available container width
+  const shouldMarquee = activeAnnouncement.marquee !== false || isOverflowing;
 
   const bannerContent = (
-    <div className="inline-flex items-center gap-2 whitespace-nowrap text-xs font-semibold px-4">
-      <span className="font-bold uppercase tracking-wider text-[11px] opacity-90">
+    <div className="inline-flex items-center gap-2 whitespace-nowrap text-xs font-semibold px-3 select-none">
+      <span className="font-black uppercase tracking-wider text-[11px] opacity-90">
         {activeAnnouncement.title}:
       </span>
-      <span className="opacity-95 font-normal">
+      <span className="opacity-95 font-medium">
         {activeAnnouncement.message}
       </span>
       {activeAnnouncement.linkUrl && (
         <Link
           href={activeAnnouncement.linkUrl}
-          className="inline-flex items-center gap-1 font-bold underline hover:opacity-80 transition-opacity ml-1.5 text-white"
+          className="inline-flex items-center gap-1 font-bold underline hover:opacity-80 transition-opacity ml-1.5 text-white shrink-0"
         >
           <span>{activeAnnouncement.linkText || "Learn more"}</span>
           <ArrowRight className="h-3 w-3" />
@@ -122,52 +153,83 @@ export function AnnouncementBanner({ area = "ALL", previewAnnouncement }: Announ
   return (
     <aside
       aria-label="Platform Announcement"
-      className={`relative z-40 w-full h-8 sm:h-9 min-h-[32px] max-h-[36px] overflow-hidden border-b shadow-2xs transition-all flex items-center ${typeConfig.bg}`}
+      className={`relative z-40 w-full h-8 sm:h-9 min-h-[32px] max-h-[36px] overflow-hidden whitespace-nowrap border-b shadow-2xs transition-all flex items-center justify-between ${typeConfig.bg}`}
+      style={{ minHeight: "32px", maxHeight: "36px", height: "36px" }}
     >
       <style>{`
-        @keyframes bannerMarquee {
+        @keyframes bannerMarqueeAnimation {
           0% { transform: translateX(0%); }
           100% { transform: translateX(-50%); }
         }
-        .animate-banner-marquee {
+        .banner-marquee-track {
           display: inline-flex;
           width: max-content;
-          animation: bannerMarquee 30s linear infinite;
+          animation: bannerMarqueeAnimation 32s linear infinite;
         }
-        .animate-banner-marquee:hover {
+        .banner-marquee-track:hover {
           animation-play-state: paused;
         }
       `}</style>
 
-      {/* 1. Fixed Icon Anchor (Left) */}
-      <div className="h-full flex items-center px-3 z-10 shrink-0 bg-inherit shadow-sm">
+      {/* 1. Fixed Icon Anchor (Left - never moves with marquee) */}
+      <div className="h-full flex items-center pl-3 pr-2 z-20 shrink-0 bg-inherit shadow-xs select-none">
         <div className={`p-1 rounded-md ${typeConfig.pill} flex items-center justify-center`}>
           <Icon className="h-3.5 w-3.5" />
         </div>
       </div>
 
-      {/* 2. Middle Single-Line Content Area (With smooth Marquee Ticker) */}
-      <div className="flex-1 h-full min-w-0 overflow-hidden relative flex items-center">
-        {isMarquee ? (
-          <div className="animate-banner-marquee items-center cursor-default select-none">
+      {/* 2. Middle Single-Line Content Area (With dynamic overflow & smooth marquee ticker) */}
+      <div
+        ref={containerRef}
+        className="flex-1 h-full min-w-0 overflow-hidden relative flex items-center justify-center"
+      >
+        {/* Subtle Edge Fade Gradients so ticker smoothly emerges/disappears */}
+        <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-4 z-10 bg-gradient-to-r from-black/15 to-transparent" />
+        <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-4 z-10 bg-gradient-to-l from-black/15 to-transparent" />
+
+        {/* Hidden measurement node for dynamic overflow calculation */}
+        <div
+          ref={contentRef}
+          aria-hidden="true"
+          className="absolute left-[-9999px] top-[-9999px] inline-flex items-center gap-2 whitespace-nowrap text-xs font-semibold px-3 opacity-0 pointer-events-none"
+        >
+          <span className="font-black uppercase tracking-wider text-[11px]">
+            {activeAnnouncement.title}:
+          </span>
+          <span className="font-medium">
+            {activeAnnouncement.message}
+          </span>
+          {activeAnnouncement.linkUrl && (
+            <span className="font-bold underline ml-1.5">
+              {activeAnnouncement.linkText || "Learn more"}
+            </span>
+          )}
+        </div>
+
+        {shouldMarquee ? (
+          <div className="banner-marquee-track items-center cursor-default select-none">
             {bannerContent}
-            <span className="opacity-40 select-none px-4">✦</span>
+            <span className="opacity-40 select-none px-4 text-xs">✦</span>
             {bannerContent}
-            <span className="opacity-40 select-none px-4">✦</span>
+            <span className="opacity-40 select-none px-4 text-xs">✦</span>
+            {bannerContent}
+            <span className="opacity-40 select-none px-4 text-xs">✦</span>
+            {bannerContent}
+            <span className="opacity-40 select-none px-4 text-xs">✦</span>
           </div>
         ) : (
-          <div className="w-full truncate text-center px-2">
+          <div className="w-full truncate text-center px-2 cursor-default select-none">
             {bannerContent}
           </div>
         )}
       </div>
 
-      {/* 3. Fixed Close Button Anchor (Right) */}
-      <div className="h-full flex items-center px-2.5 z-10 shrink-0 bg-inherit shadow-sm">
+      {/* 3. Fixed Close Button Anchor (Right - never moves with marquee) */}
+      <div className="h-full flex items-center pr-3 pl-2 z-20 shrink-0 bg-inherit shadow-xs select-none">
         <button
           type="button"
           onClick={handleDismiss}
-          className="p-1 rounded-md hover:bg-white/20 transition-colors cursor-pointer text-white/90 hover:text-white"
+          className="p-1 rounded-md hover:bg-white/20 active:bg-white/30 transition-colors cursor-pointer text-white/90 hover:text-white"
           title="Dismiss announcement"
           aria-label="Dismiss announcement"
         >
