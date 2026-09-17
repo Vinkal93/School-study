@@ -108,6 +108,8 @@ export type AnnouncementType = "INFO" | "WARNING" | "PROMO" | "ALERT";
 export type AnnouncementStatus = "DRAFT" | "SCHEDULED" | "ACTIVE" | "EXPIRED" | "ARCHIVED";
 export type AnnouncementTargetArea = "ALL" | "HOMEPAGE" | "PRICING" | "PORTALS";
 
+export type AnnouncementTargetScope = "ALL" | "SELECTED";
+
 export interface CmsAnnouncement {
   id: string;
   title: string;
@@ -118,6 +120,9 @@ export interface CmsAnnouncement {
   active: boolean;
   priority: number;
   targetPublicArea: AnnouncementTargetArea;
+  targetScope?: AnnouncementTargetScope;
+  targetSchoolIds?: string[];
+  marquee?: boolean;
   status?: AnnouncementStatus;
   linkText?: string;
   linkUrl?: string;
@@ -528,6 +533,9 @@ export function sanitizeSiteSettings(settings: Partial<SiteSettings>): SiteSetti
       title: sanitizeCmsString(a.title),
       message: sanitizeCmsString(a.message),
       linkText: a.linkText ? sanitizeCmsString(a.linkText) : undefined,
+      marquee: typeof a.marquee === "boolean" ? a.marquee : true,
+      targetScope: a.targetScope === "SELECTED" ? "SELECTED" : "ALL",
+      targetSchoolIds: Array.isArray(a.targetSchoolIds) ? a.targetSchoolIds.map((s) => sanitizeCmsString(s)).filter(Boolean) : [],
     })),
     faqs: (settings.faqs || DEFAULT_SITE_SETTINGS.faqs).map((f) => ({
       ...f,

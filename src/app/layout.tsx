@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/context/theme-context";
 import { GoogleAnalytics } from "@/components/common/GoogleAnalytics";
 import { ImpersonationBanner } from "@/components/common/ImpersonationBanner";
 import { EmergencyBanner } from "@/components/common/EmergencyBanner";
+import { AnnouncementBanner } from "@/components/common/AnnouncementBanner";
 import { GlobalEmergencyGate } from "@/components/common/GlobalEmergencyGate";
 import { SiteSettingsProvider } from "@/context/SiteSettingsContext";
 import { PortalUIProvider } from "@/context/portal-ui-context";
@@ -62,6 +63,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               <PortalUIProvider>
                 <ImpersonationBanner />
                 <EmergencyBanner />
+                <AnnouncementBanner />
                 <GlobalEmergencyGate>{children}</GlobalEmergencyGate>
                 <ToastProvider />
               </PortalUIProvider>

@@ -31,7 +31,11 @@ import {
   Check,
   Power,
   ExternalLink,
+  Edit3,
+  ToggleLeft,
+  ToggleRight,
 } from "lucide-react";
+import { AnnouncementBanner } from "@/components/common/AnnouncementBanner";
 import { useAuth } from "@/hooks/use-auth";
 import {
   SiteSettings,
@@ -76,15 +80,19 @@ export default function SuperAdminSiteSettingsPage() {
   const [statusMessage, setStatusMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // New item draft states
+  const [editingAnnouncementId, setEditingAnnouncementId] = useState<string | null>(null);
   const [newAnnouncement, setNewAnnouncement] = useState<Partial<CmsAnnouncement>>({
     title: "",
     message: "",
     type: "INFO",
-    startAt: new Date().toISOString().slice(0, 10),
+    startAt: new Date().toISOString().slice(0, 16),
     endAt: "",
     active: true,
+    marquee: true,
     priority: 1,
     targetPublicArea: "ALL",
+    targetScope: "ALL",
+    targetSchoolIds: [],
     linkText: "",
     linkUrl: "",
   });
@@ -297,52 +305,107 @@ export default function SuperAdminSiteSettingsPage() {
   };
 
   // --- Announcement Handlers ---
-  const handleAddAnnouncement = () => {
+  const handleSaveAnnouncement = () => {
     if (!newAnnouncement.title?.trim()) {
       toast.error("Announcement title is required.");
       return;
     }
     const item: CmsAnnouncement = {
-      id: `ann_${Date.now()}`,
+      id: editingAnnouncementId || `ann_${Date.now()}`,
       title: newAnnouncement.title.trim(),
       message: newAnnouncement.message?.trim() || "",
       type: newAnnouncement.type || "INFO",
       startAt: newAnnouncement.startAt ? new Date(newAnnouncement.startAt).toISOString() : new Date().toISOString(),
       endAt: newAnnouncement.endAt ? new Date(newAnnouncement.endAt).toISOString() : null,
       active: Boolean(newAnnouncement.active),
+      marquee: Boolean(newAnnouncement.marquee ?? true),
       priority: Number(newAnnouncement.priority) || 1,
       targetPublicArea: newAnnouncement.targetPublicArea || "ALL",
+      targetScope: newAnnouncement.targetScope === "SELECTED" ? "SELECTED" : "ALL",
+      targetSchoolIds: Array.isArray(newAnnouncement.targetSchoolIds) ? newAnnouncement.targetSchoolIds : [],
       linkText: newAnnouncement.linkText?.trim() || undefined,
       linkUrl: newAnnouncement.linkUrl?.trim() || undefined,
-      createdAt: new Date().toISOString(),
+      createdAt: newAnnouncement.createdAt || new Date().toISOString(),
     };
 
-    setSettings({
-      ...settings,
-      announcements: [item, ...(settings.announcements || [])],
-    });
+    if (editingAnnouncementId) {
+      setSettings({
+        ...settings,
+        announcements: (settings.announcements || []).map((a) => (a.id === editingAnnouncementId ? item : a)),
+      });
+      toast.success("Announcement updated in draft.");
+      setEditingAnnouncementId(null);
+    } else {
+      setSettings({
+        ...settings,
+        announcements: [item, ...(settings.announcements || [])],
+      });
+      toast.success("Announcement added to draft.");
+    }
 
     setNewAnnouncement({
       title: "",
       message: "",
       type: "INFO",
-      startAt: new Date().toISOString().slice(0, 10),
+      startAt: new Date().toISOString().slice(0, 16),
       endAt: "",
       active: true,
+      marquee: true,
       priority: 1,
       targetPublicArea: "ALL",
+      targetScope: "ALL",
+      targetSchoolIds: [],
       linkText: "",
       linkUrl: "",
     });
+  };
 
-    toast.success("Announcement added to draft.");
+  const handleEditAnnouncement = (a: CmsAnnouncement) => {
+    setEditingAnnouncementId(a.id);
+    setNewAnnouncement({
+      ...a,
+      startAt: a.startAt ? new Date(a.startAt).toISOString().slice(0, 16) : "",
+      endAt: a.endAt ? new Date(a.endAt).toISOString().slice(0, 16) : "",
+    });
+  };
+
+  const handleCancelEditAnnouncement = () => {
+    setEditingAnnouncementId(null);
+    setNewAnnouncement({
+      title: "",
+      message: "",
+      type: "INFO",
+      startAt: new Date().toISOString().slice(0, 16),
+      endAt: "",
+      active: true,
+      marquee: true,
+      priority: 1,
+      targetPublicArea: "ALL",
+      targetScope: "ALL",
+      targetSchoolIds: [],
+      linkText: "",
+      linkUrl: "",
+    });
+  };
+
+  const handleToggleAnnouncementActive = (id: string) => {
+    setSettings({
+      ...settings,
+      announcements: (settings.announcements || []).map((a) =>
+        a.id === id ? { ...a, active: !a.active } : a
+      ),
+    });
   };
 
   const handleDeleteAnnouncement = (id: string) => {
+    if (editingAnnouncementId === id) {
+      handleCancelEditAnnouncement();
+    }
     setSettings({
       ...settings,
-      announcements: settings.announcements.filter((a) => a.id !== id),
+      announcements: (settings.announcements || []).filter((a) => a.id !== id),
     });
+    toast.success("Announcement removed from draft.");
   };
 
   // --- FAQ Handlers ---
@@ -909,15 +972,68 @@ export default function SuperAdminSiteSettingsPage() {
       {/* TAB 4: ANNOUNCEMENTS */}
       {activeTab === "announcements" && (
         <div className="space-y-6">
-          {/* Add Announcement Card */}
+          {/* Live Preview Card */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Eye className="h-4 w-4 text-blue-600" />
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                  Live Preview: Top Announcement Banner
+                </h3>
+              </div>
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300">
+                {newAnnouncement.marquee ? "Marquee Ticker Active" : "Static Center"}
+              </span>
+            </div>
+            <p className="text-xs text-slate-500">
+              This preview reflects your current inputs below in real time, including the smooth single-line marquee animation and fixed action buttons.
+            </p>
+
+            <div className="rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 shadow-xs">
+              <AnnouncementBanner
+                previewAnnouncement={{
+                  id: "preview",
+                  title: newAnnouncement.title || "Sample Announcement",
+                  message: newAnnouncement.message || "This is a live preview of the announcement text on the banner.",
+                  type: newAnnouncement.type || "INFO",
+                  startAt: newAnnouncement.startAt || new Date().toISOString(),
+                  endAt: newAnnouncement.endAt || null,
+                  active: Boolean(newAnnouncement.active),
+                  marquee: Boolean(newAnnouncement.marquee ?? true),
+                  priority: Number(newAnnouncement.priority) || 1,
+                  targetPublicArea: newAnnouncement.targetPublicArea || "ALL",
+                  targetScope: newAnnouncement.targetScope || "ALL",
+                  targetSchoolIds: newAnnouncement.targetSchoolIds || [],
+                  linkText: newAnnouncement.linkText || "Learn more",
+                  linkUrl: newAnnouncement.linkUrl || "#",
+                  createdAt: new Date().toISOString(),
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Create / Edit Announcement Card */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
-              Create Public Announcement Banner
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
+                {editingAnnouncementId ? "Edit Announcement" : "Create Global Announcement Banner"}
+              </h3>
+              {editingAnnouncementId && (
+                <button
+                  type="button"
+                  onClick={handleCancelEditAnnouncement}
+                  className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-bold underline cursor-pointer"
+                >
+                  Cancel Edit
+                </button>
+              )}
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
               <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Announcement Title *</label>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  Announcement Title *
+                </label>
                 <input
                   type="text"
                   placeholder="e.g. Admission Season 2026 Live"
@@ -928,7 +1044,9 @@ export default function SuperAdminSiteSettingsPage() {
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Type / Style</label>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  Type / Style
+                </label>
                 <select
                   value={newAnnouncement.type || "INFO"}
                   onChange={(e) => setNewAnnouncement({ ...newAnnouncement, type: e.target.value as any })}
@@ -943,21 +1061,26 @@ export default function SuperAdminSiteSettingsPage() {
             </div>
 
             <div>
-              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1 text-xs">Message</label>
+              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1 text-xs">
+                Announcement Message *
+              </label>
               <textarea
                 rows={2}
-                placeholder="Details of the announcement displayed to visitors..."
+                placeholder="Details of the announcement displayed in the top single-line banner..."
                 value={newAnnouncement.message || ""}
                 onChange={(e) => setNewAnnouncement({ ...newAnnouncement, message: e.target.value })}
                 className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+            {/* Timing, Marquee & Priority Row */}
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-xs">
               <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Start Date</label>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  Start Date & Time
+                </label>
                 <input
-                  type="date"
+                  type="datetime-local"
                   value={newAnnouncement.startAt || ""}
                   onChange={(e) => setNewAnnouncement({ ...newAnnouncement, startAt: e.target.value })}
                   className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
@@ -965,9 +1088,11 @@ export default function SuperAdminSiteSettingsPage() {
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">End Date (Optional)</label>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  Expiry Date & Time (Optional)
+                </label>
                 <input
-                  type="date"
+                  type="datetime-local"
                   value={newAnnouncement.endAt || ""}
                   onChange={(e) => setNewAnnouncement({ ...newAnnouncement, endAt: e.target.value })}
                   className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
@@ -975,49 +1100,196 @@ export default function SuperAdminSiteSettingsPage() {
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Target Public Area</label>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  Display Priority (1 - 10)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={newAnnouncement.priority ?? 1}
+                  onChange={(e) => setNewAnnouncement({ ...newAnnouncement, priority: parseInt(e.target.value, 10) || 1 })}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  Marquee / Ticker Mode
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setNewAnnouncement({ ...newAnnouncement, marquee: !newAnnouncement.marquee })}
+                  className={`w-full p-2 rounded-xl border flex items-center justify-between font-bold transition-all cursor-pointer ${
+                    newAnnouncement.marquee
+                      ? "bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-300"
+                      : "bg-slate-100 border-slate-300 text-slate-600 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400"
+                  }`}
+                >
+                  <span>{newAnnouncement.marquee ? "Ticker ON" : "Static OFF"}</span>
+                  {newAnnouncement.marquee ? (
+                    <ToggleRight className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  ) : (
+                    <ToggleLeft className="h-5 w-5 text-slate-400" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Targeting Row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  Target Audience / Scope
+                </label>
+                <select
+                  value={newAnnouncement.targetScope || "ALL"}
+                  onChange={(e) => setNewAnnouncement({ ...newAnnouncement, targetScope: e.target.value as any })}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+                >
+                  <option value="ALL">All Schools & Public Visitors</option>
+                  <option value="SELECTED">Selected Schools Only</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  Page Area
+                </label>
                 <select
                   value={newAnnouncement.targetPublicArea || "ALL"}
                   onChange={(e) => setNewAnnouncement({ ...newAnnouncement, targetPublicArea: e.target.value as any })}
                   className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
                 >
-                  <option value="ALL">All Public Pages</option>
+                  <option value="ALL">All Pages (Portals + Public)</option>
+                  <option value="PORTALS">Portals Only (Admin/Teacher/Student)</option>
                   <option value="HOMEPAGE">Homepage Only</option>
                   <option value="PRICING">Pricing Page Only</option>
-                  <option value="PORTALS">Portals Only</option>
                 </select>
               </div>
             </div>
 
-            <div className="flex justify-end pt-2">
-              <button
-                type="button"
-                onClick={handleAddAnnouncement}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs cursor-pointer"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Add Announcement to Draft</span>
-              </button>
+            {/* School IDs Input (when Target is SELECTED) */}
+            {newAnnouncement.targetScope === "SELECTED" && (
+              <div className="p-3.5 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 space-y-1.5 text-xs">
+                <label className="font-bold text-amber-900 dark:text-amber-200 block">
+                  Target School IDs (comma-separated)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. school_1740001234, school_abc, school_xyz"
+                  value={newAnnouncement.targetSchoolIds?.join(", ") || ""}
+                  onChange={(e) =>
+                    setNewAnnouncement({
+                      ...newAnnouncement,
+                      targetSchoolIds: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
+                    })
+                  }
+                  className="w-full p-2.5 rounded-xl border border-amber-200 dark:border-amber-800 bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-white"
+                />
+                <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                  Only users logged in to these specific school tenants will see this banner.
+                </p>
+              </div>
+            )}
+
+            {/* Optional Call to Action Link */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  Call to Action Link Text (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Learn More, Register Now"
+                  value={newAnnouncement.linkText || ""}
+                  onChange={(e) => setNewAnnouncement({ ...newAnnouncement, linkText: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  Link URL (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. /pricing, /register, https://..."
+                  value={newAnnouncement.linkUrl || ""}
+                  onChange={(e) => setNewAnnouncement({ ...newAnnouncement, linkUrl: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+                />
+              </div>
+            </div>
+
+            {/* Submit Button */}
+            <div className="flex items-center justify-between pt-2">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setNewAnnouncement({ ...newAnnouncement, active: !newAnnouncement.active })}
+                  className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                    newAnnouncement.active
+                      ? "bg-emerald-50 border-emerald-300 text-emerald-700 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300"
+                      : "bg-slate-100 border-slate-300 text-slate-600 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400"
+                  }`}
+                >
+                  <Power className="h-3.5 w-3.5" />
+                  <span>{newAnnouncement.active ? "Status: Enabled" : "Status: Disabled"}</span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {editingAnnouncementId && (
+                  <button
+                    type="button"
+                    onClick={handleCancelEditAnnouncement}
+                    className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleSaveAnnouncement}
+                  className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 cursor-pointer"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>{editingAnnouncementId ? "Update Announcement" : "Add Announcement to Draft"}</span>
+                </button>
+              </div>
             </div>
           </div>
 
           {/* Announcements List */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
-              Active & Scheduled Announcements ({settings.announcements?.length || 0})
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-slate-400">
+                Active & Scheduled Announcements ({settings.announcements?.length || 0})
+              </h3>
+              <span className="text-xs text-slate-400">
+                Sorted by priority (higher priority shown first)
+              </span>
+            </div>
 
             <div className="space-y-3">
               {settings.announcements?.map((a) => {
                 const liveStatus = computeAnnouncementStatus(a);
+                const isSelectedForEdit = editingAnnouncementId === a.id;
                 return (
                   <div
                     key={a.id}
-                    className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                    className={`p-4 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
+                      isSelectedForEdit
+                        ? "border-blue-500 bg-blue-50/50 dark:bg-blue-950/30 ring-1 ring-blue-500"
+                        : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40"
+                    }`}
                   >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-extrabold text-slate-900 dark:text-white">{a.title}</span>
+                    <div className="space-y-1.5 flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-extrabold text-slate-900 dark:text-white text-sm">
+                          {a.title}
+                        </span>
                         <span
                           className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                             liveStatus === "ACTIVE"
@@ -1032,20 +1304,66 @@ export default function SuperAdminSiteSettingsPage() {
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
                           {a.type}
                         </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
+                          Priority {a.priority || 1}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300">
+                          {a.marquee ? "Marquee Ticker" : "Static"}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
+                          {a.targetScope === "SELECTED"
+                            ? `Selected (${a.targetSchoolIds?.length || 0} schools)`
+                            : "All Schools"}
+                        </span>
                       </div>
-                      <p className="text-slate-600 dark:text-slate-300">{a.message}</p>
-                      <span className="text-[10px] text-slate-400">
-                        Area: {a.targetPublicArea} | From: {a.startAt.slice(0, 10)} {a.endAt ? `to ${a.endAt.slice(0, 10)}` : "(No expiry)"}
-                      </span>
+                      <p className="text-slate-600 dark:text-slate-300 line-clamp-1">{a.message}</p>
+                      <div className="flex items-center gap-2 text-[10px] text-slate-400 flex-wrap">
+                        <span>Area: {a.targetPublicArea || "ALL"}</span>
+                        <span>•</span>
+                        <span>From: {a.startAt ? a.startAt.replace("T", " ").slice(0, 16) : "Immediate"}</span>
+                        <span>•</span>
+                        <span>To: {a.endAt ? a.endAt.replace("T", " ").slice(0, 16) : "No expiry"}</span>
+                        {a.linkUrl && (
+                          <>
+                            <span>•</span>
+                            <span className="text-blue-500 font-bold">Link: {a.linkText || a.linkUrl}</span>
+                          </>
+                        )}
+                      </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteAnnouncement(a.id)}
-                      className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl cursor-pointer self-end sm:self-center"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleAnnouncementActive(a.id)}
+                        className={`p-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                          a.active
+                            ? "bg-emerald-50 border-emerald-300 text-emerald-700 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300"
+                            : "bg-slate-100 border-slate-300 text-slate-500 dark:bg-slate-800 dark:border-slate-700"
+                        }`}
+                        title={a.active ? "Disable announcement" : "Enable announcement"}
+                      >
+                        <Power className="h-4 w-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleEditAnnouncement(a)}
+                        className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                        title="Edit announcement"
+                      >
+                        <Edit3 className="h-4 w-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteAnnouncement(a.id)}
+                        className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 border border-transparent hover:border-red-200 dark:hover:border-red-900 rounded-xl cursor-pointer"
+                        title="Delete announcement"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                 );
               })}
