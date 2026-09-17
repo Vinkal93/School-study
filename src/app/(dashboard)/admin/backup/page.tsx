@@ -282,8 +282,17 @@ export default function AdminBackupPage() {
           executed = true;
         } else if (data.fallbackToClient) {
           console.log("Server indicated client-side execution fallback.");
+        } else {
+          // Explicit rejection from server (such as plan capacity limit reached)
+          resultData = data;
+          executed = false;
+          throw new Error(data.error?.message || "Import was rejected by the server.");
         }
-      } catch (serverErr) {
+      } catch (serverErr: any) {
+        if (resultData && !resultData.fallbackToClient) {
+          // Server explicitly rejected with a business/limit error - do not proceed to client fallback!
+          throw serverErr;
+        }
         console.warn("Server import route encountered issue, activating client execution:", serverErr);
       }
 

@@ -317,6 +317,16 @@ export async function saveClassSectionStep(
     existingClassesMap.set((d.data().name || "").toLowerCase(), d.id);
   });
 
+  // Check plan limit for newly added classes
+  const newClassesCount = classList.filter(
+    (c) => !c.id && !existingClassesMap.has(c.name.trim().toLowerCase())
+  ).length;
+
+  if (newClassesCount > 0) {
+    const { requirePlanLimitQuantity } = await import("@/lib/billing/limits");
+    await requirePlanLimitQuantity(schoolId, "classes", newClassesCount);
+  }
+
   const batch = writeBatch(db);
 
   for (let idx = 0; idx < classList.length; idx++) {

@@ -631,8 +631,6 @@ export default function AdminStudentsPage() {
   return (
     <EntitlementGate
       feature="student_management"
-      limitKey="students"
-      currentCount={students.length}
       title="Student Directory & Admissions"
       description="Enroll students, manage student profiles, assign roll numbers, and view guardian contacts."
       requiredPlan="Starter Plan"
@@ -691,7 +689,8 @@ export default function AdminStudentsPage() {
               }
               if (limitStatus && !limitStatus.allowed) {
                 toast.error(
-                  `Student enrollment limit reached (${limitStatus.current}/${limitStatus.limit}). Upgrade plan to enroll more.`
+                  limitStatus.message ||
+                    `Student limit reached. Your plan allows ${limitStatus.limit} students. You already have ${limitStatus.current}.`
                 );
                 return;
               }
@@ -716,8 +715,10 @@ export default function AdminStudentsPage() {
           <div className="flex items-center gap-3">
             <XCircle className="h-5 w-5 text-red-600 shrink-0" />
             <div className="text-xs sm:text-sm">
-              <span className="font-bold">Student Capacity Limit Reached ({limitStatus.current}/{limitStatus.limit}). </span>
-              <span>Your school has reached the maximum student enrollment limit for your current plan.</span>
+              <span className="font-bold">
+                {limitStatus.message ||
+                  `Student limit reached. Your plan allows ${limitStatus.limit} students. You already have ${limitStatus.current}.`}
+              </span>
             </div>
           </div>
           <Link

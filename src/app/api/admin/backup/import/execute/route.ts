@@ -95,18 +95,22 @@ export async function POST(request: Request) {
     return NextResponse.json(result, { status: result.success || result.fallbackToClient ? 200 : 400 });
   } catch (error: any) {
     console.error("Execute import API error:", error);
+    const isLimitError =
+      error?.code === "LIMIT_REACHED" ||
+      error?.code === "LIMIT_EXCEEDED" ||
+      error?.code === "OVER_LIMIT";
     return NextResponse.json(
       {
         success: false,
-        fallbackToClient: true,
+        fallbackToClient: !isLimitError,
         error: {
           code: error?.code || "INTERNAL_ERROR",
-          message: error?.message || "Import execution failed on server. Client fallback available.",
+          message: error?.message || "Import execution failed on server.",
         },
         summary: { total: 0, created: 0, updated: 0, skipped: 0, failed: 0 },
         errors: [error?.message || "Server error"],
       },
-      { status: 200 }
+      { status: isLimitError ? 400 : 200 }
     );
   }
 }

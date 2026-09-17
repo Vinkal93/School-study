@@ -400,7 +400,8 @@ export default function AdminTeachersPage() {
   const handleRestoreTeacher = async (teacher: TeacherProfile) => {
     if (limitStatus && !limitStatus.allowed) {
       toast.error(
-        `Teacher limit reached (${limitStatus.current}/${limitStatus.limit}). Upgrade plan to restore more teachers.`
+        limitStatus.message ||
+          `Teacher limit reached. Your plan allows ${limitStatus.limit} teachers. You already have ${limitStatus.current}.`
       );
       return;
     }
@@ -454,8 +455,6 @@ export default function AdminTeachersPage() {
   return (
     <EntitlementGate
       feature="teacher_management"
-      limitKey="teachers"
-      currentCount={teachers.length}
       title="Faculty & Teacher Management"
       description="Onboard teachers, provision login credentials, and assign class teachers."
       requiredPlan="Starter Plan"
@@ -489,7 +488,8 @@ export default function AdminTeachersPage() {
                 }
                 if (limitStatus && !limitStatus.allowed) {
                   toast.error(
-                    `Faculty limit reached (${limitStatus.current}/${limitStatus.limit}). Upgrade plan to add more teachers.`
+                    limitStatus.message ||
+                      `Teacher limit reached. Your plan allows ${limitStatus.limit} teachers. You already have ${limitStatus.current}.`
                   );
                   return;
                 }
@@ -513,8 +513,10 @@ export default function AdminTeachersPage() {
             <div className="flex items-center gap-3">
               <XCircle className="h-5 w-5 text-red-600 shrink-0" />
               <div className="text-xs sm:text-sm">
-                <span className="font-bold">Faculty Capacity Limit Reached ({limitStatus.current}/${limitStatus.limit}). </span>
-                <span>Your school has reached the maximum teacher account limit for your current plan.</span>
+                <span className="font-bold">
+                  {limitStatus.message ||
+                    `Teacher limit reached. Your plan allows ${limitStatus.limit} teachers. You already have ${limitStatus.current}.`}
+                </span>
               </div>
             </div>
             <Link

@@ -146,7 +146,9 @@ export function EntitlementGate({
       }
 
       // 3. Limit Check Evaluation SECOND
-      if (limitKey) {
+      // CRITICAL RULE: Page-level views ("page") must NEVER block rendering of existing records when a capacity limit is reached.
+      // Capacity limits only restrict creation/action gates ("action", "button", "limit", "export").
+      if (limitKey && type !== "page") {
         let isOver = false;
         let limitMsg = "";
 

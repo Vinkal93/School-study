@@ -363,6 +363,57 @@ export async function importSchoolDataClient(
     return clean;
   };
 
+  // Authoritative Check: Enforce Plan Limit BEFORE writing anything
+  const isLimitedResource = targetModule === "teachers" || targetModule === "students" || targetModule === "classes";
+  if (isLimitedResource) {
+    let newRecordsCount = 0;
+    for (const rec of records) {
+      if (rec._hasErrors) continue;
+      const admNo = String(rec.admissionNumber || rec.studentId || "").trim().toLowerCase();
+      const existingId = (admNo && existingMap.get(`adm:${admNo}`)) || (rec.id && existingMap.get(`id:${rec.id}`));
+      const isUpdate = Boolean(existingId || (rec._isDuplicate && rec._existingId));
+      if (!isUpdate) {
+        newRecordsCount++;
+      }
+    }
+
+    if (newRecordsCount > 0) {
+      const { reconcileSchoolUsage } = await import("@/lib/billing/usage");
+      await reconcileSchoolUsage(schoolId).catch(() => {});
+
+      const { checkPlanLimitQuantity } = await import("@/lib/billing/limits");
+      const limitCheck = await checkPlanLimitQuantity(schoolId, targetModule as any, newRecordsCount);
+
+      if (!limitCheck.allowed) {
+        // STRICT REQUIREMENT: ZERO DATABASE WRITES
+        return {
+          success: false,
+          importedCount: 0,
+          updatedCount: 0,
+          skippedCount: 0,
+          preImportSnapshotId: "",
+          summary: {
+            total: records.length,
+            created: 0,
+            updated: 0,
+            skipped: 0,
+            failed: records.length,
+          },
+          error: {
+            code: limitCheck.code || "LIMIT_REACHED",
+            message: limitCheck.message,
+            details: {
+              limit: limitCheck.limit,
+              current: limitCheck.current,
+              requested: newRecordsCount,
+            },
+          },
+          errors: [limitCheck.message],
+        };
+      }
+    }
+  }
+
   // Process in concurrent pools of 15 using setDoc to avoid Firestore's 10-get batch security rule limit
   const CONCURRENCY = 15;
   const errors: string[] = [];
@@ -481,6 +532,16 @@ export async function importSchoolDataClient(
 
     if (onProgress) {
       onProgress(Math.min(i + chunk.length, records.length), records.length);
+    }
+  }
+
+  // Automatically synchronize and reconcile school usage counter if new records were imported
+  if (importedCount > 0 && isLimitedResource) {
+    try {
+      const { reconcileSchoolUsage } = await import("@/lib/billing/usage");
+      await reconcileSchoolUsage(schoolId);
+    } catch (recErr) {
+      console.warn("Notice: Post-import usage reconciliation:", recErr);
     }
   }
 

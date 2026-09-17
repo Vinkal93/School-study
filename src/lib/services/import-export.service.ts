@@ -438,7 +438,52 @@ export async function executeControlledImport(
     };
   }
 
-  // 1. ALWAYS Create a Pre-Import Recovery Snapshot
+  // 1. Authoritative Backend Check: Enforce Plan Limit BEFORE any writes or snapshots
+  const isLimitedResource = targetModule === "teachers" || targetModule === "students" || targetModule === "classes";
+  if (isLimitedResource) {
+    const newRecordsCount = validRecords.filter(
+      (r) => !r._hasErrors && !(r._isDuplicate && r._existingId)
+    ).length;
+
+    if (newRecordsCount > 0) {
+      const { reconcileSchoolUsage } = await import("@/lib/billing/usage");
+      await reconcileSchoolUsage(schoolId).catch(() => {});
+
+      const { checkPlanLimitQuantity } = await import("@/lib/billing/limits");
+      const limitCheck = await checkPlanLimitQuantity(schoolId, targetModule as any, newRecordsCount);
+
+      if (!limitCheck.allowed) {
+        // STRICT REQUIREMENT: ZERO DATABASE WRITES, ZERO SNAPSHOTS, ZERO CLIENT FALLBACK
+        return {
+          success: false,
+          importedCount: 0,
+          updatedCount: 0,
+          skippedCount: 0,
+          preImportSnapshotId: "",
+          fallbackToClient: false,
+          summary: {
+            total: validRecords.length,
+            created: 0,
+            updated: 0,
+            skipped: 0,
+            failed: validRecords.length,
+          },
+          error: {
+            code: limitCheck.code || "LIMIT_REACHED",
+            message: limitCheck.message,
+            details: {
+              limit: limitCheck.limit,
+              current: limitCheck.current,
+              requested: newRecordsCount,
+            },
+          },
+          errors: [limitCheck.message],
+        };
+      }
+    }
+  }
+
+  // 2. ALWAYS Create a Pre-Import Recovery Snapshot (only if within limits)
   let preImportSnapshotId = "";
   try {
     const snap = await createFullBackupSnapshot(schoolId, "pre_import");
@@ -633,6 +678,16 @@ export async function executeControlledImport(
       }
 
       await batch.commit();
+    }
+
+    // Automatically synchronize and reconcile school usage counter if new records were imported
+    if (importedCount > 0 && isLimitedResource) {
+      try {
+        const { reconcileSchoolUsage } = await import("@/lib/billing/usage");
+        await reconcileSchoolUsage(schoolId);
+      } catch (recErr) {
+        console.warn("Notice: Post-import usage reconciliation:", recErr);
+      }
     }
 
     // Record audit log

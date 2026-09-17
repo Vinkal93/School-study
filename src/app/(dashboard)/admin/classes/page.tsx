@@ -261,8 +261,6 @@ export default function AdminClassesPage() {
   return (
     <EntitlementGate
       feature="class_management"
-      limitKey="classes"
-      currentCount={classes.length}
       title="Classes & Sections Management"
       description="Configure grades, divisions, and manage class structures for your school."
       requiredPlan="Starter Plan"
@@ -312,7 +310,8 @@ export default function AdminClassesPage() {
                 }
                 if (limitStatus && !limitStatus.allowed) {
                   toast.error(
-                    `Class limit reached (${limitStatus.current}/${limitStatus.limit}). Upgrade plan to add more classes.`
+                    limitStatus.message ||
+                      `Class limit reached. Your plan allows ${limitStatus.limit} classes. You already have ${limitStatus.current}.`
                   );
                   return;
                 }
@@ -346,9 +345,9 @@ export default function AdminClassesPage() {
               <BookOpen className="h-5 w-5 text-red-600 dark:text-red-400" />
             </div>
             <div>
-              <p className="text-sm font-bold">Class Capacity Limit Reached</p>
-              <p className="text-xs text-red-700 dark:text-red-400 mt-0.5">
-                Your school has reached the maximum of {limitStatus.limit} classes allowed on your current plan.
+              <p className="text-sm font-bold">
+                {limitStatus.message ||
+                  `Class limit reached. Your plan allows ${limitStatus.limit} classes. You already have ${limitStatus.current}.`}
               </p>
             </div>
           </div>
