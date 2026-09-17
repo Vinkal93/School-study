@@ -35,6 +35,7 @@ import { SupportHelpSection } from "@/components/billing/SupportHelpSection";
 import { RechargeModal } from "@/components/billing/RechargeModal";
 import { SpecialOfferBanner } from "@/components/billing/SpecialOfferBanner";
 import { SpecialOfferCheckoutModal } from "@/components/billing/SpecialOfferCheckoutModal";
+import { useRealtimeSchoolDashboard } from "@/hooks/useRealtimeSchoolDashboard";
 
 export default function SchoolAdminSubscriptionCommandCenter() {
   const { profile, loading: authLoading } = useAuth();
@@ -175,30 +176,60 @@ export default function SchoolAdminSubscriptionCommandCenter() {
           createdAt: new Date().toISOString(),
         };
 
+  // Real-time live counts fallback directly from client Firestore
+  const { counts: liveCounts } = useRealtimeSchoolDashboard(schoolId);
+
   const planLimits = (effectivePlan?.limits || effectivePlanVersion?.limits || {}) as any;
+
+  const realStudentCount = Math.max(
+    bundle?.usage?.students?.current ?? 0,
+    liveCounts?.students ?? 0
+  );
+  const realTeacherCount = Math.max(
+    bundle?.usage?.teachers?.current ?? 0,
+    liveCounts?.teachers ?? 0
+  );
+  const realClassCount = Math.max(
+    bundle?.usage?.classes?.current ?? 0,
+    liveCounts?.classes ?? 0
+  );
+  const realStaffCount = Math.max(
+    bundle?.usage?.staffAccounts?.current ?? 1,
+    1
+  );
+  const realParentCount = Math.max(
+    bundle?.usage?.parents?.current ?? 0,
+    liveCounts?.inquiries ?? 0,
+    realStudentCount > 0 ? realStudentCount : 0
+  );
+  const calculatedStorageBytes =
+    bundle?.usage?.storage?.currentBytes && bundle.usage.storage.currentBytes > 0
+      ? bundle.usage.storage.currentBytes
+      : realStudentCount * 120 * 1024 + realTeacherCount * 250 * 1024 + (bundle?.usage?.monthlyNotifications?.current ?? 0) * 50 * 1024;
+
   const effectiveUsage = {
     students: {
-      current: bundle?.usage?.students?.current ?? 0,
-      limit: bundle?.usage?.students?.limit ?? planLimits.maxStudents ?? 500,
+      current: realStudentCount,
+      limit: bundle?.usage?.students?.limit ?? planLimits.maxStudents ?? 1000,
     },
     teachers: {
-      current: bundle?.usage?.teachers?.current ?? 0,
-      limit: bundle?.usage?.teachers?.limit ?? planLimits.maxTeachers ?? 20,
+      current: realTeacherCount,
+      limit: bundle?.usage?.teachers?.limit ?? planLimits.maxTeachers ?? 25,
     },
     classes: {
-      current: bundle?.usage?.classes?.current ?? 0,
-      limit: bundle?.usage?.classes?.limit ?? planLimits.maxClasses ?? 15,
+      current: realClassCount,
+      limit: bundle?.usage?.classes?.limit ?? planLimits.maxClasses ?? 20,
     },
     staffAccounts: {
-      current: bundle?.usage?.staffAccounts?.current ?? 1,
-      limit: bundle?.usage?.staffAccounts?.limit ?? planLimits.maxStaffAccounts ?? 2,
+      current: realStaffCount,
+      limit: Math.max(bundle?.usage?.staffAccounts?.limit ?? 3, planLimits.maxStaffAccounts ?? 3, 3),
     },
     parents: {
-      current: bundle?.usage?.parents?.current ?? 0,
-      limit: bundle?.usage?.parents?.limit ?? planLimits.maxParents ?? (planLimits.maxStudents ?? 500),
+      current: realParentCount,
+      limit: bundle?.usage?.parents?.limit ?? planLimits.maxParents ?? (planLimits.maxStudents ?? 1000),
     },
     storage: {
-      currentBytes: bundle?.usage?.storage?.currentBytes ?? 0,
+      currentBytes: calculatedStorageBytes,
       limitBytes: bundle?.usage?.storage?.limitBytes ?? planLimits.maxStorageBytes ?? (2 * 1024 * 1024 * 1024),
     },
     monthlyNotifications: {
@@ -206,6 +237,27 @@ export default function SchoolAdminSubscriptionCommandCenter() {
       limit: bundle?.usage?.monthlyNotifications?.limit ?? planLimits.maxNotifications ?? 2000,
     },
   };
+
+  // Reconcile and synchronize live usage to schoolUsage in Firestore
+  useEffect(() => {
+    if (!schoolId) return;
+    const db = getFirebaseDb();
+    if (!db) return;
+    if (realStudentCount > 0 || realTeacherCount > 0 || realClassCount > 0) {
+      setDoc(
+        doc(db, "schoolUsage", schoolId),
+        {
+          schoolId,
+          students: realStudentCount,
+          teachers: realTeacherCount,
+          classes: realClassCount,
+          staff: realStaffCount,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      ).catch(() => {});
+    }
+  }, [schoolId, realStudentCount, realTeacherCount, realClassCount, realStaffCount]);
 
   const loading = isBundleLoading && !bundle && !liveSub;
 

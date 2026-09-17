@@ -120,33 +120,57 @@ export const DEFAULT_STATIC_PLANS: Plan[] = [
     version: 1,
     features: [
       "student_management",
+      "students",
       "teacher_management",
+      "teachers",
       "class_management",
+      "classes",
       "basic_attendance",
+      "attendance",
       "school_dashboard",
+      "dashboard",
       "inquiries_portal",
+      "inquiries",
       "notices_announcements",
+      "notices",
+      "subscription_billing",
+      "billing",
     ],
     featureAccess: {
       student_management: "FULL_ACCESS",
+      students: "FULL_ACCESS",
       teacher_management: "FULL_ACCESS",
+      teachers: "FULL_ACCESS",
       class_management: "FULL_ACCESS",
+      classes: "FULL_ACCESS",
       basic_attendance: "FULL_ACCESS",
+      attendance: "FULL_ACCESS",
       school_dashboard: "FULL_ACCESS",
+      dashboard: "FULL_ACCESS",
       inquiries_portal: "FULL_ACCESS",
+      inquiries: "FULL_ACCESS",
       notices_announcements: "FULL_ACCESS",
+      notices: "FULL_ACCESS",
       rules_policies: "SHOWCASE",
+      rules: "SHOWCASE",
       timetable_bells: "SHOWCASE",
+      timetable: "SHOWCASE",
       advanced_reports: "SHOWCASE",
-      fee_management: "HIDDEN",
+      reports: "SHOWCASE",
+      fee_management: "SHOWCASE",
+      fees: "SHOWCASE",
       attendance_automation: "HIDDEN",
       subscription_billing: "FULL_ACCESS",
+      billing: "FULL_ACCESS",
     },
     limits: {
-      maxStudents: 500,
-      maxTeachers: 20,
-      maxClasses: 15,
-      maxStaffAccounts: 2,
+      maxStudents: 1000,
+      maxTeachers: 25,
+      maxClasses: 20,
+      maxStaffAccounts: 3,
+      maxParents: 1000,
+      maxStorageBytes: 2 * 1024 * 1024 * 1024,
+      maxNotifications: 2000,
     },
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -413,16 +437,30 @@ export const DEFAULT_STATIC_PLAN_VERSIONS: Record<string, PlanVersion> = {
     currency: "INR",
     features: [
       "student_management",
+      "students",
       "teacher_management",
+      "teachers",
       "class_management",
+      "classes",
       "basic_attendance",
+      "attendance",
       "school_dashboard",
+      "dashboard",
+      "inquiries_portal",
+      "inquiries",
+      "notices_announcements",
+      "notices",
+      "subscription_billing",
+      "billing",
     ],
     limits: {
-      maxStudents: 500,
-      maxTeachers: 20,
-      maxClasses: 15,
-      maxStaffAccounts: 2,
+      maxStudents: 1000,
+      maxTeachers: 25,
+      maxClasses: 20,
+      maxStaffAccounts: 3,
+      maxParents: 1000,
+      maxStorageBytes: 2 * 1024 * 1024 * 1024,
+      maxNotifications: 2000,
     },
     effectiveFrom: "2026-01-01T00:00:00.000Z",
     effectiveUntil: null,
@@ -976,14 +1014,30 @@ export async function getActivePlan(planId: string): Promise<Plan | null> {
         const slugSnap = await getDocs(slugQuery);
         if (!slugSnap.empty) {
           const planDoc = slugSnap.docs[0];
+          const defaultPlan = DEFAULT_STATIC_PLANS.find(
+            (p) => p.id === normId || p.slug === normId || p.id === planId || p.slug === planId
+          );
           const plan = { id: planDoc.id, ...planDoc.data() } as Plan;
+          if (defaultPlan) {
+            plan.features = Array.from(new Set([...(defaultPlan.features || []), ...(plan.features || [])]));
+            plan.featureAccess = { ...(defaultPlan.featureAccess || {}), ...(plan.featureAccess || {}) };
+            plan.limits = { ...(defaultPlan.limits || {}), ...(plan.limits || {}) };
+          }
           if (plan.status === "ACTIVE" && !plan.isArchived) {
             cachePlan(plan);
             return plan;
           }
         }
       } else {
+        const defaultPlan = DEFAULT_STATIC_PLANS.find(
+          (p) => p.id === normId || p.slug === normId || p.id === planId || p.slug === planId
+        );
         const plan = { id: planSnap.id, ...planSnap.data() } as Plan;
+        if (defaultPlan) {
+          plan.features = Array.from(new Set([...(defaultPlan.features || []), ...(plan.features || [])]));
+          plan.featureAccess = { ...(defaultPlan.featureAccess || {}), ...(plan.featureAccess || {}) };
+          plan.limits = { ...(defaultPlan.limits || {}), ...(plan.limits || {}) };
+        }
         if (plan.status === "ACTIVE" && !plan.isArchived) {
           cachePlan(plan);
           return plan;

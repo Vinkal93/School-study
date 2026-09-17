@@ -121,23 +121,51 @@ export async function GET(request: Request) {
     if (!entitlement) {
       entitlement = {
         schoolId,
-        planId: subscription.planId || "plan_professional",
+        planId: subscription.planId || "plan_starter",
         status: subscription.status || "ACTIVE",
         accessMode: "FULL",
         features: {
           student_management: true,
+          students: true,
           teacher_management: true,
+          teachers: true,
           class_management: true,
+          classes: true,
+          basic_attendance: true,
           attendance: true,
+          inquiries_portal: true,
+          inquiries: true,
+          notices_announcements: true,
           notices: true,
-          reports: true,
+          school_dashboard: true,
+          dashboard: true,
+          subscription_billing: true,
           billing: true,
+          rules_policies: false,
+          timetable_bells: false,
+          advanced_reports: false,
+          fee_management: false,
+        },
+        featureAccessModes: {
+          student_management: "FULL_ACCESS",
+          teacher_management: "FULL_ACCESS",
+          class_management: "FULL_ACCESS",
+          basic_attendance: "FULL_ACCESS",
+          attendance: "FULL_ACCESS",
+          inquiries_portal: "FULL_ACCESS",
+          notices_announcements: "FULL_ACCESS",
+          school_dashboard: "FULL_ACCESS",
+          subscription_billing: "FULL_ACCESS",
+          rules_policies: "SHOWCASE",
+          timetable_bells: "SHOWCASE",
+          advanced_reports: "SHOWCASE",
+          fee_management: "SHOWCASE",
         },
         limits: {
-          students: { limit: 2000, current: 0, override: false },
-          teachers: { limit: 100, current: 0, override: false },
-          classes: { limit: 60, current: 0, override: false },
-          staff: { limit: 10, current: 0, override: false },
+          students: { limit: 1000, current: 0, override: false },
+          teachers: { limit: 25, current: 0, override: false },
+          classes: { limit: 20, current: 0, override: false },
+          staff: { limit: 3, current: 1, override: false },
         },
       };
     }
@@ -252,14 +280,43 @@ export async function GET(request: Request) {
       console.warn("[DashboardBundleAPI] Error calculating usage metrics:", err);
     }
 
+    // Safe fallbacks from school document metadata and schoolUsage collection
+    if (schoolDocData) {
+      if (typeof schoolDocData.studentCount === "number") realStudentCount = Math.max(realStudentCount, schoolDocData.studentCount);
+      if (typeof schoolDocData.teacherCount === "number") realTeacherCount = Math.max(realTeacherCount, schoolDocData.teacherCount);
+      if (typeof schoolDocData.classCount === "number") realClassCount = Math.max(realClassCount, schoolDocData.classCount);
+      if (typeof schoolDocData.stats?.students === "number") realStudentCount = Math.max(realStudentCount, schoolDocData.stats.students);
+      if (typeof schoolDocData.stats?.teachers === "number") realTeacherCount = Math.max(realTeacherCount, schoolDocData.stats.teachers);
+      if (typeof schoolDocData.stats?.classes === "number") realClassCount = Math.max(realClassCount, schoolDocData.stats.classes);
+    }
+
+    try {
+      const usageSnap = await getDoc(doc(db, "schoolUsage", schoolId));
+      if (usageSnap.exists()) {
+        const u = usageSnap.data();
+        if (typeof u.students === "number") realStudentCount = Math.max(realStudentCount, u.students);
+        if (typeof u.teachers === "number") realTeacherCount = Math.max(realTeacherCount, u.teachers);
+        if (typeof u.classes === "number") realClassCount = Math.max(realClassCount, u.classes);
+        if (typeof u.staff === "number") realStaffCount = Math.max(realStaffCount, u.staff);
+      }
+    } catch (e) {}
+
+    // Check query params if passed from client
+    const paramStudents = Number(searchParams.get("students")) || 0;
+    const paramTeachers = Number(searchParams.get("teachers")) || 0;
+    const paramClasses = Number(searchParams.get("classes")) || 0;
+    if (paramStudents > 0) realStudentCount = Math.max(realStudentCount, paramStudents);
+    if (paramTeachers > 0) realTeacherCount = Math.max(realTeacherCount, paramTeachers);
+    if (paramClasses > 0) realClassCount = Math.max(realClassCount, paramClasses);
+
     const storageBytes = realStudentCount * 120 * 1024 + realTeacherCount * 250 * 1024 + realNoticeCount * 50 * 1024;
 
     const effectivePlanLimits: any = plan?.limits || planVersion?.limits || entitlement?.limits || {};
     
-    const studentLimit = typeof effectivePlanLimits.maxStudents === "number" ? effectivePlanLimits.maxStudents : (entitlement?.limits?.students?.limit ?? 500);
-    const teacherLimit = typeof effectivePlanLimits.maxTeachers === "number" ? effectivePlanLimits.maxTeachers : (entitlement?.limits?.teachers?.limit ?? 20);
-    const classLimit = typeof effectivePlanLimits.maxClasses === "number" ? effectivePlanLimits.maxClasses : (entitlement?.limits?.classes?.limit ?? 15);
-    const staffLimit = typeof effectivePlanLimits.maxStaffAccounts === "number" ? effectivePlanLimits.maxStaffAccounts : (entitlement?.limits?.staff?.limit ?? 2);
+    const studentLimit = typeof effectivePlanLimits.maxStudents === "number" ? effectivePlanLimits.maxStudents : (entitlement?.limits?.students?.limit ?? 1000);
+    const teacherLimit = typeof effectivePlanLimits.maxTeachers === "number" ? effectivePlanLimits.maxTeachers : (entitlement?.limits?.teachers?.limit ?? 25);
+    const classLimit = typeof effectivePlanLimits.maxClasses === "number" ? effectivePlanLimits.maxClasses : (entitlement?.limits?.classes?.limit ?? 20);
+    const staffLimit = Math.max(typeof effectivePlanLimits.maxStaffAccounts === "number" ? effectivePlanLimits.maxStaffAccounts : (entitlement?.limits?.staff?.limit ?? 3), 3);
     const parentLimit = typeof effectivePlanLimits.maxParents === "number" ? effectivePlanLimits.maxParents : (studentLimit === -1 ? -1 : studentLimit);
     const storageLimitBytes = typeof effectivePlanLimits.maxStorageBytes === "number" ? effectivePlanLimits.maxStorageBytes : (studentLimit === -1 ? -1 : 2 * 1024 * 1024 * 1024);
     const notificationLimit = typeof effectivePlanLimits.maxNotifications === "number" ? effectivePlanLimits.maxNotifications : (studentLimit === -1 ? -1 : 2000);

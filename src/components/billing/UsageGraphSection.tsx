@@ -23,8 +23,6 @@ export function UsageGraphSection({
 
   // Generate realistic data points based on actual current counts
   const chartData = useMemo(() => {
-    if (studentCount === 0 && teacherCount === 0) return [];
-
     const baseVal =
       selectedMetric === "students"
         ? studentCount

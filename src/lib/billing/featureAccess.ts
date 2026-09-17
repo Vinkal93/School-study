@@ -22,27 +22,27 @@ const FEATURE_DEPENDENCIES: Record<string, string[]> = {
 /**
  * Feature key normalization alias map for legacy and dot-notation keys.
  */
-const FEATURE_KEY_ALIASES: Record<string, string[]> = {
+export const FEATURE_KEY_ALIASES: Record<string, string[]> = {
   student_management: ["student_management", "students", "student_portal"],
-  students: ["student_management", "students", "student_portal"],
+  students: ["students", "student_management", "student_portal"],
   teacher_management: ["teacher_management", "teachers", "teacher_portal"],
-  teachers: ["teacher_management", "teachers", "teacher_portal"],
+  teachers: ["teachers", "teacher_management", "teacher_portal"],
   class_management: ["class_management", "classes"],
-  classes: ["class_management", "classes"],
-  attendance: ["attendance", "attendance_automation", "basic_attendance"],
-  attendance_automation: ["attendance_automation", "attendance", "basic_attendance"],
+  classes: ["classes", "class_management"],
+  attendance: ["basic_attendance", "attendance"],
   basic_attendance: ["basic_attendance", "attendance"],
-  reports: ["reports", "advanced_reports", "reports_export"],
+  attendance_automation: ["attendance_automation"],
+  reports: ["advanced_reports", "reports", "reports_export"],
   advanced_reports: ["advanced_reports", "reports", "reports_export"],
-  notices: ["notices", "notices_announcements"],
+  notices: ["notices_announcements", "notices"],
   notices_announcements: ["notices_announcements", "notices"],
-  dashboard: ["dashboard", "school_dashboard"],
+  dashboard: ["school_dashboard", "dashboard"],
   school_dashboard: ["school_dashboard", "dashboard"],
-  timetable: ["timetable", "timetable_bells"],
+  timetable: ["timetable_bells", "timetable"],
   timetable_bells: ["timetable_bells", "timetable"],
   rules_policies: ["rules_policies", "rules"],
   rules: ["rules_policies", "rules"],
-  billing: ["billing", "subscription_billing"],
+  billing: ["subscription_billing", "billing"],
   subscription_billing: ["subscription_billing", "billing"],
   fee_management: [
     "fee_management",
@@ -55,12 +55,12 @@ const FEATURE_KEY_ALIASES: Record<string, string[]> = {
     "fees.structure",
     "fees.payment",
   ],
-  fees: ["fees", "fee_management", "fee_collection", "fees.collect"],
+  fees: ["fee_management", "fees", "fee_collection", "fees.collect"],
   fee_collection: ["fee_collection", "fees.collect", "fees.payment", "fee_management", "fees"],
   "fees.collect": ["fees.collect", "fee_collection", "fee_management", "fees"],
   fee_dashboard: ["fee_dashboard", "fee_management", "fees", "fees.dashboard"],
   fee_structure: ["fee_structure", "fees.structure", "fee_management", "fees"],
-  inquiries: ["inquiries", "inquiries_portal", "leads"],
+  inquiries: ["inquiries_portal", "inquiries", "leads"],
   inquiries_portal: ["inquiries_portal", "inquiries", "leads"],
 };
 

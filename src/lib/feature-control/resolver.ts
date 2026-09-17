@@ -5,6 +5,8 @@ import {
   RolloutMode,
 } from "@/types/featureControl";
 import { FEATURE_REGISTRY, getFeatureDefinition } from "./featureRegistry";
+import { FEATURE_KEY_ALIASES } from "@/lib/billing/featureAccess";
+import { canonicalizeCapabilityKey } from "@/lib/billing/permissions";
 
 export interface ResolveFeatureParams {
   featureKey: string; // e.g. "students", "students.delete", "fees", "fee.refund"
@@ -283,11 +285,28 @@ export function resolveEffectiveFeatureAccess({
     };
   }
 
-  if (Array.isArray(planAllowedFeatures)) {
-    const isPermitted =
-      planAllowedFeatures.includes(featureKey) ||
-      planAllowedFeatures.includes(moduleKey) ||
-      planAllowedFeatures.includes(stateId);
+  if (Array.isArray(planAllowedFeatures) && planAllowedFeatures.length > 0) {
+    const canonical = canonicalizeCapabilityKey(featureKey);
+    const candidateKeys = new Set<string>([
+      featureKey,
+      canonical,
+      moduleKey,
+      stateId,
+      def?.id || "",
+      def?.key || "",
+      def?.moduleKey || "",
+    ]);
+
+    const featAliases = FEATURE_KEY_ALIASES[featureKey] || [];
+    featAliases.forEach((a) => candidateKeys.add(a));
+    const canAliases = FEATURE_KEY_ALIASES[canonical] || [];
+    canAliases.forEach((a) => candidateKeys.add(a));
+    const modAliases = FEATURE_KEY_ALIASES[moduleKey] || [];
+    modAliases.forEach((a) => candidateKeys.add(a));
+
+    const isPermitted = Array.from(candidateKeys).some(
+      (k) => k && planAllowedFeatures.includes(k)
+    );
 
     if (!isPermitted) {
       return {
