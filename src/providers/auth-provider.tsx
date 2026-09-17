@@ -19,6 +19,7 @@ import { doc, updateDoc } from "firebase/firestore";
 import type { AppUser } from "@/types";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import { traceClient } from "@/lib/debug-client";
 
 export type AuthBootstrapState =
   | "AUTH_BOOTSTRAPPING"
@@ -46,6 +47,7 @@ export const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 const IMPERSONATION_STORAGE_KEY = "school_study_impersonation_user";
 const SESSION_LOGIN_TIME_KEY = "school_study_session_login_time";
+const AUTH_SESSION_STORAGE_KEY = "school_study_auth_session";
 const SESSION_MAX_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days persistent session
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -53,11 +55,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [originalProfile, setOriginalProfile] = useState<AppUser | null>(null);
   const [impersonatedUser, setImpersonatedUser] = useState<AppUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(true);
   const [bootstrapState, setBootstrapState] = useState<AuthBootstrapState>("AUTH_BOOTSTRAPPING");
 
-  // Restore impersonation session on mount
+  // Restore cached session and impersonation session on client mount
   useEffect(() => {
+    try {
+      const stored = localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && parsed.uid) {
+          setOriginalProfile(parsed);
+          setBootstrapState("AUTHENTICATED_CONTEXT_READY");
+        }
+      }
+    } catch {}
+
     try {
       const stored = sessionStorage.getItem(IMPERSONATION_STORAGE_KEY);
       if (stored) {
@@ -70,34 +83,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = onAuthChanged(async (user) => {
+      traceClient("auth:onAuthChanged", { hasUser: !!user, uid: user?.uid, email: user?.email });
       setFirebaseUser(user);
 
       if (user) {
         setBootstrapState("AUTHENTICATED");
         // Enforce 30-day maximum session duration unless manually logged out or revoked
         try {
-          const storedLoginTime = localStorage.getItem(SESSION_LOGIN_TIME_KEY);
-          if (storedLoginTime) {
-            const loginTimestamp = parseInt(storedLoginTime, 10);
-            if (!isNaN(loginTimestamp) && Date.now() - loginTimestamp > SESSION_MAX_DURATION_MS) {
-              console.warn("User session expired after 30 days.");
-              localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
-              sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
-              sessionStorage.removeItem("ss_super_admin_verified");
-              localStorage.removeItem("ss_super_admin_verified");
-              await signOutUser();
-              setFirebaseUser(null);
-              setOriginalProfile(null);
-              setImpersonatedUser(null);
-              setBootstrapState("UNAUTHENTICATED");
-              setLoading(false);
-              toast.info("Your session has expired. Please log in again to continue.");
-              router.push("/login");
-              return;
-            }
+          // Never run session expiration from inside an iframe
+          if (typeof window !== "undefined" && (window.self !== window.top || window.location.search.includes("preview=true"))) {
+            // inside preview/iframe: skip
           } else {
-            // Seed session time for existing active login
-            localStorage.setItem(SESSION_LOGIN_TIME_KEY, String(Date.now()));
+            const storedLoginTime = localStorage.getItem(SESSION_LOGIN_TIME_KEY);
+            if (storedLoginTime) {
+              const loginTimestamp = parseInt(storedLoginTime, 10);
+              if (!isNaN(loginTimestamp) && Date.now() - loginTimestamp > SESSION_MAX_DURATION_MS) {
+                console.warn("User session expired after 30 days.");
+                localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
+                sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
+                sessionStorage.removeItem("ss_super_admin_verified");
+                localStorage.removeItem("ss_super_admin_verified");
+                await signOutUser();
+                setFirebaseUser(null);
+                setOriginalProfile(null);
+                setImpersonatedUser(null);
+                setBootstrapState("UNAUTHENTICATED");
+                setLoading(false);
+                toast.info("Your session has expired. Please log in again to continue.");
+                router.push("/login");
+                return;
+              }
+            } else {
+              // Seed session time for existing active login
+              localStorage.setItem(SESSION_LOGIN_TIME_KEY, String(Date.now()));
+            }
           }
         } catch (storageErr) {
           console.warn("Storage check error:", storageErr);
@@ -183,16 +202,73 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           setOriginalProfile(enhancedProfile);
           setBootstrapState("AUTHENTICATED_CONTEXT_READY");
+          try {
+            localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(enhancedProfile));
+          } catch {}
         } catch (err: any) {
-          console.warn("Notice: Transient error loading user profile, preserving auth state:", err?.message || err);
+          console.warn("Notice: Transient error loading user profile, checking cached session:", err?.message || err);
+          if (typeof window !== "undefined") {
+            try {
+              const cached = localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+              if (cached) {
+                const parsed = JSON.parse(cached);
+                if (parsed && parsed.uid === user.uid) {
+                  setOriginalProfile(parsed);
+                  setBootstrapState("AUTHENTICATED_CONTEXT_READY");
+                  setLoading(false);
+                  return;
+                }
+              }
+            } catch {}
+          }
           setBootstrapState("AUTH_ERROR");
         }
       } else {
+        traceClient("auth:user_null_branch", {
+          isIframe: typeof window !== "undefined" ? window.self !== window.top : false,
+          search: typeof window !== "undefined" ? window.location.search : "",
+        });
+
+        // CRITICAL: If running inside an embedded iframe (e.g. AI phone preview) or preview mode,
+        // NEVER touch parent window's authentication storage, PIN verification, or cookies!
+        if (
+          typeof window !== "undefined" &&
+          (window.self !== window.top || window.location.search.includes("preview=true"))
+        ) {
+          traceClient("auth:user_null_suppressed_iframe", {});
+          setOriginalProfile(null);
+          setImpersonatedUser(null);
+          setBootstrapState("UNAUTHENTICATED");
+          setLoading(false);
+          return;
+        }
+
+        // RESILIENCE FIX: If user is temporarily null (e.g. during frame navigation or SDK hydration),
+        // check if we still hold a valid session in localStorage.
+        // DO NOT wipe the session! Restore the profile from cache so the user is never logged out unexpectedly!
+        if (typeof window !== "undefined") {
+          try {
+            const cached = localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+            if (cached) {
+              const parsed = JSON.parse(cached);
+              if (parsed && parsed.uid) {
+                traceClient("auth:user_null_restored_from_cache", { uid: parsed.uid, email: parsed.email });
+                setOriginalProfile(parsed);
+                setBootstrapState("AUTHENTICATED_CONTEXT_READY");
+                setLoading(false);
+                return;
+              }
+            }
+          } catch {}
+        }
+
+        traceClient("auth:CLEARING_LOCALSTORAGE_SESSION", { reason: "unauthenticated_branch_no_cached_session" });
         setOriginalProfile(null);
         setImpersonatedUser(null);
         setBootstrapState("UNAUTHENTICATED");
         sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
         try {
+          localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
           sessionStorage.removeItem("ss_super_admin_verified");
           localStorage.removeItem("ss_super_admin_verified");
           sessionStorage.removeItem("ss_super_admin_auth");
@@ -214,6 +290,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Real-time presence heartbeat to keep "Online Now" accurate across devices
   useEffect(() => {
+    // Never run presence heartbeat inside embedded iframe or preview mode
+    if (
+      typeof window !== "undefined" &&
+      (window.self !== window.top || window.location.search.includes("preview=true"))
+    ) {
+      return;
+    }
+
     if (!firebaseUser?.uid || !originalProfile) return;
 
     const uid = firebaseUser.uid;
@@ -380,6 +464,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         setFirebaseUser(fbUser);
         setOriginalProfile(userProfile);
+        try {
+          localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(userProfile));
+        } catch {}
         setImpersonatedUser(null);
         sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
         try {
@@ -430,6 +517,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     try {
+      localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
       localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
       sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
       sessionStorage.removeItem("ss_super_admin_verified");
@@ -450,10 +538,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Monitor session duration when tab regains focus, visibility changes, or on interval
   useEffect(() => {
+    // Never run session expiry check inside embedded iframe or preview mode
+    if (
+      typeof window !== "undefined" &&
+      (window.self !== window.top || window.location.search.includes("preview=true"))
+    ) {
+      return;
+    }
+
     if (!firebaseUser) return;
 
     const checkSessionExpiry = async () => {
       try {
+        if (
+          typeof window !== "undefined" &&
+          (window.self !== window.top || window.location.search.includes("preview=true"))
+        ) {
+          return;
+        }
+
         const stored = localStorage.getItem(SESSION_LOGIN_TIME_KEY);
         if (stored) {
           const loginTime = parseInt(stored, 10);

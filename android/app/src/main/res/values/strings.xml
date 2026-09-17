@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">School Study</string>
+    <string name="title_activity_main">School Study</string>
+    <string name="package_name">com.sbci.schoolstudy</string>
+    <string name="custom_url_scheme">com.sbci.schoolstudy</string>
+</resources>

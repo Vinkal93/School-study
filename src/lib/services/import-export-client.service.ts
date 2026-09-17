@@ -18,6 +18,14 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import type { SupportedImportModule, ImportExecutionResult } from "@/types/backup";
+import {
+  normalizeClassName,
+  getCanonicalClassKey,
+  getCanonicalClassOrder,
+  normalizeSectionName,
+  getCanonicalSectionKey,
+  normalizeGender,
+} from "@/lib/utils/academic-normalizer";
 
 export async function exportSchoolDataClient(
   schoolId: string,
@@ -294,6 +302,46 @@ export async function importSchoolDataClient(
     console.warn("[Client Import] Notice: Preload existing keys failed, proceeding with fresh IDs:", err);
   }
 
+  // Pre-load class & section master for students module
+  const classMasterMap = new Map<
+    string,
+    { id: string; name: string; sections: Map<string, { id: string; name: string }> }
+  >();
+
+  if (targetModule === "students") {
+    try {
+      const clsSnap = await getDocs(collection(db, "schools", schoolId, "classes"));
+      for (const cDoc of clsSnap.docs) {
+        const cData = cDoc.data();
+        const cCanonicalName = normalizeClassName(cData.name);
+        const cKey = getCanonicalClassKey(cCanonicalName);
+
+        const secSnap = await getDocs(collection(db, "schools", schoolId, "classes", cDoc.id, "sections"));
+        const secMap = new Map<string, { id: string; name: string }>();
+        secSnap.docs.forEach((sDoc) => {
+          const sName = normalizeSectionName(sDoc.data().name);
+          secMap.set(getCanonicalSectionKey(sName), { id: sDoc.id, name: sName });
+        });
+
+        if (!classMasterMap.has(cKey)) {
+          classMasterMap.set(cKey, {
+            id: cDoc.id,
+            name: cCanonicalName,
+            sections: secMap,
+          });
+        } else {
+          // Merge sections into primary class entry
+          const existing = classMasterMap.get(cKey)!;
+          secMap.forEach((val, key) => {
+            if (!existing.sections.has(key)) existing.sections.set(key, val);
+          });
+        }
+      }
+    } catch (cErr) {
+      console.warn("[Client Import] Preload class master notice:", cErr);
+    }
+  }
+
   let importedCount = 0;
   let updatedCount = 0;
   let skippedCount = 0;
@@ -345,9 +393,59 @@ export async function importSchoolDataClient(
           if (cleanData.guardianName && !cleanData.parentName) cleanData.parentName = cleanData.guardianName;
           if (cleanData.parentPhone && !cleanData.guardianPhone) cleanData.guardianPhone = cleanData.parentPhone;
           if (cleanData.guardianPhone && !cleanData.parentPhone) cleanData.parentPhone = cleanData.guardianPhone;
-          if (cleanData.section && !cleanData.sectionName) cleanData.sectionName = cleanData.section;
           if (!cleanData.status) cleanData.status = "active";
           if (!cleanData.admissionDate) cleanData.admissionDate = new Date().toISOString().split("T")[0];
+          cleanData.gender = normalizeGender(cleanData.gender);
+
+          // RESOLVE CLASS FROM INSTITUTE CLASS MASTER
+          const rawCls = cleanData.className || cleanData.class || cleanData.classId || "Class 1";
+          const canonicalClsName = normalizeClassName(rawCls);
+          const clsKey = getCanonicalClassKey(canonicalClsName);
+
+          let classEntry = classMasterMap.get(clsKey);
+          if (!classEntry) {
+            // Atomically create in institute Class Master
+            const newClassRef = doc(collection(db, "schools", schoolId, "classes"));
+            const newClassId = newClassRef.id;
+            await setDoc(newClassRef, {
+              id: newClassId,
+              schoolId,
+              name: canonicalClsName,
+              order: getCanonicalClassOrder(canonicalClsName),
+              academicYearId: "",
+              status: "active",
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+            classEntry = { id: newClassId, name: canonicalClsName, sections: new Map() };
+            classMasterMap.set(clsKey, classEntry);
+          }
+
+          // RESOLVE SECTION FROM INSTITUTE SECTION MASTER
+          const rawSec = cleanData.sectionName || cleanData.section || cleanData.sectionId || "A";
+          const canonicalSecName = normalizeSectionName(rawSec);
+          const secKey = getCanonicalSectionKey(canonicalSecName);
+
+          let sectionEntry = classEntry.sections.get(secKey);
+          if (!sectionEntry) {
+            const newSecRef = doc(collection(db, "schools", schoolId, "classes", classEntry.id, "sections"));
+            const newSecId = newSecRef.id;
+            await setDoc(newSecRef, {
+              id: newSecId,
+              schoolId,
+              classId: classEntry.id,
+              name: canonicalSecName,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+            sectionEntry = { id: newSecId, name: canonicalSecName };
+            classEntry.sections.set(secKey, sectionEntry);
+          }
+
+          cleanData.classId = classEntry.id;
+          cleanData.className = classEntry.name;
+          cleanData.sectionId = sectionEntry.id;
+          cleanData.sectionName = sectionEntry.name;
         }
 
         const schoolDocRef = doc(db, "schools", schoolId, targetModule, docId);
@@ -355,6 +453,9 @@ export async function importSchoolDataClient(
         try {
           if (isUpdate) {
             await setDoc(schoolDocRef, { ...cleanData, updatedAt: serverTimestamp() }, { merge: true });
+            if (targetModule === "students") {
+              await setDoc(doc(db, "students", docId), { ...cleanData, schoolId, updatedAt: serverTimestamp() }, { merge: true }).catch(() => {});
+            }
             updatedCount++;
           } else {
             const fullDoc = {
@@ -365,6 +466,9 @@ export async function importSchoolDataClient(
               updatedAt: serverTimestamp(),
             };
             await setDoc(schoolDocRef, fullDoc);
+            if (targetModule === "students") {
+              await setDoc(doc(db, "students", docId), fullDoc).catch(() => {});
+            }
             importedCount++;
             if (admNo) existingMap.set(`adm:${admNo}`, docId);
           }

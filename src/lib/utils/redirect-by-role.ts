@@ -34,6 +34,9 @@ export function isRoleAllowedForPath(
   role: UserRole,
   pathname: string
 ): boolean {
+  if (role === "super_admin") {
+    return true; // Super Admin has universal platform visibility
+  }
   const requiredRole = getRoleFromPath(pathname);
   if (!requiredRole) return true; // not a role-protected route
   return role === requiredRole;

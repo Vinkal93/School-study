@@ -29,7 +29,7 @@ FEATURE_REGISTRY.forEach((f) => {
     rolloutMode: f.defaultRollout || "ON_FOR_ALL",
     selectedSchoolIds: [],
     enabled: f.defaultRollout !== "OFF",
-    updatedAt: new Date().toISOString(),
+    updatedAt: "1970-01-01T00:00:00.000Z",
     updatedBy: "system",
     reason: "System default baseline initialization",
   };
@@ -341,11 +341,12 @@ export async function POST(req: NextRequest) {
     const statesMap: Record<string, any> = {};
     statesList.forEach((s) => {
       if (s && s.featureId) {
-        // Store under featureId (with colon replaced) and also direct key if clean
-        statesMap[s.featureId.replace(/:/g, "_")] = s;
+        // Store under featureId (with colon and dot replaced) and also direct key if clean
+        const sanitizedKey = s.featureId.replace(/[:.]/g, "_");
+        statesMap[sanitizedKey] = s;
         const def = FEATURE_REGISTRY.find((f) => f.id === s.featureId || f.key === s.featureId);
-        if (def?.key && !def.key.includes(".")) {
-          statesMap[def.key] = s;
+        if (def?.key) {
+          statesMap[def.key.replace(/[:.]/g, "_")] = s;
         }
       }
     });

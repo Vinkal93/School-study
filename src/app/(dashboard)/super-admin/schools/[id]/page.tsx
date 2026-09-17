@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { usePortalUI } from "@/context/portal-ui-context";
 import {
   Building2,
   ArrowLeft,
@@ -61,6 +62,14 @@ import { getFirebaseDb } from "@/lib/firebase/client";
 import { collection, doc, getDoc, setDoc, updateDoc, query, where, getDocs, orderBy, limit as fsLimit } from "firebase/firestore";
 import { BILLING_COLLECTIONS, getAllPlansAdmin } from "@/lib/billing";
 import { safeFetchJson } from "@/lib/utils/safeFetch";
+import {
+  normalizeClassName,
+  getCanonicalClassKey,
+  getCanonicalClassOrder,
+  normalizeSectionName,
+  isMatchingClass,
+  isMatchingSection,
+} from "@/lib/utils/academic-normalizer";
 import type {
   School,
   TeacherProfile,
@@ -77,6 +86,7 @@ export default function SchoolDetailPage() {
   const router = useRouter();
   const schoolId = params.id as string;
   const { profile: currentUser, firebaseUser } = useAuth();
+  const { setInstituteAdminPortalUiMode } = usePortalUI();
 
   const getAuthHeaders = async () => {
     const token = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
@@ -100,6 +110,7 @@ export default function SchoolDetailPage() {
   // Search filters
   const [studentSearch, setStudentSearch] = useState("");
   const [studentClassFilter, setStudentClassFilter] = useState("all");
+  const [studentSectionFilter, setStudentSectionFilter] = useState("all");
   const [teacherSearch, setTeacherSearch] = useState("");
 
   // Subscription state
@@ -706,21 +717,60 @@ export default function SchoolDetailPage() {
     );
   }
 
+  // Deduplicated unique classes
+  const uniqueClasses = useMemo(() => {
+    const map = new Map<string, SchoolClass>();
+    for (const c of classes) {
+      const key = getCanonicalClassKey(c.name);
+      if (!map.has(key)) {
+        map.set(key, c);
+      } else {
+        const existing = map.get(key)!;
+        const existingSecKeys = new Set((existing.sections || []).map((s) => getCanonicalClassKey(s.name)));
+        (c.sections || []).forEach((s) => {
+          const sKey = getCanonicalClassKey(s.name);
+          if (!existingSecKeys.has(sKey)) {
+            existing.sections = [...(existing.sections || []), s];
+            existingSecKeys.add(sKey);
+          }
+        });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      const oA = a.order ?? getCanonicalClassOrder(a.name);
+      const oB = b.order ?? getCanonicalClassOrder(b.name);
+      if (oA !== oB) return oA - oB;
+      return (a.name || "").localeCompare(b.name || "");
+    });
+  }, [classes]);
+
   // Filtered students
-  const filteredStudents = students.filter((st) => {
-    if (studentClassFilter !== "all" && st.className !== studentClassFilter && st.classId !== studentClassFilter) {
-      return false;
-    }
-    if (studentSearch.trim()) {
-      const q = studentSearch.toLowerCase();
-      return (
-        st.name?.toLowerCase().includes(q) ||
-        st.admissionNumber?.toLowerCase().includes(q) ||
-        String(st.rollNumber || "").toLowerCase().includes(q)
-      );
-    }
-    return true;
-  });
+  const filteredStudents = useMemo(() => {
+    const selectedClass = uniqueClasses.find((c: any) => c.id === studentClassFilter);
+    return students.filter((st: any) => {
+      if (studentClassFilter !== "all") {
+        const matchesClass =
+          st.classId === studentClassFilter ||
+          (selectedClass && isMatchingClass(st.className, selectedClass.name));
+        if (!matchesClass) return false;
+      }
+      if (studentSectionFilter !== "all") {
+        const matchesSec =
+          st.sectionId === studentSectionFilter ||
+          (st.sectionName && isMatchingSection(st.sectionName, studentSectionFilter));
+        if (!matchesSec) return false;
+      }
+      if (studentSearch.trim()) {
+        const q = studentSearch.toLowerCase();
+        return (
+          st.name?.toLowerCase().includes(q) ||
+          st.admissionNumber?.toLowerCase().includes(q) ||
+          String(st.rollNumber || "").toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  }, [students, uniqueClasses, studentClassFilter, studentSectionFilter, studentSearch]);
 
   // Filtered teachers
   const filteredTeachers = teachers.filter((t) => {
@@ -975,11 +1025,36 @@ export default function SchoolDetailPage() {
                 </div>
                 <div className="flex justify-between py-2 border-b border-gray-100 dark:border-gray-800">
                   <span className="text-gray-500">Classrooms & Sections:</span>
-                  <span className="font-bold text-emerald-600">{classes.length} Units</span>
+                  <span className="font-bold text-emerald-600">
+                    {uniqueClasses.length} Classes ({uniqueClasses.reduce((acc: number, c: any) => acc + (c.sections?.length || 0), 0)} Sections)
+                  </span>
                 </div>
-                <div className="flex justify-between py-2">
+                <div className="flex justify-between py-2 border-b border-gray-100 dark:border-gray-800">
                   <span className="text-gray-500">Subscription Tier:</span>
                   <span className="font-bold text-indigo-600 uppercase">{subData?.planId || "Starter"}</span>
+                </div>
+                <div className="flex items-center justify-between py-2.5">
+                  <div>
+                    <span className="text-gray-900 dark:text-white font-bold block text-xs">Admin Portal UI Mode</span>
+                    <span className="text-[11px] text-gray-500">Presentation UX for school administrators</span>
+                  </div>
+                  <select
+                    value={school.adminPortalUiMode || (school as any).tenantSettings?.adminPortalUiMode || "modern"}
+                    onChange={async (e) => {
+                      const newMode = e.target.value as "modern" | "classic";
+                      try {
+                        await setInstituteAdminPortalUiMode(school.id, newMode);
+                        setSchool((prev: any) => prev ? { ...prev, adminPortalUiMode: newMode } : prev);
+                        toast.success(`Updated Admin Portal UI Mode to ${newMode === "modern" ? "Modern Mobile UI" : "Classic UI"}`);
+                      } catch (err: any) {
+                        toast.error(err?.message || "Failed to update UI Mode");
+                      }
+                    }}
+                    className="rounded-lg border border-gray-300 bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-900 focus:border-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  >
+                    <option value="modern">Modern Mobile UI</option>
+                    <option value="classic">Classic UI</option>
+                  </select>
                 </div>
               </div>
             </div>
@@ -1001,6 +1076,36 @@ export default function SchoolDetailPage() {
                 className="w-full rounded-lg border border-gray-300 bg-gray-50/50 pl-9 pr-4 py-2 text-xs text-gray-900 focus:border-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
               />
             </div>
+            <select
+              value={studentClassFilter}
+              onChange={(e) => {
+                setStudentClassFilter(e.target.value);
+                setStudentSectionFilter("all");
+              }}
+              className="rounded-lg border border-gray-300 bg-gray-50/50 px-3 py-2 text-xs text-gray-900 focus:border-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+            >
+              <option value="all">All Classes</option>
+              {uniqueClasses.map((c: any) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={studentSectionFilter}
+              onChange={(e) => setStudentSectionFilter(e.target.value)}
+              disabled={studentClassFilter === "all"}
+              className="rounded-lg border border-gray-300 bg-gray-50/50 px-3 py-2 text-xs text-gray-900 focus:border-blue-500 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+            >
+              <option value="all">All Sections</option>
+              {uniqueClasses
+                .find((c: any) => c.id === studentClassFilter)
+                ?.sections?.map((s: any) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+            </select>
           </div>
 
           <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-950 overflow-hidden">
@@ -1014,18 +1119,20 @@ export default function SchoolDetailPage() {
                       <th className="py-3 px-4">Student</th>
                       <th className="py-3 px-4">Adm No</th>
                       <th className="py-3 px-4">Class</th>
+                      <th className="py-3 px-4">Section</th>
                       <th className="py-3 px-4">Roll No</th>
                       <th className="py-3 px-4">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-                    {filteredStudents.map((st) => (
+                    {filteredStudents.map((st: any) => (
                       <tr key={st.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/50">
                         <td className="py-3 px-4 font-semibold text-gray-900 dark:text-white">
                           {st.name || (st as any).fullName}
                         </td>
                         <td className="py-3 px-4 font-mono text-xs">{st.admissionNumber || "—"}</td>
                         <td className="py-3 px-4 text-xs">{st.className || "—"}</td>
+                        <td className="py-3 px-4 text-xs font-medium text-blue-600 dark:text-blue-400">{st.sectionName || "—"}</td>
                         <td className="py-3 px-4 text-xs">{st.rollNumber || "—"}</td>
                         <td className="py-3 px-4">
                           <span className="rounded-full bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-700 dark:bg-green-900/20 dark:text-green-400">
@@ -1106,7 +1213,7 @@ export default function SchoolDetailPage() {
       {activeTab === "classes" && (
         <div className="space-y-4">
           <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-950 overflow-hidden">
-            {classes.length === 0 ? (
+            {uniqueClasses.length === 0 ? (
               <div className="text-center py-16 text-gray-500">No classes configured for this school.</div>
             ) : (
               <div className="overflow-x-auto">
@@ -1119,12 +1226,12 @@ export default function SchoolDetailPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-                    {classes.map((c) => (
+                    {uniqueClasses.map((c: any) => (
                       <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/50">
                         <td className="py-3 px-4 font-bold text-gray-900 dark:text-white">{c.name}</td>
                         <td className="py-3 px-4">
                           <div className="flex flex-wrap gap-1">
-                            {c.sections?.map((sec) => (
+                            {c.sections?.map((sec: any) => (
                               <span
                                 key={sec.id}
                                 className="rounded bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
@@ -1135,7 +1242,7 @@ export default function SchoolDetailPage() {
                           </div>
                         </td>
                         <td className="py-3 px-4 text-xs text-gray-600 dark:text-gray-400">
-                          {c.sections?.reduce((acc, s) => acc + ((s as any).studentCount || 0), 0) || 0} Students
+                          {c.sections?.reduce((acc: number, s: any) => acc + ((s as any).studentCount || 0), 0) || 0} Students
                         </td>
                       </tr>
                     ))}

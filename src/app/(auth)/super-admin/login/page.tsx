@@ -1,5 +1,6 @@
 "use client";
 
+import { getRedirectByRole } from "@/lib/utils/redirect-by-role";
 import { useState, useEffect, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -60,8 +61,9 @@ export default function SuperAdminLoginPage() {
 
       // Strict check: User MUST have role === "super_admin"
       if (!profile || profile.role !== "super_admin") {
-        await signOut();
-        toast.error("Access denied: You do not have Super Administrator privileges.");
+        toast.info(`Signed in as ${profile?.name || "User"} (${profile?.role || "user"}). Redirecting to your dashboard...`);
+        const targetRoute = getRedirectByRole(profile?.role || "school_admin");
+        router.push(targetRoute);
         setIsSubmitting(false);
         return;
       }

@@ -29,6 +29,11 @@ import {
 import type { StudentProfile, CreateStudentInput, StudentTransferRecord, TransferStudentsInput } from "@/types";
 import { compressImageToBase64 } from "@/lib/utils/image-compression";
 import { provisionStudentFeeAssignment, recalculateStudentFutureDues } from "./fee.service";
+import {
+  normalizeClassName,
+  normalizeSectionName,
+  normalizeGender,
+} from "@/lib/utils/academic-normalizer";
 
 /**
  * Uploads student photo with client-side compression and zero CORS requirements.
@@ -145,6 +150,9 @@ export async function getStudents(
         id: d.id,
         ...data,
         name: data.name || data.fullName || "Student",
+        className: data.className ? normalizeClassName(data.className) : (data.class || ""),
+        sectionName: data.sectionName ? normalizeSectionName(data.sectionName) : (data.section ? normalizeSectionName(data.section) : ""),
+        gender: normalizeGender(data.gender),
       };
     }) as StudentProfile[];
 
@@ -288,15 +296,15 @@ export async function createStudentWithAuth(
     rollNumber: assignedRoll,
     name: input.name.trim(),
     email: input.email.trim().toLowerCase(),
-    gender: input.gender,
+    gender: normalizeGender(input.gender),
     dob: input.dob || "",
     phone: input.phone?.trim() || "",
     photoUrl: input.photoUrl || "",
     address: input.address?.trim() || "",
     classId: input.classId,
-    className: input.className,
+    className: normalizeClassName(input.className),
     sectionId: input.sectionId,
-    sectionName: input.sectionName,
+    sectionName: normalizeSectionName(input.sectionName),
     academicYearId: input.academicYearId || "ay_current",
     admissionDate: input.admissionDate || new Date().toISOString().split("T")[0],
     status: "active",
@@ -308,6 +316,13 @@ export async function createStudentWithAuth(
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+
+  // Dual-write to top-level students collection
+  await setDoc(doc(db, "students", studentDocId), {
+    ...studentData,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }).catch(() => {});
 
   // 7. Create User document in users/{userId}
   const userDocRef = doc(db, COLLECTIONS.USERS, userId);

@@ -58,7 +58,27 @@ body {
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
   padding-left: env(safe-area-inset-left, 0px);
-  padding-right: env(safe-area-inset-right, 0px);
+  /* Mobile native touch & scroll optimizations */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Eliminate 300ms mobile touch delay and prevent accidental double-tap zoom */
+button,
+a,
+[role="button"],
+input,
+select,
+textarea {
+  touch-action: manipulation;
+}
+
+/* Subtle native tap feel */
+button:active:not(:disabled),
+a:active:not(:disabled),
+[role="button"]:active:not(:disabled) {
+  opacity: 0.92;
+  transition: opacity 0.1s ease;
 }
 
 /* Custom Cursors */

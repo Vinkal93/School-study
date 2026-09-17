@@ -647,6 +647,36 @@ service cloud.firestore {
       );
     }
 
+    // Site Settings (including global feature_controls, emergency_controls)
+    match /siteSettings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    // School Feature Overrides (Super Admin custom grants / restrictions per school)
+    match /schoolFeatureOverrides/{overrideId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    // School Subscriptions (Plan entitlements per school)
+    match /schoolSubscriptions/{schoolId} {
+      allow read: if isAuthenticated() && (isSchoolMember(schoolId) || isSuperAdmin());
+      allow write: if isSuperAdmin();
+    }
+
+    // Access Overrides (Legacy & custom school capability overrides)
+    match /accessOverrides/{overrideId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    // Subscription Plans (Pricing & feature entitlement blueprints)
+    match /plans/{planId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
     // Fallback: Disallow anything unspecified
     match /{document=**} {
       allow read, write: if isSuperAdmin();

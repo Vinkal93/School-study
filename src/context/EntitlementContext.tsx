@@ -10,9 +10,52 @@ import { clearSubscriptionCache } from "@/lib/billing/subscriptions";
 import { cachePlan, clearPlanCache } from "@/lib/billing/plans";
 import { appQueryClient } from "@/lib/cache";
 import { resolveEffectiveFeatureAccess } from "@/lib/feature-control/resolver";
-import { getFeatureDefinition } from "@/lib/feature-control/featureRegistry";
+import { getFeatureDefinition, CAPABILITY_TO_FEATURE_KEY } from "@/lib/feature-control/featureRegistry";
 import type { GlobalFeatureState, SchoolFeatureOverride } from "@/types/featureControl";
 import { canonicalizeCapabilityKey, getParentFeatureKey, getParentCapabilityKey } from "@/lib/billing/permissions";
+
+function registerStateVariations(states: Record<string, GlobalFeatureState>, s: GlobalFeatureState) {
+  if (!s || !s.featureId) return;
+  const fId = s.featureId;
+  states[fId] = s;
+  states[fId.toLowerCase()] = s;
+  states[fId.replace(/[:.]/g, "_")] = s;
+
+  const def = getFeatureDefinition(fId);
+  if (def) {
+    if (def.id) {
+      states[def.id] = s;
+      states[def.id.toLowerCase()] = s;
+      states[def.id.replace(/[:.]/g, "_")] = s;
+    }
+    if (def.key) {
+      states[def.key] = s;
+      states[def.key.toLowerCase()] = s;
+      states[def.key.replace(/[:.]/g, "_")] = s;
+    }
+    if (def.category === "module" && def.moduleKey) {
+      states[def.moduleKey] = s;
+      states[def.moduleKey.toLowerCase()] = s;
+      states[`module:${def.moduleKey}`] = s;
+      states[`module_${def.moduleKey}`] = s;
+      states[`module:${def.moduleKey.toLowerCase()}`] = s;
+      states[`module_${def.moduleKey.toLowerCase()}`] = s;
+    }
+  }
+
+  // Also map capability aliases to this state if it matches the module or specific feature
+  Object.entries(CAPABILITY_TO_FEATURE_KEY).forEach(([capKey, mappedFeat]) => {
+    if (
+      mappedFeat === fId ||
+      `module:${mappedFeat}` === fId ||
+      (def?.key && mappedFeat === def.key) ||
+      (def?.category === "module" && def?.moduleKey && mappedFeat === def.moduleKey)
+    ) {
+      states[capKey] = s;
+      states[capKey.toLowerCase()] = s;
+    }
+  });
+}
 
 interface EntitlementContextType {
   entitlement: EffectiveEntitlement | null;
@@ -56,6 +99,39 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
   const [globalFeatureStates, setGlobalFeatureStates] = useState<Record<string, GlobalFeatureState>>({});
   const [schoolFeatureOverrides, setSchoolFeatureOverrides] = useState<SchoolFeatureOverride[]>([]);
 
+  const fetchEffectiveFeatures = async () => {
+    try {
+      const url = schoolId
+        ? `/api/features/effective?schoolId=${encodeURIComponent(schoolId)}`
+        : `/api/features/effective`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.success) {
+          const states: Record<string, GlobalFeatureState> = {};
+          if (data.globalStates && typeof data.globalStates === "object") {
+            Object.values(data.globalStates).forEach((s: any) => {
+              if (s && (s.featureId || s.id)) {
+                registerStateVariations(states, {
+                  ...s,
+                  featureId: s.featureId || s.id,
+                });
+              }
+            });
+          }
+          if (Object.keys(states).length > 0) {
+            setGlobalFeatureStates((prev) => ({ ...prev, ...states }));
+          }
+          if (Array.isArray(data.overrides)) {
+            setSchoolFeatureOverrides(data.overrides);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Notice: Fetch effective features notice:", err);
+    }
+  };
+
   const fetchEntitlement = async () => {
     if (!schoolId) {
       setLoading(false);
@@ -68,6 +144,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       clearSubscriptionCache(schoolId);
       const data = await getEffectiveEntitlement(schoolId);
       setEntitlement(data);
+      fetchEffectiveFeatures();
     } catch (err) {
       console.warn("Failed to fetch effective entitlement:", err);
     } finally {
@@ -76,6 +153,9 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    // Initial fetch of authoritative feature states & overrides
+    fetchEffectiveFeatures();
+
     const db = getFirebaseDb();
     if (!db) return;
 
@@ -90,27 +170,21 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
 
           if (Array.isArray(data.statesList)) {
             data.statesList.forEach((s: any) => {
-              if (s && s.featureId) {
-                states[s.featureId] = s;
-                const def = getFeatureDefinition(s.featureId);
-                if (def?.key) states[def.key] = s;
-                if (def?.moduleKey) {
-                  states[def.moduleKey] = s;
-                  states[`module:${def.moduleKey}`] = s;
-                }
+              if (s && (s.featureId || s.id)) {
+                registerStateVariations(states, {
+                  ...s,
+                  featureId: s.featureId || s.id,
+                });
               }
             });
           } else if (data.states && typeof data.states === "object") {
             Object.entries(data.states).forEach(([key, val]) => {
               if (val && typeof val === "object") {
                 const s = val as GlobalFeatureState;
-                states[key] = s;
-                const def = getFeatureDefinition(key);
-                if (def?.key) states[def.key] = s;
-                if (def?.moduleKey) {
-                  states[def.moduleKey] = s;
-                  states[`module:${def.moduleKey}`] = s;
-                }
+                registerStateVariations(states, {
+                  ...s,
+                  featureId: s.featureId || key,
+                });
               }
             });
           }
@@ -283,6 +357,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
             appQueryClient.invalidateCache(`schoolProfile:${schoolId}`);
             appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
             appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
+            fetchEffectiveFeatures();
             fetchEntitlement();
           }
         };
@@ -300,6 +375,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
         appQueryClient.invalidateCache(`schoolProfile:${schoolId}`);
         appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
         appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
+        fetchEffectiveFeatures();
         fetchEntitlement();
       }
     };
@@ -321,6 +397,65 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     };
   }, [schoolId]);
 
+  const findSchoolOverride = (key: string): SchoolFeatureOverride | undefined => {
+    if (!schoolId || !schoolFeatureOverrides.length) return undefined;
+    const cleanKey = key.trim().toLowerCase();
+    const canonical = canonicalizeCapabilityKey(cleanKey);
+    const parentKey = getParentFeatureKey(canonical);
+    const moduleKey = canonical.split(".")[0];
+    const def = getFeatureDefinition(cleanKey);
+
+    return schoolFeatureOverrides.find((o) => {
+      if (o.schoolId !== schoolId) return false;
+      const f = (o.featureId || "").toLowerCase();
+      const fSan = f.replace(/[:.]/g, "_");
+      return (
+        f === cleanKey ||
+        fSan === cleanKey.replace(/[:.]/g, "_") ||
+        f === canonical ||
+        fSan === canonical.replace(/[:.]/g, "_") ||
+        f === parentKey ||
+        f === moduleKey ||
+        (def?.id && (f === def.id.toLowerCase() || fSan === def.id.toLowerCase().replace(/[:.]/g, "_"))) ||
+        (def?.key && (f === def.key.toLowerCase() || fSan === def.key.toLowerCase().replace(/[:.]/g, "_"))) ||
+        (def?.moduleKey &&
+          (f === def.moduleKey.toLowerCase() ||
+            f === `module:${def.moduleKey.toLowerCase()}` ||
+            f === `module_${def.moduleKey.toLowerCase()}`)) ||
+        f === `module:${cleanKey}` ||
+        f === `module_${cleanKey}` ||
+        f === `feat:${cleanKey}` ||
+        f === `act:${cleanKey}`
+      );
+    });
+  };
+
+  const findGlobalState = (key: string): GlobalFeatureState | undefined => {
+    if (!key || !Object.keys(globalFeatureStates).length) return undefined;
+    const clean = key.trim().toLowerCase();
+    const canonical = canonicalizeCapabilityKey(clean);
+    const parentKey = getParentFeatureKey(canonical);
+    const def = getFeatureDefinition(clean);
+
+    return (
+      globalFeatureStates[clean] ||
+      globalFeatureStates[clean.replace(/[:.]/g, "_")] ||
+      globalFeatureStates[canonical] ||
+      globalFeatureStates[canonical.replace(/[:.]/g, "_")] ||
+      globalFeatureStates[parentKey] ||
+      (def?.id ? globalFeatureStates[def.id] || globalFeatureStates[def.id.replace(/[:.]/g, "_")] : undefined) ||
+      (def?.key ? globalFeatureStates[def.key] || globalFeatureStates[def.key.replace(/[:.]/g, "_")] : undefined) ||
+      (def?.moduleKey
+        ? globalFeatureStates[`module:${def.moduleKey}`] ||
+          globalFeatureStates[`module_${def.moduleKey}`] ||
+          globalFeatureStates[def.moduleKey] ||
+          globalFeatureStates[def.moduleKey.replace(/[:.]/g, "_")]
+        : undefined) ||
+      globalFeatureStates[`module:${clean}`] ||
+      globalFeatureStates[`module_${clean}`]
+    );
+  };
+
   const canAccess = (featureKey: string): boolean => {
     if (role === "super_admin") return true;
     if (!featureKey) return false;
@@ -333,45 +468,41 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       return true;
     }
 
+    // 1. SUPER ADMIN EXPLICIT SCHOOL OVERRIDES (Highest Tenant-Level Priority)
+    // If Super Admin granted this school access via an override, grant access immediately!
+    const explicitOverride = findSchoolOverride(featureKey);
+    if (explicitOverride) {
+      if (explicitOverride.overrideType === "ALLOW" || explicitOverride.overrideType === "CUSTOM_LIMIT") {
+        return true;
+      }
+      if (explicitOverride.overrideType === "DENY") {
+        return false;
+      }
+    }
+
     // Fail-closed while loading or if not authenticated with a school
     if (loading || !entitlement) {
       return false;
     }
 
-    // 0b. HIGHEST PRIORITY: Global Feature Control States (Super Admin Feature Control Center)
-    // If a feature or its parent module is globally disabled, deny access immediately
+    // 2. Global Feature Control States (Super Admin Feature Control Center)
     if (Object.keys(globalFeatureStates).length > 0) {
-      // Check direct feature state
-      const directState = globalFeatureStates[canonical] || globalFeatureStates[featureKey];
-      if (directState && (directState.rolloutMode === "OFF" || directState.enabled === false)) {
-        return false;
-      }
-
-      // Check parent module state
-      const moduleKey = canonical.split(".")[0];
-      const parentModuleState =
-        globalFeatureStates[`module:${moduleKey}`] ||
-        globalFeatureStates[moduleKey];
-      if (parentModuleState && (parentModuleState.rolloutMode === "OFF" || parentModuleState.enabled === false)) {
-        return false;
-      }
-
-      // Check BETA/SELECTED_SCHOOLS rollout
-      if (directState && (directState.rolloutMode === "SELECTED_SCHOOLS" || directState.rolloutMode === "BETA")) {
-        if (!schoolId || !directState.selectedSchoolIds?.includes(schoolId)) {
+      const gState = findGlobalState(featureKey);
+      if (gState) {
+        if (gState.rolloutMode === "OFF" || gState.enabled === false) {
           return false;
         }
-      }
-      if (parentModuleState && (parentModuleState.rolloutMode === "SELECTED_SCHOOLS" || parentModuleState.rolloutMode === "BETA")) {
-        if (!schoolId || !parentModuleState.selectedSchoolIds?.includes(schoolId)) {
-          return false;
+        if (gState.rolloutMode === "SELECTED_SCHOOLS" || gState.rolloutMode === "BETA") {
+          if (!schoolId || !gState.selectedSchoolIds?.includes(schoolId)) {
+            return false;
+          }
         }
       }
     }
 
     const isFullControlOverride = (entitlement as any)?.controlMode === "FULL_CONTROL";
 
-    // 1. Layered Feature Control Resolver Check
+    // 3. Layered Feature Control Resolver Check
     const result = resolveEffectiveFeatureAccess({
       featureKey: canonical,
       schoolId,
@@ -384,7 +515,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
 
     if (!result.allowed) return false;
 
-    // 2. 3-Way Mode check: if explicitly SHOWCASE or HIDDEN, canAccess is false
+    // 4. 3-Way Mode check: if explicitly SHOWCASE or HIDDEN, canAccess is false
     if (entitlement?.featureAccessModes) {
       if (entitlement.featureAccessModes[canonical] !== undefined) {
         return entitlement.featureAccessModes[canonical] === "FULL_ACCESS";
@@ -397,7 +528,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // 3. Base Entitlement checks
+    // 5. Base Entitlement checks
     if (!entitlement) return true; // Default fallback while loading
     if (entitlement.accessMode === "NO_ACCESS") return false;
     if (isFullControlOverride) return true;
@@ -436,27 +567,33 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       return "FULL_ACCESS";
     }
 
+    // 1. SUPER ADMIN EXPLICIT SCHOOL OVERRIDES
+    const explicitOverride = findSchoolOverride(featureKey);
+    if (explicitOverride) {
+      if (explicitOverride.overrideType === "ALLOW" || explicitOverride.overrideType === "CUSTOM_LIMIT") {
+        return "FULL_ACCESS";
+      }
+      if (explicitOverride.overrideType === "DENY") {
+        return "HIDDEN";
+      }
+    }
+
     // Fail-closed while loading or if not authenticated with a school
     if (loading || !entitlement) {
       return "HIDDEN";
     }
 
-    // 0. HIGHEST PRIORITY: Global Feature Control States
+    // 2. Global Feature Control States
     if (Object.keys(globalFeatureStates).length > 0) {
-      const directState = globalFeatureStates[canonical] || globalFeatureStates[featureKey];
-      if (directState && (directState.rolloutMode === "OFF" || directState.enabled === false)) {
-        return "HIDDEN";
-      }
-      const moduleKey = canonical.split(".")[0];
-      const parentModuleState =
-        globalFeatureStates[`module:${moduleKey}`] ||
-        globalFeatureStates[moduleKey];
-      if (parentModuleState && (parentModuleState.rolloutMode === "OFF" || parentModuleState.enabled === false)) {
-        return "HIDDEN";
-      }
-      if (directState && (directState.rolloutMode === "SELECTED_SCHOOLS" || directState.rolloutMode === "BETA")) {
-        if (!schoolId || !directState.selectedSchoolIds?.includes(schoolId)) {
+      const gState = findGlobalState(featureKey);
+      if (gState) {
+        if (gState.rolloutMode === "OFF" || gState.enabled === false) {
           return "HIDDEN";
+        }
+        if (gState.rolloutMode === "SELECTED_SCHOOLS" || gState.rolloutMode === "BETA") {
+          if (!schoolId || !gState.selectedSchoolIds?.includes(schoolId)) {
+            return "HIDDEN";
+          }
         }
       }
     }

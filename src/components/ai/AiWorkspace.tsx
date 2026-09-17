@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { traceClient } from "@/lib/debug-client";
 import {
   Sparkles,
   ArrowUp,
@@ -100,6 +101,7 @@ function LivePhoneViewport({
   // Handle iframe load event to extract real current pathname if navigated inside
   const handleIframeLoad = () => {
     setIsLoadingIframe(false);
+    traceClient("LivePhoneViewport:handleIframeLoad", { currentUrl });
     try {
       const win = iframeRef.current?.contentWindow;
       if (win && win.location && win.location.pathname) {
@@ -246,9 +248,10 @@ function LivePhoneViewport({
 
           <iframe
             ref={iframeRef}
-            src={currentUrl}
+            src={`${currentUrl}${currentUrl.includes("?") ? "&" : "?"}preview=true`}
             title="Live School Study Portal Viewport"
             className="w-full h-full border-0 bg-white dark:bg-slate-950"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
             onLoad={handleIframeLoad}
           />
         </div>
@@ -315,6 +318,7 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
   }, [messages, loading]);
 
   useEffect(() => {
+    traceClient("AiWorkspace:mount_or_user_changed", { portal, phoneUrl, hasUser: !!firebaseUser, uid: firebaseUser?.uid });
     fetchConversations();
   }, [portal, firebaseUser]);
 
@@ -384,7 +388,8 @@ export function AiWorkspace({ portal, schoolName, userName }: AiWorkspaceProps) 
   const handleNavigatePhone = (path: string) => {
     setPhoneUrl(path);
     if (iframeRef.current) {
-      iframeRef.current.src = path;
+      const targetSrc = `${path}${path.includes("?") ? "&" : "?"}preview=true`;
+      iframeRef.current.src = targetSrc;
     }
   };
 

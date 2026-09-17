@@ -21,6 +21,14 @@ import {
   decrementSchoolUsage,
 } from "@/lib/billing";
 import type { AcademicYear, SchoolClass, Section } from "@/types";
+import {
+  normalizeClassName,
+  getCanonicalClassKey,
+  getCanonicalClassOrder,
+  normalizeSectionName,
+  getCanonicalSectionKey,
+  getCanonicalSectionCode,
+} from "@/lib/utils/academic-normalizer";
 
 // ==========================================
 // 1. ACADEMIC YEARS
@@ -109,6 +117,7 @@ export async function setCurrentAcademicYear(
 
 /**
  * Fetches all classes with their respective sections for a school.
+ * Deduplicates classes by canonical key in-memory so duplicate documents in Firestore never corrupt the UI.
  */
 export async function getClassesWithSections(
   schoolId: string
@@ -124,27 +133,96 @@ export async function getClassesWithSections(
     );
     const classesSnapshot = await getDocs(classesQuery);
 
-    const classes: SchoolClass[] = [];
+    // Group class documents by canonical key to deduplicate
+    const canonicalMap = new Map<
+      string,
+      {
+        primaryDoc: any;
+        allDocs: any[];
+        sections: Map<string, Section>;
+      }
+    >();
 
     for (const classDoc of classesSnapshot.docs) {
       const classData = classDoc.data();
+      const canonicalKey = getCanonicalClassKey(classData.name || "");
+
+      // Fetch sections for this class document
       const sectionsQuery = query(
         collection(db, "schools", schoolId, "classes", classDoc.id, "sections"),
         orderBy("name", "asc")
       );
       const sectionsSnapshot = await getDocs(sectionsQuery);
-
-      const sections = sectionsSnapshot.docs.map((sDoc) => ({
+      const docSections = sectionsSnapshot.docs.map((sDoc) => ({
         id: sDoc.id,
         ...sDoc.data(),
+        name: normalizeSectionName(sDoc.data().name),
       })) as Section[];
 
-      classes.push({
-        id: classDoc.id,
-        ...classData,
-        sections,
-      } as SchoolClass);
+      if (!canonicalMap.has(canonicalKey)) {
+        const secMap = new Map<string, Section>();
+        docSections.forEach((s) => {
+          const sKey = getCanonicalSectionKey(s.name);
+          if (!secMap.has(sKey)) secMap.set(sKey, s);
+        });
+        canonicalMap.set(canonicalKey, {
+          primaryDoc: { id: classDoc.id, ...classData },
+          allDocs: [{ id: classDoc.id, ...classData }],
+          sections: secMap,
+        });
+      } else {
+        const group = canonicalMap.get(canonicalKey)!;
+        group.allDocs.push({ id: classDoc.id, ...classData });
+        // Merge sections without duplicates
+        docSections.forEach((s) => {
+          const sKey = getCanonicalSectionKey(s.name);
+          if (!group.sections.has(sKey)) {
+            group.sections.set(sKey, s);
+          }
+        });
+      }
     }
+
+    const classes: SchoolClass[] = [];
+
+    canonicalMap.forEach((group) => {
+      const canonicalName = normalizeClassName(group.primaryDoc.name);
+      const canonicalOrder =
+        group.primaryDoc.order !== undefined && group.primaryDoc.order !== 999
+          ? group.primaryDoc.order
+          : getCanonicalClassOrder(canonicalName);
+
+      // Sort sections by code ("A", "B", "C"...)
+      const sortedSections = Array.from(group.sections.values()).sort((a, b) =>
+        (a.name || "").localeCompare(b.name || "")
+      );
+
+      // Ensure at least Section A exists
+      if (sortedSections.length === 0) {
+        sortedSections.push({
+          id: `sec_${group.primaryDoc.id}_default`,
+          classId: group.primaryDoc.id,
+          schoolId,
+          name: "Section A",
+          createdAt: group.primaryDoc.createdAt,
+        } as any);
+      }
+
+      classes.push({
+        ...group.primaryDoc,
+        name: canonicalName,
+        order: canonicalOrder,
+        sections: sortedSections,
+      } as SchoolClass);
+    });
+
+    // Deterministic sorting: by order asc, then name asc
+    classes.sort((a, b) => {
+      const orderA = a.order ?? getCanonicalClassOrder(a.name);
+      const orderB = b.order ?? getCanonicalClassOrder(b.name);
+      if (orderA !== orderB) return orderA - orderB;
+      return (a.name || "").localeCompare(b.name || "");
+    });
 
     return classes;
   } catch (error: any) {
@@ -156,7 +234,7 @@ export async function getClassesWithSections(
 import { createFeeStructure } from "./fee.service";
 
 /**
- * Creates a new class with an auto-generated random document ID.
+ * Creates a new class or reuses an existing class if one with the same normalized name already exists.
  * Path: schools/{schoolId}/classes/{classId}
  */
 export async function createClass(
@@ -174,6 +252,48 @@ export async function createClass(
   }
 ): Promise<string> {
   const db = getFirebaseDb();
+  const canonicalName = normalizeClassName(data.name);
+  const targetKey = getCanonicalClassKey(canonicalName);
+
+  // Check if class with same canonical key already exists
+  const existingClassesSnap = await getDocs(collection(db, "schools", schoolId, "classes"));
+  let existingClassDoc: any = null;
+  for (const docSnap of existingClassesSnap.docs) {
+    if (getCanonicalClassKey(docSnap.data().name) === targetKey) {
+      existingClassDoc = docSnap;
+      break;
+    }
+  }
+
+  if (existingClassDoc) {
+    const classId = existingClassDoc.id;
+    // Check if any initialSections are missing under this existing class
+    if (data.initialSections && data.initialSections.length > 0) {
+      const existingSectionsSnap = await getDocs(
+        collection(db, "schools", schoolId, "classes", classId, "sections")
+      );
+      const existingSecKeys = new Set(
+        existingSectionsSnap.docs.map((d) => getCanonicalSectionKey(d.data().name))
+      );
+
+      for (const sName of data.initialSections) {
+        const sKey = getCanonicalSectionKey(sName);
+        if (!existingSecKeys.has(sKey)) {
+          const secDocRef = doc(collection(db, "schools", schoolId, "classes", classId, "sections"));
+          await setDoc(secDocRef, {
+            id: secDocRef.id,
+            schoolId,
+            classId,
+            name: normalizeSectionName(sName),
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+          existingSecKeys.add(sKey);
+        }
+      }
+    }
+    return classId;
+  }
 
   // 1. Authoritative Backend Check: Feature Access & Plan Limit
   await requireFeatureAccess(schoolId, "class_management");
@@ -187,8 +307,8 @@ export async function createClass(
   batch.set(classDocRef, {
     id: classId,
     schoolId,
-    name: data.name.trim(),
-    order: data.order ?? 1,
+    name: canonicalName,
+    order: data.order ?? getCanonicalClassOrder(canonicalName),
     academicYearId: data.academicYearId || "",
     classTeacherId: data.classTeacherId || "",
     classTeacherName: data.classTeacherName || "",
@@ -205,7 +325,7 @@ export async function createClass(
     const teacherDocRef = doc(db, "schools", schoolId, "teachers", data.classTeacherId);
     batch.update(teacherDocRef, {
       assignedClassId: classId,
-      assignedClassName: data.name.trim(),
+      assignedClassName: canonicalName,
       updatedAt: serverTimestamp(),
     });
   }
@@ -217,20 +337,18 @@ export async function createClass(
       : ["A"];
 
   sectionsToCreate.forEach((sName) => {
-    const trimmed = sName.trim().toUpperCase();
-    if (trimmed) {
-      const secDocRef = doc(
-        collection(db, "schools", schoolId, "classes", classId, "sections")
-      );
-      batch.set(secDocRef, {
-        id: secDocRef.id,
-        schoolId,
-        classId,
-        name: trimmed.startsWith("Section ") ? trimmed : `Section ${trimmed}`,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-    }
+    const secCanonicalName = normalizeSectionName(sName);
+    const secDocRef = doc(
+      collection(db, "schools", schoolId, "classes", classId, "sections")
+    );
+    batch.set(secDocRef, {
+      id: secDocRef.id,
+      schoolId,
+      classId,
+      name: secCanonicalName,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
   });
 
   await batch.commit();
@@ -280,6 +398,89 @@ export async function createClass(
   }
 
   return classId;
+}
+
+/**
+ * Resolves or atomically creates a canonical class and section in the school's Class Master.
+ * Ensures stable unique classId, canonical className, sectionId, and canonical sectionName.
+ */
+export async function getOrCreateCanonicalClassAndSection(
+  schoolId: string,
+  rawClassName: string,
+  rawSectionName?: string
+): Promise<{ classId: string; className: string; sectionId: string; sectionName: string }> {
+  const db = getFirebaseDb();
+  const canonicalClassName = normalizeClassName(rawClassName);
+  const targetClassKey = getCanonicalClassKey(canonicalClassName);
+  const canonicalSectionName = normalizeSectionName(rawSectionName);
+  const targetSecKey = getCanonicalSectionKey(canonicalSectionName);
+
+  // 1. Fetch classes to locate matching class
+  const classesSnap = await getDocs(collection(db, "schools", schoolId, "classes"));
+  let classDocRef: any = null;
+  let classId = "";
+
+  for (const docSnap of classesSnap.docs) {
+    if (getCanonicalClassKey(docSnap.data().name) === targetClassKey) {
+      classDocRef = docSnap;
+      classId = docSnap.id;
+      break;
+    }
+  }
+
+  // If class does not exist, create it
+  if (!classDocRef) {
+    const newClassRef = doc(collection(db, "schools", schoolId, "classes"));
+    classId = newClassRef.id;
+    await setDoc(newClassRef, {
+      id: classId,
+      schoolId,
+      name: canonicalClassName,
+      order: getCanonicalClassOrder(canonicalClassName),
+      academicYearId: "",
+      status: "active",
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  // 2. Fetch sections under this class to locate matching section
+  const sectionsSnap = await getDocs(
+    collection(db, "schools", schoolId, "classes", classId, "sections")
+  );
+  let sectionDocRef: any = null;
+  let sectionId = "";
+
+  for (const sDoc of sectionsSnap.docs) {
+    if (getCanonicalSectionKey(sDoc.data().name) === targetSecKey) {
+      sectionDocRef = sDoc;
+      sectionId = sDoc.id;
+      break;
+    }
+  }
+
+  // If section does not exist under this class, create it
+  if (!sectionDocRef) {
+    const newSecRef = doc(
+      collection(db, "schools", schoolId, "classes", classId, "sections")
+    );
+    sectionId = newSecRef.id;
+    await setDoc(newSecRef, {
+      id: sectionId,
+      schoolId,
+      classId,
+      name: canonicalSectionName,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  return {
+    classId,
+    className: canonicalClassName,
+    sectionId,
+    sectionName: canonicalSectionName,
+  };
 }
 
 /**

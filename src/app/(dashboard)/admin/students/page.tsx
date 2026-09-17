@@ -34,7 +34,18 @@ import {
   ShieldAlert,
   Eye,
   Share2,
+  Sparkles,
 } from "lucide-react";
+import {
+  normalizeClassName,
+  getCanonicalClassKey,
+  getCanonicalClassOrder,
+  normalizeSectionName,
+  normalizeGender,
+  isMatchingClass,
+  isMatchingSection,
+} from "@/lib/utils/academic-normalizer";
+import { repairSchoolClassesAndStudentsClient } from "@/lib/services/student-class-repair.service";
 import { ImageCropModal } from "@/components/common/ImageCropModal";
 import { RegisterComplaintModal } from "@/components/complaints/RegisterComplaintModal";
 import { ConfirmDeleteModal } from "@/components/common/ConfirmDeleteModal";
@@ -57,12 +68,72 @@ import { toast } from "sonner";
 
 import { useEntitlement } from "@/context/EntitlementContext";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
+import { Menu, Bell, SlidersHorizontal } from "lucide-react";
+import { AdminMobileNavDrawer } from "@/components/admin/mobile/AdminMobileNavDrawer";
+import { AdminMobileBottomNav } from "@/components/admin/mobile/AdminMobileBottomNav";
+import { StudentMobileCard } from "@/components/admin/mobile/StudentMobileCard";
+import { StudentFilterSheet, type StudentFiltersState } from "@/components/admin/mobile/StudentFilterSheet";
+import { StudentActionsSheet } from "@/components/admin/mobile/StudentActionsSheet";
+import { AddStudentWizardModal } from "@/components/admin/mobile/AddStudentWizardModal";
+import { StudentFeeDetailsSheet } from "@/components/admin/mobile/StudentFeeDetailsSheet";
+import { usePortalUI } from "@/context/portal-ui-context";
 
 export default function AdminStudentsPage() {
   const { profile } = useAuth();
   const schoolId = profile?.schoolId || "";
   const { canAccess } = useEntitlement();
   const isAllowed = profile?.role === "super_admin" || canAccess("student_management");
+  const { adminPortalUiMode } = usePortalUI();
+
+  // Mobile Admin Portal UI States
+  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+  const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
+  const [selectedStudentForActions, setSelectedStudentForActions] = useState<StudentProfile | null>(null);
+  const [isAddWizardOpen, setIsAddWizardOpen] = useState(false);
+  const [selectedStudentForFees, setSelectedStudentForFees] = useState<StudentProfile | null>(null);
+  const [mobileFilterTab, setMobileFilterTab] = useState<"all" | "active" | "tc" | "inactive">("all");
+
+  const [mobileFilters, setMobileFilters] = useState<StudentFiltersState>({
+    classId: "all",
+    sectionId: "all",
+    status: "all",
+    gender: "all",
+    admissionYear: "all",
+    feeStatus: "all",
+    transport: "all",
+    searchQuery: "",
+  });
+
+  const handleChangeMobileFilter = <K extends keyof StudentFiltersState>(key: K, value: StudentFiltersState[K]) => {
+    setMobileFilters((prev) => ({ ...prev, [key]: value }));
+    if (key === "classId") {
+      setSelectedClassFilter(value);
+      setSelectedSectionFilter("all");
+    } else if (key === "sectionId") {
+      setSelectedSectionFilter(value);
+    } else if (key === "status") {
+      setStatusFilter(value as any);
+    } else if (key === "searchQuery") {
+      setSearchQuery(value);
+    }
+  };
+
+  const handleResetMobileFilters = () => {
+    setMobileFilters({
+      classId: "all",
+      sectionId: "all",
+      status: "all",
+      gender: "all",
+      admissionYear: "all",
+      feeStatus: "all",
+      transport: "all",
+      searchQuery: "",
+    });
+    setSelectedClassFilter("all");
+    setSelectedSectionFilter("all");
+    setStatusFilter("all");
+    setSearchQuery("");
+  };
 
   // 1. SWR Queries with Stale-While-Revalidate caching
   const {
@@ -90,6 +161,36 @@ export default function AdminStudentsPage() {
 
   const students = useMemo(() => cachedStudents || [], [cachedStudents]);
   const classes = useMemo(() => cachedClasses || [], [cachedClasses]);
+  const [isRepairingData, setIsRepairingData] = useState(false);
+
+  // Canonical deduplicated classes list
+  const uniqueClasses = useMemo(() => {
+    const map = new Map<string, SchoolClass>();
+    for (const c of classes) {
+      const key = getCanonicalClassKey(c.name);
+      if (!map.has(key)) {
+        map.set(key, c);
+      } else {
+        // Merge sections into primary class representation
+        const existing = map.get(key)!;
+        const existingSecKeys = new Set((existing.sections || []).map((s) => getCanonicalClassKey(s.name)));
+        (c.sections || []).forEach((s) => {
+          const sKey = getCanonicalClassKey(s.name);
+          if (!existingSecKeys.has(sKey)) {
+            existing.sections = [...(existing.sections || []), s];
+            existingSecKeys.add(sKey);
+          }
+        });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      const oA = a.order ?? getCanonicalClassOrder(a.name);
+      const oB = b.order ?? getCanonicalClassOrder(b.name);
+      if (oA !== oB) return oA - oB;
+      return (a.name || "").localeCompare(b.name || "");
+    });
+  }, [classes]);
+
   const limitStatus = cachedLimit || null;
   const loading = (isStudentsLoading || isClassesLoading) && students.length === 0;
 
@@ -183,6 +284,24 @@ export default function AdminStudentsPage() {
   const loadData = async () => {
     if (!schoolId) return;
     await Promise.all([refetchStudents(true), refetchLimit(true)]);
+  };
+
+  const handleRepairData = async () => {
+    if (!schoolId) return;
+    setIsRepairingData(true);
+    try {
+      const res = await repairSchoolClassesAndStudentsClient(schoolId);
+      toast.success(
+        `Classes & Students synchronized! ${res.canonicalClassesKept} classes kept, ${res.studentsUpdated} students re-aligned.`
+      );
+      await Promise.all([refetchStudents(true), refetchLimit(true)]);
+      appQueryClient.invalidateCache(`classes:${schoolId}`);
+      appQueryClient.invalidateCache(`students:${schoolId}`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to repair academic data.");
+    } finally {
+      setIsRepairingData(false);
+    }
   };
 
   const handlePhotoChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -442,6 +561,19 @@ export default function AdminStudentsPage() {
     }
   };
 
+  const selectedClass = useMemo(() => {
+    return uniqueClasses.find((c) => c.id === selectedClassFilter);
+  }, [uniqueClasses, selectedClassFilter]);
+
+  const availableSectionsForFilter = useMemo(() => {
+    if (selectedClassFilter === "all" || !selectedClass) return [];
+    return selectedClass.sections || [];
+  }, [selectedClassFilter, selectedClass]);
+
+  const availableSectionsForAdd = useMemo(() => {
+    return uniqueClasses.find((c) => c.id === selectedClassId)?.sections || [];
+  }, [uniqueClasses, selectedClassId]);
+
   const filteredStudents = useMemo(() => {
     return students.filter((s) => {
       const q = debouncedSearch.toLowerCase().trim();
@@ -454,8 +586,20 @@ export default function AdminStudentsPage() {
         (s.rollNumber !== undefined && s.rollNumber.toString() === q) ||
         (s.phone && s.phone.toLowerCase().includes(q));
 
-      const matchesClass = selectedClassFilter === "all" ? true : s.classId === selectedClassFilter;
-      const matchesSection = selectedSectionFilter === "all" ? true : s.sectionId === selectedSectionFilter;
+      const matchesClass =
+        selectedClassFilter === "all"
+          ? true
+          : s.classId === selectedClassFilter ||
+            (selectedClass && isMatchingClass(s.className, selectedClass.name));
+
+      const matchesSection =
+        selectedSectionFilter === "all"
+          ? true
+          : s.sectionId === selectedSectionFilter ||
+            availableSectionsForFilter.some(
+              (sec) => sec.id === selectedSectionFilter && isMatchingSection(s.sectionName, sec.name)
+            );
+
       const matchesStatus =
         statusFilter === "all"
           ? s.status !== "deleted"
@@ -465,16 +609,24 @@ export default function AdminStudentsPage() {
 
       return matchesSearch && matchesClass && matchesSection && matchesStatus;
     });
-  }, [students, debouncedSearch, selectedClassFilter, selectedSectionFilter, statusFilter]);
+  }, [students, debouncedSearch, selectedClassFilter, selectedClass, selectedSectionFilter, availableSectionsForFilter, statusFilter]);
 
-  const availableSectionsForAdd =
-    classes.find((c) => c.id === selectedClassId)?.sections || [];
-
-  const availableSectionsForFilter =
-    classes.find((c) => c.id === selectedClassFilter)?.sections || [];
-
-  const totalBoys = students.filter((s) => s.gender === "male").length;
-  const totalGirls = students.filter((s) => s.gender === "female").length;
+  const nonDeletedStudents = useMemo(
+    () => students.filter((s) => s.status !== "deleted"),
+    [students]
+  );
+  const activeStudentsCount = useMemo(
+    () => nonDeletedStudents.filter((s) => !s.status || s.status.toLowerCase() === "active").length,
+    [nonDeletedStudents]
+  );
+  const totalBoys = useMemo(
+    () => nonDeletedStudents.filter((s) => normalizeGender(s.gender) === "male").length,
+    [nonDeletedStudents]
+  );
+  const totalGirls = useMemo(
+    () => nonDeletedStudents.filter((s) => normalizeGender(s.gender) === "female").length,
+    [nonDeletedStudents]
+  );
 
   return (
     <EntitlementGate
@@ -521,6 +673,15 @@ export default function AdminStudentsPage() {
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             <span className="hidden sm:inline">Refresh</span>
+          </button>
+          <button
+            onClick={handleRepairData}
+            disabled={isRepairingData || loading}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50/70 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300 transition-colors"
+            title="Deduplicate classes and synchronize student assignments"
+          >
+            <Sparkles className={`h-4 w-4 text-amber-600 ${isRepairingData ? "animate-spin" : ""}`} />
+            <span className="hidden sm:inline">{isRepairingData ? "Syncing..." : "Sync Classes"}</span>
           </button>
           <button
             onClick={() => {
@@ -576,7 +737,7 @@ export default function AdminStudentsPage() {
           </div>
           <div>
             <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Total Students</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">{students.length}</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">{nonDeletedStudents.length}</p>
           </div>
         </div>
 
@@ -587,7 +748,7 @@ export default function AdminStudentsPage() {
           <div>
             <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Active Students</p>
             <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">
-              {students.filter((s) => s.status === "active").length}
+              {activeStudentsCount}
             </p>
           </div>
         </div>
@@ -641,7 +802,7 @@ export default function AdminStudentsPage() {
             className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium dark:border-gray-700 dark:bg-gray-900 dark:text-white"
           >
             <option value="all">All Classes</option>
-            {classes.map((c) => (
+            {uniqueClasses.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>
@@ -1214,7 +1375,7 @@ export default function AdminStudentsPage() {
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
                   >
                     <option value="">Select Class</option>
-                    {classes.map((cls) => (
+                    {uniqueClasses.map((cls) => (
                       <option key={cls.id} value={cls.id}>
                         {cls.name}
                       </option>
@@ -1612,7 +1773,7 @@ export default function AdminStudentsPage() {
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white"
                 >
                   <option value="">Select Target Class</option>
-                  {classes.map((cls) => (
+                  {uniqueClasses.map((cls) => (
                     <option key={cls.id} value={cls.id}>
                       {cls.name}
                     </option>

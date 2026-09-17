@@ -9,7 +9,7 @@ import { NewDashboardShell } from "@/components/portal-ui/shells/NewDashboardShe
 import { LiquidGlassDashboardShell } from "@/components/portal-ui/shells/LiquidGlassDashboardShell";
 import { PortalUIErrorBoundary } from "@/components/portal-ui/PortalUIErrorBoundary";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { getRedirectByRole, isRoleAllowedForPath } from "@/lib/utils/redirect-by-role";
 import { Spinner } from "@/components/common/Spinner";
 import { AdminWelcomeOverlay } from "@/components/common/AdminWelcomeOverlay";
@@ -43,6 +43,8 @@ function DashboardShellSwitch({ children }: { children: React.ReactNode }) {
   return <ClassicDashboardShell>{children}</ClassicDashboardShell>;
 }
 
+import { traceClient } from "@/lib/debug-client";
+
 export default function DashboardLayout({
   children,
 }: {
@@ -51,17 +53,42 @@ export default function DashboardLayout({
   const { firebaseUser, profile, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    traceClient("layout:guard_effect", {
+      pathname,
+      isMounted,
+      loading,
+      hasUser: !!firebaseUser,
+      userUid: firebaseUser?.uid,
+      hasProfile: !!profile,
+      role: profile?.role,
+      cachedSession: typeof window !== "undefined" ? !!localStorage.getItem("school_study_auth_session") : false,
+    });
+
     // Suppress navigation redirects inside iframes/previews to prevent session disruption
-    if (typeof window !== "undefined" && window.self !== window.top) {
+    if (
+      typeof window !== "undefined" &&
+      (window.self !== window.top || window.location.search.includes("preview=true"))
+    ) {
+      traceClient("layout:guard_suppressed_iframe", { pathname });
       return;
     }
 
-    if (!loading) {
-      if (!firebaseUser) {
-        router.push("/login");
-        return;
+    if (isMounted && !loading) {
+      if (!firebaseUser && !profile) {
+        const hasCachedSession = typeof window !== "undefined" && Boolean(localStorage.getItem("school_study_auth_session"));
+        traceClient("layout:guard_no_user", { pathname, hasCachedSession });
+        if (!hasCachedSession) {
+          traceClient("layout:REDIRECT_TO_LOGIN", { pathname });
+          router.push("/login");
+          return;
+        }
       }
 
       if (pathname.startsWith("/super-admin")) {
@@ -87,20 +114,17 @@ export default function DashboardLayout({
         router.replace(correctRoute);
       }
     }
-  }, [firebaseUser, profile, loading, router, pathname]);
+  }, [firebaseUser, profile, loading, router, pathname, isMounted]);
 
-  if (loading) {
+  const isEmbeddedIframe = typeof window !== "undefined" && window.self !== window.top;
+
+  // During SSR or initial client hydration or while auth is connecting, render the identical loading spinner
+  if (!isMounted || loading || (!firebaseUser && !isEmbeddedIframe)) {
     return (
       <div className="flex min-h-screen min-h-[100dvh] items-center justify-center">
         <Spinner size="lg" />
       </div>
     );
-  }
-
-  const isEmbeddedIframe = typeof window !== "undefined" && window.self !== window.top;
-
-  if (!firebaseUser && !isEmbeddedIframe) {
-    return null;
   }
 
   // Super Admin security gate: Require both super_admin role and active 2FA PIN session

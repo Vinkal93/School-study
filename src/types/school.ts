@@ -42,6 +42,11 @@ export interface School {
   isEmergencyPaused?: boolean;
   subscriptionExpiresAt?: string;
   subscriptionStatus?: string;
+  adminPortalUiMode?: "modern" | "classic";
+  tenantSettings?: {
+    adminPortalUiMode?: "modern" | "classic";
+    [key: string]: any;
+  };
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

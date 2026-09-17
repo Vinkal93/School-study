@@ -27,6 +27,7 @@ import type {
   TeacherProfile,
   StudentProfile,
 } from "@/types";
+import { getCanonicalClassKey } from "@/lib/utils/academic-normalizer";
 
 /**
  * Computes Platform Analytics directly on the client using the active Super Admin Auth session.
@@ -152,7 +153,7 @@ export async function fetchPlatformAnalytics(): Promise<PlatformAnalyticsOvervie
         status: school.status,
         totalStudents: studentsSnap.size,
         totalTeachers: teachersSnap.size,
-        totalClasses: classesSnap.size,
+        totalClasses: new Set(classesSnap.docs.map((d) => getCanonicalClassKey(d.data().name))).size,
         activeUsers: schoolActiveUsers,
         lastLogin,
         lastActivity: lastLogin,
@@ -274,7 +275,7 @@ export async function fetchSchoolAnalytics(schoolId: string): Promise<SchoolDeta
     studentCount: studentsSnap.size,
     teacherCount: teachersSnap.size,
     adminCount: adminCount || 1,
-    classCount: classesSnap.size,
+    classCount: new Set(classesSnap.docs.map((d) => getCanonicalClassKey(d.data().name))).size,
     sectionCount: classesSnap.size,
     attendanceRate,
     totalAttendanceRecords,

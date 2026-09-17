@@ -1,5 +1,6 @@
 "use client";
 
+import { getRedirectByRole } from "@/lib/utils/redirect-by-role";
 import { useState, useEffect, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -30,11 +31,14 @@ export default function TeacherLoginPage() {
   const { signIn, signOut, firebaseUser, profile, loading } = useAuth();
   const router = useRouter();
 
-  // Auto-redirect if already logged in as teacher
+  // Auto-redirect if already logged in
   useEffect(() => {
-    if (!loading && firebaseUser && profile) {
+    if (!loading && firebaseUser && profile?.role) {
       if (profile.role === "teacher") {
         router.replace("/teacher");
+      } else {
+        const targetRoute = getRedirectByRole(profile.role);
+        if (targetRoute) router.replace(targetRoute);
       }
     }
   }, [firebaseUser, profile, loading, router]);
@@ -49,9 +53,9 @@ export default function TeacherLoginPage() {
 
       // Verify that this user is a Teacher
       if (profile.role !== "teacher") {
-        await signOut();
-        setWrongRole(profile.role);
-        toast.error("Access Denied: This account is not a Teacher account.");
+        toast.info(`Signed in as ${profile.name} (${profile.role}). Redirecting to your dashboard...`);
+        const targetRoute = getRedirectByRole(profile.role);
+        router.push(targetRoute || "/teacher");
         return;
       }
 

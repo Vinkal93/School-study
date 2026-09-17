@@ -22,6 +22,8 @@ import {
   updatePortalUIVersion,
   resetAllPortalsToClassic,
 } from "@/lib/services/portal-ui.service";
+import { doc, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
+import { getFirebaseDb } from "@/lib/firebase/client";
 
 interface PortalUIContextType {
   settings: PortalUISettings;
@@ -31,8 +33,10 @@ interface PortalUIContextType {
   isLiquidGlassUI: boolean;
   isClassicUI: boolean;
   loading: boolean;
+  adminPortalUiMode: "modern" | "classic";
   getPortalVersion: (portal: PortalKey) => PortalUIVersion;
   setPortalVersion: (portal: PortalKey, version: PortalUIVersion) => Promise<void>;
+  setInstituteAdminPortalUiMode: (schoolId: string, mode: "modern" | "classic") => Promise<void>;
   resetAllToClassic: () => Promise<void>;
 }
 
@@ -62,6 +66,64 @@ export function PortalUIProvider({ children }: { children: ReactNode }) {
     }
     return true;
   });
+
+  const [adminPortalUiMode, setAdminPortalUiMode] = useState<"modern" | "classic">(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("ss_admin_portal_ui_mode");
+      if (stored === "modern" || stored === "classic") return stored;
+    }
+    return "modern";
+  });
+
+  // Listen to institute's configured adminPortalUiMode
+  useEffect(() => {
+    const schoolId = profile?.schoolId;
+    if (!schoolId || schoolId === "system") return;
+
+    const db = getFirebaseDb();
+    if (!db) return;
+
+    const unsub = onSnapshot(
+      doc(db, "schools", schoolId),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          const mode: "modern" | "classic" =
+            data.adminPortalUiMode || data.tenantSettings?.adminPortalUiMode || "modern";
+          setAdminPortalUiMode(mode);
+          try {
+            localStorage.setItem("ss_admin_portal_ui_mode", mode);
+          } catch {}
+        }
+      },
+      (err) => {
+        if (err.code !== "permission-denied") {
+          console.warn("Notice: Institute adminPortalUiMode listener:", err);
+        }
+      }
+    );
+
+    return () => unsub();
+  }, [profile?.schoolId]);
+
+  const setInstituteAdminPortalUiMode = useCallback(
+    async (targetSchoolId: string, mode: "modern" | "classic") => {
+      const db = getFirebaseDb();
+      if (!db) return;
+      await updateDoc(doc(db, "schools", targetSchoolId), {
+        adminPortalUiMode: mode,
+        "tenantSettings.adminPortalUiMode": mode,
+        updatedAt: serverTimestamp(),
+      });
+      if (profile?.schoolId === targetSchoolId) {
+        setAdminPortalUiMode(mode);
+        try {
+          localStorage.setItem("ss_admin_portal_ui_mode", mode);
+        } catch {}
+      }
+    },
+    [profile?.schoolId]
+  );
 
   // 1. Real-time Firestore subscription to central portal settings
   useEffect(() => {
@@ -184,8 +246,10 @@ export function PortalUIProvider({ children }: { children: ReactNode }) {
         isLiquidGlassUI,
         isClassicUI,
         loading,
+        adminPortalUiMode,
         getPortalVersion,
         setPortalVersion,
+        setInstituteAdminPortalUiMode,
         resetAllToClassic: resetAllToClassicHandler,
       }}
     >
@@ -209,8 +273,10 @@ export function usePortalUI() {
       isLiquidGlassUI: false,
       isClassicUI: true,
       loading: false,
+      adminPortalUiMode: "modern" as const,
       getPortalVersion: () => "classic" as PortalUIVersion,
       setPortalVersion: async () => {},
+      setInstituteAdminPortalUiMode: async () => {},
       resetAllToClassic: async () => {},
     };
   }

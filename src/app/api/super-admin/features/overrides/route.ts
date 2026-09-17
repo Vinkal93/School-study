@@ -133,10 +133,10 @@ export async function POST(req: NextRequest) {
     const adminDb = getSafeAdminDb();
     const clientDb = getFirebaseDb();
     if (adminDb) {
-      adminDb.collection("schoolFeatureOverrides").doc(safeDocId).set(overrideData, { merge: true }).catch((e: any) => console.warn(e));
-      adminDb.collection("featureControlAuditLogs").add(auditEntry).catch((e: any) => console.warn(e));
+      await adminDb.collection("schoolFeatureOverrides").doc(safeDocId).set(overrideData, { merge: true }).catch((e: any) => console.warn(e));
+      await adminDb.collection("featureControlAuditLogs").add(auditEntry).catch((e: any) => console.warn(e));
     } else if (clientDb) {
-      setDoc(doc(clientDb, "schoolFeatureOverrides", safeDocId), overrideData, { merge: true }).catch((e) => console.warn(e));
+      await setDoc(doc(clientDb, "schoolFeatureOverrides", safeDocId), overrideData, { merge: true }).catch((e) => console.warn(e));
     }
 
     return NextResponse.json({
@@ -189,9 +189,9 @@ export async function DELETE(req: NextRequest) {
     const adminDb = getSafeAdminDb();
     const clientDb = getFirebaseDb();
     if (adminDb) {
-      adminDb.collection("schoolFeatureOverrides").doc(docId).delete().catch((e: any) => console.warn(e));
+      await adminDb.collection("schoolFeatureOverrides").doc(docId).delete().catch((e: any) => console.warn(e));
     } else if (clientDb) {
-      deleteDoc(doc(clientDb, "schoolFeatureOverrides", docId)).catch((e) => console.warn(e));
+      await deleteDoc(doc(clientDb, "schoolFeatureOverrides", docId)).catch((e) => console.warn(e));
     }
 
     return NextResponse.json({

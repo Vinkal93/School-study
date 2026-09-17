@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
-import { getAuth, setPersistence, browserLocalPersistence, type Auth } from "firebase/auth";
+import { getAuth, setPersistence, browserLocalPersistence, inMemoryPersistence, type Auth } from "firebase/auth";
 import { initializeFirestore, getFirestore, type Firestore } from "firebase/firestore";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
 import { firebaseClientConfig } from "./config";
@@ -24,7 +24,12 @@ export function getFirebaseAuth(): Auth {
   if (!authInstance) {
     authInstance = getAuth(getFirebaseApp());
     if (typeof window !== "undefined") {
-      setPersistence(authInstance, browserLocalPersistence).catch(() => {});
+      const isIframe = window.self !== window.top || window.location.search.includes("preview=true");
+      if (isIframe) {
+        setPersistence(authInstance, inMemoryPersistence).catch(() => {});
+      } else {
+        setPersistence(authInstance, browserLocalPersistence).catch(() => {});
+      }
     }
   }
   return authInstance;

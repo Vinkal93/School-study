@@ -25,6 +25,14 @@ import type {
   ImportExecutionResult,
   ImportValidationError,
 } from "@/types/backup";
+import {
+  normalizeClassName,
+  getCanonicalClassKey,
+  getCanonicalClassOrder,
+  normalizeSectionName,
+  getCanonicalSectionKey,
+  normalizeGender,
+} from "@/lib/utils/academic-normalizer";
 
 /**
  * Standard column aliases for intelligent column matching.
@@ -313,6 +321,15 @@ export async function validateAndPreviewImport(
       if (mappedRecord.parentPhone && !mappedRecord.guardianPhone) mappedRecord.guardianPhone = mappedRecord.parentPhone;
       if (mappedRecord.guardianPhone && !mappedRecord.parentPhone) mappedRecord.parentPhone = mappedRecord.guardianPhone;
       if (mappedRecord.section && !mappedRecord.sectionName) mappedRecord.sectionName = mappedRecord.section;
+      if (mappedRecord.className || mappedRecord.class) {
+        mappedRecord.className = normalizeClassName(mappedRecord.className || mappedRecord.class);
+      }
+      if (mappedRecord.sectionName || mappedRecord.section) {
+        mappedRecord.sectionName = normalizeSectionName(mappedRecord.sectionName || mappedRecord.section);
+      }
+      if (mappedRecord.gender) {
+        mappedRecord.gender = normalizeGender(mappedRecord.gender);
+      }
       if (mappedRecord.rollNumber !== undefined && mappedRecord.rollNumber !== "") {
         mappedRecord.rollNumber = Number(mappedRecord.rollNumber) || 0;
       }
@@ -461,6 +478,45 @@ export async function executeControlledImport(
   let updatedCount = 0;
   let skippedCount = 0;
 
+  // Pre-load class & section master for students module in server environment
+  const adminClassMasterMap = new Map<
+    string,
+    { id: string; name: string; sections: Map<string, { id: string; name: string }> }
+  >();
+
+  if (targetModule === "students" && adminDb) {
+    try {
+      const clsSnap = await adminDb.collection("schools").doc(schoolId).collection("classes").get();
+      for (const cDoc of clsSnap.docs) {
+        const cData = cDoc.data();
+        const cCanonicalName = normalizeClassName(cData.name);
+        const cKey = getCanonicalClassKey(cCanonicalName);
+
+        const secSnap = await adminDb.collection("schools").doc(schoolId).collection("classes").doc(cDoc.id).collection("sections").get();
+        const secMap = new Map<string, { id: string; name: string }>();
+        secSnap.docs.forEach((sDoc: any) => {
+          const sName = normalizeSectionName(sDoc.data().name);
+          secMap.set(getCanonicalSectionKey(sName), { id: sDoc.id, name: sName });
+        });
+
+        if (!adminClassMasterMap.has(cKey)) {
+          adminClassMasterMap.set(cKey, {
+            id: cDoc.id,
+            name: cCanonicalName,
+            sections: secMap,
+          });
+        } else {
+          const existing = adminClassMasterMap.get(cKey)!;
+          secMap.forEach((val, key) => {
+            if (!existing.sections.has(key)) existing.sections.set(key, val);
+          });
+        }
+      }
+    } catch (err: any) {
+      console.warn("Notice: Failed to pre-load admin class master:", err?.message);
+    }
+  }
+
   try {
     // Process in chunks of 200 to stay safely within Firestore batch limits of 500 (especially with dual-writes)
     const CHUNK_SIZE = 200;
@@ -490,9 +546,64 @@ export async function executeControlledImport(
           if (cleanData.guardianName && !cleanData.parentName) cleanData.parentName = cleanData.guardianName;
           if (cleanData.parentPhone && !cleanData.guardianPhone) cleanData.guardianPhone = cleanData.parentPhone;
           if (cleanData.guardianPhone && !cleanData.parentPhone) cleanData.parentPhone = cleanData.guardianPhone;
-          if (cleanData.section && !cleanData.sectionName) cleanData.sectionName = cleanData.section;
           if (!cleanData.status) cleanData.status = "active";
           if (!cleanData.admissionDate) cleanData.admissionDate = new Date().toISOString().split("T")[0];
+          cleanData.gender = normalizeGender(cleanData.gender);
+
+          // RESOLVE CLASS FROM INSTITUTE CLASS MASTER
+          const rawCls = cleanData.className || cleanData.class || cleanData.classId || "Class 1";
+          const canonicalClsName = normalizeClassName(rawCls);
+          const clsKey = getCanonicalClassKey(canonicalClsName);
+
+          let classEntry = adminClassMasterMap.get(clsKey);
+          if (!classEntry) {
+            const newClassRef = adminDb.collection("schools").doc(schoolId).collection("classes").doc();
+            const newClassId = newClassRef.id;
+            await newClassRef.set({
+              id: newClassId,
+              schoolId,
+              name: canonicalClsName,
+              order: getCanonicalClassOrder(canonicalClsName),
+              academicYearId: "",
+              status: "active",
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            });
+            classEntry = { id: newClassId, name: canonicalClsName, sections: new Map() };
+            adminClassMasterMap.set(clsKey, classEntry);
+          }
+
+          // RESOLVE SECTION FROM INSTITUTE SECTION MASTER
+          const rawSec = cleanData.sectionName || cleanData.section || cleanData.sectionId || "A";
+          const canonicalSecName = normalizeSectionName(rawSec);
+          const secKey = getCanonicalSectionKey(canonicalSecName);
+
+          let sectionEntry = classEntry.sections.get(secKey);
+          if (!sectionEntry) {
+            const newSecRef = adminDb
+              .collection("schools")
+              .doc(schoolId)
+              .collection("classes")
+              .doc(classEntry.id)
+              .collection("sections")
+              .doc();
+            const newSecId = newSecRef.id;
+            await newSecRef.set({
+              id: newSecId,
+              schoolId,
+              classId: classEntry.id,
+              name: canonicalSecName,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            });
+            sectionEntry = { id: newSecId, name: canonicalSecName };
+            classEntry.sections.set(secKey, sectionEntry);
+          }
+
+          cleanData.classId = classEntry.id;
+          cleanData.className = classEntry.name;
+          cleanData.sectionId = sectionEntry.id;
+          cleanData.sectionName = sectionEntry.name;
         }
 
         const schoolDocRef = adminDb.collection("schools").doc(schoolId).collection(targetModule).doc(docId);

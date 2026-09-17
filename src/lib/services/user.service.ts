@@ -35,6 +35,17 @@ export function inferRoleFromEmail(email?: string | null): {
 }
 
 function getFallbackProfile(uid: string, email?: string | null): AppUser {
+  if (typeof window !== "undefined") {
+    try {
+      const cached = localStorage.getItem("school_study_auth_session");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.uid === uid) {
+          return parsed as AppUser;
+        }
+      }
+    } catch {}
+  }
   const inferred = inferRoleFromEmail(email);
   return {
     uid,

@@ -94,6 +94,16 @@ export const FEATURE_REGISTRY: FeatureDefinition[] = [
     defaultRollout: "ON_FOR_ALL",
     apiEndpoints: [{ path: "/api/timetable", method: "ALL" }],
   },
+  {
+    id: "module:ai",
+    key: "ai",
+    name: "AI Assistant & Intelligence",
+    moduleKey: "ai",
+    category: "module",
+    description: "Integrated AI Workspace, conversational assistant, and smart automation.",
+    defaultRollout: "ON_FOR_ALL",
+    apiEndpoints: [{ path: "/api/ai", method: "ALL" }],
+  },
 
   // =========================================================================
   // 2. GRANULAR FEATURES
@@ -602,6 +612,8 @@ export const CAPABILITY_TO_FEATURE_KEY: Record<string, string> = {
   class_management: "students",
   rules_policies: "students",
   inquiries_portal: "students",
+  ai: "ai",
+  ai_assistant: "ai",
 
   // Granular Actions
   student_action_add: "students.create",
@@ -623,19 +635,53 @@ export const CAPABILITY_TO_FEATURE_KEY: Record<string, string> = {
 
 export function getFeatureDefinition(idOrKey: string): FeatureDefinition | undefined {
   if (!idOrKey) return undefined;
-  const direct = FEATURE_REGISTRY.find((f) => f.id === idOrKey || f.key === idOrKey);
+  const cleanKey = idOrKey.trim().toLowerCase();
+
+  // 1. Direct ID or key match
+  const direct = FEATURE_REGISTRY.find(
+    (f) => f.id.toLowerCase() === cleanKey || f.key.toLowerCase() === cleanKey
+  );
   if (direct) return direct;
 
-  // Check capability alias
-  const mapped = CAPABILITY_TO_FEATURE_KEY[idOrKey];
+  // 2. Check capability alias mapping
+  const mapped = CAPABILITY_TO_FEATURE_KEY[cleanKey] || CAPABILITY_TO_FEATURE_KEY[idOrKey];
   if (mapped) {
-    const fromMapped = FEATURE_REGISTRY.find((f) => f.id === mapped || f.key === mapped || f.id === `module:${mapped}`);
+    const fromMapped = FEATURE_REGISTRY.find(
+      (f) =>
+        f.id.toLowerCase() === mapped.toLowerCase() ||
+        f.key.toLowerCase() === mapped.toLowerCase() ||
+        f.id.toLowerCase() === `module:${mapped.toLowerCase()}` ||
+        f.moduleKey.toLowerCase() === mapped.toLowerCase()
+    );
     if (fromMapped) return fromMapped;
   }
 
-  // Check prefix or moduleKey match
-  const stripped = idOrKey.replace(/^module:/, "").replace(/^feature:/, "");
-  return FEATURE_REGISTRY.find((f) => f.key === stripped || f.moduleKey === stripped);
+  // 3. De-sanitize underscore keys (e.g., "module_students" -> "module:students", "feature_students_view" -> "feature:students.view")
+  const desanitized = cleanKey
+    .replace(/^module_/, "module:")
+    .replace(/^feature_/, "feature:")
+    .replace(/^act_/, "act:")
+    .replace(/_/g, ".");
+  const desanDirect = FEATURE_REGISTRY.find(
+    (f) => f.id.toLowerCase() === desanitized || f.key.toLowerCase() === desanitized
+  );
+  if (desanDirect) return desanDirect;
+
+  // 4. Check prefix or moduleKey match with colon or underscore stripped
+  const stripped = cleanKey
+    .replace(/^module:/, "")
+    .replace(/^feature:/, "")
+    .replace(/^act:/, "")
+    .replace(/^module_/, "")
+    .replace(/^feature_/, "")
+    .replace(/^act_/, "");
+
+  return FEATURE_REGISTRY.find(
+    (f) =>
+      f.key.toLowerCase() === stripped ||
+      f.moduleKey.toLowerCase() === stripped ||
+      f.id.toLowerCase() === `module:${stripped}`
+  );
 }
 
 export function getFeaturesByModule(moduleKey: string): FeatureDefinition[] {

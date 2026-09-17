@@ -5,6 +5,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { getFirebaseDb, getFirebaseAuth } from "@/lib/firebase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
+import { traceClient } from "@/lib/debug-client";
 
 /**
  * Client-Side Realtime Security Listener.
@@ -21,8 +22,11 @@ export function useRealtimeSecurityListener() {
   useEffect(() => {
     // Never run realtime security listeners inside an iframe to prevent session collision
     if (typeof window !== "undefined" && window.self !== window.top) {
+      traceClient("security_listener:suppressed_iframe", {});
       return;
     }
+
+    traceClient("security_listener:activated", { userId, role: profile?.role });
 
     // Super Admins manage the entire security architecture and must never be auto-terminated
     if (profile?.role === "super_admin") {
@@ -39,6 +43,7 @@ export function useRealtimeSecurityListener() {
       (snapshot) => {
         if (!snapshot.exists()) return;
         const data = snapshot.data();
+        traceClient("security:userSecurityControl_snapshot", { status: data?.status, forceLogout: data?.forceLogout, forceLogoutAt: data?.forceLogoutAt });
         const storedLoginTime = typeof window !== "undefined" ? localStorage.getItem("school_study_session_login_time") : null;
         const loginTime = storedLoginTime ? parseInt(storedLoginTime, 10) : mountTimeRef.current;
         const updateTime = data.updatedAt ? new Date(data.updatedAt).getTime() : 0;
@@ -57,10 +62,8 @@ export function useRealtimeSecurityListener() {
           return;
         }
 
-        if (data.forceLogout === true || data.requireReLogin === true) {
-          const forceLogoutTime = typeof data.forceLogoutAt === "number"
-            ? data.forceLogoutAt
-            : (typeof data.securityVersion === "number" ? data.securityVersion : updateTime);
+        if ((data.forceLogout === true || data.requireReLogin === true) && typeof data.forceLogoutAt === "number") {
+          const forceLogoutTime = data.forceLogoutAt;
 
           // Terminate active session only if force logout was issued AFTER this session was created
           if (forceLogoutTime > loginTime) {
@@ -69,6 +72,7 @@ export function useRealtimeSecurityListener() {
             const auth = getFirebaseAuth();
             if (auth) auth.signOut();
             if (typeof window !== "undefined") {
+              localStorage.removeItem("school_study_auth_session");
               localStorage.removeItem("school_study_session_login_time");
               sessionStorage.removeItem("school_study_impersonation_user");
               localStorage.removeItem("ss_super_admin_verified");
@@ -99,11 +103,13 @@ export function useRealtimeSecurityListener() {
       (snapshot) => {
         if (!snapshot.exists()) return;
         const uData = snapshot.data();
+        traceClient("security:userDoc_snapshot", { status: uData?.status, forceLogout: uData?.forceLogout, forceLogoutAt: uData?.forceLogoutAt });
         if (uData.status === "suspended" || uData.status === "blocked" || uData.status === "disabled") {
           toast.error("Your account has been deactivated by administration.");
           const auth = getFirebaseAuth();
           if (auth) auth.signOut();
           if (typeof window !== "undefined") {
+            localStorage.removeItem("school_study_auth_session");
             localStorage.removeItem("school_study_session_login_time");
             sessionStorage.removeItem("school_study_impersonation_user");
             localStorage.removeItem("ss_super_admin_verified");
@@ -118,28 +124,28 @@ export function useRealtimeSecurityListener() {
 
         const storedLoginTime = typeof window !== "undefined" ? localStorage.getItem("school_study_session_login_time") : null;
         const loginTime = storedLoginTime ? parseInt(storedLoginTime, 10) : mountTimeRef.current;
-        const uUpdateTime = uData.updatedAt ? new Date(uData.updatedAt).getTime() : 0;
-        const uForceLogoutTime = typeof uData.forceLogoutAt === "number"
-          ? uData.forceLogoutAt
-          : (typeof uData.securityVersion === "number" ? uData.securityVersion : uUpdateTime);
 
         // Terminate active session only if force logout was issued AFTER this session was created
-        if ((uData.forceLogout === true || uData.requireReLogin === true) && uForceLogoutTime > loginTime) {
-          console.warn("[RealtimeSecurity] Force logout triggered on user document.");
-          toast.error("Your session has been terminated by administrator. Redirecting to login...");
-          const auth = getFirebaseAuth();
-          if (auth) auth.signOut();
-          if (typeof window !== "undefined") {
-            localStorage.removeItem("school_study_session_login_time");
-            sessionStorage.removeItem("school_study_impersonation_user");
-            localStorage.removeItem("ss_super_admin_verified");
-            sessionStorage.removeItem("ss_super_admin_verified");
-            document.cookie = "__session=; path=/; max-age=0; SameSite=Lax;";
+        if ((uData.forceLogout === true || uData.requireReLogin === true) && typeof uData.forceLogoutAt === "number") {
+          const uForceLogoutTime = uData.forceLogoutAt;
+          if (uForceLogoutTime > loginTime) {
+            console.warn("[RealtimeSecurity] Force logout triggered on user document.");
+            toast.error("Your session has been terminated by administrator. Redirecting to login...");
+            const auth = getFirebaseAuth();
+            if (auth) auth.signOut();
+            if (typeof window !== "undefined") {
+              localStorage.removeItem("school_study_auth_session");
+              localStorage.removeItem("school_study_session_login_time");
+              sessionStorage.removeItem("school_study_impersonation_user");
+              localStorage.removeItem("ss_super_admin_verified");
+              sessionStorage.removeItem("ss_super_admin_verified");
+              document.cookie = "__session=; path=/; max-age=0; SameSite=Lax;";
+            }
+            setTimeout(() => {
+              window.location.href = "/login?reason=session_revoked";
+            }, 400);
+            return;
           }
-          setTimeout(() => {
-            window.location.href = "/login?reason=session_revoked";
-          }, 400);
-          return;
         }
       },
       (err) => {
@@ -155,6 +161,7 @@ export function useRealtimeSecurityListener() {
       (snapshot) => {
         if (!snapshot.exists()) return;
         const data = snapshot.data();
+        traceClient("security:emergency_snapshot", { systemStatus: data?.systemStatus, forceReLogin: data?.forceReLogin, version: data?.globalSecurityVersion });
 
         if (profile?.role !== "super_admin") {
           const storedLoginTime = typeof window !== "undefined" ? localStorage.getItem("school_study_session_login_time") : null;
@@ -214,6 +221,7 @@ export function useRealtimeSecurityListener() {
         (snapshot) => {
           if (!snapshot.exists()) return;
           const sData = snapshot.data();
+          traceClient("security:schoolEmergency_snapshot", { status: sData?.status, forceLogoutAll: sData?.forceLogoutAll });
           const storedLoginTime = typeof window !== "undefined" ? localStorage.getItem("school_study_session_login_time") : null;
           const loginTime = storedLoginTime ? parseInt(storedLoginTime, 10) : mountTimeRef.current;
           const forceBefore = sData.forceLogoutBefore
@@ -222,12 +230,17 @@ export function useRealtimeSecurityListener() {
               : new Date(sData.forceLogoutBefore).getTime()
             : 0;
 
-          if (sData.forceLogoutAll === true || (forceBefore > 0 && forceBefore >= loginTime)) {
+          const forceAllIssuedAt = typeof sData.forceLogoutAllIssuedAt === "number"
+            ? sData.forceLogoutAllIssuedAt
+            : (sData.forceLogoutAllAt ? new Date(sData.forceLogoutAllAt).getTime() : 0);
+
+          if ((sData.forceLogoutAll === true && forceAllIssuedAt > loginTime) || (forceBefore > 0 && forceBefore > loginTime)) {
             console.warn("[RealtimeSecurity] School force logout active. Forcing logout...");
             toast.error("School session security reset by administrator. Please log in again.");
             const auth = getFirebaseAuth();
             if (auth) auth.signOut();
             if (typeof window !== "undefined") {
+              localStorage.removeItem("school_study_auth_session");
               localStorage.removeItem("school_study_session_login_time");
               sessionStorage.removeItem("school_study_impersonation_user");
             }

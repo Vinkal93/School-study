@@ -178,6 +178,7 @@ const roleNavItems: Record<string, NavItem[]> = {
     {
       label: "AI Assistant",
       href: "/admin/ai",
+      featureKey: "ai_assistant",
       icon: <Sparkles className="h-5 w-5 text-purple-500" />,
     },
     {
@@ -280,6 +281,7 @@ const roleNavItems: Record<string, NavItem[]> = {
     {
       label: "AI Assistant",
       href: "/teacher/ai",
+      featureKey: "ai_assistant",
       icon: <Sparkles className="h-5 w-5 text-indigo-500" />,
     },
     {
@@ -342,6 +344,7 @@ const roleNavItems: Record<string, NavItem[]> = {
     {
       label: "AI Study Buddy",
       href: "/student/ai",
+      featureKey: "ai_assistant",
       icon: <Sparkles className="h-5 w-5 text-purple-500" />,
     },
     {
@@ -540,12 +543,15 @@ export function Sidebar({ variant = "classic" }: SidebarProps) {
           currentNavItems.map((item) => {
           const itemAccessMode = item.featureKey ? getFeatureAccessMode(item.featureKey) : "FULL_ACCESS";
 
-          // If HIDDEN, omit from sidebar completely
-          if (itemAccessMode === "HIDDEN") {
+          // If HIDDEN or if feature is disabled by platform and not showcase, omit from sidebar completely
+          if (
+            itemAccessMode === "HIDDEN" ||
+            (item.featureKey && !canAccess(item.featureKey) && itemAccessMode !== "SHOWCASE")
+          ) {
             return null;
           }
 
-          const isShowcaseLocked = itemAccessMode === "SHOWCASE" || (item.featureKey ? !canAccess(item.featureKey) : false);
+          const isShowcaseLocked = itemAccessMode === "SHOWCASE";
           const hasSubItems = item.subItems && item.subItems.length > 0 && !isShowcaseLocked;
           const isParentActive =
             pathname === item.href ||

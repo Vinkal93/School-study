@@ -204,7 +204,25 @@ export default function SuperAdminFeatureControlPage() {
       (err) => console.warn("Feature controls real-time listener notice:", err)
     );
 
-    return () => unsubControls();
+    // 3. Real-time Firestore sync on schoolFeatureOverrides
+    const unsubOverrides = onSnapshot(
+      collection(db, "schoolFeatureOverrides"),
+      (snap) => {
+        if (snap && snap.docs) {
+          const liveOverrides: SchoolFeatureOverride[] = snap.docs.map((d) => ({
+            id: d.id,
+            ...(d.data() as any),
+          }));
+          setOverrides(liveOverrides);
+        }
+      },
+      (err) => console.warn("Feature overrides real-time listener notice:", err)
+    );
+
+    return () => {
+      unsubControls();
+      unsubOverrides();
+    };
   }, [fetchData]);
 
   // Copy helper
@@ -267,10 +285,10 @@ export default function SuperAdminFeatureControlPage() {
         const statesMap: Record<string, any> = {};
         statesList.forEach((s) => {
           if (s && s.featureId) {
-            statesMap[s.featureId.replace(/:/g, "_")] = s;
+            statesMap[s.featureId.replace(/[:.]/g, "_")] = s;
             const itemDef = FEATURE_REGISTRY.find((x) => x.id === s.featureId || x.key === s.featureId);
-            if (itemDef?.key && !itemDef.key.includes(".")) {
-              statesMap[itemDef.key] = s;
+            if (itemDef?.key) {
+              statesMap[itemDef.key.replace(/[:.]/g, "_")] = s;
             }
           }
         });
@@ -347,7 +365,7 @@ export default function SuperAdminFeatureControlPage() {
         const statesMap: Record<string, any> = {};
         statesList.forEach((s) => {
           if (s && s.featureId) {
-            statesMap[s.featureId.replace(/:/g, "_")] = s;
+            statesMap[s.featureId.replace(/[:.]/g, "_")] = s;
           }
         });
         await setDoc(doc(db, "siteSettings", "feature_controls"), {
@@ -394,18 +412,31 @@ export default function SuperAdminFeatureControlPage() {
 
     try {
       setOverrideSaving(true);
-      const overrideId = `ovr_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-      const overridePayload = {
+      const safeFeatureId = newOverrideFeatureId.replace(/[:.]/g, "_");
+      const overrideId = `${newOverrideSchoolId}_${safeFeatureId}`;
+      const overridePayload: SchoolFeatureOverride = {
         id: overrideId,
         schoolId: newOverrideSchoolId,
         featureId: newOverrideFeatureId,
         overrideType: newOverrideType,
-        limitValue: newOverrideLimit ? Number(newOverrideLimit) : null,
+        limitValue: newOverrideLimit ? Number(newOverrideLimit) : undefined,
         reason: newOverrideReason || `Manual override set to ${newOverrideType}`,
-        status: "ACTIVE",
-        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        updatedBy: profile?.email || "super_admin",
       };
+
+      // Optimistic state update
+      setOverrides((prev) => {
+        const idx = prev.findIndex(
+          (o) => o.schoolId === newOverrideSchoolId && o.featureId === newOverrideFeatureId
+        );
+        if (idx >= 0) {
+          const updated = [...prev];
+          updated[idx] = overridePayload;
+          return updated;
+        }
+        return [overridePayload, ...prev];
+      });
 
       // Direct Client Firestore Write
       const db = getFirebaseDb();
@@ -427,14 +458,14 @@ export default function SuperAdminFeatureControlPage() {
         }),
       });
 
-      toast.success("School override created successfully.");
+      toast.success(`School override saved: ${newOverrideType} granted.`);
       setIsOverrideModalOpen(false);
       setNewOverrideSchoolId("");
       setNewOverrideFeatureId("");
       setNewOverrideType("ALLOW");
       setNewOverrideLimit("");
       setNewOverrideReason("");
-      fetchData();
+      silentRefresh();
     } catch (err: any) {
       toast.error(err.message || "Failed to set school override");
     } finally {
@@ -449,24 +480,39 @@ export default function SuperAdminFeatureControlPage() {
     }
 
     const key = id || `${schoolId}_${featureId}`;
+    const canonicalDocId = schoolId && featureId ? `${schoolId}_${featureId.replace(/[:.]/g, "_")}` : id;
+
     try {
       setDeletingOverrideId(key);
+
+      // Optimistic removal
+      setOverrides((prev) =>
+        prev.filter((o) => {
+          if (id && o.id === id) return false;
+          if (canonicalDocId && o.id === canonicalDocId) return false;
+          if (schoolId && featureId && o.schoolId === schoolId && o.featureId === featureId) return false;
+          return true;
+        })
+      );
+
       const db = getFirebaseDb();
-      if (db && id) {
-        deleteDoc(doc(db, "schoolFeatureOverrides", id)).catch(() => {});
+      if (db) {
+        if (id) deleteDoc(doc(db, "schoolFeatureOverrides", id)).catch(() => {});
+        if (canonicalDocId && canonicalDocId !== id) {
+          deleteDoc(doc(db, "schoolFeatureOverrides", canonicalDocId)).catch(() => {});
+        }
       }
       notifyRealtimeSync("FEATURE_OVERRIDE_UPDATED", { id, schoolId, featureId });
+
       const headers = await getAuthHeaders();
       const url = id
         ? `/api/super-admin/features/overrides?id=${id}`
         : `/api/super-admin/features/overrides?schoolId=${schoolId}&featureId=${featureId}`;
       const res = await fetch(url, { method: "DELETE", headers });
       const data = await res.json().catch(() => ({}));
+
       if (data.success) {
         toast.success("Override removed. Default rules restored.");
-        setOverrides((prev) =>
-          prev.filter((o) => (id ? o.id !== id : !(o.schoolId === schoolId && o.featureId === featureId)))
-        );
         silentRefresh();
       } else {
         toast.error(data.error || "Failed to remove override");
@@ -540,6 +586,8 @@ export default function SuperAdminFeatureControlPage() {
         return <Bell className="h-5 w-5 text-orange-500" />;
       case "timetable":
         return <Clock className="h-5 w-5 text-teal-500" />;
+      case "ai":
+        return <Sparkles className="h-5 w-5 text-purple-500" />;
       default:
         return <Layers className="h-5 w-5 text-slate-400" />;
     }
@@ -1153,7 +1201,7 @@ export default function SuperAdminFeatureControlPage() {
                 <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
                   2. Rollout Mode
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {[
                     { mode: "ON_FOR_ALL", label: "On for All", desc: "Available platform-wide" },
                     { mode: "BETA", label: "Beta Testing", desc: "Pilot beta cohort" },
@@ -1486,8 +1534,8 @@ export default function SuperAdminFeatureControlPage() {
             onClick={() => setIsDrawerOpen(false)}
           />
 
-          <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
-            <div className="w-screen max-w-md bg-white dark:bg-gray-800 shadow-2xl p-6 space-y-6 flex flex-col justify-between overflow-y-auto">
+          <div className="fixed inset-y-0 right-0 max-w-full flex pl-0 sm:pl-10">
+            <div className="w-full sm:w-screen max-w-full sm:max-w-md bg-white dark:bg-gray-800 shadow-2xl p-4 sm:p-6 space-y-6 flex flex-col justify-between overflow-y-auto">
               <div className="space-y-6">
                 <div className="flex items-center justify-between pb-3 border-b border-gray-200 dark:border-gray-700">
                   <div className="flex items-center gap-2.5">
@@ -1664,7 +1712,7 @@ export default function SuperAdminFeatureControlPage() {
                 </select>
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 {[
                   { type: "ALLOW", label: "Explicit Allow", desc: "Grant feature" },
                   { type: "DENY", label: "Explicit Deny", desc: "Block feature" },

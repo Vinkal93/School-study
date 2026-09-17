@@ -1,5 +1,6 @@
 "use client";
 
+import { getRedirectByRole } from "@/lib/utils/redirect-by-role";
 import { Suspense, useState, useEffect, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -32,11 +33,14 @@ function AdminLoginForm() {
   const searchParams = useSearchParams();
   const redirectParam = searchParams.get("redirect");
 
-  // Auto-redirect if already logged in as school_admin
+  // Auto-redirect if already logged in
   useEffect(() => {
-    if (!loading && firebaseUser && profile) {
+    if (!loading && firebaseUser && profile?.role) {
       if (profile.role === "school_admin") {
         router.replace(redirectParam || "/admin");
+      } else {
+        const targetRoute = getRedirectByRole(profile.role);
+        if (targetRoute) router.replace(targetRoute);
       }
     }
   }, [firebaseUser, profile, loading, redirectParam, router]);
@@ -51,9 +55,9 @@ function AdminLoginForm() {
 
       // Verify that this user is a School Administrator
       if (profile.role !== "school_admin") {
-        await signOut();
-        setWrongRole(profile.role);
-        toast.error("Access Denied: This account is not a School Administrator.");
+        toast.info(`Signed in as ${profile.name} (${profile.role}). Redirecting to your dashboard...`);
+        const targetRoute = getRedirectByRole(profile.role);
+        router.push(targetRoute || "/admin");
         return;
       }
 

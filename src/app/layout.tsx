@@ -10,6 +10,7 @@ import { GlobalEmergencyGate } from "@/components/common/GlobalEmergencyGate";
 import { SiteSettingsProvider } from "@/context/SiteSettingsContext";
 import { PortalUIProvider } from "@/context/portal-ui-context";
 import { constructMetadata } from "@/lib/seo";
+import { CapacitorInitializer } from "@/components/common/CapacitorInitializer";
 import "./globals.css";
 
 const jakartaSans = Plus_Jakarta_Sans({
@@ -56,6 +57,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <GoogleAnalytics />
         <ThemeProvider>
           <AuthProvider>
+            <CapacitorInitializer />
             <SiteSettingsProvider>
               <PortalUIProvider>
                 <ImpersonationBanner />

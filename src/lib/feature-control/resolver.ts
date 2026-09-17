@@ -111,15 +111,80 @@ export function resolveEffectiveFeatureAccess({
     }
   }
 
+  const stateId = def?.id || featureKey;
+  const parentModuleId = `module:${moduleKey}`;
+
   // -------------------------------------------------------------------------
-  // LAYER 2: GLOBAL FEATURE CONTROL
+  // LAYER 2: SCHOOL OVERRIDES (SUPER ADMIN CUSTOM GRANTS & RESTRICTIONS)
+  // Allows Super Admin to specifically ALLOW, DENY, or CUSTOM_LIMIT a school.
+  // Explicit School Overrides take precedence over global rollout and plan limits.
+  // -------------------------------------------------------------------------
+  if (schoolId && schoolOverrides.length > 0) {
+    // Check direct feature override or module override
+    const override = schoolOverrides.find(
+      (o) =>
+        o.schoolId === schoolId &&
+        (o.featureId === stateId ||
+          o.featureId === featureKey ||
+          o.featureId === parentModuleId ||
+          o.featureId === moduleKey ||
+          (def?.key && o.featureId === def.key) ||
+          (def?.moduleKey && (o.featureId === def.moduleKey || o.featureId === `module:${def.moduleKey}`)))
+    );
+
+    if (override) {
+      if (override.overrideType === "DENY") {
+        return {
+          allowed: false,
+          reason: override.reason || `Feature '${name}' is restricted for this school by platform administration.`,
+          status: 403,
+          featureKey,
+          featureName: name,
+          category: def?.category || "feature",
+        };
+      }
+
+      if (override.overrideType === "ALLOW") {
+        return {
+          allowed: true,
+          reason: override.reason || "Explicit Super Admin school grant.",
+          status: 200,
+          featureKey,
+          featureName: name,
+          category: def?.category || "feature",
+        };
+      }
+
+      if (override.overrideType === "CUSTOM_LIMIT") {
+        return {
+          allowed: true,
+          limit: override.limitValue,
+          reason: `Custom operational limit: ${override.limitValue}`,
+          status: 200,
+          featureKey,
+          featureName: name,
+          category: def?.category || "feature",
+        };
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // LAYER 3: GLOBAL FEATURE CONTROL
+  // Applies default baseline when no explicit school override is set.
   // -------------------------------------------------------------------------
   // Check if parent module is globally disabled first
-  const parentModuleId = `module:${moduleKey}`;
   const parentModuleState =
     globalStates[parentModuleId] ||
+    globalStates[parentModuleId.replace(/[:.]/g, "_")] ||
     globalStates[moduleKey] ||
-    (def?.moduleKey ? globalStates[`module:${def.moduleKey}`] || globalStates[def.moduleKey] : undefined);
+    globalStates[moduleKey.replace(/[:.]/g, "_")] ||
+    (def?.moduleKey
+      ? globalStates[`module:${def.moduleKey}`] ||
+        globalStates[`module_${def.moduleKey}`] ||
+        globalStates[def.moduleKey] ||
+        globalStates[def.moduleKey.replace(/[:.]/g, "_")]
+      : undefined);
 
   if (parentModuleState) {
     if (parentModuleState.rolloutMode === "OFF" || parentModuleState.enabled === false) {
@@ -153,11 +218,13 @@ export function resolveEffectiveFeatureAccess({
   }
 
   // Check specific feature/action state
-  const stateId = def?.id || featureKey;
   const featureState =
     globalStates[stateId] ||
+    globalStates[stateId.replace(/[:.]/g, "_")] ||
     globalStates[featureKey] ||
-    (def?.key ? globalStates[def.key] : undefined);
+    globalStates[featureKey.replace(/[:.]/g, "_")] ||
+    (def?.id ? globalStates[def.id] || globalStates[def.id.replace(/[:.]/g, "_")] : undefined) ||
+    (def?.key ? globalStates[def.key] || globalStates[def.key.replace(/[:.]/g, "_")] : undefined);
 
   if (featureState) {
     if (featureState.rolloutMode === "OFF" || featureState.enabled === false) {
@@ -182,60 +249,6 @@ export function resolveEffectiveFeatureAccess({
           allowed: false,
           reason: `Feature '${name}' is in restricted rollout for selected schools.`,
           status: 403,
-          featureKey,
-          featureName: name,
-          category: def?.category || "feature",
-        };
-      }
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // LAYER 3: SCHOOL OVERRIDES
-  // Allows Super Admin to specifically ALLOW, DENY, or CUSTOM_LIMIT a school
-  // -------------------------------------------------------------------------
-  if (schoolId && schoolOverrides.length > 0) {
-    // Check direct feature override or module override
-    const override = schoolOverrides.find(
-      (o) =>
-        o.schoolId === schoolId &&
-        (o.featureId === stateId ||
-          o.featureId === featureKey ||
-          o.featureId === parentModuleId ||
-          o.featureId === moduleKey ||
-          (def?.key && o.featureId === def.key) ||
-          (def?.moduleKey && (o.featureId === def.moduleKey || o.featureId === `module:${def.moduleKey}`)))
-    );
-
-    if (override) {
-      if (override.overrideType === "DENY") {
-        return {
-          allowed: false,
-          reason: override.reason || `Feature '${name}' is restricted for this school.`,
-          status: 403,
-          featureKey,
-          featureName: name,
-          category: def?.category || "feature",
-        };
-      }
-
-      if (override.overrideType === "ALLOW") {
-        return {
-          allowed: true,
-          reason: override.reason || "Explicit school override grant.",
-          status: 200,
-          featureKey,
-          featureName: name,
-          category: def?.category || "feature",
-        };
-      }
-
-      if (override.overrideType === "CUSTOM_LIMIT") {
-        return {
-          allowed: true,
-          limit: override.limitValue,
-          reason: `Custom operational limit: ${override.limitValue}`,
-          status: 200,
           featureKey,
           featureName: name,
           category: def?.category || "feature",
