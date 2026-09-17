@@ -71,7 +71,7 @@ export function LiquidGlassSchoolAdminDashboard({
     {
       icon: <Calendar className="w-6 h-6" />,
       label: "Academic Sessions",
-      value: counts.academicYears > 0 ? String(counts.academicYears) : "1",
+      value: counts.academicYears > 0 ? String(counts.academicYears) : "0",
       sub: "Active Calendar",
       tone: "orange",
       href: "/admin/settings",

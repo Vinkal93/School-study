@@ -22,6 +22,7 @@ import { getSchoolSetupData } from "@/lib/services/setup.service";
 import type { School } from "@/types";
 import { useEntitlement } from "@/context/EntitlementContext";
 import { useRealtimeSchoolDashboard } from "@/hooks/useRealtimeSchoolDashboard";
+import { useAdminDashboardAnalytics } from "@/hooks/useAdminDashboardAnalytics";
 import {
   Chart1AreaGradient,
   Chart11DualBar,
@@ -53,6 +54,8 @@ export function ClassicSchoolAdminDashboard({
     lastSyncTime,
     isOnline,
   } = useRealtimeSchoolDashboard(schoolId);
+
+  const analytics = useAdminDashboardAnalytics(schoolId);
 
   // 2. Cached School Profile Query fallback
   const { data: cachedSchool, isLoading: isSchoolLoading } = useAppQuery<School | null>(
@@ -191,12 +194,13 @@ export function ClassicSchoolAdminDashboard({
       {/* Interactive Visual Analytics Suite (@reui/c-chart suite) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Chart1AreaGradient
-          currentCount={counts.students || 120}
+          currentCount={counts.students}
           title="Live Student Enrollment Pulse"
           subtitle="Real-time admissions and verified learners"
         />
         <Chart25AttendancePulse
           title="Daily Campus Attendance Pulse"
+          studentPresentPercent={analytics.attendancePercentage !== null ? analytics.attendancePercentage : 0}
         />
       </div>
 
@@ -209,7 +213,7 @@ export function ClassicSchoolAdminDashboard({
         </div>
         <div>
           <Chart13RadialDonut
-            percentage={Math.min(100, Math.round(((counts.students || 50) / 500) * 100))}
+            percentage={Math.min(100, Math.round((counts.students / Math.max(1, entitlement?.limits?.students?.limit || 500)) * 100))}
             label="Plan Enrollment Capacity"
             usedText={`${counts.students} Active Students Enrolled`}
             planName={entitlement?.plan?.name || "Active School Plan"}

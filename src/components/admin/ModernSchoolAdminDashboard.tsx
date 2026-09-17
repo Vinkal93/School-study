@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useEntitlement } from "@/context/EntitlementContext";
+import { useAdminDashboardAnalytics } from "@/hooks/useAdminDashboardAnalytics";
 import type { School } from "@/types";
 
 interface ModernSchoolAdminDashboardProps {
@@ -51,8 +52,11 @@ export function ModernSchoolAdminDashboard({
 }: ModernSchoolAdminDashboardProps) {
   const { profile } = useAuth();
   const { entitlement } = useEntitlement();
-  const adminName = profile?.name || "Rahul Verma";
-  const schoolName = school?.name || "Greenfield Public School";
+  const schoolId = school?.id || profile?.schoolId || "";
+  const analytics = useAdminDashboardAnalytics(schoolId);
+
+  const adminName = profile?.name || profile?.email?.split("@")[0] || "Administrator";
+  const schoolName = school?.name || "School Portal";
 
   // Dynamic greeting
   const greeting = useMemo(() => {
@@ -72,19 +76,40 @@ export function ModernSchoolAdminDashboard({
     }).format(new Date());
   }, []);
 
-  // Pending Tasks interactive checkboxes
-  const [tasks, setTasks] = useState([
-    { id: "1", text: "Approve leave requests", count: 3, done: false },
-    { id: "2", text: "Review fee defaulters", done: false },
-    { id: "3", text: "Publish exam timetable", done: false },
-    { id: "4", text: "Check teacher attendance", done: false },
-    { id: "5", text: "Respond to parent queries", done: false },
-  ]);
+  // Dynamic, genuinely actionable administrative tasks based on real database state
+  const derivedTasks = useMemo(() => {
+    const list: Array<{ id: string; text: string; count?: number; done: boolean; href?: string }> = [];
+
+    const isSetupIncomplete = !school?.setupCompleted && !school?.onboardingCompleted;
+    if (isSetupIncomplete) {
+      list.push({ id: "setup", text: "Complete School Initial Setup Wizard", done: false, href: "/admin/setup" });
+    }
+    if (analytics.attendancePercentage === null && counts.students > 0) {
+      list.push({ id: "attendance", text: "Take today's student attendance", count: counts.classes || undefined, done: false, href: "/admin/attendance" });
+    }
+    if (analytics.defaultersCount > 0) {
+      list.push({ id: "defaulters", text: "Follow up with fee defaulters", count: analytics.defaultersCount, done: false, href: "/admin/fees/defaulters" });
+    }
+    if (counts.classes === 0) {
+      list.push({ id: "classes", text: "Create academic classes & sections", done: false, href: "/admin/classes" });
+    }
+    if (counts.teachers === 0) {
+      list.push({ id: "teachers", text: "Add faculty and assign subjects", done: false, href: "/admin/teachers" });
+    }
+    if (analytics.latestNotices.length === 0) {
+      list.push({ id: "notices", text: "Publish latest circular or announcement", done: false, href: "/admin/notices" });
+    }
+
+    return list;
+  }, [school, counts, analytics.attendancePercentage, analytics.defaultersCount, analytics.latestNotices.length]);
+
+  const [completedTaskIds, setCompletedTaskIds] = useState<Record<string, boolean>>({});
 
   const toggleTask = (id: string) => {
-    setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t))
-    );
+    setCompletedTaskIds((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
   };
 
   return (
@@ -122,8 +147,8 @@ export function ModernSchoolAdminDashboard({
               <span>{todayFormatted}</span>
             </div>
             <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 text-xs font-bold border border-slate-200/60 dark:border-slate-700/60 shadow-2xs">
-              <Sun className="h-3.5 w-3.5 text-amber-500" />
-              <span>28°C Sunny</span>
+              <Building2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+              <span>{school?.code ? `Code: ${school.code}` : `Session: ${(school as any)?.activeAcademicYear || "2026-27"}`}</span>
             </div>
           </div>
         </div>
@@ -216,11 +241,17 @@ export function ModernSchoolAdminDashboard({
             </span>
           </div>
           <p className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-            {counts.students > 0 ? counts.students.toLocaleString() : "1,248"}
+            {counts.students.toLocaleString()}
           </p>
-          <div className="mt-1 flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-            <span>↑ 12%</span>
-            <span className="text-slate-400 font-normal text-[10px]">vs last month</span>
+          <div className="mt-1 flex items-center gap-1">
+            {analytics.growthRatePercent !== null ? (
+              <span className="text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">
+                {analytics.growthRatePercent >= 0 ? `↑ ${analytics.growthRatePercent}%` : `↓ ${Math.abs(analytics.growthRatePercent)}%`}
+                <span className="text-slate-400 font-normal text-[10px] ml-1">vs last month</span>
+              </span>
+            ) : (
+              <span className="text-slate-400 font-normal text-[10px]">Total enrolled learners</span>
+            )}
           </div>
         </div>
 
@@ -235,11 +266,10 @@ export function ModernSchoolAdminDashboard({
             </span>
           </div>
           <p className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-            {counts.teachers > 0 ? counts.teachers.toLocaleString() : "46"}
+            {counts.teachers.toLocaleString()}
           </p>
-          <div className="mt-1 flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-            <span>↑ 4%</span>
-            <span className="text-slate-400 font-normal text-[10px]">vs last month</span>
+          <div className="mt-1 flex items-center gap-1">
+            <span className="text-slate-400 font-normal text-[10px]">Active faculty members</span>
           </div>
         </div>
 
@@ -254,11 +284,10 @@ export function ModernSchoolAdminDashboard({
             </span>
           </div>
           <p className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-            {counts.classes > 0 ? counts.classes.toLocaleString() : "32"}
+            {counts.classes.toLocaleString()}
           </p>
-          <div className="mt-1 flex items-center gap-1 text-[11px] font-bold text-slate-500 dark:text-slate-400">
-            <span>0%</span>
-            <span className="text-slate-400 font-normal text-[10px]">vs last month</span>
+          <div className="mt-1 flex items-center gap-1">
+            <span className="text-slate-400 font-normal text-[10px]">Grades & sections</span>
           </div>
         </div>
 
@@ -273,11 +302,16 @@ export function ModernSchoolAdminDashboard({
             </span>
           </div>
           <p className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-            ₹12.5L
+            {analytics.thisMonthCollectionPaise > 0
+              ? `₹${(analytics.thisMonthCollectionPaise / 100).toLocaleString("en-IN")}`
+              : "₹0"}
           </p>
-          <div className="mt-1 flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-            <span>↑ 18%</span>
-            <span className="text-slate-400 font-normal text-[10px]">this month</span>
+          <div className="mt-1 flex items-center gap-1">
+            <span className="text-slate-400 font-normal text-[10px]">
+              {analytics.totalCollectedPaise > 0
+                ? `₹${(analytics.totalCollectedPaise / 100).toLocaleString("en-IN")} all-time`
+                : "No collections yet"}
+            </span>
           </div>
         </div>
 
@@ -292,11 +326,14 @@ export function ModernSchoolAdminDashboard({
             </span>
           </div>
           <p className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-            92%
+            {analytics.attendancePercentage !== null ? `${analytics.attendancePercentage}%` : "--"}
           </p>
-          <div className="mt-1 flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-            <span>↑ 2%</span>
-            <span className="text-slate-400 font-normal text-[10px]">average</span>
+          <div className="mt-1 flex items-center gap-1">
+            <span className="text-slate-400 font-normal text-[10px]">
+              {analytics.attendancePercentage !== null
+                ? `${analytics.attendancePresentCount}/${analytics.attendanceTotalCount} present today`
+                : "No attendance marked today"}
+            </span>
           </div>
         </div>
 
@@ -311,10 +348,14 @@ export function ModernSchoolAdminDashboard({
             </span>
           </div>
           <p className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-            ₹2.8L
+            {analytics.totalPendingPaise > 0
+              ? `₹${(analytics.totalPendingPaise / 100).toLocaleString("en-IN")}`
+              : "₹0"}
           </p>
           <div className="mt-1 text-[11px] font-bold text-rose-600 dark:text-rose-400">
-            <span>143 students</span>
+            <span>
+              {analytics.defaultersCount > 0 ? `${analytics.defaultersCount} students with dues` : "No pending dues"}
+            </span>
           </div>
         </div>
       </div>
@@ -336,45 +377,47 @@ export function ModernSchoolAdminDashboard({
                   </h3>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">
-                    ↗ +35% Overall Growth
+                  <span className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 text-[10px] font-bold">
+                    {analytics.growthRatePercent !== null
+                      ? `${analytics.growthRatePercent >= 0 ? "↗ +" : "↘ "}${analytics.growthRatePercent}% vs last month`
+                      : "Live Record"}
                   </span>
-                  <select className="text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 border-none rounded-lg px-2 py-1 text-slate-600 dark:text-slate-300">
-                    <option>Last 6 Months</option>
-                  </select>
                 </div>
               </div>
 
-              {/* Bar Chart Visualization */}
-              <div className="h-44 pt-4 flex items-end justify-between gap-3 px-2">
-                {[
-                  { month: "Mar", val: 920, h: "58%" },
-                  { month: "Apr", val: 980, h: "62%" },
-                  { month: "May", val: 1025, h: "66%" },
-                  { month: "Jun", val: 1105, h: "72%" },
-                  { month: "Jul", val: 1180, h: "78%" },
-                  { month: "Aug", val: 1248, h: "86%" },
-                ].map((bar, idx) => (
-                  <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 group">
-                    <span className="text-[10px] font-semibold text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {bar.val}
-                    </span>
-                    <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-t-lg h-32 flex items-end overflow-hidden">
-                      <div
-                        style={{ height: bar.h }}
-                        className={`w-full rounded-t-lg transition-all duration-500 ${
-                          idx === 5
-                            ? "bg-gradient-to-t from-blue-600 to-indigo-500 shadow-md shadow-blue-500/20"
-                            : "bg-gradient-to-t from-blue-400/80 to-blue-500/70"
-                        }`}
-                      />
+              {/* Bar Chart Visualization / Honest Empty State */}
+              {analytics.studentGrowth.length > 0 && analytics.studentGrowth.some((b) => b.count > 0) ? (
+                <div className="h-44 pt-4 flex items-end justify-between gap-3 px-2">
+                  {analytics.studentGrowth.map((bar, idx) => (
+                    <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 group">
+                      <span className="text-[10px] font-semibold text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {bar.count}
+                      </span>
+                      <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-t-lg h-32 flex items-end overflow-hidden">
+                        <div
+                          style={{ height: bar.heightPercent }}
+                          className={`w-full rounded-t-lg transition-all duration-500 ${
+                            idx === analytics.studentGrowth.length - 1
+                              ? "bg-gradient-to-t from-blue-600 to-indigo-500 shadow-md shadow-blue-500/20"
+                              : "bg-gradient-to-t from-blue-400/80 to-blue-500/70"
+                          }`}
+                        />
+                      </div>
+                      <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                        {bar.month}
+                      </span>
                     </div>
-                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                      {bar.month}
-                    </span>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="h-44 flex flex-col items-center justify-center text-center p-4">
+                  <Users className="h-8 w-8 text-slate-300 dark:text-slate-600 mb-2" />
+                  <p className="text-xs font-bold text-slate-700 dark:text-slate-300">No enrollment history yet</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    As students are enrolled, monthly enrollment trends will render here.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Fee Collection Trend Chart */}
@@ -387,60 +430,57 @@ export function ModernSchoolAdminDashboard({
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">
-                    ↗ +28% vs last term
+                    {analytics.totalCollectedPaise > 0 ? "Live Financial Ledger" : "No Collections Yet"}
                   </span>
-                  <select className="text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 border-none rounded-lg px-2 py-1 text-slate-600 dark:text-slate-300">
-                    <option>Last 6 Months</option>
-                  </select>
                 </div>
               </div>
 
-              {/* Area Line Chart Visualization */}
-              <div className="h-44 pt-4 flex flex-col justify-end relative">
-                {/* Highlight Pill */}
-                <div className="absolute top-1 right-2 px-2 py-0.5 rounded-md bg-emerald-500 text-white text-[10px] font-black shadow-xs">
-                  ₹12.5L
-                </div>
+              {/* Area Line Chart Visualization / Honest Empty State */}
+              {analytics.feeMonthlyTrend.length > 0 && analytics.feeMonthlyTrend.some((f) => f.amountRupees > 0) ? (
+                <div className="h-44 pt-4 flex flex-col justify-end relative">
+                  {/* Highlight Pill */}
+                  <div className="absolute top-1 right-2 px-2 py-0.5 rounded-md bg-emerald-500 text-white text-[10px] font-black shadow-xs">
+                    {`₹${(analytics.thisMonthCollectionPaise / 100).toLocaleString("en-IN")}`}
+                  </div>
 
-                <svg viewBox="0 0 300 100" className="w-full h-28 overflow-visible">
-                  <defs>
-                    <linearGradient id="feeGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#10B981" stopOpacity="0.3" />
-                      <stop offset="100%" stopColor="#10B981" stopOpacity="0.0" />
-                    </linearGradient>
-                  </defs>
-                  {/* Fill */}
-                  <path
-                    d="M 10,80 Q 60,70 120,60 T 200,45 T 280,20 L 280,95 L 10,95 Z"
-                    fill="url(#feeGrad)"
-                  />
-                  {/* Line */}
-                  <path
-                    d="M 10,80 Q 60,70 120,60 T 200,45 T 280,20"
-                    fill="none"
-                    stroke="#10B981"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                  />
-                  {/* Dots */}
-                  <circle cx="10" cy="80" r="3.5" fill="#10B981" />
-                  <circle cx="70" cy="70" r="3.5" fill="#10B981" />
-                  <circle cx="130" cy="58" r="3.5" fill="#10B981" />
-                  <circle cx="190" cy="46" r="3.5" fill="#10B981" />
-                  <circle cx="240" cy="35" r="3.5" fill="#10B981" />
-                  <circle cx="280" cy="20" r="5" fill="#10B981" stroke="#FFF" strokeWidth="2" />
-                </svg>
-
-                {/* X Axis labels */}
-                <div className="flex justify-between text-[11px] font-bold text-slate-500 dark:text-slate-400 pt-2 px-2 border-t border-slate-100 dark:border-slate-800">
-                  <span>Mar</span>
-                  <span>Apr</span>
-                  <span>May</span>
-                  <span>Jun</span>
-                  <span>Jul</span>
-                  <span>Aug</span>
+                  <div className="h-32 flex items-end justify-between gap-3 px-2">
+                    {analytics.feeMonthlyTrend.map((item, idx) => {
+                      const maxVal = Math.max(...analytics.feeMonthlyTrend.map((m) => m.amountRupees), 1);
+                      const barH = `${Math.max(10, Math.round((item.amountRupees / maxVal) * 85))}%`;
+                      return (
+                        <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 group">
+                          <span className="text-[10px] font-semibold text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                            ₹{item.amountRupees.toLocaleString("en-IN")}
+                          </span>
+                          <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-t-lg h-24 flex items-end overflow-hidden">
+                            <div
+                              style={{ height: barH }}
+                              className="w-full rounded-t-lg bg-gradient-to-t from-emerald-600 to-teal-500 transition-all duration-500"
+                            />
+                          </div>
+                          <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                            {item.month}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="h-44 flex flex-col items-center justify-center text-center p-4">
+                  <CreditCard className="h-8 w-8 text-slate-300 dark:text-slate-600 mb-2" />
+                  <p className="text-xs font-bold text-slate-700 dark:text-slate-300">No fee collections recorded yet</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Collect fees via Fee Management to view monthly revenue trends.
+                  </p>
+                  <Link
+                    href="/admin/fees/collect"
+                    className="mt-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    Go to Fee Collection
+                  </Link>
+                </div>
+              )}
             </div>
           </div>
 
@@ -595,28 +635,38 @@ export function ModernSchoolAdminDashboard({
               </Link>
             </div>
 
-            <div className="space-y-3">
-              {[
-                { time: "08:00", title: "Staff Meeting", loc: "Conference Room", dot: "bg-emerald-500" },
-                { time: "09:30", title: "Class 6-A • Mathematics", loc: "Classroom 1", dot: "bg-cyan-500" },
-                { time: "10:30", title: "Class 7-B • Science", loc: "Classroom 2", dot: "bg-purple-500" },
-                { time: "12:00", title: "Lunch Break", loc: "Cafeteria", dot: "bg-slate-400" },
-                { time: "01:00", title: "Class 8-A • English", loc: "Classroom 3", dot: "bg-blue-500" },
-              ].map((sch, i) => (
-                <div key={i} className="flex items-center gap-3 text-xs">
-                  <span className={`w-2.5 h-2.5 rounded-full ${sch.dot} shrink-0`} />
-                  <span className="font-mono font-bold text-slate-500 w-11 shrink-0">
-                    {sch.time}
-                  </span>
-                  <div className="truncate">
-                    <p className="font-bold text-slate-800 dark:text-slate-200 truncate">
-                      {sch.title}
-                    </p>
-                    <p className="text-[10px] text-slate-400 truncate">{sch.loc}</p>
+            {analytics.todayBells.length > 0 ? (
+              <div className="space-y-3">
+                {analytics.todayBells.map((sch, i) => (
+                  <div key={sch.id || i} className="flex items-center gap-3 text-xs">
+                    <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0" />
+                    <span className="font-mono font-bold text-slate-500 w-12 shrink-0">
+                      {sch.startTime || "Period"}
+                    </span>
+                    <div className="truncate">
+                      <p className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                        {sch.subject || sch.bellName || `Period ${sch.bellNumber || i + 1}`}
+                      </p>
+                      <p className="text-[10px] text-slate-400 truncate">
+                        {sch.className ? `Class ${sch.className}` : ""}{sch.room ? ` • Room ${sch.room}` : ""}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-6 flex flex-col items-center justify-center text-center">
+                <Clock className="h-7 w-7 text-slate-300 dark:text-slate-600 mb-2" />
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">No periods scheduled today</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Configure timetable bells for this weekday.</p>
+                <Link
+                  href="/admin/timetable"
+                  className="mt-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  Manage Timetable
+                </Link>
+              </div>
+            )}
           </div>
 
           {/* Pending Tasks */}
@@ -625,45 +675,62 @@ export function ModernSchoolAdminDashboard({
               <h3 className="text-sm font-bold text-slate-800 dark:text-white">
                 Pending Tasks
               </h3>
-              <button
-                type="button"
-                className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline"
-              >
-                View All
-              </button>
+              <span className="text-[11px] text-slate-400">
+                {derivedTasks.filter((t) => !completedTaskIds[t.id]).length} pending
+              </span>
             </div>
 
-            <div className="space-y-2.5">
-              {tasks.map((task) => (
-                <div
-                  key={task.id}
-                  onClick={() => toggleTask(task.id)}
-                  className="flex items-center justify-between gap-3 text-xs cursor-pointer select-none group"
-                >
-                  <div className="flex items-center gap-2.5">
-                    {task.done ? (
-                      <CheckSquare className="h-4 w-4 text-emerald-500" />
-                    ) : (
-                      <Square className="h-4 w-4 text-slate-400 group-hover:text-slate-600" />
-                    )}
-                    <span
-                      className={`font-semibold ${
-                        task.done
-                          ? "line-through text-slate-400"
-                          : "text-slate-700 dark:text-slate-300"
-                      }`}
+            {derivedTasks.length > 0 ? (
+              <div className="space-y-2.5">
+                {derivedTasks.map((task) => {
+                  const isDone = Boolean(completedTaskIds[task.id]);
+                  return (
+                    <div
+                      key={task.id}
+                      onClick={() => toggleTask(task.id)}
+                      className="flex items-center justify-between gap-3 text-xs cursor-pointer select-none group"
                     >
-                      {task.text}
-                    </span>
-                  </div>
-                  {task.count && (
-                    <span className="w-5 h-5 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
-                      {task.count}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
+                      <div className="flex items-center gap-2.5 truncate">
+                        {isDone ? (
+                          <CheckSquare className="h-4 w-4 text-emerald-500 shrink-0" />
+                        ) : (
+                          <Square className="h-4 w-4 text-slate-400 group-hover:text-slate-600 shrink-0" />
+                        )}
+                        <span
+                          className={`font-semibold truncate ${
+                            isDone ? "line-through text-slate-400" : "text-slate-700 dark:text-slate-300"
+                          }`}
+                        >
+                          {task.text}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {task.count && !isDone && (
+                          <span className="w-5 h-5 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
+                            {task.count}
+                          </span>
+                        )}
+                        {task.href && !isDone && (
+                          <Link
+                            href={task.href}
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                          >
+                            Open →
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="py-6 flex flex-col items-center justify-center text-center">
+                <CheckCircle2 className="h-7 w-7 text-emerald-500 mb-2" />
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">All caught up!</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">No administrative tasks pending right now.</p>
+              </div>
+            )}
           </div>
 
           {/* Latest Notices */}
@@ -680,26 +747,37 @@ export function ModernSchoolAdminDashboard({
               </Link>
             </div>
 
-            <div className="space-y-3">
-              {[
-                { title: "Monthly Test Schedule", date: "Published on 27 Aug 2025", color: "bg-amber-100 text-amber-600" },
-                { title: "School Holiday Notice", date: "Published on 26 Aug 2025", color: "bg-rose-100 text-rose-600" },
-                { title: "Parent-Teacher Meeting", date: "Published on 25 Aug 2025", color: "bg-blue-100 text-blue-600" },
-                { title: "Uniform Guidelines Update", date: "Published on 24 Aug 2025", color: "bg-cyan-100 text-cyan-600" },
-              ].map((notice, idx) => (
-                <div key={idx} className="flex items-center gap-3 text-xs">
-                  <div className={`w-8 h-8 rounded-xl ${notice.color} flex items-center justify-center shrink-0`}>
-                    <FileText className="h-4 w-4" />
+            {analytics.latestNotices.length > 0 ? (
+              <div className="space-y-3">
+                {analytics.latestNotices.map((notice, idx) => (
+                  <div key={notice.id || idx} className="flex items-center gap-3 text-xs">
+                    <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                      <FileText className="h-4 w-4" />
+                    </div>
+                    <div className="truncate">
+                      <p className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                        {notice.title}
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        {notice.date ? `Published ${notice.date}` : "Active circular"}
+                      </p>
+                    </div>
                   </div>
-                  <div className="truncate">
-                    <p className="font-bold text-slate-800 dark:text-slate-200 truncate">
-                      {notice.title}
-                    </p>
-                    <p className="text-[10px] text-slate-400">{notice.date}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-6 flex flex-col items-center justify-center text-center">
+                <Megaphone className="h-7 w-7 text-slate-300 dark:text-slate-600 mb-2" />
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">No notices published yet</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Keep parents, students and faculty informed.</p>
+                <Link
+                  href="/admin/notices"
+                  className="mt-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  Create Notice
+                </Link>
+              </div>
+            )}
           </div>
 
           {/* Motivational Trophy Card */}
@@ -737,35 +815,40 @@ export function ModernSchoolAdminDashboard({
             </Link>
           </div>
 
-          <div className="space-y-3">
-            {[
-              { name: "Aarav Singh", class: "Class 6-A | ID: S001", date: "28 Aug", initial: "AS" },
-              { name: "Priya Verma", class: "Class 7-B | ID: S002", date: "28 Aug", initial: "PV" },
-              { name: "Aditya Yadav", class: "Class 8-A | ID: S003", date: "27 Aug", initial: "AY" },
-              { name: "Sneha Gupta", class: "Class 9-A | ID: S004", date: "27 Aug", initial: "SG" },
-              { name: "Rohan Patel", class: "Class 6-B | ID: S005", date: "26 Aug", initial: "RP" },
-            ].map((stu, i) => (
-              <div key={i} className="flex items-center justify-between gap-3 text-xs">
-                <div className="flex items-center gap-2.5 truncate">
-                  <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-300 font-bold text-xs flex items-center justify-center shrink-0">
-                    {stu.initial}
+          {analytics.recentStudents.length > 0 ? (
+            <div className="space-y-3">
+              {analytics.recentStudents.map((stu) => (
+                <div key={stu.id} className="flex items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2.5 truncate">
+                    <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-300 font-bold text-xs flex items-center justify-center shrink-0">
+                      {stu.initial}
+                    </div>
+                    <div className="truncate">
+                      <p className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                        {stu.name}
+                      </p>
+                      <p className="text-[10px] text-slate-400 truncate">{stu.class}</p>
+                    </div>
                   </div>
-                  <div className="truncate">
-                    <p className="font-bold text-slate-800 dark:text-slate-200 truncate">
-                      {stu.name}
-                    </p>
-                    <p className="text-[10px] text-slate-400 truncate">{stu.class}</p>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-[10px] text-slate-400">{stu.date}</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400">
-                    New
-                  </span>
-                  <span className="text-[10px] text-slate-400">{stu.date}</span>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="py-8 flex flex-col items-center justify-center text-center">
+              <Users className="h-7 w-7 text-slate-300 dark:text-slate-600 mb-2" />
+              <p className="text-xs font-bold text-slate-700 dark:text-slate-300">No students enrolled yet</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Admit students through Student Admissions.</p>
+              <Link
+                href="/admin/students"
+                className="mt-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                Enroll Student
+              </Link>
+            </div>
+          )}
         </div>
 
         {/* Table 2: Recent Teachers */}
@@ -782,30 +865,38 @@ export function ModernSchoolAdminDashboard({
             </Link>
           </div>
 
-          <div className="space-y-3">
-            {[
-              { name: "Neha Sharma", sub: "Mathematics", date: "Joined 28 Aug", initial: "NS" },
-              { name: "Vikram Singh", sub: "Science", date: "Joined 26 Aug", initial: "VS" },
-              { name: "Pooja Mishra", sub: "English", date: "Joined 24 Aug", initial: "PM" },
-              { name: "Amit Kumar", sub: "Computer", date: "Joined 22 Aug", initial: "AK" },
-              { name: "Reena Tiwari", sub: "Social Science", date: "Joined 20 Aug", initial: "RT" },
-            ].map((tch, i) => (
-              <div key={i} className="flex items-center justify-between gap-3 text-xs">
-                <div className="flex items-center gap-2.5 truncate">
-                  <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-300 font-bold text-xs flex items-center justify-center shrink-0">
-                    {tch.initial}
+          {analytics.recentTeachers.length > 0 ? (
+            <div className="space-y-3">
+              {analytics.recentTeachers.map((tch) => (
+                <div key={tch.id} className="flex items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2.5 truncate">
+                    <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-300 font-bold text-xs flex items-center justify-center shrink-0">
+                      {tch.initial}
+                    </div>
+                    <div className="truncate">
+                      <p className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                        {tch.name}
+                      </p>
+                      <p className="text-[10px] text-slate-400 truncate">{tch.subject}</p>
+                    </div>
                   </div>
-                  <div className="truncate">
-                    <p className="font-bold text-slate-800 dark:text-slate-200 truncate">
-                      {tch.name}
-                    </p>
-                    <p className="text-[10px] text-slate-400 truncate">{tch.sub}</p>
-                  </div>
+                  <span className="text-[10px] text-slate-400 shrink-0">{tch.date}</span>
                 </div>
-                <span className="text-[10px] text-slate-400 shrink-0">{tch.date}</span>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="py-8 flex flex-col items-center justify-center text-center">
+              <UserCheck className="h-7 w-7 text-slate-300 dark:text-slate-600 mb-2" />
+              <p className="text-xs font-bold text-slate-700 dark:text-slate-300">No faculty added yet</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Register teachers to assign classes.</p>
+              <Link
+                href="/admin/teachers"
+                className="mt-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                Add Teacher
+              </Link>
+            </div>
+          )}
         </div>
 
         {/* Table 3: Fee Defaulters */}
@@ -822,33 +913,37 @@ export function ModernSchoolAdminDashboard({
             </Link>
           </div>
 
-          <div className="space-y-3">
-            {[
-              { name: "Ritik Yadav", class: "Class 6-A", amt: "₹2,500", duration: "2 months", initial: "RY" },
-              { name: "Ananya Singh", class: "Class 7-B", amt: "₹3,000", duration: "2 months", initial: "AS" },
-              { name: "Karan Patel", class: "Class 8-A", amt: "₹2,500", duration: "1 month", initial: "KP" },
-              { name: "Muskan Gupta", class: "Class 9-A", amt: "₹3,500", duration: "3 months", initial: "MG" },
-              { name: "Arjun Verma", class: "Class 6-B", amt: "₹2,000", duration: "1 month", initial: "AV" },
-            ].map((def, i) => (
-              <div key={i} className="flex items-center justify-between gap-3 text-xs">
-                <div className="flex items-center gap-2.5 truncate">
-                  <div className="w-8 h-8 rounded-full bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-300 font-bold text-xs flex items-center justify-center shrink-0">
-                    {def.initial}
+          {analytics.feeDefaulters.length > 0 ? (
+            <div className="space-y-3">
+              {analytics.feeDefaulters.map((def) => (
+                <div key={def.id} className="flex items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2.5 truncate">
+                    <div className="w-8 h-8 rounded-full bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-300 font-bold text-xs flex items-center justify-center shrink-0">
+                      {def.initial}
+                    </div>
+                    <div className="truncate">
+                      <p className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                        {def.name}
+                      </p>
+                      <p className="text-[10px] text-slate-400 truncate">{def.class}</p>
+                    </div>
                   </div>
-                  <div className="truncate">
-                    <p className="font-bold text-slate-800 dark:text-slate-200 truncate">
-                      {def.name}
+                  <div className="text-right shrink-0">
+                    <p className="font-black text-rose-600 dark:text-rose-400">
+                      ₹{def.pendingRupees.toLocaleString("en-IN")}
                     </p>
-                    <p className="text-[10px] text-slate-400 truncate">{def.class}</p>
+                    <p className="text-[9px] text-slate-400">Pending Dues</p>
                   </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <p className="font-black text-rose-600 dark:text-rose-400">{def.amt}</p>
-                  <p className="text-[9px] text-slate-400">{def.duration}</p>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="py-8 flex flex-col items-center justify-center text-center">
+              <CheckCircle2 className="h-7 w-7 text-emerald-500 mb-2" />
+              <p className="text-xs font-bold text-slate-700 dark:text-slate-300">No fee defaulters</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">All student fee assignments are fully paid.</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -860,7 +955,7 @@ export function ModernSchoolAdminDashboard({
           <Users className="h-4 w-4 text-blue-500" />
           <span>
             <strong className="text-slate-900 dark:text-white">
-              {counts.students > 0 ? counts.students.toLocaleString() : "1,248"}
+              {counts.students.toLocaleString()}
             </strong>{" "}
             Total Students
           </span>
@@ -869,7 +964,7 @@ export function ModernSchoolAdminDashboard({
           <UserCheck className="h-4 w-4 text-emerald-500" />
           <span>
             <strong className="text-slate-900 dark:text-white">
-              {counts.teachers > 0 ? counts.teachers.toLocaleString() : "46"}
+              {counts.teachers.toLocaleString()}
             </strong>{" "}
             Total Teachers
           </span>
@@ -878,21 +973,21 @@ export function ModernSchoolAdminDashboard({
           <BookOpen className="h-4 w-4 text-purple-500" />
           <span>
             <strong className="text-slate-900 dark:text-white">
-              {counts.classes > 0 ? counts.classes.toLocaleString() : "32"}
+              {counts.classes.toLocaleString()}
             </strong>{" "}
             Classes & Sections
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <CheckCircle2 className="h-4 w-4 text-teal-500" />
+          <Building2 className="h-4 w-4 text-teal-500" />
           <span>
-            <strong className="text-slate-900 dark:text-white">98%</strong> System Uptime
+            Session: <strong className="text-slate-900 dark:text-white">{(school as any)?.activeAcademicYear || "2026-27"}</strong>
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <Trophy className="h-4 w-4 text-amber-500" />
+          <Sparkles className="h-4 w-4 text-amber-500" />
           <span>
-            <strong className="text-slate-900 dark:text-white">4.8/5</strong> Parent Satisfaction
+            Plan: <strong className="text-slate-900 dark:text-white">{entitlement?.plan?.name || "Starter Plan"}</strong>
           </span>
         </div>
       </div>
