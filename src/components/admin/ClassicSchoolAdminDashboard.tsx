@@ -195,20 +195,30 @@ export function ClassicSchoolAdminDashboard({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Chart1AreaGradient
           currentCount={counts.students}
+          growthPercent={analytics.growthRatePercent}
+          data={analytics.studentGrowth.map((g) => ({ label: g.month, value: g.count }))}
           title="Live Student Enrollment Pulse"
           subtitle="Real-time admissions and verified learners"
         />
         <Chart25AttendancePulse
           title="Daily Campus Attendance Pulse"
-          studentPresentPercent={analytics.attendancePercentage !== null ? analytics.attendancePercentage : 0}
+          studentPresentPercent={analytics.attendancePercentage}
+          teacherPresentPercent={null}
         />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <Chart11DualBar
-            title="School Fee Collection Efficiency by Wing"
+            title="School Fee Collection Efficiency"
             subtitle="Real-time collected vs outstanding dues (%)"
+            data={analytics.totalCollectedPaise > 0 || analytics.totalPendingPaise > 0 ? [
+              {
+                label: "Institutional Fee Ledger",
+                collected: Math.round((analytics.totalCollectedPaise / Math.max(1, analytics.totalCollectedPaise + analytics.totalPendingPaise)) * 100),
+                pending: Math.round((analytics.totalPendingPaise / Math.max(1, analytics.totalCollectedPaise + analytics.totalPendingPaise)) * 100),
+              }
+            ] : []}
           />
         </div>
         <div>

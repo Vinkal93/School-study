@@ -384,8 +384,27 @@ export function useAdminDashboardAnalytics(schoolId: string | undefined): AdminD
   }, [schoolId]);
 
   useEffect(() => {
+    // Reset state immediately on schoolId change to avoid cross-tenant data bleed
+    setData({
+      thisMonthCollectionPaise: 0,
+      totalCollectedPaise: 0,
+      totalPendingPaise: 0,
+      defaultersCount: 0,
+      attendancePercentage: null,
+      attendancePresentCount: 0,
+      attendanceTotalCount: 0,
+      studentGrowth: [],
+      growthRatePercent: null,
+      feeMonthlyTrend: [],
+      todayBells: [],
+      latestNotices: [],
+      recentStudents: [],
+      recentTeachers: [],
+      feeDefaulters: [],
+    });
+    setIsLoading(true);
     fetchData();
-  }, [fetchData]);
+  }, [schoolId, fetchData]);
 
   return {
     ...data,

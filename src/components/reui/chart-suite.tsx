@@ -26,52 +26,49 @@ export interface AreaPoint {
   value: number;
 }
 
-const DEFAULT_AREA_DATA: AreaPoint[] = [
-  { label: "Apr", value: 45 },
-  { label: "May", value: 68 },
-  { label: "Jun", value: 110 },
-  { label: "Jul", value: 185 },
-  { label: "Aug", value: 240 },
-  { label: "Sep", value: 320 },
-  { label: "Oct", value: 380 },
-];
-
 export function Chart1AreaGradient({
-  data = DEFAULT_AREA_DATA,
+  data = [],
   title = "Admissions & Enrollment Growth",
   subtitle = "Monthly student onboarding trend",
-  currentCount = 380,
-  growthPercent = 24.8,
+  currentCount = 0,
+  growthPercent,
 }: {
   data?: AreaPoint[];
   title?: string;
   subtitle?: string;
   currentCount?: number;
-  growthPercent?: number;
+  growthPercent?: number | null;
 }) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
-  const maxValue = Math.max(...data.map((d) => d.value), 100);
+  const hasData = data && data.length > 0 && data.some((d) => d.value > 0);
+  const maxValue = hasData ? Math.max(...data.map((d) => d.value), 1) : 1;
   const width = 500;
   const height = 180;
   const paddingX = 24;
   const paddingY = 24;
 
-  const points = data.map((d, i) => {
-    const x = paddingX + (i / (data.length - 1)) * (width - paddingX * 2);
-    const y = height - paddingY - (d.value / maxValue) * (height - paddingY * 2);
-    return { x, y, ...d };
-  });
+  const points = hasData
+    ? data.map((d, i) => {
+        const x = paddingX + (i / Math.max(data.length - 1, 1)) * (width - paddingX * 2);
+        const y = height - paddingY - (d.value / maxValue) * (height - paddingY * 2);
+        return { x, y, ...d };
+      })
+    : [];
 
   // SVG curved path generator
-  const pathD = points.reduce((acc, pt, i, arr) => {
-    if (i === 0) return `M ${pt.x},${pt.y}`;
-    const prev = arr[i - 1];
-    const cx = (prev.x + pt.x) / 2;
-    return `${acc} C ${cx},${prev.y} ${cx},${pt.y} ${pt.x},${pt.y}`;
-  }, "");
+  const pathD = hasData && points.length > 0
+    ? points.reduce((acc, pt, i, arr) => {
+        if (i === 0) return `M ${pt.x},${pt.y}`;
+        const prev = arr[i - 1];
+        const cx = (prev.x + pt.x) / 2;
+        return `${acc} C ${cx},${prev.y} ${cx},${pt.y} ${pt.x},${pt.y}`;
+      }, "")
+    : "";
 
-  const areaD = `${pathD} L ${points[points.length - 1].x},${height - paddingY} L ${points[0].x},${height - paddingY} Z`;
+  const areaD = hasData && points.length > 0
+    ? `${pathD} L ${points[points.length - 1].x},${height - paddingY} L ${points[0].x},${height - paddingY} Z`
+    : "";
 
   return (
     <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-xs transition-all hover:shadow-md">
@@ -86,7 +83,7 @@ export function Chart1AreaGradient({
         </div>
         <div className="flex items-center gap-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-full">
           <TrendingUp className="w-3.5 h-3.5" />
-          <span>+{growthPercent}%</span>
+          <span>{growthPercent !== null && growthPercent !== undefined ? `${growthPercent >= 0 ? "+" : ""}${growthPercent}%` : "--"}</span>
         </div>
       </div>
 
@@ -97,87 +94,92 @@ export function Chart1AreaGradient({
         <span className="text-xs font-medium text-gray-500">total active learners</span>
       </div>
 
-      <div className="relative mt-4 w-full h-[180px]">
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
-          <defs>
-            <linearGradient id="chart1Gradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.4" />
-              <stop offset="100%" stopColor="#3B82F6" stopOpacity="0.0" />
-            </linearGradient>
-          </defs>
+      {hasData ? (
+        <>
+          <div className="relative mt-4 w-full h-[180px]">
+            <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
+              <defs>
+                <linearGradient id="chart1Gradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.4" />
+                  <stop offset="100%" stopColor="#3B82F6" stopOpacity="0.0" />
+                </linearGradient>
+              </defs>
 
-          {/* Background grid lines */}
-          {[0.25, 0.5, 0.75].map((pct, idx) => {
-            const y = height - paddingY - pct * (height - paddingY * 2);
-            return (
-              <line
-                key={idx}
-                x1={paddingX}
-                y1={y}
-                x2={width - paddingX}
-                y2={y}
-                stroke="currentColor"
-                className="text-gray-100 dark:text-gray-800/80 stroke-dashed"
-                strokeWidth="1"
-              />
-            );
-          })}
+              {/* Background grid lines */}
+              {[0.25, 0.5, 0.75].map((pct, idx) => {
+                const y = height - paddingY - pct * (height - paddingY * 2);
+                return (
+                  <line
+                    key={idx}
+                    x1={paddingX}
+                    y1={y}
+                    x2={width - paddingX}
+                    y2={y}
+                    className="stroke-gray-100 dark:stroke-gray-800/80 stroke-dasharray-2"
+                    strokeDasharray="4 4"
+                  />
+                );
+              })}
 
-          {/* Area fill */}
-          <path d={areaD} fill="url(#chart1Gradient)" />
+              <path d={areaD} fill="url(#chart1Gradient)" />
+              <path d={pathD} fill="none" stroke="#3B82F6" strokeWidth={3} strokeLinecap="round" />
 
-          {/* Line stroke */}
-          <path
-            d={pathD}
-            fill="none"
-            stroke="#3B82F6"
-            strokeWidth="3"
-            strokeLinecap="round"
-          />
+              {/* Interactive Points */}
+              {points.map((pt, idx) => (
+                <g
+                  key={idx}
+                  onMouseEnter={() => setHoveredIndex(idx)}
+                  onMouseLeave={() => setHoveredIndex(null)}
+                >
+                  <circle
+                    cx={pt.x}
+                    cy={pt.y}
+                    r={12}
+                    className="fill-transparent cursor-pointer"
+                  />
+                  <circle
+                    cx={pt.x}
+                    cy={pt.y}
+                    r={hoveredIndex === idx ? 6 : 4}
+                    className={
+                      hoveredIndex === idx
+                        ? "fill-blue-600 stroke-4 stroke-white dark:stroke-gray-900 transition-all"
+                        : "fill-white dark:fill-gray-900 stroke-2 stroke-blue-500"
+                    }
+                  />
+                </g>
+              ))}
+            </svg>
 
-          {/* Interactive data points */}
-          {points.map((pt, idx) => (
-            <g
-              key={idx}
-              className="cursor-pointer"
-              onMouseEnter={() => setHoveredIndex(idx)}
-              onMouseLeave={() => setHoveredIndex(null)}
-            >
-              <circle
-                cx={pt.x}
-                cy={pt.y}
-                r={hoveredIndex === idx ? 6 : 4}
-                className={
-                  hoveredIndex === idx
-                    ? "fill-blue-600 stroke-4 stroke-white dark:stroke-gray-900 transition-all"
-                    : "fill-white dark:fill-gray-900 stroke-2 stroke-blue-500"
-                }
-              />
-            </g>
-          ))}
-        </svg>
-
-        {/* Floating Tooltip */}
-        {hoveredIndex !== null && (
-          <div
-            className="absolute -top-2 bg-gray-900 text-white text-[11px] font-semibold py-1 px-2.5 rounded-lg shadow-lg pointer-events-none transform -translate-x-1/2 flex items-center gap-1.5"
-            style={{
-              left: `${(points[hoveredIndex].x / width) * 100}%`,
-            }}
-          >
-            <span>{points[hoveredIndex].label}:</span>
-            <span className="text-blue-300 font-bold">
-              {points[hoveredIndex].value} students
-            </span>
+            {/* Floating Tooltip */}
+            {hoveredIndex !== null && points[hoveredIndex] && (
+              <div
+                className="absolute -top-2 bg-gray-900 text-white text-[11px] font-semibold py-1 px-2.5 rounded-lg shadow-lg pointer-events-none transform -translate-x-1/2 flex items-center gap-1.5"
+                style={{
+                  left: `${(points[hoveredIndex].x / width) * 100}%`,
+                }}
+              >
+                <span>{points[hoveredIndex].label}:</span>
+                <span className="text-blue-300 font-bold">
+                  {points[hoveredIndex].value} students
+                </span>
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      <div className="flex justify-between items-center text-[11px] font-medium text-gray-400 mt-2 px-1">
-        {data.map((d, i) => (
-          <span key={i}>{d.label}</span>
-        ))}
-      </div>
+          <div className="flex justify-between items-center text-[11px] font-medium text-gray-400 mt-2 px-1">
+            {data.map((d, i) => (
+              <span key={i}>{d.label}</span>
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="h-[180px] flex flex-col items-center justify-center text-center p-4">
+          <Users className="w-8 h-8 text-slate-300 dark:text-slate-600 mb-2" />
+          <p className="text-xs font-bold text-slate-700 dark:text-slate-300">No enrollment history yet</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">As students are admitted, monthly enrollment trends will render here.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -191,23 +193,17 @@ export interface DualBarItem {
   pending: number;
 }
 
-const DEFAULT_BAR_DATA: DualBarItem[] = [
-  { label: "Class 1-3", collected: 85, pending: 15 },
-  { label: "Class 4-6", collected: 92, pending: 8 },
-  { label: "Class 7-9", collected: 78, pending: 22 },
-  { label: "Class 10", collected: 96, pending: 4 },
-  { label: "Class 11-12", collected: 88, pending: 12 },
-];
-
 export function Chart11DualBar({
-  data = DEFAULT_BAR_DATA,
-  title = "Fee Collection Efficiency by Wing",
+  data = [],
+  title = "Fee Collection Efficiency",
   subtitle = "Collected vs Outstanding Dues (%)",
 }: {
   data?: DualBarItem[];
   title?: string;
   subtitle?: string;
 }) {
+  const hasData = data && data.length > 0;
+
   return (
     <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-xs transition-all hover:shadow-md">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -219,46 +215,56 @@ export function Chart11DualBar({
             {title}
           </h4>
         </div>
-        <div className="flex items-center gap-3 text-xs font-semibold">
-          <span className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-indigo-600"></span>
-            <span className="text-gray-600 dark:text-gray-300">Collected</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
-            <span className="text-gray-600 dark:text-gray-300">Pending</span>
-          </span>
-        </div>
+        {hasData && (
+          <div className="flex items-center gap-3 text-xs font-semibold">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-indigo-600"></span>
+              <span className="text-gray-600 dark:text-gray-300">Collected</span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+              <span className="text-gray-600 dark:text-gray-300">Pending</span>
+            </span>
+          </div>
+        )}
       </div>
 
-      <div className="mt-6 space-y-4">
-        {data.map((item, idx) => (
-          <div key={idx} className="space-y-1.5">
-            <div className="flex justify-between text-xs font-medium">
-              <span className="text-gray-700 dark:text-gray-300 font-semibold">
-                {item.label}
-              </span>
-              <span className="text-gray-500 text-[11px]">
-                {item.collected}% collected • {item.pending}% pending
-              </span>
+      {hasData ? (
+        <div className="mt-6 space-y-4">
+          {data.map((item, idx) => (
+            <div key={idx} className="space-y-1.5">
+              <div className="flex justify-between text-xs font-medium">
+                <span className="text-gray-700 dark:text-gray-300 font-semibold">
+                  {item.label}
+                </span>
+                <span className="text-gray-500 text-[11px]">
+                  {item.collected}% collected • {item.pending}% pending
+                </span>
+              </div>
+              <div className="h-3 w-full bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden flex gap-0.5">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${item.collected}%` }}
+                  transition={{ duration: 0.8, delay: idx * 0.1 }}
+                  className="h-full bg-gradient-to-r from-indigo-600 to-blue-500 rounded-l-full"
+                />
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${item.pending}%` }}
+                  transition={{ duration: 0.8, delay: idx * 0.1 }}
+                  className="h-full bg-amber-400/80 rounded-r-full"
+                />
+              </div>
             </div>
-            <div className="h-3 w-full bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden flex gap-0.5">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${item.collected}%` }}
-                transition={{ duration: 0.8, delay: idx * 0.1 }}
-                className="h-full bg-gradient-to-r from-indigo-600 to-blue-500 rounded-l-full"
-              />
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${item.pending}%` }}
-                transition={{ duration: 0.8, delay: idx * 0.1 }}
-                className="h-full bg-amber-400/80 rounded-r-full"
-              />
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div className="py-12 flex flex-col items-center justify-center text-center">
+          <BarChart3 className="w-8 h-8 text-slate-300 dark:text-slate-600 mb-2" />
+          <p className="text-xs font-bold text-slate-700 dark:text-slate-300">No fee collection data available yet</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">Record fee transactions to view efficiency breakdown.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -267,10 +273,10 @@ export function Chart11DualBar({
 // 3. @reui/c-chart-13: Radial Donut Capacity Gauge (Plan Utilization)
 // =========================================================================
 export function Chart13RadialDonut({
-  percentage = 76,
+  percentage = 0,
   label = "Plan Capacity",
-  usedText = "380 / 500 Students Enrolled",
-  planName = "Professional Plan",
+  usedText = "0 Active Students Enrolled",
+  planName = "Starter Plan",
 }: {
   percentage?: number;
   label?: string;
@@ -464,13 +470,16 @@ export function Chart22RevenueArea({
 // =========================================================================
 export function Chart25AttendancePulse({
   title = "Daily Attendance Pulse",
-  studentPresentPercent = 94.2,
-  teacherPresentPercent = 98.0,
+  studentPresentPercent,
+  teacherPresentPercent,
 }: {
   title?: string;
-  studentPresentPercent?: number;
-  teacherPresentPercent?: number;
+  studentPresentPercent?: number | null;
+  teacherPresentPercent?: number | null;
 }) {
+  const hasStudentAtt = studentPresentPercent !== null && studentPresentPercent !== undefined;
+  const hasTeacherAtt = teacherPresentPercent !== null && teacherPresentPercent !== undefined;
+
   return (
     <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-xs transition-all hover:shadow-md">
       <div className="flex items-center justify-between">
@@ -495,14 +504,16 @@ export function Chart25AttendancePulse({
           </span>
           <div className="mt-1 flex items-baseline gap-1.5">
             <span className="text-xl font-black text-blue-900 dark:text-blue-100">
-              {studentPresentPercent}%
+              {hasStudentAtt ? `${studentPresentPercent}%` : "--"}
             </span>
-            <span className="text-[10px] font-bold text-emerald-600">On Target</span>
+            <span className="text-[10px] font-bold text-slate-500">
+              {hasStudentAtt ? "Marked Today" : "Not Marked"}
+            </span>
           </div>
           <div className="mt-2 h-1.5 w-full bg-blue-200 dark:bg-blue-900 rounded-full overflow-hidden">
             <div
               className="h-full bg-blue-600 rounded-full"
-              style={{ width: `${studentPresentPercent}%` }}
+              style={{ width: `${hasStudentAtt ? studentPresentPercent : 0}%` }}
             />
           </div>
         </div>
@@ -513,14 +524,16 @@ export function Chart25AttendancePulse({
           </span>
           <div className="mt-1 flex items-baseline gap-1.5">
             <span className="text-xl font-black text-indigo-900 dark:text-indigo-100">
-              {teacherPresentPercent}%
+              {hasTeacherAtt ? `${teacherPresentPercent}%` : "--"}
             </span>
-            <span className="text-[10px] font-bold text-emerald-600">Optimal</span>
+            <span className="text-[10px] font-bold text-slate-500">
+              {hasTeacherAtt ? "Marked Today" : "Not Marked"}
+            </span>
           </div>
           <div className="mt-2 h-1.5 w-full bg-indigo-200 dark:bg-indigo-900 rounded-full overflow-hidden">
             <div
               className="h-full bg-indigo-600 rounded-full"
-              style={{ width: `${teacherPresentPercent}%` }}
+              style={{ width: `${hasTeacherAtt ? teacherPresentPercent : 0}%` }}
             />
           </div>
         </div>

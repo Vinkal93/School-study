@@ -34,6 +34,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useEntitlement } from "@/context/EntitlementContext";
 import { useAdminDashboardAnalytics } from "@/hooks/useAdminDashboardAnalytics";
+import { PageSkeleton } from "@/components/common/skeletons";
 import type { School } from "@/types";
 
 interface ModernSchoolAdminDashboardProps {
@@ -111,6 +112,10 @@ export function ModernSchoolAdminDashboard({
       [id]: !prev[id],
     }));
   };
+
+  if (analytics.isLoading && !school) {
+    return <PageSkeleton hasStats={true} hasTable={true} className="py-4" />;
+  }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12 font-sans text-slate-900 dark:text-slate-100">

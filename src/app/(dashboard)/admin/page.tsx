@@ -44,12 +44,16 @@ export default function SchoolAdminPage() {
     { enabled: !!schoolId && isAllowed, staleTime: 30_000 }
   );
 
-  const school = liveSchool || cachedSchool || null;
+  // Strictly validate school matches the authenticated tenant schoolId
+  const school =
+    (liveSchool && liveSchool.id === schoolId ? liveSchool : null) ||
+    (cachedSchool && cachedSchool.id === schoolId ? cachedSchool : null);
+
   const counts = {
-    teachers: liveCounts.teachers || cachedSetupData?.teachers?.length || 0,
-    students: liveCounts.students || cachedSetupData?.students?.length || 0,
-    classes: liveCounts.classes || cachedSetupData?.classes?.length || 0,
-    academicYears: liveCounts.academicYears || cachedSetupData?.academicYears?.length || 0,
+    teachers: liveCounts.teachers || 0,
+    students: liveCounts.students || 0,
+    classes: liveCounts.classes || 0,
+    academicYears: liveCounts.academicYears || 0,
   };
 
   // Determine active UI presentation version

@@ -58,6 +58,17 @@ export function useRealtimeSchoolDashboard(schoolId: string | undefined): UseRea
   }, []);
 
   useEffect(() => {
+    // Reset state immediately on schoolId change to prevent cross-tenant data bleed
+    setSchool(null);
+    setCounts({
+      students: 0,
+      teachers: 0,
+      classes: 0,
+      academicYears: 0,
+      inquiries: 0,
+    });
+    setSubscription(null);
+
     if (!schoolId || schoolId === "school_default") {
       setIsLoading(false);
       return;
