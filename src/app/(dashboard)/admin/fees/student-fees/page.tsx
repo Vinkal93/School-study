@@ -44,6 +44,8 @@ import {
   Users,
 } from "lucide-react";
 import type { StudentFeeAssignment, StudentProfile, MonthLedgerItem, FeePayment } from "@/types";
+import type { FeeDemand, StudentFinancialSummary, FeeAdjustment } from "@/types/fee-foundation";
+import type { StudentLedgerSummary, StudentLedgerEntry } from "@/types/fee-ledger";
 import {
   getStudentFeeAssignment,
   provisionStudentFeeAssignment,
@@ -70,15 +72,19 @@ export default function AdminStudentFeesPage() {
   const [students, setStudents] = useState<StudentProfile[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<StudentProfile | null>(null);
   const [assignment, setAssignment] = useState<StudentFeeAssignment | null>(null);
+  const [financialSummary, setFinancialSummary] = useState<StudentFinancialSummary | null>(null);
   const [transactions, setTransactions] = useState<FeePayment[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingLedger, setLoadingLedger] = useState(false);
   const [searchStudentQuery, setSearchStudentQuery] = useState("");
 
-  // Tab State: 7 tabs matching Mockup 2
+  // Tab State: 8 tabs including Student Ledger
   const [activeTab, setActiveTab] = useState<
-    "overview" | "monthwise" | "transactions" | "receipts" | "discounts" | "notes" | "settings"
+    "overview" | "monthwise" | "transactions" | "receipts" | "discounts" | "ledger" | "notes" | "settings"
   >("monthwise");
+  const [studentLedgerSummary, setStudentLedgerSummary] = useState<StudentLedgerSummary | null>(null);
+  const [studentLedgerEntries, setStudentLedgerEntries] = useState<StudentLedgerEntry[]>([]);
+  const [studentLedgerLoading, setStudentLedgerLoading] = useState(false);
 
   // Sub-features state
   const [selectedAcademicYear, setSelectedAcademicYear] = useState("2026-2027");
@@ -95,6 +101,18 @@ export default function AdminStudentFeesPage() {
   const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
   const [receiptModalPayment, setReceiptModalPayment] = useState<FeePayment | null>(null);
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
+
+  // Phase 2 Modals: Demand Detail & Waiver
+  const [selectedDemandForDetail, setSelectedDemandForDetail] = useState<FeeDemand | null>(null);
+  const [showDemandDetailModal, setShowDemandDetailModal] = useState(false);
+  const [showWaiverModal, setShowWaiverModal] = useState(false);
+  const [targetDemandForWaiver, setTargetDemandForWaiver] = useState<FeeDemand | null>(null);
+  const [waiverAmount, setWaiverAmount] = useState("");
+  const [waiverReason, setWaiverReason] = useState("");
+  const [waiverApprovedBy, setWaiverApprovedBy] = useState("School Principal");
+  const [waiverSubmitting, setWaiverSubmitting] = useState(false);
+  const [generatingDemandPeriod, setGeneratingDemandPeriod] = useState<string | null>(null);
+
 
   // Distinct classes and sections from students
   const availableClasses = useMemo(() => {
@@ -160,10 +178,25 @@ export default function AdminStudentFeesPage() {
   const fetchStudentLedger = async () => {
     if (!schoolId || !selectedStudent?.id) {
       setAssignment(null);
+      setFinancialSummary(null);
       return;
     }
     setLoadingLedger(true);
     try {
+      // 1. Fetch Authoritative Foundation Summary
+      try {
+        const sumRes = await fetch(
+          `/api/fees/foundation/student-summary?schoolId=${schoolId}&studentId=${selectedStudent.id}&academicYearId=${selectedAcademicYear}`
+        );
+        const sumData = await sumRes.json();
+        if (sumData.success && sumData.summary) {
+          setFinancialSummary(sumData.summary);
+        }
+      } catch (sumErr) {
+        console.warn("Notice: Foundation summary fetch:", sumErr);
+      }
+
+      // 2. Fetch Legacy Assignment for backward compatibility
       let data = await getStudentFeeAssignment(schoolId, selectedStudent.id);
       if (!data) {
         data = await provisionStudentFeeAssignment(schoolId, {
@@ -180,7 +213,7 @@ export default function AdminStudentFeesPage() {
       }
       setAssignment(data);
 
-      // Load past payments
+      // 3. Load past payments
       const history = await getStudentFeeTransactions(schoolId, selectedStudent.id);
       setTransactions(history);
     } catch (err) {
@@ -193,7 +226,26 @@ export default function AdminStudentFeesPage() {
 
   useEffect(() => {
     fetchStudentLedger();
-  }, [schoolId, selectedStudent]);
+  }, [schoolId, selectedStudent, selectedAcademicYear]);
+
+  useEffect(() => {
+    if (schoolId && selectedStudent?.id) {
+      setStudentLedgerLoading(true);
+      fetch(`/api/fees/foundation/ledger/student?schoolId=${schoolId}&studentId=${selectedStudent.id}`)
+        .then((r) => {
+          if (!r.ok) throw new Error("Failed to fetch ledger");
+          return r.json();
+        })
+        .then((json) => {
+          if (json.data?.summary) {
+            setStudentLedgerSummary(json.data.summary);
+            setStudentLedgerEntries(json.data.entries || []);
+          }
+        })
+        .catch((err) => console.error("Error loading student ledger:", err))
+        .finally(() => setStudentLedgerLoading(false));
+    }
+  }, [schoolId, selectedStudent?.id, selectedAcademicYear]);
 
   // Active student object (strictly from real Firestore student record)
   const student = useMemo(() => {
@@ -227,8 +279,102 @@ export default function AdminStudentFeesPage() {
     return null;
   }, [selectedStudent]);
 
-  // Dynamic Ledger Calculation strictly from real student fee assignment
+  // Dynamic Ledger Calculation: Merges real FeeDemand records across the 12 Indian session months (April to March)
   const ledgerData = useMemo(() => {
+    const SESSION_MONTHS_NAMES = [
+      "April", "May", "June", "July", "August", "September",
+      "October", "November", "December", "January", "February", "March"
+    ];
+
+    if (financialSummary && financialSummary.recentDemands && financialSummary.recentDemands.length > 0) {
+      return SESSION_MONTHS_NAMES.map((mName) => {
+        const foundDemand = financialSummary.recentDemands.find((d) =>
+          d.period.toLowerCase().includes(mName.toLowerCase())
+        );
+
+        if (foundDemand) {
+          const base = foundDemand.grossAmountPaise / 100;
+          const late = (foundDemand.lateFeePaise || 0) / 100;
+          const paid = (foundDemand.paidAmountPaise || 0) / 100;
+          const balance = (foundDemand.balanceAmountPaise || 0) / 100;
+          const total = (foundDemand.netAmountPaise || 0) / 100;
+          const status =
+            foundDemand.status === "PAID"
+              ? "Paid"
+              : foundDemand.status === "PARTIAL"
+              ? "Partial"
+              : foundDemand.status === "WAIVED"
+              ? "Waived"
+              : foundDemand.status === "OVERDUE"
+              ? "Overdue"
+              : "Due";
+
+          return {
+            name: mName,
+            due: foundDemand.dueDate
+              ? new Date(foundDemand.dueDate).toLocaleDateString("en-IN", {
+                  day: "2-digit",
+                  month: "short",
+                  year: "numeric",
+                })
+              : "10th",
+            base,
+            late,
+            total,
+            paid,
+            balance,
+            status,
+            rawDemand: foundDemand,
+            raw: null,
+            missing: false,
+          };
+        }
+
+        // Fallback to legacy assignment month if demand not yet ported
+        const legacyItem = assignment?.monthLedger?.find((m) => m.month.toLowerCase().includes(mName.toLowerCase()));
+        if (legacyItem) {
+          const base = legacyItem.amountPaise / 100;
+          const late = legacyItem.lateFeePaise / 100;
+          const paid = legacyItem.paidAmountPaise / 100;
+          const balance = legacyItem.pendingAmountPaise / 100;
+          const total = base + late;
+          return {
+            name: legacyItem.month,
+            due: legacyItem.dueDate
+              ? new Date(legacyItem.dueDate).toLocaleDateString("en-IN", {
+                  day: "2-digit",
+                  month: "short",
+                  year: "numeric",
+                })
+              : "10th",
+            base,
+            late,
+            total,
+            paid,
+            balance,
+            status: legacyItem.status === "PAID" ? "Paid" : legacyItem.status === "PARTIAL" ? "Partial" : "Due",
+            rawDemand: null,
+            raw: legacyItem,
+            missing: false,
+          };
+        }
+
+        return {
+          name: mName,
+          due: "—",
+          base: 0,
+          late: 0,
+          total: 0,
+          paid: 0,
+          balance: 0,
+          status: "Due",
+          rawDemand: null,
+          raw: null,
+          missing: true,
+        };
+      });
+    }
+
     if (assignment && assignment.monthLedger && assignment.monthLedger.length > 0) {
       return assignment.monthLedger.map((m) => {
         const base = m.amountPaise / 100;
@@ -251,29 +397,35 @@ export default function AdminStudentFeesPage() {
           paid,
           balance,
           status: m.status === "PAID" ? "Paid" : m.status === "PARTIAL" ? "Partial" : "Due",
+          rawDemand: null,
           raw: m,
+          missing: false,
         };
       });
     }
 
     return [];
-  }, [assignment]);
+  }, [financialSummary, assignment]);
 
-  // Overall KPI sums
+
+  // Overall KPI sums (authoritative integer-paise based)
   const totalAssigned = useMemo(() => {
+    if (financialSummary?.totalNetRupees !== undefined) return financialSummary.totalNetRupees;
     if (assignment?.totalAssignedPaise) return assignment.totalAssignedPaise / 100;
     return ledgerData.reduce((acc, curr) => acc + curr.total, 0);
-  }, [assignment, ledgerData]);
+  }, [financialSummary, assignment, ledgerData]);
 
   const totalPaid = useMemo(() => {
+    if (financialSummary?.totalPaidRupees !== undefined) return financialSummary.totalPaidRupees;
     if (assignment?.totalPaidPaise) return assignment.totalPaidPaise / 100;
     return ledgerData.reduce((acc, curr) => acc + curr.paid, 0);
-  }, [assignment, ledgerData]);
+  }, [financialSummary, assignment, ledgerData]);
 
   const totalDue = useMemo(() => {
+    if (financialSummary?.totalOutstandingRupees !== undefined) return financialSummary.totalOutstandingRupees;
     if (assignment?.totalPendingPaise !== undefined) return assignment.totalPendingPaise / 100;
     return Math.max(0, totalAssigned - totalPaid);
-  }, [assignment, totalAssigned, totalPaid]);
+  }, [financialSummary, assignment, totalAssigned, totalPaid]);
 
   const paidPercentage =
     totalAssigned > 0 ? Math.min(100, Math.round((totalPaid / totalAssigned) * 100)) : 0;
@@ -295,7 +447,7 @@ export default function AdminStudentFeesPage() {
   const filteredLedgerData = useMemo(() => {
     if (monthStatusFilter === "all") return ledgerData;
     if (monthStatusFilter === "paid") return ledgerData.filter((m) => m.status === "Paid");
-    if (monthStatusFilter === "pending") return ledgerData.filter((m) => m.status === "Due");
+    if (monthStatusFilter === "pending") return ledgerData.filter((m) => m.status === "Due" || m.status === "Overdue");
     if (monthStatusFilter === "partial") return ledgerData.filter((m) => m.status === "Partial");
     return ledgerData;
   }, [ledgerData, monthStatusFilter]);
@@ -304,6 +456,89 @@ export default function AdminStudentFeesPage() {
   const recentTransactions = useMemo(() => {
     return transactions.slice(0, 5);
   }, [transactions]);
+
+  // Phase 2 Action Handlers
+  const handleOpenDemandDetail = (demand: FeeDemand) => {
+    setSelectedDemandForDetail(demand);
+    setShowDemandDetailModal(true);
+  };
+
+  const handleOpenWaiver = (demand: FeeDemand) => {
+    setTargetDemandForWaiver(demand);
+    setWaiverAmount(String(demand.balanceAmountPaise / 100));
+    setWaiverReason("");
+    setShowWaiverModal(true);
+  };
+
+  const handleSubmitWaiver = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!targetDemandForWaiver || !selectedStudent) return;
+
+    const amt = parseFloat(waiverAmount);
+    if (isNaN(amt) || amt <= 0) {
+      toast.error("Waiver amount must be greater than zero.");
+      return;
+    }
+    if (amt > targetDemandForWaiver.balanceAmountPaise / 100) {
+      toast.error(`Waiver amount cannot exceed demand balance of ₹${targetDemandForWaiver.balanceAmountPaise / 100}.`);
+      return;
+    }
+
+    setWaiverSubmitting(true);
+    try {
+      const res = await fetch("/api/fees/foundation/waiver", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          schoolId,
+          studentId: selectedStudent.id,
+          demandId: targetDemandForWaiver.id,
+          amountRupees: amt,
+          reason: waiverReason.trim() || "Financial Concession / Administrative Waiver",
+          approvedBy: waiverApprovedBy.trim() || "School Principal",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Waiver failed");
+
+      toast.success(`Fee waiver of ₹${amt.toLocaleString("en-IN")} applied successfully!`);
+      setShowWaiverModal(false);
+      setTargetDemandForWaiver(null);
+      fetchStudentLedger();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to apply fee waiver.");
+    } finally {
+      setWaiverSubmitting(false);
+    }
+  };
+
+  const handleGenerateSingleMonthDemand = async (monthName: string) => {
+    if (!selectedStudent) return;
+    setGeneratingDemandPeriod(monthName);
+    try {
+      const res = await fetch("/api/fees/foundation/demands/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          schoolId,
+          action: "generate",
+          academicYearId: selectedAcademicYear,
+          studentIds: [selectedStudent.id],
+          periodName: monthName,
+          includeArrears: true,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Demand generation failed");
+      toast.success(`Fee invoice for ${monthName} generated successfully!`);
+      fetchStudentLedger();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to generate demand.");
+    } finally {
+      setGeneratingDemandPeriod(null);
+    }
+  };
+
 
   // WhatsApp reminder message composer
   const waComposerText = useMemo(() => {
@@ -372,7 +607,7 @@ export default function AdminStudentFeesPage() {
   };
 
   return (
-    <EntitlementGate feature="fee_management" title="Student Fee Details" requiredPlan="Professional Plan">
+    <EntitlementGate feature="fee_student_fees" title="Student Fee Details" requiredPlan="Professional Plan">
       <div className="space-y-6 pb-16">
         {/* ========================================================
             TOP NAVIGATION & BREADCRUMBS
@@ -765,6 +1000,7 @@ export default function AdminStudentFeesPage() {
             {[
               { id: "overview", label: "Fee Overview" },
               { id: "monthwise", label: "Month Wise" },
+              { id: "ledger", label: "Student Ledger" },
               { id: "transactions", label: "Transactions" },
               { id: "receipts", label: "Receipts" },
               { id: "discounts", label: "Discounts / Concessions" },
@@ -951,6 +1187,10 @@ export default function AdminStudentFeesPage() {
                                     ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900"
                                     : row.status === "Partial"
                                     ? "bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-900"
+                                    : row.status === "Waived"
+                                    ? "bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-900"
+                                    : row.status === "Overdue"
+                                    ? "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-200 border border-rose-300 dark:border-rose-800"
                                     : "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-900"
                                 }`}
                               >
@@ -958,39 +1198,75 @@ export default function AdminStudentFeesPage() {
                               </span>
                             </td>
                             <td className="py-3 px-4 text-center">
-                              {row.status === "Paid" ? (
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenReceipt(recentTransactions[0])}
-                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 cursor-pointer"
-                                >
-                                  <Printer className="w-3 h-3" />
-                                  <span>Receipt</span>
-                                </button>
-                              ) : (
-                                <div className="flex items-center justify-center gap-1">
-                                  <Link
-                                    href={`/admin/fees/collect?studentId=${student.id}`}
-                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] shadow-xs"
+                              <div className="flex items-center justify-center gap-1">
+                                {row.rawDemand && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenDemandDetail(row.rawDemand)}
+                                    className="p-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                                    title="View Invoice & Fee Breakdown"
                                   >
-                                    <CreditCard className="w-3 h-3" />
-                                    <span>Pay</span>
-                                  </Link>
-                                  {row.raw && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setSelectedMonthForAdjustment(row.raw);
-                                        setShowAdjustmentModal(true);
-                                      }}
-                                      className="p-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 cursor-pointer"
-                                      title="Adjust Rate/Waiver"
+                                    <Eye className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+
+                                {row.missing ? (
+                                  <button
+                                    type="button"
+                                    disabled={generatingDemandPeriod === row.name}
+                                    onClick={() => handleGenerateSingleMonthDemand(row.name)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 font-bold text-[10px] hover:bg-blue-100 cursor-pointer"
+                                  >
+                                    {generatingDemandPeriod === row.name ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <Sparkles className="w-3 h-3" />
+                                    )}
+                                    <span>+ Generate</span>
+                                  </button>
+                                ) : row.status === "Paid" ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenReceipt(recentTransactions[0])}
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 cursor-pointer"
+                                  >
+                                    <Printer className="w-3 h-3" />
+                                    <span>Receipt</span>
+                                  </button>
+                                ) : (
+                                  <>
+                                    <Link
+                                      href={`/admin/fees/collect?studentId=${student.id}`}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] shadow-xs"
                                     >
-                                      <Edit3 className="w-3 h-3" />
-                                    </button>
-                                  )}
-                                </div>
-                              )}
+                                      <CreditCard className="w-3 h-3" />
+                                      <span>Pay</span>
+                                    </Link>
+                                    {row.rawDemand ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenWaiver(row.rawDemand)}
+                                        className="p-1 rounded-lg border border-purple-200 dark:border-purple-800 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/40 cursor-pointer"
+                                        title="Apply Fee Waiver / Concession"
+                                      >
+                                        <ShieldCheck className="w-3.5 h-3.5" />
+                                      </button>
+                                    ) : row.raw && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedMonthForAdjustment(row.raw);
+                                          setShowAdjustmentModal(true);
+                                        }}
+                                        className="p-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 cursor-pointer"
+                                        title="Adjust Rate/Waiver"
+                                      >
+                                        <Edit3 className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                  </>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ))
@@ -1408,6 +1684,145 @@ export default function AdminStudentFeesPage() {
           </div>
         )}
 
+        {/* When tab is Student Ledger */}
+        {activeTab === "ledger" && (
+          <div className="space-y-6">
+            {/* Header & Quick Action */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-6 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-blue-600" />
+                  Student Financial Ledger & Statement of Account
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Complete chronological audit trail of all charges, discounts, payments, refunds, and running balances.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Link
+                  href={`/admin/fees/ledger?studentId=${student.id}`}
+                  className="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-xs hover:bg-blue-700 transition-colors inline-flex items-center gap-1.5 shadow-sm"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  Print Statement / Open Full View
+                </Link>
+              </div>
+            </div>
+
+            {/* KPI Cards */}
+            {studentLedgerSummary && (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Opening Balance</div>
+                  <div className="text-xl font-black text-slate-900 dark:text-white mt-1">
+                    ₹{studentLedgerSummary.openingBalanceRupees.toLocaleString("en-IN")}
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-rose-500">Total Charges (Debits)</div>
+                  <div className="text-xl font-black text-rose-600 dark:text-rose-400 mt-1">
+                    ₹{studentLedgerSummary.totalChargesRupees.toLocaleString("en-IN")}
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-500">Total Paid (Credits)</div>
+                  <div className="text-xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
+                    ₹{studentLedgerSummary.totalPaidRupees.toLocaleString("en-IN")}
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-900/50 shadow-sm">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                    Net Outstanding
+                  </div>
+                  <div className="text-xl font-black text-blue-700 dark:text-blue-300 mt-1">
+                    ₹{studentLedgerSummary.closingOutstandingRupees.toLocaleString("en-IN")}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Chronological Table */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
+              <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                <span className="text-xs font-black uppercase tracking-wider text-slate-500">
+                  Chronological Transaction Register
+                </span>
+                {studentLedgerSummary && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                    <ShieldCheck className="w-3.5 h-3.5" /> Reconciled with Demand Records
+                  </span>
+                )}
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">
+                    <tr>
+                      <th className="py-3 px-4">Date</th>
+                      <th className="py-3 px-4">Reference</th>
+                      <th className="py-3 px-4">Description</th>
+                      <th className="py-3 px-4 text-right">Debit (+)</th>
+                      <th className="py-3 px-4 text-right">Credit (-)</th>
+                      <th className="py-3 px-4 text-right font-black">Running Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                    {studentLedgerLoading ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-slate-400">
+                          <div className="inline-flex items-center gap-2">
+                            <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
+                            Loading student ledger entries...
+                          </div>
+                        </td>
+                      </tr>
+                    ) : studentLedgerEntries.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-slate-400">
+                          No financial transactions found for this student.
+                        </td>
+                      </tr>
+                    ) : (
+                      studentLedgerEntries.map((entry: StudentLedgerEntry) => (
+                        <tr key={entry.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-colors">
+                          <td className="py-3 px-4 whitespace-nowrap text-slate-500">
+                            {entry.dateFormatted}
+                          </td>
+                          <td className="py-3 px-4 font-mono font-bold text-slate-800 dark:text-slate-200">
+                            {entry.reference}
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="font-semibold text-slate-800 dark:text-slate-200">
+                              {entry.description}
+                            </div>
+                            {entry.feeHeadName && (
+                              <div className="text-[10px] text-slate-400">
+                                Head: {entry.feeHeadName}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right whitespace-nowrap font-bold text-rose-600">
+                            {entry.debitRupees > 0 ? `₹${entry.debitRupees.toLocaleString("en-IN")}` : "—"}
+                          </td>
+                          <td className="py-3 px-4 text-right whitespace-nowrap font-bold text-emerald-600">
+                            {entry.creditRupees > 0 ? `₹${entry.creditRupees.toLocaleString("en-IN")}` : "—"}
+                          </td>
+                          <td className="py-3 px-4 text-right whitespace-nowrap font-black text-slate-900 dark:text-white">
+                            ₹{entry.balanceRupees.toLocaleString("en-IN")}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* When tab is Discounts */}
         {activeTab === "discounts" && (
           <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
@@ -1566,6 +1981,240 @@ export default function AdminStudentFeesPage() {
               toast.success("Follow-up note recorded successfully!");
             }}
           />
+        )}
+
+        {/* Phase 2: Demand Detail Modal */}
+        {showDemandDetailModal && selectedDemandForDetail && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-xl max-w-lg w-full p-6 space-y-4 border border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-blue-600" />
+                    <span>Fee Demand Details</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400 font-mono mt-0.5">
+                    {selectedDemandForDetail.invoiceNumber} • {selectedDemandForDetail.period}
+                  </p>
+                </div>
+                <span
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                    selectedDemandForDetail.status === "PAID"
+                      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200"
+                      : selectedDemandForDetail.status === "WAIVED"
+                      ? "bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200"
+                      : "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200"
+                  }`}
+                >
+                  {selectedDemandForDetail.status}
+                </span>
+              </div>
+
+              {/* Breakdown Grid */}
+              <div className="space-y-2.5 text-xs">
+                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-semibold">Fee Head:</span>
+                    <strong className="text-slate-800 dark:text-slate-200">{selectedDemandForDetail.feeHeadName}</strong>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-semibold">Due Date:</span>
+                    <span className="font-mono text-slate-800 dark:text-slate-200">
+                      {new Date(selectedDemandForDetail.dueDate).toLocaleDateString("en-IN", {
+                        day: "2-digit",
+                        month: "long",
+                        year: "numeric",
+                      })}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-100 dark:border-slate-800 rounded-2xl p-3 space-y-2">
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-slate-500">Gross Base Amount:</span>
+                    <strong className="text-slate-800 dark:text-slate-200">
+                      ₹{(selectedDemandForDetail.grossAmountPaise / 100).toLocaleString("en-IN")}
+                    </strong>
+                  </div>
+
+                  {selectedDemandForDetail.discountAmountPaise > 0 && (
+                    <div className="flex items-center justify-between pt-2">
+                      <span className="text-emerald-600 font-semibold">Discount Applied:</span>
+                      <strong className="text-emerald-600">
+                        -₹{(selectedDemandForDetail.discountAmountPaise / 100).toLocaleString("en-IN")}
+                      </strong>
+                    </div>
+                  )}
+
+                  {selectedDemandForDetail.concessionAmountPaise > 0 && (
+                    <div className="flex items-center justify-between pt-2">
+                      <span className="text-purple-600 font-semibold">Concession / Waiver:</span>
+                      <strong className="text-purple-600">
+                        -₹{(selectedDemandForDetail.concessionAmountPaise / 100).toLocaleString("en-IN")}
+                      </strong>
+                    </div>
+                  )}
+
+                  {selectedDemandForDetail.lateFeePaise > 0 && (
+                    <div className="flex items-center justify-between pt-2">
+                      <span className="text-rose-600 font-semibold">Late Fee Penalty:</span>
+                      <strong className="text-rose-600">
+                        +₹{(selectedDemandForDetail.lateFeePaise / 100).toLocaleString("en-IN")}
+                      </strong>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between pt-2">
+                    <span className="font-extrabold text-slate-900 dark:text-white">Net Total Demand:</span>
+                    <strong className="text-base font-black text-slate-900 dark:text-white">
+                      ₹{(selectedDemandForDetail.netAmountPaise / 100).toLocaleString("en-IN")}
+                    </strong>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2">
+                    <span className="text-emerald-700 font-bold">Total Paid:</span>
+                    <strong className="text-emerald-700 font-black">
+                      ₹{(selectedDemandForDetail.paidAmountPaise / 100).toLocaleString("en-IN")}
+                    </strong>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2">
+                    <span className="text-rose-600 font-bold">Remaining Balance:</span>
+                    <strong className="text-base font-black text-rose-600">
+                      ₹{(selectedDemandForDetail.balanceAmountPaise / 100).toLocaleString("en-IN")}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-3 flex items-center justify-between border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowDemandDetailModal(false)}
+                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold text-xs cursor-pointer"
+                >
+                  Close
+                </button>
+
+                <div className="flex items-center gap-2">
+                  {selectedDemandForDetail.balanceAmountPaise > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowDemandDetailModal(false);
+                          handleOpenWaiver(selectedDemandForDetail);
+                        }}
+                        className="px-3.5 py-2 rounded-xl border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 font-bold text-xs hover:bg-purple-50 cursor-pointer"
+                      >
+                        Apply Waiver
+                      </button>
+
+                      <Link
+                        href={`/admin/fees/collect?studentId=${student.id}`}
+                        className="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-xs hover:bg-blue-700 cursor-pointer shadow-md"
+                      >
+                        Collect Payment
+                      </Link>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Phase 2: Fee Waiver Modal */}
+        {showWaiverModal && targetDemandForWaiver && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-xl max-w-md w-full p-6 space-y-4 border border-slate-200 dark:border-slate-800">
+              <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-purple-600" />
+                <span>Apply Fee Waiver / Concession</span>
+              </h3>
+              <p className="text-xs text-slate-500">
+                Waivers are recorded as authoritative financial adjustments that reduce net obligation without fabricating fake payment transactions.
+              </p>
+
+              <div className="p-3 rounded-2xl bg-purple-50/60 dark:bg-purple-950/30 border border-purple-100 dark:border-purple-900 text-xs space-y-1">
+                <div className="flex items-center justify-between font-bold text-purple-900 dark:text-purple-300">
+                  <span>Target Invoice:</span>
+                  <span className="font-mono">{targetDemandForWaiver.invoiceNumber}</span>
+                </div>
+                <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
+                  <span>Current Outstanding Balance:</span>
+                  <strong className="text-rose-600 font-bold">
+                    ₹{(targetDemandForWaiver.balanceAmountPaise / 100).toLocaleString("en-IN")}
+                  </strong>
+                </div>
+              </div>
+
+              <form onSubmit={handleSubmitWaiver} className="space-y-3.5 text-xs">
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Amount to Waive (₹)
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    max={targetDemandForWaiver.balanceAmountPaise / 100}
+                    step="1"
+                    value={waiverAmount}
+                    onChange={(e) => setWaiverAmount(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-transparent text-slate-900 dark:text-white font-bold text-sm"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-1 block">
+                    Full waiver will transition invoice status directly to <span className="font-bold text-purple-600">WAIVED</span>.
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Official Reason / Authority
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Merit Scholarship, Sibling Waiver, Principal Discretion"
+                    value={waiverReason}
+                    onChange={(e) => setWaiverReason(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-transparent text-slate-900 dark:text-white font-medium"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Approved By
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={waiverApprovedBy}
+                    onChange={(e) => setWaiverApprovedBy(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-transparent text-slate-900 dark:text-white font-medium"
+                  />
+                </div>
+
+                <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setShowWaiverModal(false)}
+                    className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={waiverSubmitting}
+                    className="px-5 py-2 rounded-xl bg-purple-600 text-white font-bold hover:bg-purple-700 cursor-pointer shadow-md"
+                  >
+                    {waiverSubmitting ? "Applying..." : "Confirm & Apply Waiver"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
         )}
         </>
         )}

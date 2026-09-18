@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/utils/cn";
 
 export const FlipWords = ({
-  words,
+  words = [],
   duration = 3000,
   className,
 }: {
@@ -13,25 +13,31 @@ export const FlipWords = ({
   duration?: number;
   className?: string;
 }) => {
-  const [currentWord, setCurrentWord] = useState(words[0] || "");
+  const safeWords = Array.isArray(words) ? words.filter(Boolean) : [];
+  const [currentWord, setCurrentWord] = useState(safeWords[0] || "");
   const [isAnimating, setIsAnimating] = useState<boolean>(false);
 
   const startAnimation = useCallback(() => {
-    if (!words || words.length === 0) return;
-    const nextIndex = (words.indexOf(currentWord) + 1) % words.length;
-    const word = words[nextIndex];
+    if (safeWords.length === 0) return;
+    const currentIndex = safeWords.indexOf(currentWord);
+    const nextIndex = currentIndex !== -1 ? (currentIndex + 1) % safeWords.length : 0;
+    const word = safeWords[nextIndex];
     setCurrentWord(word);
     setIsAnimating(true);
-  }, [currentWord, words]);
+  }, [currentWord, safeWords]);
 
   useEffect(() => {
-    if (!isAnimating && words.length > 1) {
+    if (!isAnimating && safeWords.length > 1) {
       const timer = setTimeout(() => {
         startAnimation();
       }, duration);
       return () => clearTimeout(timer);
     }
-  }, [isAnimating, duration, startAnimation, words.length]);
+  }, [isAnimating, duration, startAnimation, safeWords.length]);
+
+  if (safeWords.length === 0) {
+    return null;
+  }
 
   return (
     <span className="inline-flex items-center overflow-visible align-baseline">

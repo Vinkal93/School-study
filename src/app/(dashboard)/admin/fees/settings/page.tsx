@@ -152,7 +152,7 @@ export default function AdminFeeSettingsPage() {
   };
 
   return (
-    <EntitlementGate feature="fee_management" title="Fee Settings & Late Fee Rules" requiredPlan="Professional Plan">
+    <EntitlementGate feature="fee_settings" title="Fee Settings & Late Fee Rules" requiredPlan="Professional Plan">
       <div className="max-w-3xl mx-auto space-y-6">
         <div>
           <h1 className="text-2xl font-black text-slate-900 dark:text-white">Fee Engine Settings & Rules</h1>

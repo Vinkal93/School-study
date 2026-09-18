@@ -8,6 +8,9 @@ import {
   getDocs,
   writeBatch,
   serverTimestamp,
+  query,
+  where,
+  limit,
 } from "firebase/firestore";
 import { decrementSchoolUsage } from "@/lib/billing/usage";
 import { COLLECTIONS } from "@/lib/utils/constants";
@@ -90,26 +93,49 @@ export async function POST(request: Request) {
     const candidateIds: string[] = [];
 
     if (body.allFiltered && body.filters) {
-      // Query all students belonging to this school and apply the filter criteria server-side
-      const studentsColl = collection(db, "schools", schoolId, "students");
-      const snap = await getDocs(studentsColl);
+      // Query all students belonging to this school across both tenant subcollection and root collection
+      const [subSnap, rootSnap] = await Promise.all([
+        getDocs(collection(db, "schools", schoolId, "students")),
+        getDocs(query(collection(db, "students"), where("schoolId", "==", schoolId))),
+      ]);
+
+      const seenDocIds = new Set<string>();
+      const docs: Array<{ id: string; data: () => StudentProfile }> = [];
+
+      for (const d of subSnap.docs) {
+        seenDocIds.add(d.id);
+        docs.push(d as any);
+      }
+      for (const d of rootSnap.docs) {
+        if (!seenDocIds.has(d.id)) {
+          seenDocIds.add(d.id);
+          docs.push(d as any);
+        }
+      }
 
       const q = (body.filters.searchQuery || "").toLowerCase().trim();
       const targetClassId = body.filters.classId;
       const targetSectionId = body.filters.sectionId;
       const targetStatus = body.filters.status || "all";
 
-      for (const d of snap.docs) {
+      for (const d of docs) {
         const s = d.data() as StudentProfile;
+        const studentAdmNo = String(s.admissionNumber || "").toLowerCase();
+        const studentIdStr = String(s.studentId || "").toLowerCase();
+        const studentNameStr = String(s.name || "").toLowerCase();
+        const studentEmailStr = String(s.email || "").toLowerCase();
+        const studentPhoneStr = String(s.phone || "").toLowerCase();
+        const studentRollStr = s.rollNumber !== undefined && s.rollNumber !== null ? String(s.rollNumber) : "";
+
         // Search match
         const matchesSearch =
           !q ||
-          (s.name && s.name.toLowerCase().includes(q)) ||
-          (s.studentId && s.studentId.toLowerCase().includes(q)) ||
-          (s.admissionNumber && s.admissionNumber.toLowerCase().includes(q)) ||
-          (s.email && s.email.toLowerCase().includes(q)) ||
-          (s.rollNumber !== undefined && s.rollNumber.toString() === q) ||
-          (s.phone && s.phone.toLowerCase().includes(q));
+          studentNameStr.includes(q) ||
+          studentIdStr.includes(q) ||
+          studentAdmNo.includes(q) ||
+          studentEmailStr.includes(q) ||
+          studentRollStr === q ||
+          studentPhoneStr.includes(q);
 
         if (!matchesSearch) continue;
 
@@ -125,9 +151,9 @@ export async function POST(request: Request) {
 
         // Status match
         if (targetStatus === "all") {
-          if (s.status === "deleted") continue; // default view excludes deleted
+          if (s.status === "deleted" || s.status === "archived") continue; // default view excludes deleted/archived
         } else if (targetStatus === "deleted") {
-          if (s.status !== "deleted") continue;
+          if (s.status !== "deleted" && s.status !== "archived") continue;
         } else {
           if ((s.status || "active").toLowerCase() !== targetStatus.toLowerCase()) continue;
         }
@@ -148,24 +174,40 @@ export async function POST(request: Request) {
       });
     }
 
-    // 5. Verify Ownership & Retrieve Record Details (Strict Multi-Tenant Check)
-    // Every student document must exist in schools/{schoolId}/students/{studentId}
-    const verifiedStudents: { id: string; userId?: string; status?: string }[] = [];
+    // 5. Verify Ownership & Retrieve Record Details (Dual-Path Multi-Tenant Check)
+    // Check both schools/{schoolId}/students/{studentId} and students/{studentId}
+    const verifiedStudents: {
+      id: string;
+      userId?: string;
+      status?: string;
+      inSubcollection: boolean;
+      inRoot: boolean;
+    }[] = [];
     let failedCount = 0;
 
     for (const studentId of candidateIds) {
       try {
-        const studentRef = doc(db, "schools", schoolId, "students", studentId);
-        const studentSnap = await getDoc(studentRef);
+        const studentSubRef = doc(db, "schools", schoolId, "students", studentId);
+        const rootStudentRef = doc(db, "students", studentId);
 
-        if (studentSnap.exists()) {
-          const data = studentSnap.data() as StudentProfile;
+        const [subSnap, rootSnap] = await Promise.all([
+          getDoc(studentSubRef),
+          getDoc(rootStudentRef),
+        ]);
+
+        const inSubcollection = subSnap.exists();
+        const inRoot = rootSnap.exists();
+
+        if (inSubcollection || inRoot) {
+          const data = ((inSubcollection ? subSnap.data() : rootSnap.data()) || {}) as StudentProfile;
           // Verify that student's schoolId strictly matches the authenticated schoolId
           if (!data.schoolId || data.schoolId === schoolId) {
             verifiedStudents.push({
-              id: studentSnap.id,
+              id: studentId,
               userId: data.userId,
               status: data.status || "active",
+              inSubcollection,
+              inRoot,
             });
           } else {
             console.warn(`[Bulk Delete] Tenant mismatch for student ${studentId}. Belongs to ${data.schoolId}, attempted by ${schoolId}`);
@@ -194,6 +236,8 @@ export async function POST(request: Request) {
     const CHUNK_SIZE = 100;
     const nowIso = new Date().toISOString();
     let successfullyDeleted = 0;
+    let permanentlyDeletedCount = 0;
+    let safelyArchivedCount = 0;
     let activeDeletedCount = 0;
 
     for (let i = 0; i < verifiedStudents.length; i += CHUNK_SIZE) {
@@ -209,37 +253,70 @@ export async function POST(request: Request) {
           activeDeletedCount++;
         }
 
+        let allowHardDelete = false;
+
         if (isPermanent) {
-          // Hard Delete: purge from schools/{schoolId}/students
-          batch.delete(studentRef);
-          // Purge root student mirror
-          batch.delete(rootStudentRef);
-          // If userId exists, disable or delete user record
+          // Verify if student has ANY financial history (fee demands or payments across top-level or tenant subcollections)
+          try {
+            const [topDemandsCheck, topPaymentsCheck, subDemandsCheck, subPaymentsCheck] = await Promise.all([
+              getDocs(query(collection(db, "feeDemands"), where("schoolId", "==", schoolId), where("studentId", "==", st.id), limit(1))),
+              getDocs(query(collection(db, "financialPayments"), where("schoolId", "==", schoolId), where("studentId", "==", st.id), limit(1))),
+              getDocs(query(collection(db, "schools", schoolId, "feeDemands"), where("studentId", "==", st.id), limit(1))),
+              getDocs(query(collection(db, "schools", schoolId, "financialPayments"), where("studentId", "==", st.id), limit(1))),
+            ]);
+            const hasFinancialHistory =
+              !topDemandsCheck.empty ||
+              !topPaymentsCheck.empty ||
+              !subDemandsCheck.empty ||
+              !subPaymentsCheck.empty;
+
+            if (hasFinancialHistory) {
+              allowHardDelete = false;
+            } else {
+              allowHardDelete = true;
+            }
+          } catch (finErr) {
+            console.warn(`[Bulk Delete] Could not check financial history for student ${st.id}, falling back to safe archive:`, finErr);
+            allowHardDelete = false;
+          }
+        }
+
+        if (isPermanent && allowHardDelete) {
+          // Zero financial records: hard delete allowed for existing references
+          if (st.inSubcollection) batch.delete(studentRef);
+          if (st.inRoot) batch.delete(rootStudentRef);
           if (userRef) {
             batch.delete(userRef);
           }
+          permanentlyDeletedCount++;
         } else {
-          // Soft Delete (Archive)
-          batch.update(studentRef, {
-            status: "deleted",
+          // Soft Delete / Safe Archive (preserves ledger, demands, payments and academic audit logs)
+          const reason = isPermanent && !allowHardDelete
+            ? "Student has active financial ledger records; archived to preserve double-entry audit history"
+            : "Administrative archive / deletion";
+
+          const archivePayload = {
+            status: "archived",
+            statusChangeReason: reason,
+            statusChangedDate: nowIso,
             deletedAt: nowIso,
             deletedBy: user.uid,
             updatedAt: serverTimestamp(),
-          });
-          // Update root mirror
-          batch.update(rootStudentRef, {
-            status: "deleted",
-            deletedAt: nowIso,
-            deletedBy: user.uid,
-            updatedAt: serverTimestamp(),
-          });
-          // Disable user account
+          };
+
+          if (st.inSubcollection) {
+            batch.set(studentRef, archivePayload, { merge: true });
+          }
+          if (st.inRoot) {
+            batch.set(rootStudentRef, archivePayload, { merge: true });
+          }
           if (userRef) {
-            batch.update(userRef, {
+            batch.set(userRef, {
               status: "disabled",
               updatedAt: serverTimestamp(),
-            });
+            }, { merge: true });
           }
+          safelyArchivedCount++;
         }
       }
 
@@ -256,13 +333,28 @@ export async function POST(request: Request) {
       }
     }
 
+    let summaryMessage = "";
+    if (isPermanent) {
+      if (safelyArchivedCount > 0 && permanentlyDeletedCount > 0) {
+        summaryMessage = `${permanentlyDeletedCount} student(s) permanently deleted. ${safelyArchivedCount} student(s) with financial records were safely archived to preserve ledger integrity.`;
+      } else if (safelyArchivedCount > 0) {
+        summaryMessage = `All ${safelyArchivedCount} student(s) have financial records and were safely archived to preserve ledger history.`;
+      } else {
+        summaryMessage = `Successfully permanently deleted ${permanentlyDeletedCount} student(s).`;
+      }
+    } else {
+      summaryMessage = `Successfully archived ${successfullyDeleted} student(s).`;
+    }
+
     return NextResponse.json({
       success: true,
       deletedCount: successfullyDeleted,
+      permanentlyDeletedCount,
+      safelyArchivedCount,
       failedCount,
       activeFreedCount: activeDeletedCount,
       permanent: isPermanent,
-      message: `Successfully ${isPermanent ? "permanently deleted" : "archived"} ${successfullyDeleted} student(s).`,
+      message: summaryMessage,
     });
   } catch (error: any) {
     console.error("[Bulk Delete API] Unhandled exception:", error);

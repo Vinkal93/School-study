@@ -161,14 +161,23 @@ export default function AuditLogsPage() {
           </p>
         </div>
 
-        <button
-          onClick={loadAuditLogs}
-          disabled={loading}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-          Refresh Audit Feed
-        </button>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/super-admin/audit/import-export"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-purple-200 bg-purple-50 px-3.5 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-100 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300 transition-colors"
+          >
+            <FileText className="h-3.5 w-3.5" />
+            Import / Export Audit
+          </Link>
+          <button
+            onClick={loadAuditLogs}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            Refresh Audit Feed
+          </button>
+        </div>
       </div>
 
       {/* Filter & Search Bar */}

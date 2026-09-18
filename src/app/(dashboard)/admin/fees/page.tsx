@@ -28,17 +28,18 @@ import {
   Loader2,
   Printer,
   Share2,
+  BookOpen,
 } from "lucide-react";
 import {
   getFeeDashboardOverviewData,
   getFeeSettings,
   type FeeDashboardOverviewData,
 } from "@/lib/services/fee.service";
-import { getClassesWithSections } from "@/lib/services/academic.service";
+import { getClassesWithSections, getAcademicYears } from "@/lib/services/academic.service";
 import { FeeReceiptModal } from "@/components/fees/FeeReceiptModal";
 import { FeeFollowUpModal } from "@/components/fees/FeeFollowUpModal";
 import { ShareFeeModal } from "@/components/fees/ShareFeeModal";
-import type { SchoolClass, FeePayment, StudentFeeAssignment } from "@/types";
+import type { SchoolClass, FeePayment, StudentFeeAssignment, AcademicYear } from "@/types";
 import { toast } from "sonner";
 
 export default function AdminFeeDashboardPage() {
@@ -48,10 +49,14 @@ export default function AdminFeeDashboardPage() {
     (profile as any)?.schoolName || "Lord Buddha Public School";
 
   const [loading, setLoading] = useState(true);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [filterError, setFilterError] = useState<string | null>(null);
   const [data, setData] = useState<FeeDashboardOverviewData | null>(null);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
 
   // Filter States
+  const [selectedYear, setSelectedYear] = useState<string>("");
   const [selectedMonth, setSelectedMonth] = useState("September 2026");
   const [selectedClass, setSelectedClass] = useState("all");
   const [selectedSection, setSelectedSection] = useState("all");
@@ -67,29 +72,52 @@ export default function AdminFeeDashboardPage() {
   // Tooltip state for Collection Trend chart
   const [hoveredTrendIndex, setHoveredTrendIndex] = useState<number | null>(5); // Default Sep
 
+  // 1. Load Academic Years & Classes on initial mount
+  useEffect(() => {
+    if (!schoolId) return;
+    Promise.all([
+      getAcademicYears(schoolId),
+      getClassesWithSections(schoolId),
+    ])
+      .then(([years, classList]) => {
+        setAcademicYears(years);
+        setClasses(classList);
+        const currentYear = years.find((y) => y.isCurrent) || years[0];
+        if (currentYear && !selectedYear) {
+          setSelectedYear(currentYear.id);
+        }
+      })
+      .catch((err) => console.error("Failed to load initial fee metadata:", err));
+  }, [schoolId]);
+
+  // 2. Load Dashboard Data whenever any filter changes
   useEffect(() => {
     async function loadData() {
       if (!schoolId) return;
-      setLoading(true);
+      if (data) {
+        setIsUpdating(true);
+      } else {
+        setLoading(true);
+      }
+      setFilterError(null);
       try {
-        const [dashData, classList] = await Promise.all([
-          getFeeDashboardOverviewData(schoolId, {
-            month: selectedMonth,
-            className: selectedClass,
-            sectionName: selectedSection,
-          }),
-          getClassesWithSections(schoolId),
-        ]);
+        const dashData = await getFeeDashboardOverviewData(schoolId, {
+          academicYearId: selectedYear || undefined,
+          month: selectedMonth,
+          className: selectedClass,
+          sectionName: selectedSection,
+        });
         setData(dashData);
-        setClasses(classList);
-      } catch (err) {
+      } catch (err: any) {
         console.error("Failed to load fee dashboard:", err);
+        setFilterError(err?.message || "Failed to load fee data for the selected filters.");
       } finally {
         setLoading(false);
+        setIsUpdating(false);
       }
     }
     loadData();
-  }, [schoolId, selectedMonth, selectedClass, selectedSection]);
+  }, [schoolId, selectedYear, selectedMonth, selectedClass, selectedSection]);
 
   const fmtRupees = (paise: number) =>
     "₹" +
@@ -229,24 +257,62 @@ export default function AdminFeeDashboardPage() {
 
   return (
     <EntitlementGate
-      feature="fee_management"
+      feature="fee_dashboard"
       title="Fee Management Dashboard"
       description="Collection insights, payments, dues and complete fee management."
       requiredPlan="Professional Plan"
     >
       <div className="space-y-6 pb-12">
+        {/* Error notification if filter fails */}
+        {filterError && (
+          <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-center justify-between text-amber-800 dark:text-amber-300 text-xs">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+              <span>{filterError}</span>
+            </div>
+            <button
+              onClick={() => {
+                setLoading(true);
+                setFilterError(null);
+                getFeeDashboardOverviewData(schoolId, {
+                  academicYearId: selectedYear || undefined,
+                  month: selectedMonth,
+                  className: selectedClass,
+                  sectionName: selectedSection,
+                })
+                  .then((d) => setData(d))
+                  .catch((err) => setFilterError(err?.message || "Failed to reload fee data"))
+                  .finally(() => setLoading(false));
+              }}
+              className="px-3 py-1 rounded-lg bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 font-bold hover:bg-amber-300 transition-all cursor-pointer"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {/* ========================================================
             TOP BAR / PAGE HEADER
         ======================================================== */}
         <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
           <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20">
+            <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20 relative">
               <CreditCard className="w-6 h-6" />
+              {isUpdating && (
+                <div className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-amber-400 ring-2 ring-white dark:ring-slate-900 animate-pulse" />
+              )}
             </div>
             <div>
-              <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">
-                Fee Management
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">
+                  Fee Management
+                </h1>
+                {isUpdating && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded-full border border-blue-200/50">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Updating...
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 Collection insights, payments, dues and complete fee management.
               </p>
@@ -255,6 +321,24 @@ export default function AdminFeeDashboardPage() {
 
           {/* Right Controls: Filters & Primary Action */}
           <div className="flex flex-wrap items-center gap-2.5">
+            {/* Academic Session Selector */}
+            {academicYears.length > 0 && (
+              <div className="relative">
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(e.target.value)}
+                  className="appearance-none pl-3 pr-7 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm cursor-pointer"
+                >
+                  {academicYears.map((ay) => (
+                    <option key={ay.id} value={ay.id}>
+                      {ay.name || ay.id} {ay.isCurrent ? "(Current)" : ""}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            )}
+
             {/* Month Selector */}
             <div className="relative">
               <select
@@ -311,6 +395,33 @@ export default function AdminFeeDashboardPage() {
               <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
 
+            {/* Student Ledger Link */}
+            <Link
+              href="/admin/fees/ledger"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer"
+            >
+              <FileText className="w-4 h-4 text-blue-600" />
+              <span>Student Ledger</span>
+            </Link>
+
+            {/* Cash & Bank Link */}
+            <Link
+              href="/admin/fees/cash-bank"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer"
+            >
+              <Wallet className="w-4 h-4 text-emerald-600" />
+              <span>Cash & Bank</span>
+            </Link>
+
+            {/* Accounting & Trial Balance Link */}
+            <Link
+              href="/admin/fees/accounting"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer"
+            >
+              <BookOpen className="w-4 h-4 text-purple-600" />
+              <span>Accounting & TB</span>
+            </Link>
+
             {/* + Collect Fee CTA */}
             <Link
               href="/admin/fees/collect"
@@ -323,9 +434,27 @@ export default function AdminFeeDashboardPage() {
         </div>
 
         {/* ========================================================
+            DASHBOARD CONTENT / SKELETON
+        ======================================================== */}
+        {loading && !data ? (
+          <div className="space-y-6 animate-pulse">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-32 bg-slate-100 dark:bg-slate-800 rounded-2xl" />
+              ))}
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 h-80 bg-slate-100 dark:bg-slate-800 rounded-2xl" />
+              <div className="h-80 bg-slate-100 dark:bg-slate-800 rounded-2xl" />
+            </div>
+            <div className="h-64 bg-slate-100 dark:bg-slate-800 rounded-2xl" />
+          </div>
+        ) : (
+          <>
+        {/* ========================================================
             ROW 1: 4 KEY METRIC CARDS (KPIs)
         ======================================================== */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 transition-opacity duration-200 ${isUpdating ? "opacity-70" : "opacity-100"}`}>
           {/* Card 1: Total Expected */}
           <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl p-5 shadow-sm relative overflow-hidden flex flex-col justify-between hover:shadow-md transition-shadow">
             <div className="flex items-start justify-between">
@@ -1376,6 +1505,8 @@ export default function AdminFeeDashboardPage() {
             </div>
           </div>
         </div>
+        </>
+        )}
 
         {/* ========================================================
             MODALS FOR DIRECT ACTIONS

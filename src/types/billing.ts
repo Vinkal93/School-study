@@ -83,7 +83,7 @@ export interface FeatureRegistryItem {
   moduleKey: string; // Module group e.g. "students", "attendance"
   displayName: string; // Human readable title e.g. "Student Admissions & Profiles"
   description: string; // Clear description of the capability
-  category: "core" | "academic" | "security" | "analytics" | "integration" | "financial";
+  category: "core" | "academic" | "security" | "analytics" | "integration" | "financial" | "ai";
   route?: string; // App route or URL associated with this feature
   status: "ACTIVE" | "BETA" | "DEPRECATED";
   sortOrder: number;
@@ -548,7 +548,9 @@ export type FeeFrequency =
   | "quarterly"
   | "half_yearly"
   | "annual"
-  | "one_time";
+  | "annually"
+  | "one_time"
+  | "custom";
 
 export interface FeeStructure {
   id: string;

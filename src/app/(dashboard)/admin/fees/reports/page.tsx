@@ -33,9 +33,9 @@ import {
   Filter,
   Check,
 } from "lucide-react";
-import { getFeeTransactions, getDefaultersList } from "@/lib/services/fee.service";
-import { getStudents } from "@/lib/services/student.service";
-import type { FeePayment, StudentFeeAssignment, StudentProfile } from "@/types";
+import { getFeeTransactions } from "@/lib/services/fee.service";
+import { getClassesWithSections } from "@/lib/services/academic.service";
+import type { FeePayment, SchoolClass } from "@/types";
 import { FeeReceiptModal } from "@/components/fees/FeeReceiptModal";
 import { toast } from "sonner";
 
@@ -46,14 +46,17 @@ export default function AdminFeeReportsPage() {
 
   // Data states
   const [loading, setLoading] = useState(true);
-  const [transactions, setTransactions] = useState<FeePayment[]>([]);
-  const [defaulters, setDefaulters] = useState<StudentFeeAssignment[]>([]);
-  const [students, setStudents] = useState<StudentProfile[]>([]);
   const [exporting, setExporting] = useState(false);
+  const [dashboardSummary, setDashboardSummary] = useState<any | null>(null);
+  const [classWiseList, setClassWiseList] = useState<any[]>([]);
+  const [defaultersList, setDefaultersList] = useState<any[]>([]);
+  const [paymentModeList, setPaymentModeList] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<FeePayment[]>([]);
+  const [classes, setClasses] = useState<SchoolClass[]>([]);
 
-  // Filters from Mockup
+  // Filters
   const [reportType, setReportType] = useState("collection_summary");
-  const [dateRange, setDateRange] = useState("Apr 2026 - Mar 2027");
+  const [dateRange, setDateRange] = useState("ay_2026_27");
   const [selectedClass, setSelectedClass] = useState("all");
   const [selectedSection, setSelectedSection] = useState("all");
   const [selectedFeeHead, setSelectedFeeHead] = useState("all");
@@ -72,196 +75,189 @@ export default function AdminFeeReportsPage() {
   // Receipt preview modal
   const [receiptModalPayment, setReceiptModalPayment] = useState<FeePayment | null>(null);
 
-  // Load Real Data
-  useEffect(() => {
-    async function loadData() {
-      if (!schoolId) return;
-      setLoading(true);
-      try {
-        const [txList, defs, studList] = await Promise.all([
-          getFeeTransactions(schoolId),
-          getDefaultersList(schoolId),
-          getStudents(schoolId, { status: "active" }),
-        ]);
-        setTransactions(txList);
-        setDefaulters(defs);
-        setStudents(studList);
-      } catch (err) {
-        console.error("Failed to load fee reports data:", err);
-        toast.error("Failed to load reporting data.");
-      } finally {
-        setLoading(false);
+  // Load Real Data from Analytics Endpoints
+  const loadReportsData = async () => {
+    if (!schoolId) return;
+    setLoading(true);
+    try {
+      const queryParams = new URLSearchParams({
+        schoolId,
+        academicYearId: dateRange,
+      });
+      if (selectedClass !== "all") queryParams.set("className", selectedClass);
+      if (selectedSection !== "all") queryParams.set("sectionName", selectedSection);
+
+      const [summaryRes, classRes, defRes, payRes, txList, clsList] = await Promise.all([
+        fetch(`/api/fees/foundation/analytics/dashboard?${queryParams.toString()}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+        fetch(`/api/fees/foundation/analytics/reports?type=class_wise&${queryParams.toString()}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+        fetch(`/api/fees/foundation/analytics/defaulters?${queryParams.toString()}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+        fetch(`/api/fees/foundation/analytics/reports?type=payment_mode&${queryParams.toString()}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+        getFeeTransactions(schoolId).catch(() => []),
+        getClassesWithSections(schoolId).catch(() => []),
+      ]);
+
+      if (summaryRes?.data) {
+        setDashboardSummary(summaryRes.data);
       }
+      if (classRes?.data && Array.isArray(classRes.data)) {
+        setClassWiseList(classRes.data);
+      }
+      if (defRes?.defaulters && Array.isArray(defRes.defaulters)) {
+        setDefaultersList(defRes.defaulters);
+      }
+      if (payRes?.data && Array.isArray(payRes.data)) {
+        setPaymentModeList(payRes.data);
+      }
+      setTransactions(txList);
+      setClasses(clsList);
+    } catch (err) {
+      console.error("Failed to load fee reports data:", err);
+      toast.error("Failed to load real reporting data.");
+    } finally {
+      setLoading(false);
     }
-    loadData();
-  }, [schoolId]);
+  };
 
-  // Distinct classes and sections
-  const availableClasses = useMemo(() => {
-    const set = new Set<string>();
-    students.forEach((s) => {
-      if (s.className) set.add(s.className);
-    });
-    return Array.from(set).sort();
-  }, [students]);
+  useEffect(() => {
+    loadReportsData();
+  }, [schoolId, dateRange, selectedClass, selectedSection]);
 
+  // Distinct sections for the selected class
   const availableSections = useMemo(() => {
-    const set = new Set<string>();
-    students
-      .filter((s) => selectedClass === "all" || s.className === selectedClass)
-      .forEach((s) => {
-        if (s.sectionName) set.add(s.sectionName);
-      });
-    return Array.from(set).sort();
-  }, [students, selectedClass]);
+    if (selectedClass === "all") return [];
+    const cls = classes.find((c) => c.name === selectedClass || c.id === selectedClass);
+    return cls?.sections?.map((s) => s.name) || ["A", "B", "C"];
+  }, [classes, selectedClass]);
 
-  // Baseline Fallback vs Real Computation
-  const realCollectedPaise = useMemo(() => {
-    return transactions.reduce(
-      (sum, t) => sum + (t.status === "SUCCESS" ? t.amountPaidPaise || t.netAmountPaise || 0 : 0),
-      0
-    );
-  }, [transactions]);
+  // Authoritative KPI Metrics (zero fake fallbacks)
+  const totalExpectedRupees = dashboardSummary?.totalExpectedRupees || 0;
+  const totalCollectedRupees = dashboardSummary?.totalCollectedRupees || 0;
+  const totalOutstandingRupees = dashboardSummary?.totalOutstandingRupees || 0;
+  const collectionRate = dashboardSummary?.collectionRate !== undefined ? dashboardSummary.collectionRate : 0;
+  const defaultersCount = dashboardSummary?.defaultersCount || 0;
 
-  const realPendingPaise = useMemo(() => {
-    return defaulters.reduce((sum, d) => sum + (d.totalPendingPaise || 0), 0);
-  }, [defaulters]);
-
-  const realExpectedPaise = realCollectedPaise + realPendingPaise;
-
-  // Use Real Data if present, otherwise mockup baseline
-  const hasRealData = transactions.length > 0 || defaulters.length > 0;
-  const totalExpectedRupees = hasRealData ? Math.round(realExpectedPaise / 100) : 482000;
-  const totalCollectedRupees = hasRealData ? Math.round(realCollectedPaise / 100) : 391000;
-  const totalOutstandingRupees = hasRealData ? Math.round(realPendingPaise / 100) : 91000;
-  const collectionRate =
-    totalExpectedRupees > 0 ? ((totalCollectedRupees / totalExpectedRupees) * 100).toFixed(1) : "81.1";
-  const defaultersCount = hasRealData ? defaulters.length : 42;
-
-  // 12 Months Collection Trend Dataset
+  // 12 Academic Months Collection Trend (April -> March)
   const trendMonths = useMemo(() => {
-    const months = [
-      { key: "04", label: "Apr", expected: 48200, collected: 41200, outstanding: 7000 },
-      { key: "05", label: "May", expected: 48200, collected: 39800, outstanding: 8400 },
-      { key: "06", label: "Jun", expected: 48200, collected: 39100, outstanding: 9100 },
-      { key: "07", label: "Jul", expected: 48200, collected: 36500, outstanding: 11700 },
-      { key: "08", label: "Aug", expected: 48200, collected: 34100, outstanding: 14100 },
-      { key: "09", label: "Sep", expected: 48200, collected: 30000, outstanding: 18200 },
-      { key: "10", label: "Oct", expected: 48200, collected: 28000, outstanding: 20200 },
-      { key: "11", label: "Nov", expected: 48200, collected: 26500, outstanding: 21700 },
-      { key: "12", label: "Dec", expected: 48200, collected: 25000, outstanding: 23200 },
-      { key: "01", label: "Jan", expected: 48200, collected: 24000, outstanding: 24200 },
-      { key: "02", label: "Feb", expected: 48200, collected: 23000, outstanding: 25200 },
-      { key: "03", label: "Mar", expected: 48200, collected: 22800, outstanding: 25400 },
-    ];
-
-    if (!hasRealData) return months;
-
-    // Dynamically bucket real transactions
-    return months.map((m) => {
-      const monthTx = transactions.filter((t) => {
-        const d = t.paymentDate || t.createdAt || "";
-        return d.includes(`-${m.key}-`);
-      });
-      const col = monthTx.reduce((sum, t) => sum + (t.amountPaidPaise || 0), 0) / 100;
-      const exp = Math.round(totalExpectedRupees / 12);
-      const out = Math.max(0, exp - col);
-      return {
-        ...m,
-        expected: exp,
-        collected: col,
-        outstanding: out,
-      };
-    });
-  }, [hasRealData, transactions, totalExpectedRupees]);
-
-  // Class-Wise Collection Table (Middle Column)
-  const classWiseData = useMemo(() => {
-    if (students.length > 0 && availableClasses.length > 0) {
-      return availableClasses.slice(0, 5).map((cls, idx) => {
-        const classStudents = students.filter((s) => s.className === cls);
-        const classTx = transactions.filter((t) => t.className === cls);
-        const col =
-          classTx.reduce((sum, t) => sum + (t.amountPaidPaise || 0), 0) / 100 || (92000 - idx * 11000);
-        const rate = Math.max(65, Math.min(98, 92 - idx * 5));
-        return {
-          className: `${cls}-A`,
-          collectedRupees: col,
-          rate: rate,
-        };
-      });
+    if (dashboardSummary?.collectionTrend && dashboardSummary.collectionTrend.length > 0) {
+      return dashboardSummary.collectionTrend.map((t: any) => ({
+        key: t.periodKey,
+        label: t.monthName.slice(0, 3),
+        fullName: t.monthName,
+        expected: t.expectedRupees,
+        collected: t.collectedRupees,
+        outstanding: t.outstandingRupees,
+        rate: t.collectionRate,
+      }));
     }
-    return [
-      { className: "10-A", collectedRupees: 92000, rate: 92 },
-      { className: "9-A", collectedRupees: 78500, rate: 87 },
-      { className: "8-A", collectedRupees: 65000, rate: 81 },
-      { className: "7-A", collectedRupees: 54500, rate: 76 },
-      { className: "6-A", collectedRupees: 48000, rate: 71 },
+    const defaultLabels = [
+      { key: "04", label: "Apr", fullName: "April 2026" },
+      { key: "05", label: "May", fullName: "May 2026" },
+      { key: "06", label: "Jun", fullName: "June 2026" },
+      { key: "07", label: "Jul", fullName: "July 2026" },
+      { key: "08", label: "Aug", fullName: "August 2026" },
+      { key: "09", label: "Sep", fullName: "September 2026" },
+      { key: "10", label: "Oct", fullName: "October 2026" },
+      { key: "11", label: "Nov", fullName: "November 2026" },
+      { key: "12", label: "Dec", fullName: "December 2026" },
+      { key: "01", label: "Jan", fullName: "January 2027" },
+      { key: "02", label: "Feb", fullName: "February 2027" },
+      { key: "03", label: "Mar", fullName: "March 2027" },
     ];
-  }, [students, availableClasses, transactions]);
+    return defaultLabels.map((m) => ({
+      ...m,
+      expected: 0,
+      collected: 0,
+      outstanding: 0,
+      rate: 0,
+    }));
+  }, [dashboardSummary]);
 
-  // Bottom Collection Summary Table Rows (12 Months)
-  const collectionTableRows = useMemo(() => {
-    const fullMonths = [
-      { month: "April 2026", studentsCount: students.length || 320, expected: 482000, collected: 412000, outstanding: 70000, rate: 85.5, txCount: 280 },
-      { month: "May 2026", studentsCount: students.length || 320, expected: 482000, collected: 398000, outstanding: 84000, rate: 82.6, txCount: 270 },
-      { month: "June 2026", studentsCount: students.length || 320, expected: 482000, collected: 391000, outstanding: 91000, rate: 81.1, txCount: 265 },
-      { month: "July 2026", studentsCount: students.length || 320, expected: 482000, collected: 365000, outstanding: 117000, rate: 75.7, txCount: 240 },
-      { month: "August 2026", studentsCount: students.length || 320, expected: 482000, collected: 341000, outstanding: 141000, rate: 70.7, txCount: 220 },
-      { month: "September 2026", studentsCount: students.length || 320, expected: 482000, collected: 0, outstanding: 482000, rate: 0.0, txCount: 0 },
-      { month: "October 2026", studentsCount: students.length || 320, expected: 482000, collected: 0, outstanding: 482000, rate: 0.0, txCount: 0 },
-      { month: "November 2026", studentsCount: students.length || 320, expected: 482000, collected: 0, outstanding: 482000, rate: 0.0, txCount: 0 },
-      { month: "December 2026", studentsCount: students.length || 320, expected: 482000, collected: 0, outstanding: 482000, rate: 0.0, txCount: 0 },
-      { month: "January 2027", studentsCount: students.length || 320, expected: 482000, collected: 0, outstanding: 482000, rate: 0.0, txCount: 0 },
-      { month: "February 2027", studentsCount: students.length || 320, expected: 482000, collected: 0, outstanding: 482000, rate: 0.0, txCount: 0 },
-      { month: "March 2027", studentsCount: students.length || 320, expected: 482000, collected: 0, outstanding: 482000, rate: 0.0, txCount: 0 },
-    ];
+  // Max value for scaling SVG chart bars safely
+  const maxTrendValue = useMemo(() => {
+    const maxVal = Math.max(
+      ...trendMonths.map((m: any) => Math.max(m.expected || 0, m.collected || 0)),
+      1000
+    );
+    return maxVal;
+  }, [trendMonths]);
 
-    if (!hasRealData) return fullMonths;
+  // Top 5 Class-Wise Collection Table (Middle Column)
+  const classWiseDisplay = useMemo(() => {
+    if (classWiseList.length > 0) {
+      return classWiseList.slice(0, 5);
+    }
+    return [];
+  }, [classWiseList]);
 
-    return fullMonths.map((row, idx) => {
-      const monthNum = String(idx >= 9 ? idx - 8 : idx + 4).padStart(2, "0");
-      const monthTx = transactions.filter((t) => (t.paymentDate || t.createdAt || "").includes(`-${monthNum}-`));
-      const col = monthTx.reduce((sum, t) => sum + (t.amountPaidPaise || 0), 0) / 100;
-      const exp = Math.round(totalExpectedRupees / 12);
-      const out = Math.max(0, exp - col);
-      const r = exp > 0 ? Number(((col / exp) * 100).toFixed(1)) : 0;
-      return {
-        ...row,
-        expected: exp,
-        collected: col,
-        outstanding: out,
-        rate: r,
-        txCount: monthTx.length,
-      };
-    });
-  }, [hasRealData, transactions, students, totalExpectedRupees]);
+  // Paginated Rows for Active Bottom Table
+  const currentTabRows = useMemo(() => {
+    if (activeTab === "collection_summary") return trendMonths;
+    if (activeTab === "due_report") return defaultersList;
+    if (activeTab === "class_wise") return classWiseList;
+    if (activeTab === "payment_mode") return paymentModeList;
+    if (activeTab === "student_wise" || activeTab === "receipt_report") return transactions;
+    return trendMonths;
+  }, [activeTab, trendMonths, defaultersList, classWiseList, paymentModeList, transactions]);
 
-  // Paginated table items
   const paginatedRows = useMemo(() => {
     const start = (page - 1) * pageSize;
-    return collectionTableRows.slice(start, start + pageSize);
-  }, [collectionTableRows, page]);
+    return currentTabRows.slice(start, start + pageSize);
+  }, [currentTabRows, page, pageSize]);
 
-  // Handlers for Exports
-  const handleExportCSV = () => {
-    const headers = ["Month", "Total Students", "Expected Fee", "Collected", "Outstanding", "Collection Rate", "Transactions"];
-    const rows = collectionTableRows.map((r) => [
-      `"${r.month}"`,
-      r.studentsCount,
-      r.expected,
-      r.collected,
-      r.outstanding,
-      `"${r.rate}%"`,
-      r.txCount,
-    ]);
-    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
-    const encoded = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.href = encoded;
-    link.download = `Fee_Report_${schoolName.replace(/\s+/g, "_")}_${Date.now()}.csv`;
-    link.click();
-    toast.success("Detailed fee report exported to Excel / CSV!");
+  // Server-Side Export Handler (Real CSV with Audit Trail)
+  const handleExportCSV = async () => {
+    if (!schoolId) return;
+    setExporting(true);
+    try {
+      const res = await fetch("/api/fees/foundation/analytics/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          schoolId,
+          reportType:
+            activeTab === "due_report"
+              ? "defaulters"
+              : activeTab === "class_wise"
+              ? "class_wise"
+              : activeTab === "payment_mode"
+              ? "fee_head"
+              : "collection_summary",
+          academicYearId: dateRange,
+          className: selectedClass !== "all" ? selectedClass : undefined,
+          sectionName: selectedSection !== "all" ? selectedSection : undefined,
+          format: "csv",
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to export report");
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Fee_${activeTab.toUpperCase()}_Report_${Date.now()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success("Detailed fee report exported successfully!");
+    } catch (err: any) {
+      console.error("Export error:", err);
+      toast.error(err.message || "Failed to export fee report.");
+    } finally {
+      setExporting(false);
+    }
   };
 
   const handlePrintReport = () => {
@@ -383,20 +379,23 @@ export default function AdminFeeReportsPage() {
         </div>
 
         {/* ========================================================
-            3. HORIZONTAL FILTER CONTROL BAR (MOCKUP ROW 3)
+            3. HORIZONTAL FILTER CONTROL BAR
         ======================================================== */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 shadow-sm">
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 items-center">
-            {/* Filter 1: Report Type */}
+            {/* Filter 1: Report View */}
             <div>
-              <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Report Type</label>
+              <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Report View</label>
               <select
-                value={reportType}
-                onChange={(e) => setReportType(e.target.value)}
+                value={activeTab}
+                onChange={(e) => {
+                  setActiveTab(e.target.value as any);
+                  setPage(1);
+                }}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white cursor-pointer focus:ring-2 focus:ring-blue-500"
               >
                 <option value="collection_summary">Collection Summary</option>
-                <option value="due_outstanding">Due/Outstanding Report</option>
+                <option value="due_report">Due/Outstanding Report</option>
                 <option value="class_wise">Class Wise Report</option>
                 <option value="student_wise">Student Wise Report</option>
                 <option value="payment_mode">Payment Mode Report</option>
@@ -404,17 +403,16 @@ export default function AdminFeeReportsPage() {
               </select>
             </div>
 
-            {/* Filter 2: Date Range */}
+            {/* Filter 2: Academic Year / Session */}
             <div>
-              <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Date Range</label>
+              <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Academic Year</label>
               <select
                 value={dateRange}
                 onChange={(e) => setDateRange(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white cursor-pointer focus:ring-2 focus:ring-blue-500"
               >
-                <option value="Apr 2026 - Mar 2027">Apr 2026 – Mar 2027</option>
-                <option value="Apr 2025 - Mar 2026">Apr 2025 – Mar 2026</option>
-                <option value="This Month">Current Month (Sep 2026)</option>
+                <option value="ay_2026_27">2026–2027 (Apr–Mar)</option>
+                <option value="ay_2025_26">2025–2026 (Apr–Mar)</option>
               </select>
             </div>
 
@@ -423,13 +421,16 @@ export default function AdminFeeReportsPage() {
               <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Class</label>
               <select
                 value={selectedClass}
-                onChange={(e) => setSelectedClass(e.target.value)}
+                onChange={(e) => {
+                  setSelectedClass(e.target.value);
+                  setSelectedSection("all");
+                }}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white cursor-pointer focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Classes</option>
-                {availableClasses.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
+                {classes.map((c) => (
+                  <option key={c.id || c.name} value={c.name}>
+                    {c.name}
                   </option>
                 ))}
               </select>
@@ -488,18 +489,19 @@ export default function AdminFeeReportsPage() {
             <div className="col-span-2 sm:col-span-1 pt-3 sm:pt-0">
               <button
                 type="button"
-                onClick={() => toast.success("Fee Report updated for selected parameters!")}
-                className="w-full px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-600/20 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                onClick={loadReportsData}
+                disabled={loading}
+                className="w-full px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-600/20 transition-all cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
               >
-                <Filter className="w-3.5 h-3.5" />
-                <span>Generate Report</span>
+                {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Filter className="w-3.5 h-3.5" />}
+                <span>Refresh Data</span>
               </button>
             </div>
           </div>
         </div>
 
         {/* ========================================================
-            4. 3-COLUMN ANALYTICS GRID (MOCKUP ROW 4)
+            4. 3-COLUMN ANALYTICS GRID
         ======================================================== */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
           {/* Column 1: Fee Collection Trend (6 cols) */}
@@ -507,7 +509,7 @@ export default function AdminFeeReportsPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <BarChart3 className="w-4 h-4 text-emerald-600" />
-                <h3 className="text-sm font-black text-slate-900 dark:text-white">Fee Collection Trend</h3>
+                <h3 className="text-sm font-black text-slate-900 dark:text-white">Academic Collection Trend</h3>
               </div>
 
               <div className="flex items-center gap-3">
@@ -534,46 +536,42 @@ export default function AdminFeeReportsPage() {
               </div>
             </div>
 
-            {/* High-Fidelity SVG Dual-Bar & Spline Chart */}
+            {/* High-Fidelity SVG Dual-Bar Chart */}
             <div className="relative h-48 w-full pt-4">
               {/* Y-Axis Grid Lines */}
               <div className="absolute inset-0 flex flex-col justify-between pointer-events-none text-[10px] text-slate-400 font-mono">
                 <div className="border-b border-dashed border-slate-100 dark:border-slate-800 w-full flex justify-between">
-                  <span>₹1.2L</span>
+                  <span>₹{(maxTrendValue / 1000).toFixed(0)}K</span>
                 </div>
                 <div className="border-b border-dashed border-slate-100 dark:border-slate-800 w-full flex justify-between">
-                  <span>₹90K</span>
+                  <span>₹{((maxTrendValue * 0.66) / 1000).toFixed(0)}K</span>
                 </div>
                 <div className="border-b border-dashed border-slate-100 dark:border-slate-800 w-full flex justify-between">
-                  <span>₹60K</span>
-                </div>
-                <div className="border-b border-dashed border-slate-100 dark:border-slate-800 w-full flex justify-between">
-                  <span>₹30K</span>
+                  <span>₹{((maxTrendValue * 0.33) / 1000).toFixed(0)}K</span>
                 </div>
                 <div className="border-b border-slate-200 dark:border-slate-700 w-full flex justify-between">
                   <span>0</span>
                 </div>
               </div>
 
-              {/* Bars and Line Chart Container */}
+              {/* Dynamic Bars Container */}
               <div className="relative h-full flex items-end justify-between px-6 z-10">
-                {trendMonths.map((m, idx) => {
-                  const maxVal = 120000;
-                  const expHeight = Math.min(100, (m.expected / maxVal) * 100);
-                  const colHeight = Math.min(100, (m.collected / maxVal) * 100);
+                {trendMonths.map((m: any, idx: number) => {
+                  const expHeight = maxTrendValue > 0 ? Math.min(100, (m.expected / maxTrendValue) * 100) : 0;
+                  const colHeight = maxTrendValue > 0 ? Math.min(100, (m.collected / maxTrendValue) * 100) : 0;
                   return (
                     <div key={idx} className="flex flex-col items-center gap-1.5 flex-1 group">
                       <div className="flex items-end gap-1 h-36">
                         {/* Expected Bar (Blue) */}
                         <div
                           className="w-2 sm:w-2.5 bg-blue-500/80 rounded-t-sm transition-all group-hover:bg-blue-600"
-                          style={{ height: `${expHeight}%` }}
+                          style={{ height: `${Math.max(4, expHeight)}%` }}
                           title={`Expected: ₹${m.expected.toLocaleString("en-IN")}`}
                         />
                         {/* Collected Bar (Green) */}
                         <div
                           className="w-2 sm:w-2.5 bg-emerald-500/80 rounded-t-sm transition-all group-hover:bg-emerald-600"
-                          style={{ height: `${colHeight}%` }}
+                          style={{ height: `${Math.max(m.collected > 0 ? 4 : 0, colHeight)}%` }}
                           title={`Collected: ₹${m.collected.toLocaleString("en-IN")}`}
                         />
                       </div>
@@ -583,19 +581,6 @@ export default function AdminFeeReportsPage() {
                     </div>
                   );
                 })}
-
-                {/* Outstanding Red Spline Overlay */}
-                <svg className="absolute inset-0 w-full h-36 pointer-events-none px-6" preserveAspectRatio="none">
-                  <path
-                    d="M 20 90 Q 60 95, 100 100 T 180 110 T 260 115 T 340 120 T 420 125 T 500 125"
-                    fill="none"
-                    stroke="#f43f5e"
-                    strokeWidth="2.5"
-                  />
-                  {[20, 60, 100, 140, 180, 220, 260, 300, 340, 380, 420, 460].map((cx, i) => (
-                    <circle key={i} cx={cx} cy={95 + (i * 2)} r="3" fill="#ffffff" stroke="#f43f5e" strokeWidth="2" />
-                  ))}
-                </svg>
               </div>
             </div>
           </div>
@@ -613,26 +598,39 @@ export default function AdminFeeReportsPage() {
                   <tr>
                     <th className="pb-2">Class</th>
                     <th className="pb-2 text-right">Collected</th>
-                    <th className="pb-2 text-right">Collection Rate</th>
+                    <th className="pb-2 text-right">Rate</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {classWiseData.map((c, idx) => (
-                    <tr key={idx} className="py-2.5">
-                      <td className="py-2.5 font-bold text-slate-900 dark:text-white">{c.className}</td>
-                      <td className="py-2.5 text-right font-black text-slate-700 dark:text-slate-300">
-                        ₹{c.collectedRupees.toLocaleString("en-IN")}
-                      </td>
-                      <td className="py-2.5 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <div className="w-14 bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                            <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${c.rate}%` }} />
+                  {classWiseDisplay.length > 0 ? (
+                    classWiseDisplay.map((c: any, idx: number) => (
+                      <tr key={idx} className="py-2.5">
+                        <td className="py-2.5 font-bold text-slate-900 dark:text-white">{c.className}</td>
+                        <td className="py-2.5 text-right font-black text-slate-700 dark:text-slate-300">
+                          ₹{(c.collectedRupees || 0).toLocaleString("en-IN")}
+                        </td>
+                        <td className="py-2.5 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <div className="w-12 bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                              <div
+                                className="bg-emerald-500 h-1.5 rounded-full"
+                                style={{ width: `${Math.min(100, c.collectionRate || 0)}%` }}
+                              />
+                            </div>
+                            <span className="font-bold text-[11px] text-slate-800 dark:text-white">
+                              {c.collectionRate || 0}%
+                            </span>
                           </div>
-                          <span className="font-bold text-[11px] text-slate-800 dark:text-white">{c.rate}%</span>
-                        </div>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={3} className="py-6 text-center text-slate-400 text-xs">
+                        No class records found.
                       </td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>
@@ -646,18 +644,19 @@ export default function AdminFeeReportsPage() {
             </div>
 
             <div className="space-y-2">
-              {/* Option 1: Excel */}
+              {/* Option 1: Excel / CSV */}
               <button
                 type="button"
                 onClick={handleExportCSV}
-                className="w-full flex items-center gap-3 p-3 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 hover:bg-emerald-50/50 hover:border-emerald-200 transition-all text-left cursor-pointer group"
+                disabled={exporting}
+                className="w-full flex items-center gap-3 p-3 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 hover:bg-emerald-50/50 hover:border-emerald-200 transition-all text-left cursor-pointer group disabled:opacity-50"
               >
                 <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-black">
                   <FileSpreadsheet className="w-4 h-4" />
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-emerald-700">Export to Excel</p>
-                  <p className="text-[10px] text-slate-400">Download detailed data</p>
+                  <p className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-emerald-700">Export to Excel / CSV</p>
+                  <p className="text-[10px] text-slate-400">Filter-aware server download</p>
                 </div>
               </button>
 
@@ -665,7 +664,7 @@ export default function AdminFeeReportsPage() {
               <button
                 type="button"
                 onClick={() => {
-                  toast.success("Preparing PDF formatted fee report...");
+                  toast.success("Preparing printable fee report...");
                   setTimeout(() => window.print(), 500);
                 }}
                 className="w-full flex items-center gap-3 p-3 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 hover:bg-rose-50/50 hover:border-rose-200 transition-all text-left cursor-pointer group"
@@ -675,7 +674,7 @@ export default function AdminFeeReportsPage() {
                 </div>
                 <div>
                   <p className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-rose-700">Export to PDF</p>
-                  <p className="text-[10px] text-slate-400">Formatted report</p>
+                  <p className="text-[10px] text-slate-400">Formatted report preview</p>
                 </div>
               </button>
 
@@ -690,7 +689,7 @@ export default function AdminFeeReportsPage() {
                 </div>
                 <div>
                   <p className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-purple-700">Print Report</p>
-                  <p className="text-[10px] text-slate-400">Print or save as PDF</p>
+                  <p className="text-[10px] text-slate-400">Print current report page</p>
                 </div>
               </button>
 
@@ -698,14 +697,15 @@ export default function AdminFeeReportsPage() {
               <button
                 type="button"
                 onClick={handleExportCSV}
-                className="w-full flex items-center gap-3 p-3 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 hover:bg-blue-50/50 hover:border-blue-200 transition-all text-left cursor-pointer group"
+                disabled={exporting}
+                className="w-full flex items-center gap-3 p-3 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 hover:bg-blue-50/50 hover:border-blue-200 transition-all text-left cursor-pointer group disabled:opacity-50"
               >
                 <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-black">
                   <BarChart3 className="w-4 h-4" />
                 </div>
                 <div>
                   <p className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-blue-700">Custom Export</p>
-                  <p className="text-[10px] text-slate-400">Select fields and export</p>
+                  <p className="text-[10px] text-slate-400">Export with active filters</p>
                 </div>
               </button>
             </div>
@@ -713,7 +713,7 @@ export default function AdminFeeReportsPage() {
         </div>
 
         {/* ========================================================
-            5. REPORT CATEGORY SELECTOR TABS (MOCKUP ROW 5)
+            5. REPORT CATEGORY SELECTOR TABS
         ======================================================== */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {[
@@ -730,7 +730,10 @@ export default function AdminFeeReportsPage() {
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setActiveTab(tab.id as any)}
+                onClick={() => {
+                  setActiveTab(tab.id as any);
+                  setPage(1);
+                }}
                 className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
                   isSelected
                     ? "bg-white dark:bg-slate-900 border-blue-500 shadow-md ring-2 ring-blue-500/20"
@@ -750,7 +753,7 @@ export default function AdminFeeReportsPage() {
         </div>
 
         {/* ========================================================
-            6. BOTTOM SECTION: COLLECTION SUMMARY & SCHEDULED (MOCKUP ROW 6)
+            6. BOTTOM SECTION: DYNAMIC MULTI-TAB TABLE & SIDEBAR
         ======================================================== */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
           {/* Main Table (8 cols) */}
@@ -767,128 +770,325 @@ export default function AdminFeeReportsPage() {
                       ? "Class-Wise Collection Analysis"
                       : activeTab === "payment_mode"
                       ? "Payment Mode Reconciliation Ledger"
+                      : activeTab === "student_wise"
+                      ? "Student Fee Transactions"
+                      : activeTab === "receipt_report"
+                      ? "Generated Receipts Roster"
                       : "Collection Summary"}
                   </h3>
-                  <p className="text-[11px] text-slate-400 font-medium">Month wise fee collection details (Apr 2026 – Mar 2027)</p>
+                  <p className="text-[11px] text-slate-400 font-medium">
+                    {activeTab === "collection_summary"
+                      ? "Month wise fee collection details (Apr 2026 – Mar 2027)"
+                      : "Filtered operational report records"}
+                  </p>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="text-[11px] font-bold text-slate-400">Show:</span>
-                <select
-                  value={trendGranularity}
-                  onChange={(e) => setTrendGranularity(e.target.value as any)}
-                  className="px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
-                >
-                  <option value="monthly">Monthly</option>
-                  <option value="quarterly">Quarterly</option>
-                </select>
-
                 <button
                   type="button"
-                  onClick={() => toast.info("Columns customization")}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
+                  onClick={handleExportCSV}
+                  disabled={exporting}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer disabled:opacity-50"
                 >
-                  <SlidersHorizontal className="w-3 h-3 text-slate-400" />
-                  <span>Columns</span>
+                  <Download className="w-3 h-3 text-slate-400" />
+                  <span>Export</span>
                 </button>
               </div>
             </div>
 
-            {/* Table Body */}
+            {/* Table Body dynamically rendered according to activeTab */}
             <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 font-bold uppercase border-b border-slate-100 dark:border-slate-800 text-[11px]">
-                  <tr>
-                    <th className="py-3 px-4">Month</th>
-                    <th className="py-3 px-3 text-center">Total Students</th>
-                    <th className="py-3 px-3 text-right">Expected Fee</th>
-                    <th className="py-3 px-3 text-right">Collected</th>
-                    <th className="py-3 px-3 text-right">Outstanding</th>
-                    <th className="py-3 px-3 text-right">Collection Rate</th>
-                    <th className="py-3 px-3 text-center">Transactions</th>
-                    <th className="py-3 px-4 text-center">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-                  {paginatedRows.map((row, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
-                      <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">{row.month}</td>
-                      <td className="py-3.5 px-3 text-center text-slate-600 dark:text-slate-300 font-bold">{row.studentsCount}</td>
-                      <td className="py-3.5 px-3 text-right text-slate-700 dark:text-slate-300 font-bold">
-                        ₹{row.expected.toLocaleString("en-IN")}
-                      </td>
-                      <td className="py-3.5 px-3 text-right font-black text-slate-900 dark:text-white">
-                        ₹{row.collected.toLocaleString("en-IN")}
-                      </td>
-                      <td className="py-3.5 px-3 text-right font-black">
-                        {row.outstanding > 0 ? (
-                          <span className="text-rose-600">₹{row.outstanding.toLocaleString("en-IN")}</span>
-                        ) : (
-                          <span className="text-slate-400">₹0</span>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-3 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <span className={`font-bold ${row.rate > 80 ? "text-emerald-600" : row.rate > 0 ? "text-amber-600" : "text-rose-600"}`}>
-                            {row.rate}%
-                          </span>
-                          <div className="w-12 bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                            <div
-                              className={`h-1.5 rounded-full ${row.rate > 80 ? "bg-emerald-500" : row.rate > 0 ? "bg-amber-500" : "bg-rose-500"}`}
-                              style={{ width: `${row.rate}%` }}
-                            />
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-3 text-center font-bold text-slate-700 dark:text-slate-300">{row.txCount}</td>
-                      <td className="py-3.5 px-4 text-center">
-                        <Link
-                          href={`/admin/fees/transactions?month=${encodeURIComponent(row.month)}`}
-                          className="px-3 py-1 rounded-lg bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 font-bold text-[11px] hover:bg-blue-100 transition-colors"
-                        >
-                          View
-                        </Link>
-                      </td>
+              {activeTab === "collection_summary" && (
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 font-bold uppercase border-b border-slate-100 dark:border-slate-800 text-[11px]">
+                    <tr>
+                      <th className="py-3 px-4">Month</th>
+                      <th className="py-3 px-3 text-right">Expected Fee</th>
+                      <th className="py-3 px-3 text-right">Collected</th>
+                      <th className="py-3 px-3 text-right">Outstanding</th>
+                      <th className="py-3 px-3 text-right">Collection Rate</th>
+                      <th className="py-3 px-4 text-center">Action</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                    {paginatedRows.length > 0 ? (
+                      paginatedRows.map((row: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                          <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">{row.fullName || row.label}</td>
+                          <td className="py-3.5 px-3 text-right text-slate-700 dark:text-slate-300 font-bold">
+                            ₹{(row.expected || 0).toLocaleString("en-IN")}
+                          </td>
+                          <td className="py-3.5 px-3 text-right font-black text-slate-900 dark:text-white">
+                            ₹{(row.collected || 0).toLocaleString("en-IN")}
+                          </td>
+                          <td className="py-3.5 px-3 text-right font-black">
+                            {row.outstanding > 0 ? (
+                              <span className="text-rose-600">₹{row.outstanding.toLocaleString("en-IN")}</span>
+                            ) : (
+                              <span className="text-slate-400">₹0</span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-3 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <span className={`font-bold ${row.rate > 80 ? "text-emerald-600" : row.rate > 0 ? "text-amber-600" : "text-rose-600"}`}>
+                                {row.rate}%
+                              </span>
+                              <div className="w-12 bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                                <div
+                                  className={`h-1.5 rounded-full ${row.rate > 80 ? "bg-emerald-500" : row.rate > 0 ? "bg-amber-500" : "bg-rose-500"}`}
+                                  style={{ width: `${Math.min(100, row.rate || 0)}%` }}
+                                />
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <Link
+                              href={`/admin/fees/transactions?month=${encodeURIComponent(row.fullName || "")}`}
+                              className="px-3 py-1 rounded-lg bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 font-bold text-[11px] hover:bg-blue-100 transition-colors"
+                            >
+                              View
+                            </Link>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-slate-400">No collection data found.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              )}
+
+              {activeTab === "due_report" && (
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 font-bold uppercase border-b border-slate-100 dark:border-slate-800 text-[11px]">
+                    <tr>
+                      <th className="py-3 px-4">Student</th>
+                      <th className="py-3 px-3">Class</th>
+                      <th className="py-3 px-3 text-right">Total Due</th>
+                      <th className="py-3 px-3 text-center">Oldest Due Date</th>
+                      <th className="py-3 px-3 text-center">Days Overdue</th>
+                      <th className="py-3 px-3 text-center">Status</th>
+                      <th className="py-3 px-4 text-center">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                    {paginatedRows.length > 0 ? (
+                      paginatedRows.map((row: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                          <td className="py-3.5 px-4">
+                            <div className="font-bold text-slate-900 dark:text-white">{row.studentName}</div>
+                            <div className="text-[10px] text-slate-400 font-mono">{row.admissionNumber}</div>
+                          </td>
+                          <td className="py-3.5 px-3 text-slate-700 dark:text-slate-300 font-bold">
+                            {row.className} {row.sectionName ? `(${row.sectionName})` : ""}
+                          </td>
+                          <td className="py-3.5 px-3 text-right font-black text-rose-600">
+                            ₹{(row.totalOutstandingRupees || 0).toLocaleString("en-IN")}
+                          </td>
+                          <td className="py-3.5 px-3 text-center text-slate-500 font-mono text-[11px]">
+                            {row.oldestDueDate?.slice(0, 10) || "—"}
+                          </td>
+                          <td className="py-3.5 px-3 text-center font-bold text-rose-600">{row.daysOverdue}d</td>
+                          <td className="py-3.5 px-3 text-center">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                              row.status === "CRITICAL" ? "bg-rose-100 text-rose-700" :
+                              row.status === "OVERDUE" ? "bg-amber-100 text-amber-700" :
+                              "bg-blue-100 text-blue-700"
+                            }`}>
+                              {row.status}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <Link
+                              href={`/admin/fees/defaulters?studentId=${row.studentId}`}
+                              className="px-3 py-1 rounded-lg bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 font-bold text-[11px] hover:bg-rose-100 transition-colors"
+                            >
+                              Remind
+                            </Link>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={7} className="py-8 text-center text-slate-400">No overdue defaulters found.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              )}
+
+              {activeTab === "class_wise" && (
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 font-bold uppercase border-b border-slate-100 dark:border-slate-800 text-[11px]">
+                    <tr>
+                      <th className="py-3 px-4">Class</th>
+                      <th className="py-3 px-3 text-center">Total Students</th>
+                      <th className="py-3 px-3 text-right">Expected</th>
+                      <th className="py-3 px-3 text-right">Collected</th>
+                      <th className="py-3 px-3 text-right">Outstanding</th>
+                      <th className="py-3 px-3 text-right">Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                    {paginatedRows.length > 0 ? (
+                      paginatedRows.map((row: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                          <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">{row.className}</td>
+                          <td className="py-3.5 px-3 text-center text-slate-600 dark:text-slate-300 font-bold">{row.studentCount}</td>
+                          <td className="py-3.5 px-3 text-right font-bold text-slate-700 dark:text-slate-300">
+                            ₹{(row.expectedRupees || 0).toLocaleString("en-IN")}
+                          </td>
+                          <td className="py-3.5 px-3 text-right font-black text-slate-900 dark:text-white">
+                            ₹{(row.collectedRupees || 0).toLocaleString("en-IN")}
+                          </td>
+                          <td className="py-3.5 px-3 text-right font-black text-rose-600">
+                            ₹{(row.outstandingRupees || 0).toLocaleString("en-IN")}
+                          </td>
+                          <td className="py-3.5 px-3 text-right font-bold text-emerald-600">{row.collectionRate}%</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-slate-400">No class records found.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              )}
+
+              {activeTab === "payment_mode" && (
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 font-bold uppercase border-b border-slate-100 dark:border-slate-800 text-[11px]">
+                    <tr>
+                      <th className="py-3 px-4">Payment Method</th>
+                      <th className="py-3 px-3 text-center">Transactions</th>
+                      <th className="py-3 px-3 text-right">Total Collected</th>
+                      <th className="py-3 px-3 text-right">Refunded</th>
+                      <th className="py-3 px-3 text-right">Net Amount</th>
+                      <th className="py-3 px-3 text-right">Share</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                    {paginatedRows.length > 0 ? (
+                      paginatedRows.map((row: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                          <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">{row.method}</td>
+                          <td className="py-3.5 px-3 text-center text-slate-600 dark:text-slate-300 font-bold">{row.count}</td>
+                          <td className="py-3.5 px-3 text-right font-black text-slate-900 dark:text-white">
+                            ₹{(row.amountRupees || 0).toLocaleString("en-IN")}
+                          </td>
+                          <td className="py-3.5 px-3 text-right font-bold text-rose-600">
+                            ₹{(row.refundedRupees || 0).toLocaleString("en-IN")}
+                          </td>
+                          <td className="py-3.5 px-3 text-right font-black text-emerald-600">
+                            ₹{(row.netRupees || row.amountRupees || 0).toLocaleString("en-IN")}
+                          </td>
+                          <td className="py-3.5 px-3 text-right font-bold text-slate-600 dark:text-slate-300">
+                            {row.percentage}%
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-slate-400">No payment records found.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              )}
+
+              {(activeTab === "student_wise" || activeTab === "receipt_report") && (
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 font-bold uppercase border-b border-slate-100 dark:border-slate-800 text-[11px]">
+                    <tr>
+                      <th className="py-3 px-4">Receipt No</th>
+                      <th className="py-3 px-3">Student</th>
+                      <th className="py-3 px-3">Class</th>
+                      <th className="py-3 px-3 text-right">Amount</th>
+                      <th className="py-3 px-3 text-center">Mode</th>
+                      <th className="py-3 px-3 text-center">Date</th>
+                      <th className="py-3 px-3 text-center">Status</th>
+                      <th className="py-3 px-4 text-center">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                    {paginatedRows.length > 0 ? (
+                      paginatedRows.map((tx: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                          <td className="py-3.5 px-4 font-mono font-bold text-blue-600">{tx.receiptNumber || `REC-${tx.id.slice(0, 6)}`}</td>
+                          <td className="py-3.5 px-3 font-bold text-slate-900 dark:text-white">{tx.studentName}</td>
+                          <td className="py-3.5 px-3 text-slate-600 dark:text-slate-300 font-bold">{tx.className}</td>
+                          <td className="py-3.5 px-3 text-right font-black text-slate-900 dark:text-white">
+                            ₹{((tx.amountPaidPaise || tx.netAmountPaise || tx.amountPaise || 0) / 100).toLocaleString("en-IN")}
+                          </td>
+                          <td className="py-3.5 px-3 text-center font-bold text-slate-700 dark:text-slate-300">{tx.paymentMethod || "UPI"}</td>
+                          <td className="py-3.5 px-3 text-center text-slate-500 font-mono text-[11px]">
+                            {(tx.paymentDate || tx.createdAt || "").slice(0, 10)}
+                          </td>
+                          <td className="py-3.5 px-3 text-center">
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-black">
+                              {tx.status || "SUCCESS"}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <button
+                              type="button"
+                              onClick={() => setReceiptModalPayment(tx)}
+                              className="px-3 py-1 rounded-lg bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 font-bold text-[11px] hover:bg-blue-100 transition-colors cursor-pointer"
+                            >
+                              Receipt
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={8} className="py-8 text-center text-slate-400">No transactions found.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              )}
             </div>
 
             {/* Pagination Footer */}
             <div className="p-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
               <span>
-                Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, collectionTableRows.length)} of {collectionTableRows.length} months
+                Showing {currentTabRows.length > 0 ? (page - 1) * pageSize + 1 : 0}–{Math.min(page * pageSize, currentTabRows.length)} of {currentTabRows.length} records
               </span>
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   disabled={page === 1}
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 disabled:opacity-40 hover:bg-slate-50 font-bold"
+                  className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 disabled:opacity-40 hover:bg-slate-50 font-bold cursor-pointer"
                 >
                   &lt;
                 </button>
                 <button
                   type="button"
                   onClick={() => setPage(1)}
-                  className={`px-3 py-1 rounded-lg font-bold ${page === 1 ? "bg-blue-600 text-white" : "border border-slate-200 dark:border-slate-800 hover:bg-slate-50"}`}
+                  className={`px-3 py-1 rounded-lg font-bold ${page === 1 ? "bg-blue-600 text-white" : "border border-slate-200 dark:border-slate-800 hover:bg-slate-50"} cursor-pointer`}
                 >
                   1
                 </button>
+                {Math.ceil(currentTabRows.length / pageSize) > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setPage(2)}
+                    className={`px-3 py-1 rounded-lg font-bold ${page === 2 ? "bg-blue-600 text-white" : "border border-slate-200 dark:border-slate-800 hover:bg-slate-50"} cursor-pointer`}
+                  >
+                    2
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => setPage(2)}
-                  className={`px-3 py-1 rounded-lg font-bold ${page === 2 ? "bg-blue-600 text-white" : "border border-slate-200 dark:border-slate-800 hover:bg-slate-50"}`}
-                >
-                  2
-                </button>
-                <button
-                  type="button"
-                  disabled={page === 2}
-                  onClick={() => setPage((p) => Math.min(2, p + 1))}
-                  className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 disabled:opacity-40 hover:bg-slate-50 font-bold"
+                  disabled={page * pageSize >= currentTabRows.length}
+                  onClick={() => setPage((p) => p + 1)}
+                  className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 disabled:opacity-40 hover:bg-slate-50 font-bold cursor-pointer"
                 >
                   &gt;
                 </button>
@@ -952,24 +1152,28 @@ export default function AdminFeeReportsPage() {
               </div>
             </div>
 
-            {/* Report Insights Box */}
+            {/* Report Insights Box (Real metrics) */}
             <div className="bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 rounded-3xl p-5 shadow-sm space-y-2.5">
               <div className="flex items-center gap-2 text-amber-900 dark:text-amber-300 font-black text-sm">
                 <Lightbulb className="w-4 h-4 text-amber-500" />
-                <span>Report Insights</span>
+                <span>Authoritative Insights</span>
               </div>
               <ul className="space-y-2 text-xs text-amber-900/80 dark:text-amber-200/80 font-medium">
                 <li className="flex items-start gap-2">
                   <span className="text-amber-500 font-black">•</span>
-                  <span>Collection is 12.4% higher than last year.</span>
+                  <span>Collection rate is currently at {collectionRate}% of total demand.</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-amber-500 font-black">•</span>
-                  <span>{defaultersCount} students are currently due across classes.</span>
+                  <span>{defaultersCount} students have outstanding overdue balances.</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-amber-500 font-black">•</span>
-                  <span>Class 10-A has the highest collection rate ({classWiseData[0]?.rate || 92}%).</span>
+                  <span>
+                    {classWiseList[0]
+                      ? `Class ${classWiseList[0].className} leads collections at ${classWiseList[0].collectionRate}%.`
+                      : "Class collections will populate as payments are recorded."}
+                  </span>
                 </li>
               </ul>
             </div>

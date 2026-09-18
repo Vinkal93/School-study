@@ -290,19 +290,32 @@ export function resolveEffectiveFeatureAccess({
     const candidateKeys = new Set<string>([
       featureKey,
       canonical,
-      moduleKey,
       stateId,
       def?.id || "",
       def?.key || "",
-      def?.moduleKey || "",
     ]);
+
+    // Check if the plan specifies granular subpage controls for this module
+    const hasGranularPlanKeys = planAllowedFeatures.some(
+      (k) =>
+        k !== moduleKey &&
+        k !== "fee_management" &&
+        (k.startsWith(`${moduleKey}_`) ||
+          k.startsWith(`${moduleKey}.`) ||
+          (moduleKey === "fees" && k.startsWith("fee_")))
+    );
+
+    if (!hasGranularPlanKeys) {
+      candidateKeys.add(moduleKey);
+      if (def?.moduleKey) candidateKeys.add(def.moduleKey);
+      const modAliases = FEATURE_KEY_ALIASES[moduleKey] || [];
+      modAliases.forEach((a) => candidateKeys.add(a));
+    }
 
     const featAliases = FEATURE_KEY_ALIASES[featureKey] || [];
     featAliases.forEach((a) => candidateKeys.add(a));
     const canAliases = FEATURE_KEY_ALIASES[canonical] || [];
     canAliases.forEach((a) => candidateKeys.add(a));
-    const modAliases = FEATURE_KEY_ALIASES[moduleKey] || [];
-    modAliases.forEach((a) => candidateKeys.add(a));
 
     const isPermitted = Array.from(candidateKeys).some(
       (k) => k && planAllowedFeatures.includes(k)

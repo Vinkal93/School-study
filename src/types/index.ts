@@ -66,3 +66,4 @@ export * from "./rules";
 export * from "./backup";
 export * from "./timetable";
 export * from "./notification";
+export * from "./fee-foundation";

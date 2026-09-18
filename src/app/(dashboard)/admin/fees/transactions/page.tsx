@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
 import { FeeReceiptModal } from "@/components/fees/FeeReceiptModal";
-import { ShareFeeModal } from "@/components/fees/ShareFeeModal";
+import { getClassesWithSections } from "@/lib/services/academic.service";
+import { formatINR, paiseToRupees } from "@/lib/services/fee-foundation.service";
 import {
   Search,
   Printer,
@@ -20,7 +21,6 @@ import {
   Download,
   X,
   Send,
-  MessageSquare,
   RotateCcw,
   ExternalLink,
   ChevronLeft,
@@ -30,10 +30,15 @@ import {
   Building2,
   QrCode,
   ArrowUpRight,
+  AlertTriangle,
+  Receipt,
+  Eye,
+  Undo2,
+  ArrowDownLeft,
+  Filter,
 } from "lucide-react";
-import type { FeePayment, SchoolClass } from "@/types";
-import { getFeeTransactions } from "@/lib/services/fee.service";
-import { getClassesWithSections } from "@/lib/services/academic.service";
+import type { SchoolClass, FeePayment } from "@/types";
+import type { FinancialPayment, PaymentMethod, PaymentAllocation, FinancialRefund, PaymentReversal } from "@/types/fee-foundation";
 import { toast } from "sonner";
 
 export default function AdminFeeTransactionsPage() {
@@ -41,620 +46,619 @@ export default function AdminFeeTransactionsPage() {
   const schoolId = profile?.schoolId || "";
   const schoolName = (profile as any)?.schoolName || "Lord Buddha Public School";
 
-  const [transactions, setTransactions] = useState<FeePayment[]>([]);
+  const [payments, setPayments] = useState<FinancialPayment[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Filters
+  // Filters state
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedMonth, setSelectedMonth] = useState("Sep 2026");
   const [selectedClass, setSelectedClass] = useState("all");
-  const [selectedSection, setSelectedSection] = useState("all");
-  const [selectedMode, setSelectedMode] = useState("all");
+  const [selectedMethod, setSelectedMethod] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("all");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
-  // Selection and Details Drawer
-  const [selectedTx, setSelectedTx] = useState<any | null>(null);
-  const [showReceiptModal, setShowReceiptModal] = useState(false);
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [selectedRows, setSelectedRows] = useState<string[]>([]);
+  // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 15;
 
-  const fetchTransactions = async () => {
+  // Selected Transaction for Detail Modal
+  const [detailModalPayment, setDetailModalPayment] = useState<FinancialPayment | null>(null);
+  const [paymentDetailData, setPaymentDetailData] = useState<{
+    payment: FinancialPayment;
+    allocations: PaymentAllocation[];
+    refunds: FinancialRefund[];
+    reversal: PaymentReversal | null;
+  } | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
+  // Receipt Modal state
+  const [receiptPayment, setReceiptPayment] = useState<FeePayment | null>(null);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+
+  // Refund Modal state
+  const [refundPayment, setRefundPayment] = useState<FinancialPayment | null>(null);
+  const [refundAmountRupees, setRefundAmountRupees] = useState("");
+  const [refundReason, setRefundReason] = useState("");
+  const [refundMethod, setRefundMethod] = useState<PaymentMethod>("CASH");
+  const [refundSubmitting, setRefundSubmitting] = useState(false);
+
+  // Reversal Modal state
+  const [reversalPayment, setReversalPayment] = useState<FinancialPayment | null>(null);
+  const [reversalReason, setReversalReason] = useState("");
+  const [reversalSubmitting, setReversalSubmitting] = useState(false);
+
+  // Fetch transactions list
+  const fetchPayments = async () => {
     if (!schoolId) return;
     setLoading(true);
     try {
-      const [data, clsList] = await Promise.all([
-        getFeeTransactions(schoolId),
+      const params = new URLSearchParams({ schoolId });
+      if (selectedClass !== "all") params.set("className", selectedClass);
+      if (selectedMethod !== "all") params.set("paymentMethod", selectedMethod);
+      if (selectedStatus !== "all") params.set("status", selectedStatus);
+      if (startDate) params.set("startDate", startDate);
+      if (endDate) params.set("endDate", endDate);
+      if (searchQuery.trim()) params.set("search", searchQuery.trim());
+
+      const [res, clsList] = await Promise.all([
+        fetch(`/api/fees/foundation/payments?${params.toString()}`),
         getClassesWithSections(schoolId),
       ]);
-      setTransactions(data);
+
+      if (!res.ok) throw new Error("Failed to load financial payments");
+      const json = await res.json();
+      setPayments(json.payments || []);
       setClasses(clsList);
-    } catch (err) {
-      toast.error("Failed to load transactions ledger.");
+    } catch (err: any) {
+      console.error("fetchPayments error:", err);
+      toast.error(err.message || "Failed to load transactions.");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchTransactions();
-  }, [schoolId]);
+    fetchPayments();
+  }, [schoolId, selectedClass, selectedMethod, selectedStatus, startDate, endDate]);
 
-  // Map strictly real transactions from Firestore
-  const displayTransactions = useMemo(() => {
-    return transactions.map((t, idx) => ({
-      id: t.id,
-      receiptNumber: t.receiptNumber || `#RCPT${String(idx + 1).padStart(3, "0")}`,
-      studentId: t.studentId,
-      studentName: t.studentName || "-",
-      admissionNumber: t.admissionNumber || `STU${idx + 1}`,
-      className: t.className || "-",
-      sectionName: t.sectionName || "A",
-      month: t.academicYearId || "2026-2027",
-      amountPaidPaise: t.amountPaidPaise || t.netAmountPaise || 0,
-      paymentMethod: t.paymentMethod || "UPI",
-      referenceNo: (t as any).referenceNumber || (t as any).referenceNo || (t as any).transactionRef || "-",
-      status: t.status === "FAILED" ? "Failed" : "Success",
-      paymentDate: t.paymentDate ? new Date(t.paymentDate).toLocaleDateString("en-IN") : "-",
-      time: t.createdAt ? new Date(t.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "-",
-      feeHeads: Array.isArray(t.periodMonths) && t.periodMonths.length > 0 ? t.periodMonths.join(", ") : `${t.feeType || "Tuition"} Fee`,
-      receivedBy: (t as any).collectedByName || t.collectedBy || "Admin",
-      notes: (t as any).remarks || (t as any).notes || "-",
-      phone: (t as any).phone || "",
-      raw: t,
-    }));
-  }, [transactions]);
+  // Handle Search Input (debounce / button)
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    fetchPayments();
+  };
 
-  // Real KPI Computations
-  const totalCollectedPaise = useMemo(() => {
-    return transactions.reduce(
-      (sum, t) => sum + (t.status === "SUCCESS" ? (t.amountPaidPaise || 0) : 0),
-      0
-    );
-  }, [transactions]);
+  // KPI Calculations from Payments
+  const kpiStats = useMemo(() => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const thisMonthPrefix = new Date().toISOString().slice(0, 7);
 
-  const cashCollectedPaise = useMemo(() => {
-    return transactions
-      .filter(
-        (t) =>
-          (t.paymentMethod || "").toLowerCase().includes("cash") &&
-          t.status === "SUCCESS"
-      )
-      .reduce((sum, t) => sum + (t.amountPaidPaise || 0), 0);
-  }, [transactions]);
+    let todayPaise = 0;
+    let thisMonthPaise = 0;
+    let totalRefundedPaise = 0;
+    let successfulCount = 0;
 
-  const upiCollectedPaise = useMemo(() => {
-    return transactions
-      .filter(
-        (t) =>
-          (t.paymentMethod || "").toLowerCase().includes("upi") &&
-          t.status === "SUCCESS"
-      )
-      .reduce((sum, t) => sum + (t.amountPaidPaise || 0), 0);
-  }, [transactions]);
+    for (const p of payments) {
+      const dateStr = (p.paymentDate || p.createdAt || "").slice(0, 10);
+      const isSuccess = p.status === "SUCCESS" || p.status === "PARTIALLY_REFUNDED";
 
-  const bankCollectedPaise = useMemo(() => {
-    return transactions
-      .filter((t) => {
-        const m = (t.paymentMethod || "").toLowerCase();
-        return (
-          (m.includes("bank") ||
-            m.includes("transfer") ||
-            m.includes("neft") ||
-            m.includes("rtgs") ||
-            m.includes("cheque")) &&
-          t.status === "SUCCESS"
-        );
-      })
-      .reduce((sum, t) => sum + (t.amountPaidPaise || 0), 0);
-  }, [transactions]);
-
-  const otherCollectedPaise = useMemo(() => {
-    return Math.max(
-      0,
-      totalCollectedPaise - (cashCollectedPaise + upiCollectedPaise + bankCollectedPaise)
-    );
-  }, [totalCollectedPaise, cashCollectedPaise, upiCollectedPaise, bankCollectedPaise]);
-
-  // Set default selected transaction on load
-  useEffect(() => {
-    if (!selectedTx && displayTransactions.length > 0) {
-      setSelectedTx(displayTransactions[0]);
+      if (isSuccess) {
+        if (dateStr === todayStr) todayPaise += p.amountPaise;
+        if (dateStr.startsWith(thisMonthPrefix)) thisMonthPaise += p.amountPaise;
+        successfulCount++;
+      }
+      totalRefundedPaise += p.refundedAmountPaise || 0;
     }
-  }, [displayTransactions, selectedTx]);
 
-  // Filtered transactions
-  const filtered = useMemo(() => {
-    return displayTransactions.filter((t) => {
-      const q = searchQuery.toLowerCase();
-      const matchQuery =
-        !q ||
-        t.receiptNumber.toLowerCase().includes(q) ||
-        t.studentName.toLowerCase().includes(q) ||
-        t.admissionNumber.toLowerCase().includes(q) ||
-        t.referenceNo.toLowerCase().includes(q);
+    return {
+      todayRupees: paiseToRupees(todayPaise),
+      thisMonthRupees: paiseToRupees(thisMonthPaise),
+      totalRefundedRupees: paiseToRupees(totalRefundedPaise),
+      successfulCount,
+    };
+  }, [payments]);
 
-      const matchClass =
-        selectedClass === "all" || t.className.toLowerCase().includes(selectedClass.toLowerCase());
+  // Pagination slice
+  const paginatedPayments = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return payments.slice(start, start + pageSize);
+  }, [payments, currentPage]);
 
-      const matchMode =
-        selectedMode === "all" || t.paymentMethod.toLowerCase() === selectedMode.toLowerCase();
+  const totalPages = Math.ceil(payments.length / pageSize) || 1;
 
-      const matchStatus =
-        selectedStatus === "all" || t.status.toLowerCase() === selectedStatus.toLowerCase();
-
-      return matchQuery && matchClass && matchMode && matchStatus;
-    });
-  }, [displayTransactions, searchQuery, selectedClass, selectedMode, selectedStatus]);
-
-  const fmtRupees = (paise: number) =>
-    "₹" +
-    (paise / 100).toLocaleString("en-IN", {
-      maximumFractionDigits: 0,
-    });
-
-  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.checked) {
-      setSelectedRows(filtered.map((t) => t.id));
-    } else {
-      setSelectedRows([]);
+  // Open Detail Drawer
+  const openDetailModal = async (payment: FinancialPayment) => {
+    setDetailModalPayment(payment);
+    setLoadingDetail(true);
+    setPaymentDetailData(null);
+    try {
+      const res = await fetch(
+        `/api/fees/foundation/payments/${payment.id}?schoolId=${encodeURIComponent(schoolId)}`
+      );
+      if (!res.ok) throw new Error("Failed to load payment detail");
+      const json = await res.json();
+      setPaymentDetailData(json.data);
+    } catch (err: any) {
+      console.error("openDetailModal error:", err);
+      toast.error(err.message || "Failed to load transaction details");
+    } finally {
+      setLoadingDetail(false);
     }
   };
 
-  const handleToggleRow = (id: string) => {
-    setSelectedRows((prev) =>
-      prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]
-    );
+  // Open Receipt Modal
+  const openReceiptModal = (payment: FinancialPayment) => {
+    const receiptData: FeePayment = {
+      id: payment.id,
+      schoolId: payment.schoolId,
+      receiptNumber: payment.receiptNumber,
+      studentId: payment.studentId,
+      studentName: payment.studentName,
+      admissionNumber: payment.admissionNumber,
+      className: payment.className,
+      sectionName: payment.sectionName,
+      academicYearId: payment.academicYearId,
+      feeType: "tuition",
+      periodMonths: payment.periodMonths || [],
+      amountPaidPaise: payment.amountPaise,
+      discountPaise: 0,
+      lateFeePaise: 0,
+      netAmountPaise: payment.amountPaise,
+      paymentMethod: (payment.paymentMethod === "CASH"
+        ? "Cash"
+        : payment.paymentMethod === "UPI"
+        ? "UPI"
+        : payment.paymentMethod === "BANK_TRANSFER"
+        ? "Bank Transfer"
+        : payment.paymentMethod === "CHEQUE"
+        ? "Cheque"
+        : payment.paymentMethod === "CARD"
+        ? "Card"
+        : "Other") as any,
+      transactionRef: payment.referenceNumber,
+      remarks: payment.remarks,
+      paymentDate: payment.paymentDate,
+      collectedBy: payment.collectedBy,
+      collectedByName: payment.collectedByName,
+      status: payment.status === "REFUNDED" ? "REFUNDED" : "SUCCESS",
+      remainingDuePaise: payment.remainingDuePaise,
+      createdAt: payment.createdAt,
+    };
+    setReceiptPayment(receiptData);
+    setShowReceiptModal(true);
   };
 
-  const handleExportCSV = () => {
-    const csvContent =
-      "data:text/csv;charset=utf-8," +
-      [
-        "Receipt,Date,Student,Admission No,Class,Amount,Payment Method,Reference,Status",
-        ...filtered.map(
-          (t) =>
-            `"${t.receiptNumber}","${t.paymentDate} ${t.time}","${t.studentName}","${t.admissionNumber}","${t.className}","${t.amountPaidPaise / 100}","${t.paymentMethod}","${t.referenceNo}","${t.status}"`
-        ),
-      ].join("\n");
-    const encoded = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.href = encoded;
-    link.download = `Fee_Transactions_${selectedMonth.replace(/\s+/g, "_")}.csv`;
-    link.click();
-    toast.success("Transactions exported to CSV!");
+  // Open Refund Modal
+  const openRefundModal = (payment: FinancialPayment) => {
+    const availablePaise = payment.amountPaise - (payment.refundedAmountPaise || 0);
+    const availableRupees = paiseToRupees(availablePaise);
+    setRefundPayment(payment);
+    setRefundAmountRupees(String(availableRupees));
+    setRefundReason("");
+    setRefundMethod(payment.paymentMethod || "CASH");
   };
 
-  const handleSendWhatsApp = (tx: any) => {
-    const phone = tx.phone || "9876543210";
-    const clean = phone.replace(/[^0-9]/g, "");
-    const waPhone = clean.length === 10 ? `91${clean}` : clean;
-    const msg = `Dear Parent,\nReceipt ${tx.receiptNumber} confirmed for ${tx.studentName} (${tx.className}).\nAmount: ${fmtRupees(tx.amountPaidPaise)} via ${tx.paymentMethod}.\nDate: ${tx.paymentDate}.\nThank you.\n- ${schoolName}`;
-    window.open(`https://wa.me/${waPhone}?text=${encodeURIComponent(msg)}`, "_blank");
+  // Process Refund Submit
+  const handleRefundSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!refundPayment || !schoolId) return;
+
+    const amt = Number(refundAmountRupees);
+    if (isNaN(amt) || amt <= 0) {
+      toast.error("Please enter a valid refund amount.");
+      return;
+    }
+    if (!refundReason.trim()) {
+      toast.error("Please provide a reason for the refund.");
+      return;
+    }
+
+    setRefundSubmitting(true);
+    try {
+      const res = await fetch("/api/fees/foundation/refunds", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          schoolId,
+          paymentId: refundPayment.id,
+          amountRupees: amt,
+          reason: refundReason.trim(),
+          refundMethod,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Refund processing failed");
+
+      toast.success(`Refund processed! Receipt #${json.refundReceiptNumber}`);
+      setRefundPayment(null);
+      fetchPayments();
+    } catch (err: any) {
+      console.error("Refund error:", err);
+      toast.error(err.message || "Failed to process refund.");
+    } finally {
+      setRefundSubmitting(false);
+    }
+  };
+
+  // Open Reversal Modal
+  const openReversalModal = (payment: FinancialPayment) => {
+    setReversalPayment(payment);
+    setReversalReason("");
+  };
+
+  // Process Reversal Submit
+  const handleReversalSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reversalPayment || !schoolId) return;
+
+    if (!reversalReason.trim()) {
+      toast.error("Please provide a reason for reversing this payment.");
+      return;
+    }
+
+    setReversalSubmitting(true);
+    try {
+      const res = await fetch("/api/fees/foundation/reversals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          schoolId,
+          paymentId: reversalPayment.id,
+          reason: reversalReason.trim(),
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Payment reversal failed");
+
+      toast.success(`Payment #${reversalPayment.receiptNumber} reversed successfully.`);
+      setReversalPayment(null);
+      fetchPayments();
+    } catch (err: any) {
+      console.error("Reversal error:", err);
+      toast.error(err.message || "Failed to reverse payment.");
+    } finally {
+      setReversalSubmitting(false);
+    }
   };
 
   return (
-    <EntitlementGate
-      feature="fee_transactions"
-      title="Fee Transactions"
-      description="View, search and manage all fee transactions, payments and adjustments."
-      requiredPlan="Professional Plan"
-    >
-      <div className="space-y-6 pb-12">
-        {/* ========================================================
-            PAGE HEADER
-        ======================================================== */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-purple-600 flex items-center justify-center text-white shadow-md shadow-purple-500/20">
-              <Calendar className="w-6 h-6" />
+    <EntitlementGate feature="fee_transactions" title="Fee Transactions" requiredPlan="Professional Plan">
+      <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <CreditCard className="w-6 h-6 text-emerald-600" />
+              Fee Transactions Ledger
+            </h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+              Authoritative transaction audit logs, payment allocations, instant receipt reprints, and refunds.
+            </p>
+          </div>
+          <Link
+            href="/admin/fees/collect"
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm rounded-lg shadow-sm hover:shadow transition-all self-start sm:self-auto"
+          >
+            <Plus className="w-4 h-4" />
+            Collect Fee
+          </Link>
+        </div>
+
+        {/* Metric Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+              Collected Today
             </div>
+            <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">
+              {formatINR(kpiStats.todayRupees, false)}
+            </div>
+            <div className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">
+              Live synchronized
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+              Collected This Month
+            </div>
+            <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">
+              {formatINR(kpiStats.thisMonthRupees, false)}
+            </div>
+            <div className="text-xs text-slate-500 mt-1">
+              {kpiStats.successfulCount} success transactions
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+              Total Refunds
+            </div>
+            <div className="text-2xl font-bold text-amber-600 dark:text-amber-400 mt-1">
+              {formatINR(kpiStats.totalRefundedRupees, false)}
+            </div>
+            <div className="text-xs text-slate-500 mt-1">
+              Controlled audit refunds
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+              Total Ledger Records
+            </div>
+            <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">
+              {payments.length}
+            </div>
+            <div className="text-xs text-slate-500 mt-1">
+              Historical immutable records
+            </div>
+          </div>
+        </div>
+
+        {/* Search & Filter Bar */}
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+          <form onSubmit={handleSearchSubmit} className="flex flex-col md:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search by Receipt Number, Student Name, Admission No, Reference..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="px-4 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-semibold text-sm rounded-lg hover:bg-slate-800 transition-colors"
+            >
+              Search
+            </button>
+          </form>
+
+          {/* Filters Row */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+            {/* Class Filter */}
             <div>
-              <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">
-                Fee Transactions
-              </h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                View, search and manage all fee transactions, payments and adjustments.
-              </p>
+              <label className="block text-slate-500 dark:text-slate-400 mb-1">Class</label>
+              <select
+                value={selectedClass}
+                onChange={(e) => setSelectedClass(e.target.value)}
+                className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-slate-800 dark:text-slate-200"
+              >
+                <option value="all">All Classes</option>
+                {classes.map((c) => (
+                  <option key={c.id} value={c.name}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
             </div>
-          </div>
 
-          <div className="flex items-center gap-2.5">
-            {/* Export Dropdown */}
-            <button
-              type="button"
-              onClick={handleExportCSV}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-sm transition-all cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5 text-slate-500" />
-              <span>Export</span>
-              <ChevronDown className="w-3 h-3 text-slate-400" />
-            </button>
+            {/* Payment Method Filter */}
+            <div>
+              <label className="block text-slate-500 dark:text-slate-400 mb-1">Payment Mode</label>
+              <select
+                value={selectedMethod}
+                onChange={(e) => setSelectedMethod(e.target.value)}
+                className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-slate-800 dark:text-slate-200"
+              >
+                <option value="all">All Modes</option>
+                <option value="CASH">Cash</option>
+                <option value="UPI">UPI</option>
+                <option value="BANK_TRANSFER">Bank Transfer</option>
+                <option value="CHEQUE">Cheque</option>
+                <option value="CARD">Card</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </div>
 
-            {/* Print Button */}
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-sm transition-all cursor-pointer"
-            >
-              <Printer className="w-3.5 h-3.5 text-slate-500" />
-              <span>Print</span>
-            </button>
+            {/* Status Filter */}
+            <div>
+              <label className="block text-slate-500 dark:text-slate-400 mb-1">Status</label>
+              <select
+                value={selectedStatus}
+                onChange={(e) => setSelectedStatus(e.target.value)}
+                className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-slate-800 dark:text-slate-200"
+              >
+                <option value="all">All Statuses</option>
+                <option value="SUCCESS">Success</option>
+                <option value="PARTIALLY_REFUNDED">Partially Refunded</option>
+                <option value="REFUNDED">Fully Refunded</option>
+                <option value="REVERSED">Reversed</option>
+              </select>
+            </div>
 
-            {/* + Record Payment Button */}
-            <Link
-              href="/admin/fees/collect"
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold shadow-md shadow-blue-600/30 transition-all cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Record Payment</span>
-            </Link>
+            {/* Reset Filters */}
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery("");
+                  setSelectedClass("all");
+                  setSelectedMethod("all");
+                  setSelectedStatus("all");
+                  setStartDate("");
+                  setEndDate("");
+                }}
+                className="w-full py-1.5 px-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-300 font-medium rounded-md transition-colors text-center"
+              >
+                Reset Filters
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* ========================================================
-            TOP 6 KPI METRICS
-        ======================================================== */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
-          {/* Total Collected */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-            <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center mb-2">
-              <Wallet className="w-4 h-4" />
+        {/* Transactions Table */}
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+          {loading ? (
+            <div className="p-16 flex flex-col items-center justify-center gap-3 text-slate-400">
+              <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+              <span className="text-sm">Loading transactions...</span>
             </div>
-            <p className="text-[11px] font-semibold text-slate-500">Total Collected</p>
-            <p className="text-xl font-black text-slate-900 dark:text-white mt-0.5">
-              {fmtRupees(totalCollectedPaise)}
-            </p>
-            <p className="text-[10px] font-bold text-emerald-600 mt-0.5">Live Records</p>
-          </div>
-
-          {/* Total Transactions */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-            <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 flex items-center justify-center mb-2">
-              <FileText className="w-4 h-4" />
+          ) : paginatedPayments.length === 0 ? (
+            <div className="p-16 text-center text-slate-500 space-y-2">
+              <FileText className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600" />
+              <p className="text-sm font-medium">No transactions found matching the selected criteria.</p>
             </div>
-            <p className="text-[11px] font-semibold text-slate-500">Total Transactions</p>
-            <p className="text-xl font-black text-slate-900 dark:text-white mt-0.5">
-              {transactions.length}
-            </p>
-            <p className="text-[10px] text-slate-400 font-medium mt-0.5">Receipts generated</p>
-          </div>
-
-          {/* Cash Collected */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-            <div className="w-8 h-8 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 flex items-center justify-center mb-2">
-              <CreditCard className="w-4 h-4" />
-            </div>
-            <p className="text-[11px] font-semibold text-slate-500">Cash Collected</p>
-            <p className="text-xl font-black text-slate-900 dark:text-white mt-0.5">
-              {fmtRupees(cashCollectedPaise)}
-            </p>
-            <p className="text-[10px] text-slate-400 font-medium mt-0.5">
-              {totalCollectedPaise > 0
-                ? `${Math.round((cashCollectedPaise / totalCollectedPaise) * 100)}% of total`
-                : "0%"}
-            </p>
-          </div>
-
-          {/* UPI Collected */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-            <div className="w-8 h-8 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 flex items-center justify-center mb-2">
-              <QrCode className="w-4 h-4" />
-            </div>
-            <p className="text-[11px] font-semibold text-slate-500">UPI Collected</p>
-            <p className="text-xl font-black text-slate-900 dark:text-white mt-0.5">
-              {fmtRupees(upiCollectedPaise)}
-            </p>
-            <p className="text-[10px] text-slate-400 font-medium mt-0.5">
-              {totalCollectedPaise > 0
-                ? `${Math.round((upiCollectedPaise / totalCollectedPaise) * 100)}% of total`
-                : "0%"}
-            </p>
-          </div>
-
-          {/* Bank Transfer */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-            <div className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 flex items-center justify-center mb-2">
-              <Building2 className="w-4 h-4" />
-            </div>
-            <p className="text-[11px] font-semibold text-slate-500">Bank Transfer</p>
-            <p className="text-xl font-black text-slate-900 dark:text-white mt-0.5">
-              {fmtRupees(bankCollectedPaise)}
-            </p>
-            <p className="text-[10px] text-slate-400 font-medium mt-0.5">
-              {totalCollectedPaise > 0
-                ? `${Math.round((bankCollectedPaise / totalCollectedPaise) * 100)}% of total`
-                : "0%"}
-            </p>
-          </div>
-
-          {/* Other */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-            <div className="w-8 h-8 rounded-xl bg-cyan-50 dark:bg-cyan-950/40 text-cyan-600 flex items-center justify-center mb-2">
-              <CreditCard className="w-4 h-4" />
-            </div>
-            <p className="text-[11px] font-semibold text-slate-500">Other</p>
-            <p className="text-xl font-black text-slate-900 dark:text-white mt-0.5">
-              {fmtRupees(otherCollectedPaise)}
-            </p>
-            <p className="text-[10px] text-slate-400 font-medium mt-0.5">
-              {totalCollectedPaise > 0
-                ? `${Math.round((otherCollectedPaise / totalCollectedPaise) * 100)}% of total`
-                : "0%"}
-            </p>
-          </div>
-        </div>
-
-        {/* ========================================================
-            SEARCH & FILTER BAR
-        ======================================================== */}
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Search Box */}
-          <div className="relative flex-1 min-w-[240px]">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Search by student name, admission no., receipt no., reference..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
-            />
-          </div>
-
-          {/* Month Filter */}
-          <div className="relative">
-            <select
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="appearance-none pl-3 pr-7 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm cursor-pointer"
-            >
-              <option value="Sep 2026">Sep 2026</option>
-              <option value="Aug 2026">Aug 2026</option>
-              <option value="Jul 2026">Jul 2026</option>
-              <option value="Jun 2026">Jun 2026</option>
-            </select>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-
-          {/* Class Filter */}
-          <div className="relative">
-            <select
-              value={selectedClass}
-              onChange={(e) => setSelectedClass(e.target.value)}
-              className="appearance-none pl-3 pr-7 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm cursor-pointer"
-            >
-              <option value="all">All Classes</option>
-              {classes.map((c) => (
-                <option key={c.id} value={c.name}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-
-          {/* Section Filter */}
-          <div className="relative">
-            <select
-              value={selectedSection}
-              onChange={(e) => setSelectedSection(e.target.value)}
-              className="appearance-none pl-3 pr-7 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm cursor-pointer"
-            >
-              <option value="all">All Sections</option>
-              <option value="A">Section A</option>
-              <option value="B">Section B</option>
-              <option value="C">Section C</option>
-            </select>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-
-          {/* Payment Mode Filter */}
-          <div className="relative">
-            <select
-              value={selectedMode}
-              onChange={(e) => setSelectedMode(e.target.value)}
-              className="appearance-none pl-3 pr-7 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm cursor-pointer"
-            >
-              <option value="all">All Payment Modes</option>
-              <option value="UPI">UPI</option>
-              <option value="Cash">Cash</option>
-              <option value="Bank">Bank Transfer</option>
-              <option value="Other">Other</option>
-            </select>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-
-          {/* Status Filter */}
-          <div className="relative">
-            <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              className="appearance-none pl-3 pr-7 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm cursor-pointer"
-            >
-              <option value="all">All Status</option>
-              <option value="Success">Success</option>
-              <option value="Failed">Failed</option>
-            </select>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-
-          {/* More Filters button */}
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 transition-colors cursor-pointer"
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
-            <span>More Filters</span>
-          </button>
-        </div>
-
-        {/* ========================================================
-            SPLIT VIEW: TABLE ON LEFT | DETAILS DRAWER ON RIGHT
-        ======================================================== */}
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
-          {/* Left: Transactions Table */}
-          <div
-            className={`transition-all ${
-              selectedTx ? "xl:col-span-8" : "xl:col-span-12"
-            } bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden flex flex-col justify-between`}
-          >
+          ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
+              <table className="w-full text-left text-sm border-collapse">
                 <thead>
-                  <tr className="bg-slate-50/70 dark:bg-slate-800/60 text-slate-500 font-semibold border-b border-slate-100 dark:border-slate-800">
-                    <th className="py-3 px-3 w-8">
-                      <input
-                        type="checkbox"
-                        onChange={handleSelectAll}
-                        checked={selectedRows.length === filtered.length && filtered.length > 0}
-                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      />
-                    </th>
-                    <th className="py-3 px-2 w-8">#</th>
-                    <th className="py-3 px-3">Date & Time</th>
-                    <th className="py-3 px-3">Student</th>
-                    <th className="py-3 px-3">Class</th>
-                    <th className="py-3 px-3">Month</th>
-                    <th className="py-3 px-3">Amount</th>
-                    <th className="py-3 px-3">Mode</th>
-                    <th className="py-3 px-3">Reference</th>
-                    <th className="py-3 px-3">Status</th>
-                    <th className="py-3 px-3">Receipt</th>
-                    <th className="py-3 px-3 text-right">Actions</th>
+                  <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                    <th className="py-3 px-4">Receipt #</th>
+                    <th className="py-3 px-4">Date & Time</th>
+                    <th className="py-3 px-4">Student</th>
+                    <th className="py-3 px-4">Class</th>
+                    <th className="py-3 px-4">Mode / Ref</th>
+                    <th className="py-3 px-4 text-right">Amount (₹)</th>
+                    <th className="py-3 px-4 text-center">Status</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
-                  {filtered.map((t, idx) => {
-                    const isSelected = selectedTx?.id === t.id;
-                    const avatarBgs = [
-                      "bg-rose-100 text-rose-600",
-                      "bg-purple-100 text-purple-600",
-                      "bg-blue-100 text-blue-600",
-                      "bg-emerald-100 text-emerald-600",
-                      "bg-amber-100 text-amber-600",
-                    ];
-                    const isUPI = t.paymentMethod.toLowerCase().includes("upi");
-                    const isCash = t.paymentMethod.toLowerCase().includes("cash");
-                    const isBank = t.paymentMethod.toLowerCase().includes("bank");
-                    const isFailed = t.status.toLowerCase() === "failed";
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {paginatedPayments.map((p) => {
+                    const isReversed = p.status === "REVERSED";
+                    const isRefunded = p.status === "REFUNDED";
+                    const isPartial = p.status === "PARTIALLY_REFUNDED";
 
                     return (
                       <tr
-                        key={t.id}
-                        onClick={() => setSelectedTx(t)}
-                        className={`hover:bg-blue-50/40 dark:hover:bg-slate-800/60 cursor-pointer transition-colors ${
-                          isSelected
-                            ? "bg-blue-50/70 dark:bg-blue-950/30 border-l-4 border-l-blue-600"
-                            : ""
-                        }`}
+                        key={p.id}
+                        className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors"
                       >
-                        <td
-                          className="py-3 px-3"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggleRow(t.id);
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedRows.includes(t.id)}
-                            onChange={() => {}}
-                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                          />
+                        {/* Receipt # */}
+                        <td className="py-3.5 px-4">
+                          <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
+                            {p.receiptNumber}
+                          </span>
                         </td>
-                        <td className="py-3 px-2 text-slate-400 font-mono text-[11px]">
-                          {idx + 1}
-                        </td>
-                        <td className="py-3 px-3 whitespace-nowrap">
-                          <p className="text-slate-900 dark:text-white font-bold">{t.paymentDate}</p>
-                          <p className="text-[10px] text-slate-400 font-mono">{t.time}</p>
-                        </td>
-                        <td className="py-3 px-3">
-                          <div className="flex items-center gap-2">
-                            <div
-                              className={`w-7 h-7 rounded-full flex items-center justify-center font-black text-xs ${
-                                avatarBgs[idx % avatarBgs.length]
-                              }`}
-                            >
-                              {t.studentName.charAt(0)}
-                            </div>
-                            <div>
-                              <p className="font-bold text-slate-900 dark:text-white whitespace-nowrap">
-                                {t.studentName}
-                              </p>
-                              <p className="text-[10px] text-slate-400 font-mono">
-                                {t.admissionNumber}
-                              </p>
-                            </div>
+
+                        {/* Date & Time */}
+                        <td className="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400">
+                          <div>
+                            {new Date(p.paymentDate || p.createdAt).toLocaleDateString("en-IN", {
+                              day: "2-digit",
+                              month: "short",
+                              year: "numeric",
+                            })}
+                          </div>
+                          <div className="text-[11px] text-slate-400">
+                            {new Date(p.paymentDate || p.createdAt).toLocaleTimeString("en-IN", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
                           </div>
                         </td>
-                        <td className="py-3 px-3 text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                          {t.className}
+
+                        {/* Student */}
+                        <td className="py-3.5 px-4">
+                          <div className="font-medium text-slate-900 dark:text-slate-100">
+                            {p.studentName}
+                          </div>
+                          <div className="text-xs font-mono text-slate-400">
+                            {p.admissionNumber || p.studentId}
+                          </div>
                         </td>
-                        <td className="py-3 px-3 text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                          {t.month}
+
+                        {/* Class */}
+                        <td className="py-3.5 px-4 text-xs text-slate-600 dark:text-slate-300">
+                          {p.className} {p.sectionName ? `(${p.sectionName})` : ""}
                         </td>
-                        <td className="py-3 px-3 font-black text-slate-900 dark:text-white whitespace-nowrap">
-                          {fmtRupees(t.amountPaidPaise)}
-                        </td>
-                        <td className="py-3 px-3">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              isUPI
-                                ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400"
-                                : isCash
-                                ? "bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400"
-                                : isBank
-                                ? "bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400"
-                                : "bg-purple-50 text-purple-600 dark:bg-purple-950/60 dark:text-purple-400"
-                            }`}
-                          >
-                            {t.paymentMethod}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-slate-500 font-mono text-[11px] whitespace-nowrap">
-                          {t.referenceNo}
-                        </td>
-                        <td className="py-3 px-3">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              isFailed
-                                ? "bg-rose-50 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400"
-                                : "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400"
-                            }`}
-                          >
-                            {t.status}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 font-mono font-bold text-blue-600 whitespace-nowrap">
-                          {t.receiptNumber !== "-" ? (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedTx(t);
-                                setShowReceiptModal(true);
-                              }}
-                              className="hover:underline"
-                            >
-                              {t.receiptNumber}
-                            </button>
-                          ) : (
-                            "-"
+
+                        {/* Payment Mode */}
+                        <td className="py-3.5 px-4 text-xs">
+                          <div className="font-semibold text-slate-800 dark:text-slate-200">
+                            {p.paymentMethod}
+                          </div>
+                          {p.referenceNumber && (
+                            <div className="font-mono text-[11px] text-slate-400 truncate max-w-[130px]" title={p.referenceNumber}>
+                              Ref: {p.referenceNumber}
+                            </div>
                           )}
                         </td>
-                        <td className="py-3 px-3 text-right">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedTx(t);
-                            }}
-                            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+
+                        {/* Amount */}
+                        <td className="py-3.5 px-4 text-right">
+                          <div className={`font-bold ${isReversed ? "line-through text-slate-400" : "text-slate-900 dark:text-slate-100"}`}>
+                            {formatINR(p.amountPaise)}
+                          </div>
+                          {(p.refundedAmountPaise || 0) > 0 && (
+                            <div className="text-[11px] text-amber-600 font-medium">
+                              Ref: -{formatINR(p.refundedAmountPaise || 0)}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Status */}
+                        <td className="py-3.5 px-4 text-center">
+                          <span
+                            className={`inline-block px-2 py-0.5 text-[11px] font-semibold rounded-full ${
+                              p.status === "SUCCESS"
+                                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-400"
+                                : isPartial
+                                ? "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-400"
+                                : isRefunded
+                                ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400"
+                                : isReversed
+                                ? "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-400"
+                                : "bg-slate-100 text-slate-800"
+                            }`}
                           >
-                            <MoreVertical className="w-3.5 h-3.5" />
-                          </button>
+                            {p.status}
+                          </span>
+                        </td>
+
+                        {/* Actions */}
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {/* View / Print Receipt */}
+                            <button
+                              type="button"
+                              onClick={() => openReceiptModal(p)}
+                              title="Print Receipt"
+                              className="p-1.5 text-slate-600 hover:text-emerald-600 dark:text-slate-300 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors"
+                            >
+                              <Printer className="w-4 h-4" />
+                            </button>
+
+                            {/* View Allocations / Detail */}
+                            <button
+                              type="button"
+                              onClick={() => openDetailModal(p)}
+                              title="View Breakdown & Allocations"
+                              className="p-1.5 text-slate-600 hover:text-blue-600 dark:text-slate-300 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+
+                            {/* Refund Button */}
+                            {!isReversed && !isRefunded && (
+                              <button
+                                type="button"
+                                onClick={() => openRefundModal(p)}
+                                title="Process Controlled Refund"
+                                className="p-1.5 text-slate-600 hover:text-amber-600 dark:text-slate-300 dark:hover:text-amber-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors"
+                              >
+                                <ArrowDownLeft className="w-4 h-4" />
+                              </button>
+                            )}
+
+                            {/* Reversal Button */}
+                            {!isReversed && (p.refundedAmountPaise || 0) === 0 && (
+                              <button
+                                type="button"
+                                onClick={() => openReversalModal(p)}
+                                title="Reverse Mistaken Payment"
+                                className="p-1.5 text-slate-600 hover:text-rose-600 dark:text-slate-300 dark:hover:text-rose-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors"
+                              >
+                                <Undo2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -662,285 +666,418 @@ export default function AdminFeeTransactionsPage() {
                 </tbody>
               </table>
             </div>
+          )}
 
-            {/* Table Footer Pagination */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 border-t border-slate-100 dark:border-slate-800 text-xs">
-              <span className="text-slate-500">
-                Showing 1–{Math.min(10, filtered.length)} of 286 transactions
-              </span>
-
+          {/* Pagination Bar */}
+          {totalPages > 1 && (
+            <div className="p-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
+              <div>
+                Showing {(currentPage - 1) * pageSize + 1} to{" "}
+                {Math.min(currentPage * pageSize, payments.length)} of {payments.length} entries
+              </div>
               <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  className="w-7 h-7 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-400 hover:bg-slate-50"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((p) => p - 1)}
+                  className="p-1.5 rounded border border-slate-200 dark:border-slate-700 disabled:opacity-40"
                 >
-                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <ChevronLeft className="w-4 h-4" />
                 </button>
+                <span className="px-2">
+                  Page {currentPage} of {totalPages}
+                </span>
                 <button
                   type="button"
-                  className="w-7 h-7 rounded-lg bg-blue-600 text-white font-bold flex items-center justify-center shadow-sm"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((p) => p + 1)}
+                  className="p-1.5 rounded border border-slate-200 dark:border-slate-700 disabled:opacity-40"
                 >
-                  1
+                  <ChevronRight className="w-4 h-4" />
                 </button>
-                <button
-                  type="button"
-                  className="w-7 h-7 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 font-bold hover:bg-slate-50 flex items-center justify-center"
-                >
-                  2
-                </button>
-                <button
-                  type="button"
-                  className="w-7 h-7 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 font-bold hover:bg-slate-50 flex items-center justify-center"
-                >
-                  3
-                </button>
-                <button
-                  type="button"
-                  className="w-7 h-7 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 font-bold hover:bg-slate-50 flex items-center justify-center"
-                >
-                  4
-                </button>
-                <button
-                  type="button"
-                  className="w-7 h-7 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 font-bold hover:bg-slate-50 flex items-center justify-center"
-                >
-                  5
-                </button>
-                <span className="px-1 text-slate-400">...</span>
-                <button
-                  type="button"
-                  className="w-7 h-7 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 font-bold hover:bg-slate-50 flex items-center justify-center"
-                >
-                  29
-                </button>
-                <button
-                  type="button"
-                  className="w-7 h-7 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-400 hover:bg-slate-50"
-                >
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Right: Transaction Details Drawer */}
-          {selectedTx && (
-            <div className="xl:col-span-4 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4 flex flex-col justify-between">
-              <div>
-                {/* Header */}
-                <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                    Transaction Details
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedTx(null)}
-                    className="p-1 text-slate-400 hover:text-slate-700 rounded-lg"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {/* Status and ID badge */}
-                <div className="mt-3 flex items-center justify-between">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    {selectedTx.status}
-                  </span>
-                  <span className="text-xs text-slate-400 font-mono">
-                    {selectedTx.paymentDate}, {selectedTx.time}
-                  </span>
-                </div>
-
-                <div className="mt-2">
-                  <p className="text-lg font-black text-blue-600 font-mono">
-                    {selectedTx.receiptNumber}
-                  </p>
-                </div>
-
-                {/* Student Information */}
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
-                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                    Student Information
-                  </p>
-                  <div className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60">
-                    <div className="w-10 h-10 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center font-black text-sm">
-                      {selectedTx.studentName.charAt(0)}
-                    </div>
-                    <div>
-                      <p className="font-bold text-slate-900 dark:text-white text-sm">
-                        {selectedTx.studentName}
-                      </p>
-                      <p className="text-[11px] text-slate-400 font-mono">
-                        {selectedTx.admissionNumber}
-                      </p>
-                      <p className="text-[11px] text-slate-500">
-                        Class {selectedTx.className} | {selectedTx.sectionName}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Payment Details */}
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2.5 text-xs">
-                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                    Payment Details
-                  </p>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500">Month</span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">
-                      September 2026
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500">Fee Heads</span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">
-                      {selectedTx.feeHeads}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500">Amount</span>
-                    <span className="text-base font-black text-slate-900 dark:text-white">
-                      {fmtRupees(selectedTx.amountPaidPaise)}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500">Payment Mode</span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400">
-                      {selectedTx.paymentMethod}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500">Reference No.</span>
-                    <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
-                      {selectedTx.referenceNo}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500">Received By</span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                      {selectedTx.receivedBy}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500">Status</span>
-                    <span className="font-bold text-emerald-600">
-                      {selectedTx.status}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500">Notes</span>
-                    <span className="text-slate-400">{selectedTx.notes}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Buttons at bottom of Drawer */}
-              <div className="space-y-2 pt-3 border-t border-slate-100 dark:border-slate-800">
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowReceiptModal(true)}
-                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-blue-200 dark:border-blue-900 text-blue-600 dark:text-blue-400 hover:bg-blue-50 text-xs font-bold transition-colors cursor-pointer"
-                  >
-                    <Printer className="w-3.5 h-3.5" />
-                    <span>View Receipt</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleSendWhatsApp(selectedTx)}
-                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold shadow-sm transition-all cursor-pointer"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5" />
-                    <span>Send on WhatsApp</span>
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowShareModal(true)}
-                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 text-xs font-semibold transition-colors cursor-pointer"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Share Details</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      toast.info("Adjustment modal opened for this transaction.");
-                    }}
-                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 text-xs font-semibold transition-colors cursor-pointer"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Refund / Adjust</span>
-                  </button>
-                </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* Official Receipt Modal */}
+        {/* Transaction Detail Drawer */}
+        {detailModalPayment && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    <Receipt className="w-5 h-5 text-emerald-600" />
+                    Transaction #{detailModalPayment.receiptNumber}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    ID: {detailModalPayment.id}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDetailModalPayment(null)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {loadingDetail ? (
+                <div className="py-12 flex justify-center text-slate-400">
+                  <Loader2 className="w-6 h-6 animate-spin text-emerald-600" />
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Basic Metadata */}
+                  <div className="grid grid-cols-2 gap-3 text-xs bg-slate-50 dark:bg-slate-800/50 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <div>
+                      <span className="text-slate-500 block">Student Name:</span>
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {detailModalPayment.studentName}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Admission Number:</span>
+                      <span className="font-mono font-semibold text-slate-900 dark:text-slate-100">
+                        {detailModalPayment.admissionNumber}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Class & Section:</span>
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {detailModalPayment.className} ({detailModalPayment.sectionName || "A"})
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Amount Collected:</span>
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">
+                        {formatINR(detailModalPayment.amountPaise)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Payment Method:</span>
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {detailModalPayment.paymentMethod}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Reference No:</span>
+                      <span className="font-mono text-slate-900 dark:text-slate-100">
+                        {detailModalPayment.referenceNumber || "-"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Collected By:</span>
+                      <span className="text-slate-900 dark:text-slate-100">
+                        {detailModalPayment.collectedByName || detailModalPayment.collectedBy || "Staff"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Payment Date:</span>
+                      <span className="text-slate-900 dark:text-slate-100">
+                        {new Date(detailModalPayment.paymentDate || detailModalPayment.createdAt).toLocaleString("en-IN")}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Allocations Breakdown */}
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-2">
+                      Allocated Invoices / Demands
+                    </h4>
+                    {paymentDetailData?.allocations && paymentDetailData.allocations.length > 0 ? (
+                      <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                        {paymentDetailData.allocations.map((alloc) => (
+                          <div key={alloc.id} className="p-3 flex justify-between items-center">
+                            <div>
+                              <span className="font-semibold text-slate-900 dark:text-slate-100">
+                                {alloc.feeHeadName}
+                              </span>
+                              <span className="text-slate-400 ml-2">({alloc.period})</span>
+                              <div className="text-[10px] text-slate-400 mt-0.5">
+                                Demand ID: {alloc.demandId}
+                              </div>
+                            </div>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                              +{formatINR(alloc.allocatedAmountPaise)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="p-3 text-center text-xs text-slate-400 border border-dashed rounded-lg">
+                        Standard tuition fee allocation
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Linked Refunds */}
+                  {paymentDetailData?.refunds && paymentDetailData.refunds.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-amber-600 mb-2">
+                        Refund History
+                      </h4>
+                      <div className="space-y-2">
+                        {paymentDetailData.refunds.map((r) => (
+                          <div
+                            key={r.id}
+                            className="p-3 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-xl text-xs space-y-1"
+                          >
+                            <div className="flex justify-between font-semibold">
+                              <span>Receipt: {r.refundReceiptNumber}</span>
+                              <span className="text-amber-700 dark:text-amber-400">
+                                -{formatINR(r.amountPaise)}
+                              </span>
+                            </div>
+                            <div className="text-slate-600 dark:text-slate-400">
+                              Reason: {r.reason}
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              Processed by {r.processedByName} on {new Date(r.refundDate).toLocaleString("en-IN")}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Reversal Information */}
+                  {paymentDetailData?.reversal && (
+                    <div className="p-3 bg-rose-50/60 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800 rounded-xl text-xs space-y-1">
+                      <div className="font-bold text-rose-700 dark:text-rose-400">
+                        Transaction Reversed
+                      </div>
+                      <div className="text-slate-600 dark:text-slate-400">
+                        Reason: {paymentDetailData.reversal.reason}
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        Reversed by {paymentDetailData.reversal.reversedByName} on {new Date(paymentDetailData.reversal.reversedAt).toLocaleString("en-IN")}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setDetailModalPayment(null)}
+                  className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs rounded-lg hover:bg-slate-200 transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Controlled Refund Modal */}
+        {refundPayment && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in">
+            <form
+              onSubmit={handleRefundSubmit}
+              className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-md w-full p-6 space-y-4"
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <ArrowDownLeft className="w-5 h-5 text-amber-600" />
+                  Process Controlled Refund
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setRefundPayment(null)}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-3 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-xl text-xs space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Original Payment:</span>
+                  <span className="font-mono font-bold">{refundPayment.receiptNumber}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Student:</span>
+                  <span className="font-semibold">{refundPayment.studentName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Total Collected:</span>
+                  <span>{formatINR(refundPayment.amountPaise)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Available to Refund:</span>
+                  <span className="font-bold text-emerald-600">
+                    {formatINR(refundPayment.amountPaise - (refundPayment.refundedAmountPaise || 0))}
+                  </span>
+                </div>
+              </div>
+
+              {/* Refund Amount */}
+              <div>
+                <label className="block text-xs font-semibold uppercase text-slate-600 dark:text-slate-400 mb-1">
+                  Refund Amount (₹) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  required
+                  value={refundAmountRupees}
+                  onChange={(e) => setRefundAmountRupees(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 font-bold focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              {/* Refund Method */}
+              <div>
+                <label className="block text-xs font-semibold uppercase text-slate-600 dark:text-slate-400 mb-1">
+                  Refund Method
+                </label>
+                <select
+                  value={refundMethod}
+                  onChange={(e) => setRefundMethod(e.target.value as PaymentMethod)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100"
+                >
+                  <option value="CASH">Cash</option>
+                  <option value="UPI">UPI</option>
+                  <option value="BANK_TRANSFER">Bank Transfer</option>
+                  <option value="OTHER">Other</option>
+                </select>
+              </div>
+
+              {/* Mandatory Reason */}
+              <div>
+                <label className="block text-xs font-semibold uppercase text-slate-600 dark:text-slate-400 mb-1">
+                  Refund Reason (Mandatory for Audit) <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  rows={2}
+                  required
+                  placeholder="e.g. Concession granted by principal after fee collection"
+                  value={refundReason}
+                  onChange={(e) => setRefundReason(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  disabled={refundSubmitting}
+                  onClick={() => setRefundPayment(null)}
+                  className="flex-1 py-2 px-4 rounded-lg border border-slate-200 text-slate-700 dark:text-slate-300 text-xs font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={refundSubmitting}
+                  className="flex-1 py-2 px-4 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow transition-all flex items-center justify-center gap-1.5"
+                >
+                  {refundSubmitting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    "Confirm Refund"
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Full Reversal Modal */}
+        {reversalPayment && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in">
+            <form
+              onSubmit={handleReversalSubmit}
+              className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-md w-full p-6 space-y-4"
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-rose-600 flex items-center gap-2">
+                  <Undo2 className="w-5 h-5 text-rose-600" />
+                  Reverse Payment
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setReversalPayment(null)}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-3.5 bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 rounded-xl text-xs space-y-1.5 text-rose-900 dark:text-rose-200">
+                <div className="font-bold flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-rose-600" />
+                  Full Transaction Reversal Warning
+                </div>
+                <p>
+                  Reversing payment <strong>{reversalPayment.receiptNumber}</strong> will cancel this transaction completely and restore all allocated dues back to the student&apos;s invoice balances.
+                </p>
+                <div className="font-semibold">
+                  Amount to Reverse: {formatINR(reversalPayment.amountPaise)}
+                </div>
+              </div>
+
+              {/* Mandatory Reason */}
+              <div>
+                <label className="block text-xs font-semibold uppercase text-slate-600 dark:text-slate-400 mb-1">
+                  Reason for Reversal <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  rows={2}
+                  required
+                  placeholder="e.g. Payment entered under wrong student by mistake"
+                  value={reversalReason}
+                  onChange={(e) => setReversalReason(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-rose-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  disabled={reversalSubmitting}
+                  onClick={() => setReversalPayment(null)}
+                  className="flex-1 py-2 px-4 rounded-lg border border-slate-200 text-slate-700 dark:text-slate-300 text-xs font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={reversalSubmitting}
+                  className="flex-1 py-2 px-4 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow transition-all flex items-center justify-center gap-1.5"
+                >
+                  {reversalSubmitting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Reversing...
+                    </>
+                  ) : (
+                    "Confirm Reversal"
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Instant Receipt Modal for Print / Reprint */}
         <FeeReceiptModal
-          payment={
-            selectedTx
-              ? ({
-                  id: selectedTx.id,
-                  schoolId,
-                  studentId: selectedTx.studentId,
-                  studentName: selectedTx.studentName,
-                  admissionNumber: selectedTx.admissionNumber,
-                  className: selectedTx.className,
-                  sectionName: selectedTx.sectionName,
-                  receiptNumber: selectedTx.receiptNumber,
-                  amountPaidPaise: selectedTx.amountPaidPaise,
-                  netAmountPaise: selectedTx.amountPaidPaise,
-                  paymentMethod: selectedTx.paymentMethod,
-                  paymentDate: selectedTx.paymentDate,
-                  status: "SUCCESS",
-                  collectedBy: selectedTx.receivedBy,
-                  academicYearId: "2026-27",
-                  feeType: "TUITION",
-                  periodMonths: selectedTx.periodMonths || [],
-                  createdAt: new Date().toISOString(),
-                  updatedAt: new Date().toISOString(),
-                } as any)
-              : null
-          }
+          payment={receiptPayment}
           schoolName={schoolName}
           isOpen={showReceiptModal}
-          onClose={() => setShowReceiptModal(false)}
+          onClose={() => {
+            setShowReceiptModal(false);
+            setReceiptPayment(null);
+          }}
         />
-
-        {/* Share Modal */}
-        {selectedTx && (
-          <ShareFeeModal
-            isOpen={showShareModal}
-            onClose={() => setShowShareModal(false)}
-            schoolId={schoolId}
-            student={{
-              id: selectedTx.studentId,
-              name: selectedTx.studentName,
-              admissionNumber: selectedTx.admissionNumber,
-              className: selectedTx.className,
-              phone: selectedTx.phone,
-            }}
-            initialMode="PAYMENT_HISTORY"
-          />
-        )}
       </div>
     </EntitlementGate>
   );
 }
-

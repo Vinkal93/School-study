@@ -44,6 +44,7 @@ import { cn } from "@/lib/utils/cn";
 interface SubNavItem {
   label: string;
   href: string;
+  featureKey?: string;
 }
 
 interface NavItem {
@@ -260,16 +261,19 @@ const roleNavItems: Record<string, NavItem[]> = {
       featureKey: "fee_management",
       icon: <CreditCard className="h-5 w-5 text-emerald-500" />,
       subItems: [
-        { label: "Fee Dashboard", href: "/admin/fees" },
-        { label: "Fee Structure", href: "/admin/fees/structures" },
-        { label: "Student Fees", href: "/admin/fees/student-fees" },
-        { label: "Collect Fee", href: "/admin/fees/collect" },
-        { label: "Transactions", href: "/admin/fees/transactions" },
-        { label: "Dues / Defaulters", href: "/admin/fees/defaulters" },
-        { label: "Discounts / Concessions", href: "/admin/fees/discounts" },
-        { label: "Receipts", href: "/admin/fees/receipts" },
-        { label: "Fee Reports", href: "/admin/fees/reports" },
-        { label: "Fee Settings", href: "/admin/fees/settings" },
+        { label: "Fee Dashboard", href: "/admin/fees", featureKey: "fee_dashboard" },
+        { label: "Fee Structure", href: "/admin/fees/structures", featureKey: "fee_structures" },
+        { label: "Student Fees", href: "/admin/fees/student-fees", featureKey: "fee_student_fees" },
+        { label: "Collect Fee", href: "/admin/fees/collect", featureKey: "fee_collect" },
+        { label: "Transactions", href: "/admin/fees/transactions", featureKey: "fee_transactions" },
+        { label: "Student Ledger", href: "/admin/fees/ledger", featureKey: "fee_ledger" },
+        { label: "Cash & Bank Ledger", href: "/admin/fees/cash-bank", featureKey: "fee_cash_bank" },
+        { label: "Accounting & Trial Balance", href: "/admin/fees/accounting", featureKey: "fee_accounting" },
+        { label: "Dues / Defaulters", href: "/admin/fees/defaulters", featureKey: "fee_defaulters" },
+        { label: "Discounts / Concessions", href: "/admin/fees/discounts", featureKey: "fee_discounts" },
+        { label: "Receipts", href: "/admin/fees/receipts", featureKey: "fee_receipts" },
+        { label: "Fee Reports", href: "/admin/fees/reports", featureKey: "fee_reports" },
+        { label: "Fee Settings", href: "/admin/fees/settings", featureKey: "fee_settings" },
       ],
     },
     {
@@ -606,6 +610,13 @@ export function Sidebar({ variant = "classic" }: SidebarProps) {
                     )}
                   >
                     {item.subItems!.map((sub) => {
+                      if (
+                        sub.featureKey &&
+                        !canAccess(sub.featureKey) &&
+                        getFeatureAccessMode(sub.featureKey) !== "SHOWCASE"
+                      ) {
+                        return null;
+                      }
                       const isSubActive = currentFullUrl === sub.href;
                       return (
                         <Link

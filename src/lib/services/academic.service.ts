@@ -119,6 +119,8 @@ export async function setCurrentAcademicYear(
  * Fetches all classes with their respective sections for a school.
  * Deduplicates classes by canonical key in-memory so duplicate documents in Firestore never corrupt the UI.
  */
+export const getClasses = getClassesWithSections;
+
 export async function getClassesWithSections(
   schoolId: string
 ): Promise<SchoolClass[]> {

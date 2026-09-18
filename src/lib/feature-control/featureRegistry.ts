@@ -631,6 +631,21 @@ export const CAPABILITY_TO_FEATURE_KEY: Record<string, string> = {
   fee_refund: "fees.refund",
   fee_structure_delete: "fees.delete",
   report_export: "reports.export",
+
+  // Fee Subpages
+  fee_dashboard: "fee_dashboard",
+  fee_structures: "fee_structures",
+  fee_student_fees: "fee_student_fees",
+  fee_collect: "fee_collect",
+  fee_transactions: "fee_transactions",
+  fee_ledger: "fee_ledger",
+  fee_cash_bank: "fee_cash_bank",
+  fee_defaulters: "fee_defaulters",
+  fee_discounts: "fee_discounts",
+  fee_receipts: "fee_receipts",
+  fee_reports: "fee_reports",
+  fee_settings: "fee_settings",
+  fee_accounting: "fee_accounting",
 };
 
 export function getFeatureDefinition(idOrKey: string): FeatureDefinition | undefined {

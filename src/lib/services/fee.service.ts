@@ -26,6 +26,8 @@ import type {
   FeeFollowUpStatus,
 } from "@/types";
 import { createBillingAuditLog } from "@/lib/billing/audit";
+import { getFeeDashboardSummary, getFeeDefaulters } from "@/lib/services/fee-analytics.service";
+import { appQueryClient } from "@/lib/cache";
 
 const MONTH_NAMES = [
   "April", "May", "June", "July", "August", "September",
@@ -1403,262 +1405,104 @@ export interface FeeDashboardOverviewData {
 
 export async function getFeeDashboardOverviewData(
   schoolId: string,
-  filter?: { month?: string; className?: string; sectionName?: string }
+  filter?: { academicYearId?: string; month?: string; className?: string; sectionName?: string }
 ): Promise<FeeDashboardOverviewData> {
-  const [transactions, defaulters] = await Promise.all([
-    getFeeTransactions(schoolId),
-    getDefaultersList(schoolId),
-  ]);
+  const cacheKey = `feeDashboardOverview:${schoolId}:${filter?.academicYearId || "default"}:${filter?.month || "all"}:${filter?.className || "all"}:${filter?.sectionName || "all"}`;
+  return appQueryClient.fetchWithCache(
+    cacheKey,
+    async () => {
+      const summary = await getFeeDashboardSummary(schoolId, {
+        month: filter?.month,
+        className: filter?.className,
+        sectionName: filter?.sectionName,
+        academicYearId: filter?.academicYearId || "ay_2026_27",
+      });
 
-  const hasRealData = transactions.length > 0 || defaulters.length > 0;
-
-  // 1. Calculate Real Metrics if available
-  const now = new Date();
-  const todayStr = now.toISOString().slice(0, 10);
-  const currentMonthStr = now.toISOString().slice(0, 7);
-
-  let totalCollectedPaise = transactions.reduce(
-    (sum, t) => sum + (t.status === "SUCCESS" ? t.amountPaidPaise : 0),
-    0
+      return {
+        metrics: {
+          totalExpectedPaise: summary.totalExpectedPaise,
+          totalCollectedPaise: summary.totalCollectedPaise,
+          totalPendingPaise: summary.totalOutstandingPaise,
+          overdueAmountPaise: summary.paymentFollowUp.overdueAmountPaise + summary.paymentFollowUp.criticalAmountPaise,
+          todayCollectionPaise: summary.todayCollectionPaise,
+          thisMonthCollectionPaise: summary.totalCollectedPaise,
+          todayPaymentsCount: summary.todayPaymentsCount,
+          paidStudentsCount: summary.paidDemandsCount,
+          defaultersCount: summary.defaultersCount,
+          partialPaymentsCount: summary.partialDemandsCount,
+          collectionRate: summary.collectionRate,
+          collectedPercentVsLastMonth: 0,
+          todayPercentVsYesterday: 0,
+        },
+        collectionTrend: summary.collectionTrend.map((t) => ({
+          month: t.monthName,
+          monthKey: t.periodKey,
+          expectedPaise: t.expectedPaise,
+          collectedPaise: t.collectedPaise,
+          outstandingPaise: t.outstandingPaise,
+        })),
+        paymentMethods: summary.paymentMethodSummary,
+        paymentFollowUp: {
+          criticalCount: summary.paymentFollowUp.criticalCount,
+          overdueCount: summary.paymentFollowUp.overdueCount,
+          dueSoonCount: summary.paymentFollowUp.dueSoonCount,
+          onTrackCount: summary.paymentFollowUp.onTrackCount,
+          totalNeedAttention: summary.defaultersCount,
+        },
+        monthlyClassOverview: summary.monthlyClassOverview || [],
+        topDefaulters: summary.topDefaulters.slice(0, 5).map((d) => ({
+          id: `def_${d.studentId}`,
+          studentId: d.studentId,
+          studentName: d.studentName,
+          admissionNumber: d.admissionNumber,
+          className: d.className,
+          sectionName: d.sectionName,
+          dueAmountPaise: d.totalOutstandingPaise,
+          daysOverdue: d.daysOverdue,
+          lastPaymentDate: d.lastPaymentDate || "—",
+          phone: d.phone || "—",
+          parentPhone: d.phone || "—",
+        })),
+        recentCollections: (summary.recentCollections || []).map((p) => ({
+          id: p.id,
+          schoolId: p.schoolId,
+          receiptNumber: p.receiptNumber,
+          studentId: p.studentId,
+          studentName: p.studentName,
+          admissionNumber: p.admissionNumber,
+          className: p.className,
+          sectionName: p.sectionName,
+          academicYearId: p.academicYearId,
+          feeType: "tuition",
+          periodMonths: p.periodMonths || [],
+          amountPaidPaise: p.amountPaise,
+          discountPaise: 0,
+          lateFeePaise: 0,
+          netAmountPaise: p.amountPaise,
+          paymentMethod: (p.paymentMethod === "CASH"
+            ? "Cash"
+            : p.paymentMethod === "UPI"
+            ? "UPI"
+            : p.paymentMethod === "BANK_TRANSFER"
+            ? "Bank Transfer"
+            : p.paymentMethod === "CHEQUE"
+            ? "Cheque"
+            : p.paymentMethod === "CARD"
+            ? "Card"
+            : "Other") as any,
+          transactionRef: p.referenceNumber,
+          remarks: p.remarks,
+          paymentDate: p.paymentDate,
+          collectedBy: p.collectedBy,
+          collectedByName: p.collectedByName,
+          status: p.status === "REFUNDED" ? "REFUNDED" : "SUCCESS",
+          remainingDuePaise: p.remainingDuePaise,
+          createdAt: p.createdAt,
+        })),
+      };
+    },
+    { staleTime: 15_000, cacheTime: 120_000 }
   );
-  let todayCollectionPaise = transactions.reduce(
-    (sum, t) =>
-      sum +
-      (t.status === "SUCCESS" && t.createdAt.slice(0, 10) === todayStr
-        ? t.amountPaidPaise
-        : 0),
-    0
-  );
-  let todayPaymentsCount = transactions.filter(
-    (t) => t.status === "SUCCESS" && t.createdAt.slice(0, 10) === todayStr
-  ).length;
-
-  let totalPendingPaise = defaulters.reduce(
-    (sum, d) => sum + d.totalPendingPaise,
-    0
-  );
-  let totalExpectedPaise = totalCollectedPaise + totalPendingPaise;
-  let defaultersCount = defaulters.length;
-  let paidStudentsCount = transactions
-    .map((t) => t.studentId)
-    .filter((v, i, a) => a.indexOf(v) === i).length;
-
-  let partialPaymentsCount = 0;
-  let overdueAmountPaise = 0;
-
-  // Breakdown follow-ups
-  let criticalCount = 0;
-  let overdueCount = 0;
-  let dueSoonCount = 0;
-  let onTrackCount = 0;
-
-  defaulters.forEach((d) => {
-    if (d.status === "PARTIAL" || (d.totalPaidPaise > 0 && d.totalPendingPaise > 0)) {
-      partialPaymentsCount++;
-    }
-    overdueAmountPaise += d.totalPendingPaise;
-
-    // Approximate days overdue from last payment or creation
-    const createdDate = new Date(d.updatedAt || Date.now()).getTime();
-    const diffDays = Math.max(1, Math.floor((Date.now() - createdDate) / (1000 * 60 * 60 * 24)));
-
-    if (diffDays > 30) criticalCount++;
-    else if (diffDays >= 8) overdueCount++;
-    else dueSoonCount++;
-  });
-
-  if (defaultersCount === 0) {
-    onTrackCount = paidStudentsCount;
-  }
-
-  // Method breakdown
-  const methodMap: Record<string, { count: number; amountPaise: number }> = {
-    UPI: { count: 0, amountPaise: 0 },
-    Cash: { count: 0, amountPaise: 0 },
-    "Bank Transfer": { count: 0, amountPaise: 0 },
-    Other: { count: 0, amountPaise: 0 },
-  };
-
-  transactions.forEach((tx) => {
-    if (tx.status === "SUCCESS") {
-      const m = tx.paymentMethod?.toLowerCase() || "";
-      if (m.includes("upi")) {
-        methodMap.UPI.count++;
-        methodMap.UPI.amountPaise += tx.amountPaidPaise;
-      } else if (m.includes("cash")) {
-        methodMap.Cash.count++;
-        methodMap.Cash.amountPaise += tx.amountPaidPaise;
-      } else if (m.includes("bank") || m.includes("transfer") || m.includes("cheque") || m.includes("neft") || m.includes("rtgs")) {
-        methodMap["Bank Transfer"].count++;
-        methodMap["Bank Transfer"].amountPaise += tx.amountPaidPaise;
-      } else {
-        methodMap.Other.count++;
-        methodMap.Other.amountPaise += tx.amountPaidPaise;
-      }
-    }
-  });
-
-  const monthsAcademic = [
-    { key: "04", month: "Apr" },
-    { key: "05", month: "May" },
-    { key: "06", month: "Jun" },
-    { key: "07", month: "Jul" },
-    { key: "08", month: "Aug" },
-    { key: "09", month: "Sep" },
-    { key: "10", month: "Oct" },
-    { key: "11", month: "Nov" },
-    { key: "12", month: "Dec" },
-    { key: "01", month: "Jan" },
-    { key: "02", month: "Feb" },
-    { key: "03", month: "Mar" },
-  ];
-
-  const finalExpectedPaise = totalExpectedPaise;
-  const finalCollectedPaise = totalCollectedPaise;
-  const finalPendingPaise = totalPendingPaise;
-  const finalRate =
-    finalExpectedPaise > 0
-      ? Number(((finalCollectedPaise / finalExpectedPaise) * 100).toFixed(1))
-      : 0;
-
-  // Real collection trend computed across the 12 academic months (Apr-Mar)
-  const collectionTrend = monthsAcademic.map((m) => {
-    // Sum real payments for this month
-    const monthTx = transactions.filter((t) => {
-      if (t.status !== "SUCCESS") return false;
-      const d = t.paymentDate || t.createdAt;
-      if (!d) return false;
-      const monthNum = d.slice(5, 7);
-      return monthNum === m.key;
-    });
-
-    const collectedPaise = monthTx.reduce((sum, t) => sum + t.amountPaidPaise, 0);
-
-    // Sum real dues for this month
-    let outstandingPaise = 0;
-    defaulters.forEach((d) => {
-      const matchMonth = d.monthLedger?.find(
-        (ml) => ml.month.slice(0, 3).toLowerCase() === m.month.toLowerCase()
-      );
-      if (matchMonth) {
-        outstandingPaise += matchMonth.pendingAmountPaise;
-      }
-    });
-
-    const expectedPaise = collectedPaise + outstandingPaise;
-
-    return {
-      month: m.month,
-      monthKey: m.key,
-      expectedPaise,
-      collectedPaise,
-      outstandingPaise,
-    };
-  });
-
-  // Real Payment methods breakdown strictly from transactions
-  const totalMethodAmountPaise = Object.values(methodMap).reduce(
-    (s, x) => s + x.amountPaise,
-    0
-  );
-
-  const paymentMethods = [
-    {
-      method: "UPI",
-      count: methodMap.UPI.count,
-      amountPaise: methodMap.UPI.amountPaise,
-      percentage:
-        totalMethodAmountPaise > 0
-          ? Math.round((methodMap.UPI.amountPaise / totalMethodAmountPaise) * 100)
-          : 0,
-      color: "#3b82f6",
-    },
-    {
-      method: "Cash",
-      count: methodMap.Cash.count,
-      amountPaise: methodMap.Cash.amountPaise,
-      percentage:
-        totalMethodAmountPaise > 0
-          ? Math.round((methodMap.Cash.amountPaise / totalMethodAmountPaise) * 100)
-          : 0,
-      color: "#06b6d4",
-    },
-    {
-      method: "Bank Transfer",
-      count: methodMap["Bank Transfer"].count,
-      amountPaise: methodMap["Bank Transfer"].amountPaise,
-      percentage:
-        totalMethodAmountPaise > 0
-          ? Math.round((methodMap["Bank Transfer"].amountPaise / totalMethodAmountPaise) * 100)
-          : 0,
-      color: "#6366f1",
-    },
-    {
-      method: "Other",
-      count: methodMap.Other.count,
-      amountPaise: methodMap.Other.amountPaise,
-      percentage:
-        totalMethodAmountPaise > 0
-          ? Math.round((methodMap.Other.amountPaise / totalMethodAmountPaise) * 100)
-          : 0,
-      color: "#f59e0b",
-    },
-  ];
-
-  // Top defaulters computed strictly from real defaulters records
-  const topDefaulters = defaulters.slice(0, 5).map((d) => {
-    const createdDate = new Date(d.updatedAt || Date.now()).getTime();
-    const daysOverdue = Math.max(1, Math.floor((Date.now() - createdDate) / (1000 * 60 * 60 * 24)));
-    return {
-      id: d.id,
-      studentId: d.studentId,
-      studentName: d.studentName,
-      admissionNumber: d.admissionNumber,
-      className: d.className,
-      sectionName: (d as any).sectionName || undefined,
-      dueAmountPaise: d.totalPendingPaise,
-      daysOverdue: daysOverdue,
-      lastPaymentDate: d.lastPaymentDate || "—",
-      phone: d.phone || d.parentPhone || "—",
-      parentPhone: d.parentPhone || d.phone || "—",
-    };
-  });
-
-  // Real recent transactions
-  const recentCollections = transactions.slice(0, 5);
-
-  // Real class overview
-  const monthlyClassOverview: any[] = [];
-
-  return {
-    metrics: {
-      totalExpectedPaise: finalExpectedPaise,
-      totalCollectedPaise: finalCollectedPaise,
-      totalPendingPaise: finalPendingPaise,
-      overdueAmountPaise: overdueAmountPaise,
-      todayCollectionPaise: todayCollectionPaise,
-      thisMonthCollectionPaise: finalCollectedPaise,
-      todayPaymentsCount: todayPaymentsCount,
-      paidStudentsCount: paidStudentsCount,
-      defaultersCount: defaultersCount,
-      partialPaymentsCount: partialPaymentsCount,
-      collectionRate: finalRate,
-      collectedPercentVsLastMonth: 0,
-      todayPercentVsYesterday: 0,
-    },
-    collectionTrend,
-    paymentMethods,
-    paymentFollowUp: {
-      criticalCount: criticalCount,
-      overdueCount: overdueCount,
-      dueSoonCount: dueSoonCount,
-      onTrackCount: onTrackCount,
-      totalNeedAttention: defaultersCount,
-    },
-    monthlyClassOverview,
-    topDefaulters,
-    recentCollections,
-  };
 }
 
 // ==========================================
@@ -1764,3 +1608,8 @@ export async function getStudentFeeTransactions(
 ): Promise<FeePayment[]> {
   return getStudentFeePayments(schoolId, studentId);
 }
+
+// ==========================================
+// 8. PHASE 1 FINANCIAL FOUNDATION RE-EXPORTS
+// ==========================================
+export * from "./fee-foundation.service";

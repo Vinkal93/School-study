@@ -74,11 +74,53 @@ export default function AdminFeeDefaultersPage() {
     if (!schoolId) return;
     setLoading(true);
     try {
-      const [list, clsList] = await Promise.all([
+      const [analyticsRes, legacyList, clsList] = await Promise.all([
+        fetch(
+          `/api/fees/foundation/analytics/defaulters?schoolId=${encodeURIComponent(schoolId)}&className=${encodeURIComponent(selectedClass)}`
+        )
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
         getDefaultersList(schoolId, selectedClass),
         getClassesWithSections(schoolId),
       ]);
-      setDefaulters(list);
+
+      if (analyticsRes?.success && Array.isArray(analyticsRes.defaulters) && analyticsRes.defaulters.length > 0) {
+        const realMapped: StudentFeeAssignment[] = analyticsRes.defaulters.map((d: any) => ({
+          id: `def_${d.studentId}`,
+          schoolId,
+          studentId: d.studentId,
+          studentName: d.studentName,
+          admissionNumber: d.admissionNumber,
+          className: d.className,
+          sectionName: d.sectionName,
+          academicYearId: "ay_2026_27",
+          feeStructureId: "",
+          frequency: "monthly",
+          monthlyFeeRupees: Math.round(d.totalOutstandingPaise / 100),
+          totalAnnualFeePaise: d.totalOutstandingPaise,
+          totalDiscountPaise: 0,
+          totalPaidPaise: d.lastPaymentAmountPaise || 0,
+          totalPendingPaise: d.totalOutstandingPaise,
+          lastPaymentDate: d.lastPaymentDate,
+          status: "OVERDUE",
+          monthLedger: (d.unpaidDemands || []).map((ud: any) => ({
+            month: ud.period,
+            dueDate: ud.dueDate,
+            amountPaise: ud.balanceAmountPaise,
+            paidAmountPaise: 0,
+            pendingAmountPaise: ud.balanceAmountPaise,
+            status: "OVERDUE",
+          })),
+          phone: d.phone,
+          parentPhone: d.phone,
+          createdAt: d.oldestDueDate || new Date().toISOString(),
+          updatedAt: d.oldestDueDate || new Date().toISOString(),
+        }));
+        setDefaulters(realMapped);
+      } else {
+        setDefaulters(legacyList);
+      }
+
       setClasses(clsList);
     } catch (err) {
       toast.error("Failed to load defaulters list.");
@@ -254,7 +296,7 @@ export default function AdminFeeDefaultersPage() {
 
   return (
     <EntitlementGate
-      feature="fee_management"
+      feature="fee_defaulters"
       title="Dues / Defaulters"
       description="Track pending fees, follow up with parents and improve collection."
       requiredPlan="Professional Plan"

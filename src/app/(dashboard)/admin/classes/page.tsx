@@ -39,6 +39,7 @@ import { toast } from "sonner";
 
 import { useEntitlement } from "@/context/EntitlementContext";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
+import { SessionPromotionModal } from "@/components/admin/SessionPromotionModal";
 
 export default function AdminClassesPage() {
   const { profile } = useAuth();
@@ -70,6 +71,7 @@ export default function AdminClassesPage() {
 
   // Academic Year modal
   const [isYearModalOpen, setIsYearModalOpen] = useState(false);
+  const [sessionPromotionTarget, setSessionPromotionTarget] = useState<AcademicYear | null>(null);
   const [yearNameInput, setYearNameInput] = useState("2026-27");
   const [startDateInput, setStartDateInput] = useState("2026-04-01");
   const [endDateInput, setEndDateInput] = useState("2027-03-31");
@@ -798,14 +800,13 @@ export default function AdminClassesPage() {
                         <span className="text-[10px] bg-green-600 text-white rounded px-1.5 py-0.5">Active</span>
                       ) : (
                         <button
-                          onClick={async () => {
-                            await setCurrentAcademicYear(schoolId, y.id);
-                            toast.success(`Set ${y.name} as active session`);
-                            loadData();
+                          type="button"
+                          onClick={() => {
+                            setSessionPromotionTarget(y);
                           }}
-                          className="text-blue-600 hover:underline"
+                          className="text-blue-600 hover:underline font-semibold text-xs cursor-pointer"
                         >
-                          Make Active
+                          Make Active & Promote
                         </button>
                       )}
                     </div>
@@ -878,6 +879,21 @@ export default function AdminClassesPage() {
           </div>
         </EntitlementGate>
       </div>
+    )}
+
+    {/* Academic Session Promotion Modal */}
+    {sessionPromotionTarget && (
+      <SessionPromotionModal
+        isOpen={Boolean(sessionPromotionTarget)}
+        onClose={() => setSessionPromotionTarget(null)}
+        schoolId={schoolId}
+        fromYear={currentYear || null}
+        toYear={sessionPromotionTarget}
+        classes={classes}
+        onSuccess={() => {
+          loadData();
+        }}
+      />
     )}
       </div>
     </EntitlementGate>

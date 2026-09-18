@@ -242,9 +242,34 @@ export async function exportSchoolDataClient(
   const blob = new Blob([xlsxArray], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
+  const filename = `school_${targetModule}_${dateTag}.xlsx`;
+
+  try {
+    const { logImportExportOperation } = await import("./import-export-audit.service");
+    await logImportExportOperation({
+      operationId: `exp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      type: "export",
+      entity: targetModule,
+      schoolId,
+      schoolName: schoolId,
+      performedBy: "Administrator",
+      performedByUid: schoolId,
+      role: "school_admin",
+      source: format.toUpperCase(),
+      totalRows: flattened.length,
+      createdCount: 0,
+      updatedCount: 0,
+      skippedCount: 0,
+      failedCount: 0,
+      status: "success",
+      filename,
+      durationMs: 150,
+    });
+  } catch (e) {}
+
   return {
     blob,
-    filename: `school_${targetModule}_${dateTag}.xlsx`,
+    filename,
   };
 }
 
@@ -268,6 +293,7 @@ export async function importSchoolDataClient(
   if (!schoolId) {
     throw new Error("School ID is required for import.");
   }
+  const importStartTime = Date.now();
   if (!records || records.length === 0) {
     return {
       success: false,
@@ -519,6 +545,54 @@ export async function importSchoolDataClient(
             await setDoc(schoolDocRef, fullDoc);
             if (targetModule === "students") {
               await setDoc(doc(db, "students", docId), fullDoc).catch(() => {});
+              // Dual-write canonical user directory entry so Super Admin & Global Users sees every imported learner
+              await setDoc(
+                doc(db, "users", docId),
+                {
+                  uid: docId,
+                  name: cleanData.name || "Student",
+                  email: cleanData.email || "",
+                  role: "student",
+                  schoolId,
+                  userId: cleanData.admissionNumber || cleanData.studentId || docId,
+                  studentId: cleanData.studentId || cleanData.admissionNumber || docId,
+                  admissionNumber: cleanData.admissionNumber || cleanData.studentId || docId,
+                  rollNumber: cleanData.rollNumber ?? "",
+                  className: cleanData.className || "",
+                  sectionName: cleanData.sectionName || "",
+                  phone: cleanData.phone || cleanData.guardianPhone || "",
+                  status: cleanData.status || "active",
+                  accountStatus: "portal_not_created",
+                  hasAuth: false,
+                  createdAt: serverTimestamp(),
+                  updatedAt: serverTimestamp(),
+                },
+                { merge: true }
+              ).catch(() => {});
+            } else if (targetModule === "teachers") {
+              // Dual-write canonical user directory entry so Super Admin & Global Users sees every imported teacher
+              await setDoc(
+                doc(db, "users", docId),
+                {
+                  uid: docId,
+                  name: cleanData.name || "Teacher",
+                  email: cleanData.email || "",
+                  role: "teacher",
+                  schoolId,
+                  userId: cleanData.teacherCode || docId,
+                  teacherCode: cleanData.teacherCode || docId,
+                  teacherId: docId,
+                  phone: cleanData.phone || "",
+                  assignedClassName: cleanData.assignedClassName || "",
+                  assignedSectionName: cleanData.assignedSectionName || "",
+                  status: cleanData.status || "active",
+                  accountStatus: "portal_not_created",
+                  hasAuth: false,
+                  createdAt: serverTimestamp(),
+                  updatedAt: serverTimestamp(),
+                },
+                { merge: true }
+              ).catch(() => {});
             }
             importedCount++;
             if (admNo) existingMap.set(`adm:${admNo}`, docId);
@@ -533,6 +607,34 @@ export async function importSchoolDataClient(
     if (onProgress) {
       onProgress(Math.min(i + chunk.length, records.length), records.length);
     }
+  }
+
+  // Automatically log audit event in Super Admin Import/Export Audit Center
+  const durationMs = Date.now() - importStartTime;
+  try {
+    const { logImportExportOperation } = await import("./import-export-audit.service");
+    await logImportExportOperation({
+      operationId: `imp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      type: "import",
+      entity: targetModule,
+      schoolId,
+      schoolName: schoolId,
+      performedBy: "School Administrator",
+      performedByUid: schoolId,
+      role: "school_admin",
+      source: "SPREADSHEET_IMPORT",
+      totalRows: records.length,
+      createdCount: importedCount,
+      updatedCount,
+      skippedCount,
+      failedCount: errors.length,
+      status: errors.length === 0 ? "success" : importedCount > 0 ? "partial" : "failed",
+      filename: `${targetModule}_batch_import.xlsx`,
+      errorSummary: errors.length > 0 ? errors.slice(0, 3).join("; ") : undefined,
+      durationMs,
+    });
+  } catch (auditErr) {
+    console.warn("[Client Import] Audit notice:", auditErr);
   }
 
   // Automatically synchronize and reconcile school usage counter if new records were imported

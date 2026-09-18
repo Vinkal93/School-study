@@ -470,21 +470,32 @@ export async function canAccessFeature(
       };
     }
 
-    // 3. Check 3-way access mode (check canonical, raw, or default to HIDDEN)
-    let featureMode = effectiveModes[canonical] || effectiveModes[featureKey] || "HIDDEN";
+    // 3. Check 3-way access mode (check canonical, raw)
+    let featureMode = effectiveModes[canonical] || effectiveModes[featureKey];
 
-    // Dynamic Module & Alias Inheritance: If parent module is FULL_ACCESS or in allowedFeatures, grant FULL_ACCESS
-    if (featureMode === "HIDDEN" || featureMode === "SHOWCASE") {
+    // Dynamic Module & Alias Inheritance: Only inherit from parent module if subpage has NO explicit setting
+    if (!featureMode) {
       const topKey = getParentFeatureKey(canonical);
-      if (topKey && (effectiveModes[topKey] === "FULL_ACCESS" || summary.allowedFeatures?.includes(topKey))) {
-        featureMode = "FULL_ACCESS";
-      }
-      const aliases = FEATURE_KEY_ALIASES[canonical] || FEATURE_KEY_ALIASES[featureKey] || [];
-      for (const a of aliases) {
-        if (effectiveModes[a] === "FULL_ACCESS" || summary.allowedFeatures?.includes(a)) {
+      if (topKey && topKey !== canonical && (effectiveModes[topKey] === "FULL_ACCESS" || summary.allowedFeatures?.includes(topKey))) {
+        const hasGranularSpecs = summary.allowedFeatures?.some(
+          (f) => f !== topKey && (f.startsWith(`${topKey}_`) || f.startsWith(`${topKey}.`) || (topKey === "fee_management" && f.startsWith("fee_")))
+        );
+        if (hasGranularSpecs) {
+          featureMode = summary.allowedFeatures?.includes(canonical) || summary.allowedFeatures?.includes(featureKey) ? "FULL_ACCESS" : "HIDDEN";
+        } else {
           featureMode = "FULL_ACCESS";
-          break;
         }
+      } else {
+        const aliases = FEATURE_KEY_ALIASES[canonical] || FEATURE_KEY_ALIASES[featureKey] || [];
+        for (const a of aliases) {
+          if (effectiveModes[a] === "FULL_ACCESS" || summary.allowedFeatures?.includes(a)) {
+            featureMode = "FULL_ACCESS";
+            break;
+          }
+        }
+      }
+      if (!featureMode) {
+        featureMode = "HIDDEN";
       }
     }
 

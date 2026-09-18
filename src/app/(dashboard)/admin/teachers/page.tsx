@@ -421,27 +421,54 @@ export default function AdminTeachersPage() {
     }
   };
 
+  const searchFilteredTeachers = useMemo(() => {
+    const q = debouncedSearch.toLowerCase().trim();
+    if (!q) return teachers;
+    return teachers.filter((t) =>
+      String(t.name || "").toLowerCase().includes(q) ||
+      String(t.teacherCode || "").toLowerCase().includes(q) ||
+      String(t.email || "").toLowerCase().includes(q) ||
+      String(t.assignedClassName || "").toLowerCase().includes(q) ||
+      String(t.phone || "").toLowerCase().includes(q)
+    );
+  }, [teachers, debouncedSearch]);
+
   const filteredTeachers = useMemo(() => {
-    return teachers.filter((t) => {
-      const q = debouncedSearch.toLowerCase().trim();
-      const matchesSearch =
-        !q ||
-        t.name.toLowerCase().includes(q) ||
-        t.teacherCode.toLowerCase().includes(q) ||
-        t.email.toLowerCase().includes(q) ||
-        (t.assignedClassName && t.assignedClassName.toLowerCase().includes(q)) ||
-        (t.phone && t.phone.toLowerCase().includes(q));
-
-      const matchesStatus =
-        statusFilter === "all"
-          ? t.status !== "deleted"
-          : statusFilter === "deleted"
-          ? t.status === "deleted"
-          : t.status === statusFilter;
-
-      return matchesSearch && matchesStatus;
+    return searchFilteredTeachers.filter((t) => {
+      if (statusFilter === "all") return t.status !== "deleted";
+      if (statusFilter === "deleted") return t.status === "deleted";
+      return t.status === statusFilter;
     });
-  }, [teachers, debouncedSearch, statusFilter]);
+  }, [searchFilteredTeachers, statusFilter]);
+
+  const statusCounts = useMemo(() => {
+    return {
+      all: searchFilteredTeachers.filter((t) => t.status !== "deleted").length,
+      active: searchFilteredTeachers.filter((t) => t.status === "active").length,
+      inactive: searchFilteredTeachers.filter((t) => t.status === "inactive").length,
+      deleted: searchFilteredTeachers.filter((t) => t.status === "deleted").length,
+    };
+  }, [searchFilteredTeachers]);
+
+  const isFilterActive = Boolean(debouncedSearch.trim()) || statusFilter !== "all";
+
+  const totalAssignedOverall = useMemo(
+    () => teachers.filter((t) => t.assignedClassId || t.assignedClassName).length,
+    [teachers]
+  );
+  const totalActiveOverall = useMemo(
+    () => teachers.filter((t) => t.status === "active").length,
+    [teachers]
+  );
+
+  const filteredActiveCount = useMemo(
+    () => filteredTeachers.filter((t) => t.status === "active").length,
+    [filteredTeachers]
+  );
+  const filteredAssignedCount = useMemo(
+    () => filteredTeachers.filter((t) => t.assignedClassId || t.assignedClassName).length,
+    [filteredTeachers]
+  );
 
   // Sections for currently selected class in Add Modal
   const availableSectionsForAdd =
@@ -450,7 +477,7 @@ export default function AdminTeachersPage() {
   const availableSectionsForAssign =
     classes.find((c) => c.id === assignClassId)?.sections || [];
 
-  const assignedCount = teachers.filter((t) => t.assignedClassId).length;
+  const assignedCount = teachers.filter((t) => t.assignedClassId || t.assignedClassName).length;
 
   return (
     <EntitlementGate
@@ -535,8 +562,15 @@ export default function AdminTeachersPage() {
               <Users className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Total Faculty</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">{teachers.length}</p>
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                {isFilterActive ? "Filtered Faculty" : "Total Faculty"}
+              </p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">
+                {filteredTeachers.length}
+              </p>
+              {isFilterActive && (
+                <p className="text-[11px] text-gray-400 mt-0.5">of {teachers.length} overall</p>
+              )}
             </div>
           </div>
 
@@ -545,10 +579,15 @@ export default function AdminTeachersPage() {
               <CheckCircle2 className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Active Teachers</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">
-                {teachers.filter((t) => t.status === "active").length}
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                {isFilterActive ? "Filtered Active" : "Active Teachers"}
               </p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">
+                {filteredActiveCount}
+              </p>
+              {isFilterActive && (
+                <p className="text-[11px] text-gray-400 mt-0.5">of {totalActiveOverall} overall</p>
+              )}
             </div>
           </div>
 
@@ -557,8 +596,15 @@ export default function AdminTeachersPage() {
               <UserCheck className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Class Teachers Assigned</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">{assignedCount}</p>
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                {isFilterActive ? "Filtered Assigned" : "Class Teachers Assigned"}
+              </p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">
+                {filteredAssignedCount}
+              </p>
+              {isFilterActive && (
+                <p className="text-[11px] text-gray-400 mt-0.5">of {totalAssignedOverall} overall</p>
+              )}
             </div>
           </div>
         </div>
@@ -594,11 +640,7 @@ export default function AdminTeachersPage() {
                     : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
                 }`}
               >
-                {st === "all" ? "All" : st === "deleted" ? "Archived" : st} (
-                {st === "all"
-                  ? teachers.filter((t) => t.status !== "deleted").length
-                  : teachers.filter((t) => t.status === st).length}
-                )
+                {st === "all" ? "All" : st === "deleted" ? "Archived" : st} ({statusCounts[st]})
               </button>
             ))}
           </div>

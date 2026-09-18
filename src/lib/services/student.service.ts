@@ -13,6 +13,7 @@ import {
   runTransaction,
   writeBatch,
   arrayUnion,
+  limit,
   type Timestamp,
 } from "firebase/firestore";
 import { initializeApp, getApps, deleteApp } from "firebase/app";
@@ -29,6 +30,7 @@ import {
 import type { StudentProfile, CreateStudentInput, StudentTransferRecord, TransferStudentsInput } from "@/types";
 import { compressImageToBase64 } from "@/lib/utils/image-compression";
 import { provisionStudentFeeAssignment, recalculateStudentFutureDues } from "./fee.service";
+import { setCurrentAcademicYear } from "./academic.service";
 import {
   normalizeClassName,
   normalizeSectionName,
@@ -824,3 +826,378 @@ export async function bulkDeleteStudents(
   return data;
 }
 
+/**
+ * Checks whether a student has any financial records (fee demands, payments, ledger).
+ * Used to enforce financial data protection and prevent accidental deletion of audited records.
+ */
+export async function checkStudentFinancialHistory(
+  schoolId: string,
+  studentId: string
+): Promise<{
+  hasFinancialHistory: boolean;
+  demandCount: number;
+  paymentCount: number;
+  totalPaidPaise: number;
+  totalDuePaise: number;
+}> {
+  const db = getFirebaseDb();
+  let demandCount = 0;
+  let paymentCount = 0;
+  let totalPaidPaise = 0;
+  let totalDuePaise = 0;
+
+  try {
+    const demandsSnap = await getDocs(
+      query(collection(db, "schools", schoolId, "feeDemands"), where("studentId", "==", studentId))
+    );
+    demandCount = demandsSnap.size;
+    demandsSnap.forEach((d) => {
+      const data = d.data();
+      totalDuePaise += Number(data.dueAmountPaise || data.netPayablePaise || 0);
+    });
+
+    const paymentsSnap = await getDocs(
+      query(collection(db, "schools", schoolId, "financialPayments"), where("studentId", "==", studentId))
+    );
+    paymentCount = paymentsSnap.size;
+    paymentsSnap.forEach((p) => {
+      const data = p.data();
+      totalPaidPaise += Number(data.amountPaidPaise || 0);
+    });
+  } catch (err) {
+    console.warn("Could not check student financial history:", err);
+  }
+
+  return {
+    hasFinancialHistory: demandCount > 0 || paymentCount > 0,
+    demandCount,
+    paymentCount,
+    totalPaidPaise,
+    totalDuePaise,
+  };
+}
+
+/**
+ * Bulk suspends student accounts with reason and timestamp tracking.
+ */
+export async function bulkSuspendStudents(
+  schoolId: string,
+  studentIds: string[],
+  reason: string = "Administrative suspension"
+): Promise<{ success: boolean; updatedCount: number }> {
+  const db = getFirebaseDb();
+  let updatedCount = 0;
+  const CHUNK_SIZE = 100;
+  const nowIso = new Date().toISOString();
+
+  for (let i = 0; i < studentIds.length; i += CHUNK_SIZE) {
+    const chunk = studentIds.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(db);
+
+    for (const sId of chunk) {
+      const studentRef = doc(db, "schools", schoolId, "students", sId);
+      const rootStudentRef = doc(db, "students", sId);
+
+      batch.update(studentRef, {
+        status: "suspended",
+        statusChangeReason: reason,
+        statusChangedDate: nowIso,
+        updatedAt: serverTimestamp(),
+      });
+      batch.update(rootStudentRef, {
+        status: "suspended",
+        statusChangeReason: reason,
+        statusChangedDate: nowIso,
+        updatedAt: serverTimestamp(),
+      });
+    }
+
+    await batch.commit();
+    updatedCount += chunk.length;
+  }
+
+  return { success: true, updatedCount };
+}
+
+/**
+ * Exports students list to CSV format with RFC-4180 escaping.
+ */
+export function exportStudentsToCsv(students: StudentProfile[], filenamePrefix: string = "students"): void {
+  if (typeof window === "undefined") return;
+
+  const headers = [
+    "Admission Number",
+    "Student ID",
+    "Roll Number",
+    "Name",
+    "Class",
+    "Section",
+    "Gender",
+    "DOB",
+    "Phone",
+    "Email",
+    "Guardian Name",
+    "Guardian Phone",
+    "Status",
+    "Admission Date",
+  ];
+
+  const escapeCsv = (val: any) => `"${String(val ?? "").replace(/"/g, '""')}"`;
+
+  const rows = students.map((s) => [
+    escapeCsv(s.admissionNumber),
+    escapeCsv(s.studentId),
+    s.rollNumber != null ? String(s.rollNumber) : "",
+    escapeCsv(s.name),
+    escapeCsv(s.className),
+    escapeCsv(s.sectionName),
+    escapeCsv(s.gender),
+    escapeCsv(s.dob),
+    escapeCsv(s.phone),
+    escapeCsv(s.email),
+    escapeCsv(s.guardianName || s.fatherName),
+    escapeCsv(s.guardianPhone),
+    escapeCsv(s.status || "active"),
+    escapeCsv(s.admissionDate),
+  ]);
+
+  const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", `${filenamePrefix}_${new Date().toISOString().split("T")[0]}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export interface ClassPromotionMapping {
+  sourceClassId: string;
+  sourceClassName: string;
+  targetClassId: string | "GRADUATE" | "RETAIN";
+  targetClassName: string;
+  targetSectionId?: string;
+  targetSectionName?: string;
+}
+
+export interface SessionPromotionOptions {
+  schoolId: string;
+  fromYearId: string;
+  fromYearName?: string;
+  toYearId: string;
+  toYearName?: string;
+  classMappings: ClassPromotionMapping[];
+  resetRollNumbers?: boolean;
+  autoAssignFees?: boolean;
+  graduatingAction?: "graduated" | "archived";
+}
+
+export interface SessionPromotionResult {
+  success: boolean;
+  totalStudentsEvaluated: number;
+  promotedCount: number;
+  graduatedCount: number;
+  retainedCount: number;
+}
+
+/**
+ * Executes full academic session transition and optional student promotions.
+ * Preserves past academic and financial records without overwriting historical data.
+ */
+export async function executeSessionPromotion(
+  options: SessionPromotionOptions
+): Promise<SessionPromotionResult> {
+  const {
+    schoolId,
+    fromYearId,
+    fromYearName = "Previous Session",
+    toYearId,
+    toYearName = "New Session",
+    classMappings,
+    resetRollNumbers = true,
+    autoAssignFees = true,
+    graduatingAction = "graduated",
+  } = options;
+
+  const db = getFirebaseDb();
+  const studentsColl = collection(db, "schools", schoolId, "students");
+  const snap = await getDocs(studentsColl);
+
+  const activeStudents: StudentProfile[] = [];
+  for (const d of snap.docs) {
+    const s = d.data() as StudentProfile;
+    if (s.status === "active" || !s.status) {
+      activeStudents.push({ ...s, id: d.id });
+    }
+  }
+
+  const mappingBySourceClass = new Map<string, ClassPromotionMapping>();
+  for (const m of classMappings) {
+    mappingBySourceClass.set(m.sourceClassId, m);
+  }
+
+  let promotedCount = 0;
+  let graduatedCount = 0;
+  let retainedCount = 0;
+  const nowIso = new Date().toISOString();
+  const today = nowIso.split("T")[0];
+
+  // Group students by target class/section for sequential roll assignment
+  const rollCounters = new Map<string, number>();
+
+  // Chunk processing for batch writes
+  const CHUNK_SIZE = 100;
+  for (let i = 0; i < activeStudents.length; i += CHUNK_SIZE) {
+    const chunk = activeStudents.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(db);
+
+    for (const student of chunk) {
+      const mapping = mappingBySourceClass.get(student.classId);
+      if (!mapping) {
+        continue;
+      }
+
+      const studentRef = doc(db, "schools", schoolId, "students", student.id);
+      const rootRef = doc(db, "students", student.id);
+
+      if (mapping.targetClassId === "GRADUATE") {
+        // Graduate student: mark as graduated/archived and preserve academic history
+        const gradRecord = {
+          id: `promo_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          fromClassId: student.classId,
+          fromClassName: student.className,
+          toClassId: "GRADUATED",
+          toClassName: "Graduated",
+          fromYearId,
+          toYearId,
+          date: today,
+          remarks: `Graduated from ${student.className} upon session transition to ${toYearName}`,
+        };
+
+        const prevClassRecord = {
+          classId: student.classId,
+          className: student.className,
+          academicYearId: fromYearId,
+          yearName: fromYearName,
+          completedDate: today,
+        };
+
+        const gradPayload: any = {
+          status: graduatingAction,
+          statusChangeReason: `Graduated upon completing ${student.className}`,
+          statusChangedDate: nowIso,
+          leavingClass: student.className,
+          leavingDate: today,
+          leavingReason: "Academic session graduation",
+          promotionHistory: arrayUnion(gradRecord),
+          previousClasses: arrayUnion(prevClassRecord),
+          updatedAt: serverTimestamp(),
+        };
+
+        batch.update(studentRef, gradPayload);
+        batch.update(rootRef, gradPayload);
+        graduatedCount++;
+      } else if (mapping.targetClassId === "RETAIN") {
+        // Retain in same class for new academic year
+        const retainRecord = {
+          id: `promo_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          fromClassId: student.classId,
+          fromClassName: student.className,
+          toClassId: student.classId,
+          toClassName: student.className,
+          fromYearId,
+          toYearId,
+          date: today,
+          remarks: `Retained in ${student.className} for ${toYearName}`,
+        };
+
+        const retainPayload: any = {
+          academicYearId: toYearId,
+          promotionHistory: arrayUnion(retainRecord),
+          updatedAt: serverTimestamp(),
+        };
+
+        batch.update(studentRef, retainPayload);
+        batch.update(rootRef, retainPayload);
+        retainedCount++;
+      } else {
+        // Promote to next class
+        const targetClassKey = `${mapping.targetClassId}_${mapping.targetSectionId || "def"}`;
+        let assignedRoll = student.rollNumber || 1;
+
+        if (resetRollNumbers) {
+          const currentCount = rollCounters.get(targetClassKey) || 0;
+          assignedRoll = currentCount + 1;
+          rollCounters.set(targetClassKey, assignedRoll);
+        }
+
+        const promoRecord = {
+          id: `promo_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          fromClassId: student.classId,
+          fromClassName: student.className,
+          toClassId: mapping.targetClassId,
+          toClassName: mapping.targetClassName,
+          fromYearId,
+          toYearId,
+          date: today,
+          remarks: `Promoted from ${student.className} to ${mapping.targetClassName} for ${toYearName}`,
+        };
+
+        const prevClassRecord = {
+          classId: student.classId,
+          className: student.className,
+          academicYearId: fromYearId,
+          yearName: fromYearName,
+          completedDate: today,
+        };
+
+        const promotePayload: any = {
+          classId: mapping.targetClassId,
+          className: mapping.targetClassName,
+          sectionId: mapping.targetSectionId || student.sectionId || "sec_default",
+          sectionName: mapping.targetSectionName || student.sectionName || "A",
+          rollNumber: assignedRoll,
+          academicYearId: toYearId,
+          promotionHistory: arrayUnion(promoRecord),
+          previousClasses: arrayUnion(prevClassRecord),
+          updatedAt: serverTimestamp(),
+        };
+
+        batch.update(studentRef, promotePayload);
+        batch.update(rootRef, promotePayload);
+        promotedCount++;
+
+        // Auto-assign fee structures for new class in new year if enabled
+        if (autoAssignFees) {
+          provisionStudentFeeAssignment(
+            schoolId,
+            {
+              id: student.id,
+              name: student.name,
+              admissionNumber: student.admissionNumber || student.studentId,
+              className: mapping.targetClassName,
+              sectionName: mapping.targetSectionName || student.sectionName || "A",
+              admissionDate: student.admissionDate,
+            },
+            toYearId
+          ).catch((err) => console.warn("Failed to provision new session fees:", err));
+        }
+      }
+    }
+
+    await batch.commit();
+  }
+
+  // Finally activate the new academic year
+  await setCurrentAcademicYear(schoolId, toYearId);
+
+  return {
+    success: true,
+    totalStudentsEvaluated: activeStudents.length,
+    promotedCount,
+    graduatedCount,
+    retainedCount,
+  };
+}

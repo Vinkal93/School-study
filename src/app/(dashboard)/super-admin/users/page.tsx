@@ -42,6 +42,7 @@ import {
   subscribeToAllUsers,
   subscribeToAllSchools,
 } from "@/lib/services/school.service";
+import { reconcileGlobalUsersDirectory } from "@/lib/services/user-sync.service";
 import { useAuth } from "@/hooks/use-auth";
 import type { AppUser, UserRole, UserStatus, School } from "@/types";
 import { toast } from "sonner";
@@ -81,6 +82,25 @@ function UsersManagementContent() {
   // Interactive UI states
   const [copiedUid, setCopiedUid] = useState<string | null>(null);
   const [actionMenuOpenId, setActionMenuOpenId] = useState<string | null>(null);
+  const [reconciling, setReconciling] = useState(false);
+
+  const handleReconcileDirectory = async () => {
+    try {
+      setReconciling(true);
+      const targetSchool = schoolFilter !== "all" && schoolFilter !== "none" ? schoolFilter : undefined;
+      const res = await reconcileGlobalUsersDirectory(targetSchool);
+      toast.success(
+        `Directory reconciled! Synced ${res.syncedStudents} students and ${res.syncedTeachers} teachers.`
+      );
+      const refreshed = await getAllUsers();
+      setUsers(refreshed);
+    } catch (err: any) {
+      console.error("Reconciliation error:", err);
+      toast.error(err?.message || "Failed to reconcile directory");
+    } finally {
+      setReconciling(false);
+    }
+  };
 
   // Modal States
   const [selectedUser, setSelectedUser] = useState<AppUser | null>(null);
@@ -186,41 +206,10 @@ function UsersManagementContent() {
     return Date.now() - ms <= 15 * 60 * 1000;
   };
 
-  // Top 7 Stats
-  const stats = useMemo(() => {
-    let totalUsers = users.length;
-    let active = 0;
-    let onlineNow = 0;
-    let suspended = 0;
-    let teachers = 0;
-    let students = 0;
-    let schoolAdmins = 0;
-
-    users.forEach((u) => {
-      const isSuspended = u.status === "suspended" || u.status === "blocked" || u.status === "disabled";
-      if (u.status === "active") active++;
-      if (isSuspended) suspended++;
-      if (isOnlineNow(u)) onlineNow++;
-      if (u.role === "teacher") teachers++;
-      if (u.role === "student") students++;
-      if (u.role === "school_admin") schoolAdmins++;
-    });
-
-    return {
-      totalUsers,
-      active,
-      onlineNow,
-      suspended,
-      teachers,
-      students,
-      schoolAdmins,
-    };
-  }, [users]);
-
-  // Search and Filter Logic
-  const filteredUsers = useMemo(() => {
+  // Scope-Filtered Users (Matching all active filters EXCEPT roleFilter, for dynamic role pills)
+  const scopeFilteredUsers = useMemo(() => {
     return users.filter((u) => {
-      // 1. Search (Name, Email, Phone, User ID, School ID)
+      // 1. Search (Name, Email, Phone, User ID, School ID, Admission No, Teacher Code, Roll No)
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchesName = (u.name || "").toLowerCase().includes(q);
@@ -228,7 +217,21 @@ function UsersManagementContent() {
         const matchesPhone = ((u as any).phone || "").toLowerCase().includes(q);
         const matchesUid = (u.uid || "").toLowerCase().includes(q);
         const matchesSchoolId = (u.schoolId || "").toLowerCase().includes(q);
-        if (!matchesName && !matchesEmail && !matchesPhone && !matchesUid && !matchesSchoolId) {
+        const matchesAdmNo = ((u as any).admissionNumber || "").toLowerCase().includes(q);
+        const matchesStudentId = ((u as any).studentId || "").toLowerCase().includes(q);
+        const matchesTeacherCode = ((u as any).teacherCode || "").toLowerCase().includes(q);
+        const matchesRoll = (u as any).rollNumber !== undefined && String((u as any).rollNumber) === q;
+        if (
+          !matchesName &&
+          !matchesEmail &&
+          !matchesPhone &&
+          !matchesUid &&
+          !matchesSchoolId &&
+          !matchesAdmNo &&
+          !matchesStudentId &&
+          !matchesTeacherCode &&
+          !matchesRoll
+        ) {
           return false;
         }
       }
@@ -242,20 +245,22 @@ function UsersManagementContent() {
         }
       }
 
-      // 3. Role Filter
-      if (roleFilter !== "all" && u.role !== roleFilter) {
-        return false;
-      }
-
-      // 4. Status Filter
+      // 3. Status Filter (including portal_not_created)
       if (statusFilter !== "all") {
-        if (statusFilter === "active" && u.status !== "active") return false;
-        if (statusFilter === "suspended" && u.status !== "suspended") return false;
-        if (statusFilter === "blocked" && u.status !== "blocked") return false;
-        if (statusFilter === "disabled" && u.status !== "disabled") return false;
+        if (statusFilter === "portal_not_created") {
+          if ((u as any).accountStatus !== "portal_not_created" && (u as any).hasAuth !== false) return false;
+        } else if (statusFilter === "active" && u.status !== "active") {
+          return false;
+        } else if (statusFilter === "suspended" && u.status !== "suspended") {
+          return false;
+        } else if (statusFilter === "blocked" && u.status !== "blocked") {
+          return false;
+        } else if (statusFilter === "disabled" && u.status !== "disabled") {
+          return false;
+        }
       }
 
-      // 5. Last Active Filter
+      // 4. Last Active Filter
       if (lastActiveFilter !== "all") {
         const getLastActive = (item: any) => item.lastActiveAt || item.lastLoginAt || item.updatedAt;
         const ms = getTimestampMs(getLastActive(u));
@@ -271,7 +276,7 @@ function UsersManagementContent() {
         }
       }
 
-      // 6. Account Type Filter
+      // 5. Account Type Filter
       if (accountTypeFilter !== "all") {
         if (accountTypeFilter === "school_bound" && !u.schoolId) return false;
         if (accountTypeFilter === "global" && u.schoolId) return false;
@@ -279,7 +284,75 @@ function UsersManagementContent() {
 
       return true;
     });
-  }, [users, searchQuery, schoolFilter, roleFilter, statusFilter, lastActiveFilter, accountTypeFilter]);
+  }, [users, searchQuery, schoolFilter, statusFilter, lastActiveFilter, accountTypeFilter]);
+
+  // Dynamic Role Counts matching current active scope (school, status, search)
+  const roleCounts = useMemo(() => {
+    let super_admin = 0;
+    let school_admin = 0;
+    let teacher = 0;
+    let student = 0;
+
+    scopeFilteredUsers.forEach((u) => {
+      if (u.role === "super_admin") super_admin++;
+      else if (u.role === "school_admin") school_admin++;
+      else if (u.role === "teacher") teacher++;
+      else if (u.role === "student") student++;
+    });
+
+    return {
+      all: scopeFilteredUsers.length,
+      super_admin,
+      school_admin,
+      teacher,
+      student,
+    };
+  }, [scopeFilteredUsers]);
+
+  // Final Filtered Users (including role filter)
+  const filteredUsers = useMemo(() => {
+    if (roleFilter === "all") return scopeFilteredUsers;
+    return scopeFilteredUsers.filter((u) => u.role === roleFilter);
+  }, [scopeFilteredUsers, roleFilter]);
+
+  // Top 7 Dynamic KPI Stats (Recalculates from exact active filter scope)
+  const stats = useMemo(() => {
+    const targetSet = roleFilter === "all" ? scopeFilteredUsers : filteredUsers;
+    let active = 0;
+    let onlineNow = 0;
+    let suspended = 0;
+    let teachers = 0;
+    let students = 0;
+    let schoolAdmins = 0;
+
+    targetSet.forEach((u) => {
+      const isSuspended = u.status === "suspended" || u.status === "blocked" || u.status === "disabled";
+      if (u.status === "active") active++;
+      if (isSuspended) suspended++;
+      if (isOnlineNow(u)) onlineNow++;
+      if (u.role === "teacher") teachers++;
+      if (u.role === "student") students++;
+      if (u.role === "school_admin") schoolAdmins++;
+    });
+
+    return {
+      totalUsers: filteredUsers.length,
+      overallTotal: users.length,
+      active,
+      onlineNow,
+      suspended,
+      teachers: roleFilter === "all" ? roleCounts.teacher : teachers,
+      students: roleFilter === "all" ? roleCounts.student : students,
+      schoolAdmins: roleFilter === "all" ? roleCounts.school_admin : schoolAdmins,
+      isFiltered:
+        schoolFilter !== "all" ||
+        roleFilter !== "all" ||
+        statusFilter !== "all" ||
+        lastActiveFilter !== "all" ||
+        accountTypeFilter !== "all" ||
+        Boolean(searchQuery.trim()),
+    };
+  }, [scopeFilteredUsers, filteredUsers, roleCounts, users.length, schoolFilter, roleFilter, statusFilter, lastActiveFilter, accountTypeFilter, searchQuery]);
 
   // Copy UID helper
   const handleCopyUid = (uid: string) => {
@@ -524,6 +597,15 @@ function UsersManagementContent() {
   const getStatusBadge = (user: AppUser) => {
     const isOnline = isOnlineNow(user);
 
+    if ((user as any).accountStatus === "portal_not_created" || (user as any).hasAuth === false) {
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600 border border-slate-200/60 dark:bg-slate-800 dark:text-slate-300">
+          <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+          Portal account not created
+        </span>
+      );
+    }
+
     if (user.status === "active") {
       return (
         <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 border border-emerald-200/60 dark:bg-emerald-950/40 dark:text-emerald-400">
@@ -577,6 +659,15 @@ function UsersManagementContent() {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={handleReconcileDirectory}
+            disabled={reconciling || loading}
+            title="Scan school subcollections and sync all imported students & teachers into global directory"
+            className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3.5 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 shadow-sm transition-colors dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300"
+          >
+            <UserCheck className={`h-4 w-4 ${reconciling ? "animate-spin" : ""}`} />
+            {reconciling ? "Syncing..." : "Sync Directory"}
+          </button>
+          <button
             onClick={() => {
               setLoading(true);
               getAllUsers().then((d) => {
@@ -611,11 +702,15 @@ function UsersManagementContent() {
           }`}
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Total Users</span>
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              {stats.isFiltered ? "Filtered Users" : "Total Users"}
+            </span>
             <Users className="h-4 w-4 text-blue-600" />
           </div>
           <p className="mt-2 text-2xl font-bold text-gray-900 dark:text-white">{stats.totalUsers}</p>
-          <p className="mt-0.5 text-[11px] text-gray-400">Global Accounts</p>
+          <p className="mt-0.5 text-[11px] text-gray-400">
+            {stats.isFiltered ? `of ${stats.overallTotal} Total` : "Global Accounts"}
+          </p>
         </button>
 
         {/* Active */}
@@ -785,6 +880,7 @@ function UsersManagementContent() {
             >
               <option value="all">All Statuses</option>
               <option value="active">Active</option>
+              <option value="portal_not_created">Portal Account Not Created</option>
               <option value="suspended">Suspended</option>
               <option value="blocked">Blocked</option>
               <option value="disabled">Disabled</option>
@@ -826,7 +922,7 @@ function UsersManagementContent() {
             Role Filter:
           </span>
           {(["all", "super_admin", "school_admin", "teacher", "student"] as const).map((r) => {
-            const count = r === "all" ? users.length : users.filter((u) => u.role === r).length;
+            const count = r === "all" ? roleCounts.all : (roleCounts as any)[r] || 0;
             const isSelected = roleFilter === r;
             return (
               <button

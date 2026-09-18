@@ -189,6 +189,31 @@ export interface CreateTeacherInput {
 
 export type Gender = "male" | "female" | "other";
 
+export type StudentStatus =
+  | "active"
+  | "inactive"
+  | "suspended"
+  | "left"
+  | "dropped"
+  | "not_continuing"
+  | "graduated"
+  | "transferred"
+  | "archived"
+  | "deleted";
+
+export interface StudentPromotionRecord {
+  id: string;
+  fromClassId: string;
+  fromClassName: string;
+  toClassId: string;
+  toClassName: string;
+  fromYearId?: string;
+  toYearId?: string;
+  date: string;
+  remarks?: string;
+  promotedBy?: string;
+}
+
 export interface StudentProfile {
   id: string; // Random auto-generated document ID
   schoolId: string;
@@ -209,12 +234,29 @@ export interface StudentProfile {
   sectionName: string;
   academicYearId?: string;
   admissionDate?: string;
+  joinedClassId?: string;
+  joinedClassName?: string;
+  previousClasses?: Array<{
+    classId: string;
+    className: string;
+    academicYearId?: string;
+    yearName?: string;
+    completedDate?: string;
+  }>;
+  promotionHistory?: StudentPromotionRecord[];
   guardianName?: string;
+  fatherName?: string;
+  motherName?: string;
   guardianPhone?: string;
   guardianEmail?: string;
   guardianRelation?: string;
   bloodGroup?: string;
-  status: "active" | "inactive" | "transferred" | "archived" | "deleted";
+  status: StudentStatus;
+  statusChangeReason?: string;
+  statusChangedDate?: string;
+  leavingDate?: string;
+  leavingClass?: string;
+  leavingReason?: string;
   transferHistory?: StudentTransferRecord[];
   deletedAt?: string | Timestamp | null;
   createdAt: Timestamp;

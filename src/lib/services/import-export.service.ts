@@ -658,6 +658,50 @@ export async function executeControlledImport(
           if (targetModule === "students") {
             const topStudentRef = adminDb.collection("students").doc(docId);
             batch.set(topStudentRef, { ...cleanData, schoolId, updatedAt: new Date().toISOString() }, { merge: true });
+            const userDocRef = adminDb.collection("users").doc(docId);
+            batch.set(
+              userDocRef,
+              {
+                uid: docId,
+                name: cleanData.name || "Student",
+                email: cleanData.email || "",
+                role: "student",
+                schoolId,
+                userId: cleanData.admissionNumber || cleanData.studentId || docId,
+                studentId: cleanData.studentId || cleanData.admissionNumber || docId,
+                admissionNumber: cleanData.admissionNumber || docId,
+                rollNumber: cleanData.rollNumber ?? null,
+                className: cleanData.className || "",
+                sectionName: cleanData.sectionName || "",
+                phone: cleanData.phone || cleanData.guardianPhone || "",
+                status: cleanData.status || "active",
+                accountStatus: "portal_not_created",
+                hasAuth: false,
+                updatedAt: new Date().toISOString(),
+              },
+              { merge: true }
+            );
+          } else if (targetModule === "teachers") {
+            const userDocRef = adminDb.collection("users").doc(docId);
+            batch.set(
+              userDocRef,
+              {
+                uid: docId,
+                name: cleanData.name || "Teacher",
+                email: cleanData.email || "",
+                role: "teacher",
+                schoolId,
+                userId: cleanData.teacherCode || cleanData.employeeId || docId,
+                teacherCode: cleanData.teacherCode || cleanData.employeeId || docId,
+                teacherId: cleanData.teacherId || docId,
+                phone: cleanData.phone || "",
+                status: cleanData.status || "active",
+                accountStatus: "portal_not_created",
+                hasAuth: false,
+                updatedAt: new Date().toISOString(),
+              },
+              { merge: true }
+            );
           }
           updatedCount++;
         } else {
@@ -672,6 +716,52 @@ export async function executeControlledImport(
           if (targetModule === "students") {
             const topStudentRef = adminDb.collection("students").doc(docId);
             batch.set(topStudentRef, fullRecord);
+            const userDocRef = adminDb.collection("users").doc(docId);
+            batch.set(
+              userDocRef,
+              {
+                uid: docId,
+                name: cleanData.name || "Student",
+                email: cleanData.email || "",
+                role: "student",
+                schoolId,
+                userId: cleanData.admissionNumber || cleanData.studentId || docId,
+                studentId: cleanData.studentId || cleanData.admissionNumber || docId,
+                admissionNumber: cleanData.admissionNumber || docId,
+                rollNumber: cleanData.rollNumber ?? null,
+                className: cleanData.className || "",
+                sectionName: cleanData.sectionName || "",
+                phone: cleanData.phone || cleanData.guardianPhone || "",
+                status: cleanData.status || "active",
+                accountStatus: "portal_not_created",
+                hasAuth: false,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              },
+              { merge: true }
+            );
+          } else if (targetModule === "teachers") {
+            const userDocRef = adminDb.collection("users").doc(docId);
+            batch.set(
+              userDocRef,
+              {
+                uid: docId,
+                name: cleanData.name || "Teacher",
+                email: cleanData.email || "",
+                role: "teacher",
+                schoolId,
+                userId: cleanData.teacherCode || cleanData.employeeId || docId,
+                teacherCode: cleanData.teacherCode || cleanData.employeeId || docId,
+                teacherId: cleanData.teacherId || docId,
+                phone: cleanData.phone || "",
+                status: cleanData.status || "active",
+                accountStatus: "portal_not_created",
+                hasAuth: false,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              },
+              { merge: true }
+            );
           }
           importedCount++;
         }
@@ -690,7 +780,7 @@ export async function executeControlledImport(
       }
     }
 
-    // Record audit log
+    // Record audit logs
     await logAuditEvent({
       actorId,
       actorRole: "super_admin",
@@ -700,6 +790,34 @@ export async function executeControlledImport(
       targetSchoolId: schoolId,
       reason: `Imported ${importedCount} new, updated ${updatedCount} existing ${targetModule} records. Pre-import snapshot: ${preImportSnapshotId}`,
     }).catch(() => {});
+
+    try {
+      const auditLogRef = adminDb.collection("importExportAuditLogs").doc();
+      await auditLogRef.set({
+        id: auditLogRef.id,
+        operationId: `op_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        type: "import",
+        entity: targetModule,
+        schoolId,
+        schoolName: schoolId,
+        performedBy: actorId || "Super Admin",
+        performedByUid: actorId || "",
+        role: "super_admin",
+        timestamp: new Date().toISOString(),
+        source: "server_import_pipeline",
+        totalRows: validRecords.length,
+        createdCount: importedCount,
+        updatedCount: updatedCount,
+        skippedCount: skippedCount,
+        failedCount: 0,
+        status: errors.length > 0 ? "partial" : "success",
+        filename: `${targetModule}_import.xlsx`,
+        durationMs: 0,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (auditErr) {
+      console.warn("Notice: importExportAuditLogs write error:", auditErr);
+    }
 
     return {
       success: true,

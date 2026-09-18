@@ -61,6 +61,9 @@ import {
   transferStudentClass,
   updateStudent,
   bulkDeleteStudents,
+  bulkSuspendStudents,
+  exportStudentsToCsv,
+  checkStudentFinancialHistory,
 } from "@/lib/services/student.service";
 import { uploadStudentPhoto } from "@/lib/services/storage.service";
 import { getClassesWithSections } from "@/lib/services/academic.service";
@@ -201,7 +204,7 @@ export default function AdminStudentsPage() {
   const debouncedSearch = useDebounce(searchQuery, 250);
   const [selectedClassFilter, setSelectedClassFilter] = useState("all");
   const [selectedSectionFilter, setSelectedSectionFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive" | "deleted">("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   // Transfer Class Modal State
@@ -617,12 +620,13 @@ export default function AdminStudentsPage() {
               (sec) => sec.id === selectedSectionFilter && isMatchingSection(s.sectionName, sec.name)
             );
 
+      const sStatus = (s.status || "active").toLowerCase();
       const matchesStatus =
         statusFilter === "all"
-          ? s.status !== "deleted"
-          : statusFilter === "deleted"
-          ? s.status === "deleted"
-          : s.status === statusFilter;
+          ? sStatus !== "deleted" && sStatus !== "archived"
+          : statusFilter === "deleted" || statusFilter === "archived"
+          ? sStatus === "deleted" || sStatus === "archived"
+          : sStatus === statusFilter.toLowerCase();
 
       return matchesSearch && matchesClass && matchesSection && matchesStatus;
     });
@@ -717,8 +721,38 @@ export default function AdminStudentsPage() {
     }
   };
 
+  const handleBulkSuspend = async () => {
+    const count = effectiveSelectedCount;
+    if (count === 0) return;
+    if (!window.confirm(`Are you sure you want to suspend ${count} student(s)? Their status will be set to suspended.`)) {
+      return;
+    }
+    try {
+      const ids = isAllFilteredSelected ? filteredStudents.map((s) => s.id) : Array.from(selectedStudentIds);
+      await bulkSuspendStudents(schoolId, ids, "Administrative bulk suspension");
+      toast.success(`Successfully suspended ${ids.length} student(s).`);
+      handleClearSelection();
+      appQueryClient.invalidateCache(`students:${schoolId}`);
+      await refetchStudents(true);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to suspend students.");
+    }
+  };
+
+  const handleBulkExport = () => {
+    const listToExport = isAllFilteredSelected
+      ? filteredStudents
+      : filteredStudents.filter((s) => selectedStudentIds.has(s.id));
+    if (listToExport.length === 0) {
+      toast.error("No students selected for export.");
+      return;
+    }
+    exportStudentsToCsv(listToExport, "students_roster");
+    toast.success(`Exported ${listToExport.length} students to CSV.`);
+  };
+
   const nonDeletedStudents = useMemo(
-    () => students.filter((s) => s.status !== "deleted"),
+    () => students.filter((s) => s.status !== "deleted" && s.status !== "archived"),
     [students]
   );
   const activeStudentsCount = useMemo(
@@ -732,6 +766,28 @@ export default function AdminStudentsPage() {
   const totalGirls = useMemo(
     () => nonDeletedStudents.filter((s) => normalizeGender(s.gender) === "female").length,
     [nonDeletedStudents]
+  );
+
+  const isFilterActive = useMemo(() => {
+    return (
+      selectedClassFilter !== "all" ||
+      selectedSectionFilter !== "all" ||
+      statusFilter !== "all" ||
+      Boolean(debouncedSearch.trim())
+    );
+  }, [selectedClassFilter, selectedSectionFilter, statusFilter, debouncedSearch]);
+
+  const filteredActiveCount = useMemo(
+    () => filteredStudents.filter((s) => !s.status || s.status.toLowerCase() === "active").length,
+    [filteredStudents]
+  );
+  const filteredBoysCount = useMemo(
+    () => filteredStudents.filter((s) => normalizeGender(s.gender) === "male").length,
+    [filteredStudents]
+  );
+  const filteredGirlsCount = useMemo(
+    () => filteredStudents.filter((s) => normalizeGender(s.gender) === "female").length,
+    [filteredStudents]
   );
 
   return (
@@ -843,8 +899,15 @@ export default function AdminStudentsPage() {
             <GraduationCap className="h-6 w-6" />
           </div>
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Total Students</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">{nonDeletedStudents.length}</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              {isFilterActive ? "Filtered Students" : "Total Students"}
+            </p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">
+              {filteredStudents.length}
+            </p>
+            {isFilterActive && (
+              <p className="text-[11px] text-gray-400 mt-0.5">of {nonDeletedStudents.length} overall</p>
+            )}
           </div>
         </div>
 
@@ -853,10 +916,15 @@ export default function AdminStudentsPage() {
             <CheckCircle2 className="h-6 w-6" />
           </div>
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Active Students</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">
-              {activeStudentsCount}
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              {isFilterActive ? "Filtered Active" : "Active Students"}
             </p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">
+              {filteredActiveCount}
+            </p>
+            {isFilterActive && (
+              <p className="text-[11px] text-gray-400 mt-0.5">of {activeStudentsCount} overall</p>
+            )}
           </div>
         </div>
 
@@ -865,8 +933,15 @@ export default function AdminStudentsPage() {
             <UserCheck className="h-6 w-6" />
           </div>
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Boys</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">{totalBoys}</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              {isFilterActive ? "Filtered Boys" : "Boys"}
+            </p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">
+              {filteredBoysCount}
+            </p>
+            {isFilterActive && (
+              <p className="text-[11px] text-gray-400 mt-0.5">of {totalBoys} overall</p>
+            )}
           </div>
         </div>
 
@@ -875,8 +950,15 @@ export default function AdminStudentsPage() {
             <UserCheck className="h-6 w-6" />
           </div>
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Girls</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">{totalGirls}</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              {isFilterActive ? "Filtered Girls" : "Girls"}
+            </p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">
+              {filteredGirlsCount}
+            </p>
+            {isFilterActive && (
+              <p className="text-[11px] text-gray-400 mt-0.5">of {totalGirls} overall</p>
+            )}
           </div>
         </div>
       </div>
@@ -893,6 +975,9 @@ export default function AdminStudentsPage() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.preventDefault();
+            }}
             placeholder="Search student, adm no, email..."
             className="w-full rounded-lg border border-gray-300 pl-9 pr-4 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
           />
@@ -932,23 +1017,97 @@ export default function AdminStudentsPage() {
           </select>
 
           {/* Status Filter */}
-          <div className="flex items-center gap-1">
-            {(["all", "active", "inactive", "deleted"] as const).map((st) => (
-              <button
-                key={st}
-                onClick={() => setStatusFilter(st)}
-                className={`rounded-lg px-2.5 py-1.5 text-xs font-medium capitalize transition-colors ${
-                  statusFilter === st
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
-                }`}
-              >
-                {st === "all" ? "All" : st === "deleted" ? "Archived" : st}
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+            >
+              <option value="all">All Active Enrolled</option>
+              <option value="active">Active</option>
+              <option value="suspended">Suspended</option>
+              <option value="left">Left (TC / Without TC)</option>
+              <option value="dropped">Dropped Out</option>
+              <option value="not_continuing">Not Continuing</option>
+              <option value="graduated">Graduated</option>
+              <option value="transferred">Transferred</option>
+              <option value="deleted">Archived / Deleted</option>
+            </select>
           </div>
         </div>
       </div>
+
+      {/* Floating / Sticky Bulk Action Bar */}
+      {effectiveSelectedCount > 0 && (
+        <div className="rounded-xl bg-slate-900 text-white p-3 sm:px-4 sm:py-2.5 shadow-lg flex flex-wrap items-center justify-between gap-3 border border-slate-700 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-blue-600 font-bold text-xs">
+              {effectiveSelectedCount}
+            </span>
+            <div className="text-xs sm:text-sm">
+              <span className="font-bold">
+                {effectiveSelectedCount} student{effectiveSelectedCount === 1 ? "" : "s"} selected
+              </span>
+              {!isAllFilteredSelected && filteredStudents.length > paginatedStudents.length && (
+                <button
+                  type="button"
+                  onClick={handleSelectAllFiltered}
+                  className="ml-2 text-blue-400 underline hover:text-blue-300 font-medium cursor-pointer"
+                >
+                  Select all {filteredStudents.length} matching filter
+                </button>
+              )}
+              {isAllFilteredSelected && (
+                <span className="ml-2 text-blue-300 font-medium">
+                  (All {filteredStudents.length} matching filter selected)
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Bulk Suspend */}
+            <button
+              type="button"
+              onClick={handleBulkSuspend}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 active:scale-95 text-xs font-bold transition-all cursor-pointer"
+            >
+              <Power className="w-3.5 h-3.5" />
+              <span>Suspend</span>
+            </button>
+
+            {/* Bulk Export */}
+            <button
+              type="button"
+              onClick={handleBulkExport}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-95 border border-slate-600 text-xs font-bold transition-all cursor-pointer"
+            >
+              <Upload className="w-3.5 h-3.5 rotate-180" />
+              <span>Export CSV</span>
+            </button>
+
+            {/* Bulk Delete / Archive */}
+            <button
+              type="button"
+              onClick={() => setIsBulkDeleteModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 active:scale-95 text-xs font-bold transition-all cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete / Archive</span>
+            </button>
+
+            {/* Clear Selection */}
+            <button
+              type="button"
+              onClick={handleClearSelection}
+              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              title="Clear selection"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Students Table */}
       {loading ? (
@@ -984,9 +1143,15 @@ export default function AdminStudentsPage() {
                   key={s.id}
                   className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 shadow-xs space-y-3.5 hover:border-blue-300 dark:hover:border-blue-800 transition-all"
                 >
-                  {/* Top Row: Avatar + Name & IDs + Status Badge */}
+                  {/* Top Row: Checkbox + Avatar + Name & IDs + Status Badge */}
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <input
+                        type="checkbox"
+                        checked={selectedStudentIds.has(s.id)}
+                        onChange={() => handleToggleSelectStudent(s.id)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer w-4 h-4 shrink-0 mt-3"
+                      />
                       {/* Avatar with edit photo trigger */}
                       <button
                         type="button"
@@ -1144,6 +1309,18 @@ export default function AdminStudentsPage() {
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-800 text-gray-500 dark:text-gray-400">
                   <tr>
+                    <th className="py-3.5 px-3 w-10 text-center select-none">
+                      <input
+                        type="checkbox"
+                        checked={areAllOnPageSelected}
+                        ref={(input) => {
+                          if (input) input.indeterminate = areSomeOnPageSelected;
+                        }}
+                        onChange={handleToggleSelectPage}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer w-4 h-4"
+                        title={areAllOnPageSelected ? "Deselect Page" : "Select Page"}
+                      />
+                    </th>
                     <th style={{ width: columnWidths.roll }} className="relative py-3.5 px-4 font-medium select-none">
                       Roll
                       <div
@@ -1246,8 +1423,16 @@ export default function AdminStudentsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-                  {filteredStudents.map((s) => (
-                    <tr key={s.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/50">
+                  {paginatedStudents.map((s) => (
+                    <tr key={s.id} className={`hover:bg-gray-50 dark:hover:bg-gray-900/50 ${selectedStudentIds.has(s.id) ? "bg-blue-50/40 dark:bg-blue-950/20" : ""}`}>
+                      <td className="py-4 px-3 w-10 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedStudentIds.has(s.id)}
+                          onChange={() => handleToggleSelectStudent(s.id)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer w-4 h-4"
+                        />
+                      </td>
                       <td className="py-4 px-4">
                         <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
                           {s.rollNumber ?? "-"}
@@ -1404,6 +1589,57 @@ export default function AdminStudentsPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            {/* Pagination Controls */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 border-t border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30 text-xs">
+              <div className="text-gray-500 dark:text-gray-400">
+                Showing <span className="font-bold text-gray-900 dark:text-white">{filteredStudents.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}</span> to{" "}
+                <span className="font-bold text-gray-900 dark:text-white">
+                  {Math.min(currentPage * pageSize, filteredStudents.length)}
+                </span>{" "}
+                of <span className="font-bold text-gray-900 dark:text-white">{filteredStudents.length}</span> students
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-gray-500">Rows:</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="rounded-lg border border-gray-300 px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  >
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={currentPage <= 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    className="rounded-lg border border-gray-300 px-2.5 py-1 font-semibold disabled:opacity-40 hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+                  >
+                    Previous
+                  </button>
+                  <span className="px-2 font-medium">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    className="rounded-lg border border-gray-300 px-2.5 py-1 font-semibold disabled:opacity-40 hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
             </div>
           </>
         )}
@@ -1984,11 +2220,27 @@ export default function AdminStudentsPage() {
         isOpen={Boolean(deletingStudent)}
         onClose={() => setDeletingStudent(null)}
         onConfirm={handleConfirmDelete}
-        title="Delete Student Record"
+        title="Archive Student Record"
         itemName={deletingStudent?.name}
         itemId={deletingStudent?.studentId || deletingStudent?.admissionNumber}
         isDeleting={isDeletingInProgress}
-        message={`Are you sure you want to archive this student? Their account status will be set to deleted, their profile hidden from active rosters, and plan capacity freed.`}
+        message={`Are you sure you want to archive ${deletingStudent?.name}? Archiving safely preserves all fee demands, payments, ledger vouchers, and academic history while removing the student from active rosters and decrementing your plan capacity usage.`}
+      />
+
+      {/* Bulk Delete Students Modal */}
+      <BulkDeleteStudentsModal
+        isOpen={isBulkDeleteModalOpen}
+        onClose={() => setIsBulkDeleteModalOpen(false)}
+        onConfirm={handleConfirmBulkDelete}
+        selectedCount={effectiveSelectedCount}
+        isAllFiltered={isAllFilteredSelected}
+        filterSummary={{
+          className: selectedClass?.name,
+          sectionName: selectedSectionFilter !== "all" ? selectedSectionFilter : undefined,
+          status: statusFilter !== "all" ? statusFilter : undefined,
+          searchQuery: debouncedSearch || undefined,
+        }}
+        isDeleting={isBulkDeleting}
       />
 
       {/* Centralized Share Fee Details Modal */}

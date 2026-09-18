@@ -518,39 +518,51 @@ export async function getSuperAdminStats(): Promise<SuperAdminStats> {
 
 /**
  * Fetches all platform users (for Super Admin user management).
+ * Includes manually created, bulk imported, and all tenant records.
  */
 export async function getAllUsers(): Promise<AppUser[]> {
-  const db = getFirebaseDb();
-  const q = query(
-    collection(db, COLLECTIONS.USERS),
-    orderBy("createdAt", "desc")
-  );
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map((docSnap) => ({
-    uid: docSnap.id,
-    ...docSnap.data(),
-  })) as AppUser[];
+  const { getComprehensiveGlobalUsers } = await import("./user-sync.service");
+  return await getComprehensiveGlobalUsers();
 }
 
 /**
  * Realtime subscription to all platform users.
+ * Combines real-time users collection with tenant directories.
  */
 export function subscribeToAllUsers(callback: (users: AppUser[]) => void): () => void {
   const db = getFirebaseDb();
+  let isCancelled = false;
+
+  const loadAndEmit = async () => {
+    try {
+      const { getComprehensiveGlobalUsers } = await import("./user-sync.service");
+      const all = await getComprehensiveGlobalUsers();
+      if (!isCancelled) {
+        callback(all);
+      }
+    } catch (e) {
+      console.warn("[school.service] Comprehensive directory load notice:", e);
+    }
+  };
+
+  // Immediate comprehensive load
+  loadAndEmit();
+
   const q = query(collection(db, COLLECTIONS.USERS), orderBy("createdAt", "desc"));
-  return onSnapshot(
+  const unsubscribe = onSnapshot(
     q,
-    (snapshot) => {
-      const users = snapshot.docs.map((docSnap) => ({
-        uid: docSnap.id,
-        ...docSnap.data(),
-      })) as AppUser[];
-      callback(users);
+    () => {
+      loadAndEmit();
     },
     (error) => {
       console.error("Error listening to users collection:", error);
     }
   );
+
+  return () => {
+    isCancelled = true;
+    unsubscribe();
+  };
 }
 
 /**
