@@ -73,12 +73,13 @@ import { toast } from "sonner";
 
 import { useEntitlement } from "@/context/EntitlementContext";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
-import { Menu, Bell, SlidersHorizontal } from "lucide-react";
+import { Menu, Bell, SlidersHorizontal, Smartphone } from "lucide-react";
 import { AdminMobileNavDrawer } from "@/components/admin/mobile/AdminMobileNavDrawer";
 import { AdminMobileBottomNav } from "@/components/admin/mobile/AdminMobileBottomNav";
 import { StudentMobileCard } from "@/components/admin/mobile/StudentMobileCard";
 import { StudentFilterSheet, type StudentFiltersState } from "@/components/admin/mobile/StudentFilterSheet";
 import { StudentActionsSheet } from "@/components/admin/mobile/StudentActionsSheet";
+import { StudentProfileSheet } from "@/components/admin/mobile/StudentProfileSheet";
 import { AddStudentWizardModal } from "@/components/admin/mobile/AddStudentWizardModal";
 import { StudentFeeDetailsSheet } from "@/components/admin/mobile/StudentFeeDetailsSheet";
 import { usePortalUI } from "@/context/portal-ui-context";
@@ -94,9 +95,11 @@ export default function AdminStudentsPage() {
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
   const [selectedStudentForActions, setSelectedStudentForActions] = useState<StudentProfile | null>(null);
+  const [selectedStudentForProfile, setSelectedStudentForProfile] = useState<StudentProfile | null>(null);
   const [isAddWizardOpen, setIsAddWizardOpen] = useState(false);
   const [selectedStudentForFees, setSelectedStudentForFees] = useState<StudentProfile | null>(null);
   const [mobileFilterTab, setMobileFilterTab] = useState<"all" | "active" | "tc" | "inactive">("all");
+  const [showClassicAppPreview, setShowClassicAppPreview] = useState(false);
 
   const [mobileFilters, setMobileFilters] = useState<StudentFiltersState>({
     classId: "all",
@@ -759,6 +762,20 @@ export default function AdminStudentsPage() {
     () => nonDeletedStudents.filter((s) => !s.status || s.status.toLowerCase() === "active").length,
     [nonDeletedStudents]
   );
+  const tcIssuedStudentsCount = useMemo(
+    () =>
+      nonDeletedStudents.filter(
+        (s) => (s.status || "").toLowerCase() === "tc_issued" || (s.status || "").toLowerCase() === "transferred"
+      ).length,
+    [nonDeletedStudents]
+  );
+  const inactiveStudentsCount = useMemo(
+    () =>
+      nonDeletedStudents.filter(
+        (s) => (s.status || "").toLowerCase() === "inactive" || (s.status || "").toLowerCase() === "suspended"
+      ).length,
+    [nonDeletedStudents]
+  );
   const totalBoys = useMemo(
     () => nonDeletedStudents.filter((s) => normalizeGender(s.gender) === "male").length,
     [nonDeletedStudents]
@@ -798,23 +815,230 @@ export default function AdminStudentsPage() {
       requiredPlan="Starter Plan"
     >
       <div className="space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-              Student Admissions & Directory
+        {/* =========================================================
+            CLASSIC MOBILE UI / UX (Screens 1 to 10)
+        ========================================================= */}
+        <div className={`space-y-4 ${showClassicAppPreview ? "block max-w-md mx-auto my-6 border-4 border-slate-900 rounded-[40px] p-4 bg-slate-50 dark:bg-slate-950 shadow-2xl ring-8 ring-slate-200 dark:ring-slate-800 relative" : "md:hidden"}`}>
+          {showClassicAppPreview && (
+            <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200 dark:border-slate-800">
+              <span className="text-[11px] font-black text-blue-600 uppercase tracking-wider flex items-center gap-1.5">
+                <Smartphone className="h-3.5 w-3.5" /> Classic App Mode Preview
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowClassicAppPreview(false)}
+                className="text-xs font-bold text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+              >
+                ✕ Close
+              </button>
+            </div>
+          )}
+
+          {/* 1. Mobile Top Header (Screen 2 Top Bar) */}
+          <div className="flex items-center justify-between py-2 px-1">
+            <button
+              type="button"
+              onClick={() => setIsMobileDrawerOpen(true)}
+              className="p-2 -ml-2 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              aria-label="Open Navigation Drawer"
+            >
+              <Menu className="h-6 w-6 stroke-2" />
+            </button>
+            <h1 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">
+              Students
             </h1>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Enroll students, issue admission numbers, and manage class assignments.
-            </p>
+            <Link
+              href="/admin/notices"
+              className="p-2 -mr-2 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 relative transition-colors"
+              aria-label="Notifications"
+            >
+              <Bell className="h-5 w-5 stroke-2" />
+              <span className="absolute top-2.5 right-2.5 h-2 w-2 rounded-full bg-blue-600 ring-2 ring-white dark:ring-slate-900" />
+            </Link>
           </div>
 
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-          <Link
-            href="/admin/classes/transfer"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
-            title="Class-wise student promotion & transfer"
+          {/* 2. Mobile Search & Filter Bar */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search name, roll no., admission no..."
+                className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-blue-500 shadow-xs"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsFilterSheetOpen(true)}
+              className={`p-2.5 rounded-2xl border transition-all cursor-pointer ${
+                isFilterActive
+                  ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                  : "bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-slate-800 hover:bg-blue-50/50"
+              }`}
+              aria-label="Filter Options"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* 3. Horizontal Filter Tabs (Screen 2 Pills) */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar text-xs font-black">
+            <button
+              type="button"
+              onClick={() => {
+                setMobileFilterTab("all");
+                setStatusFilter("all");
+              }}
+              className={`px-3.5 py-1.5 rounded-full transition-all whitespace-nowrap cursor-pointer ${
+                mobileFilterTab === "all"
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : "bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-300"
+              }`}
+            >
+              All <span className="ml-1 opacity-90">{nonDeletedStudents.length}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMobileFilterTab("active");
+                setStatusFilter("active");
+              }}
+              className={`px-3.5 py-1.5 rounded-full transition-all whitespace-nowrap cursor-pointer ${
+                mobileFilterTab === "active"
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : "bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-300"
+              }`}
+            >
+              Active <span className="ml-1 opacity-90">{activeStudentsCount}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMobileFilterTab("tc");
+                setStatusFilter("tc_issued");
+              }}
+              className={`px-3.5 py-1.5 rounded-full transition-all whitespace-nowrap cursor-pointer ${
+                mobileFilterTab === "tc"
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : "bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-orange-600 dark:text-orange-400"
+              }`}
+            >
+              TC Issued <span className="ml-1 opacity-90">{tcIssuedStudentsCount}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMobileFilterTab("inactive");
+                setStatusFilter("inactive");
+              }}
+              className={`px-3.5 py-1.5 rounded-full transition-all whitespace-nowrap cursor-pointer ${
+                mobileFilterTab === "inactive"
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : "bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-rose-600 dark:text-rose-400"
+              }`}
+            >
+              Inactive <span className="ml-1 opacity-90">{inactiveStudentsCount}</span>
+            </button>
+          </div>
+
+          {/* 4. Four Metric Summary Cards (Screen 2) */}
+          <div className="grid grid-cols-4 gap-2">
+            <div className="rounded-2xl bg-blue-50/80 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/40 p-2.5 text-center">
+              <p className="text-base font-black text-blue-600 dark:text-blue-400">{nonDeletedStudents.length}</p>
+              <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5">Total</p>
+            </div>
+            <div className="rounded-2xl bg-emerald-50/80 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 p-2.5 text-center">
+              <p className="text-base font-black text-emerald-600 dark:text-emerald-400">{activeStudentsCount}</p>
+              <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5">Active</p>
+            </div>
+            <div className="rounded-2xl bg-orange-50/80 dark:bg-orange-950/20 border border-orange-100 dark:border-orange-900/40 p-2.5 text-center">
+              <p className="text-base font-black text-orange-600 dark:text-orange-400">{tcIssuedStudentsCount}</p>
+              <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5">TC Issued</p>
+            </div>
+            <div className="rounded-2xl bg-rose-50/80 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 p-2.5 text-center">
+              <p className="text-base font-black text-rose-600 dark:text-rose-400">{inactiveStudentsCount}</p>
+              <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5">Inactive</p>
+            </div>
+          </div>
+
+          {/* 5. Student List Cards (Screen 2 & Screen 10) */}
+          <div className="space-y-2.5 pb-20">
+            {loading ? (
+              <div className="p-10 text-center text-slate-500">
+                <Loader2 className="h-6 w-6 animate-spin mx-auto text-blue-600 mb-2" />
+                <p className="text-xs font-semibold">Loading student roster...</p>
+              </div>
+            ) : filteredStudents.length === 0 ? (
+              <div className="p-10 text-center rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 space-y-2">
+                <GraduationCap className="h-10 w-10 mx-auto text-slate-300 dark:text-slate-600" />
+                <p className="text-sm font-bold text-slate-700 dark:text-slate-300">No students match your filter</p>
+                <p className="text-xs text-slate-400">Try changing or clearing your search filters</p>
+              </div>
+            ) : (
+              filteredStudents.map((st) => (
+                <StudentMobileCard
+                  key={st.id}
+                  student={st}
+                  onSelectProfile={(student) => setSelectedStudentForProfile(student)}
+                  onOpenActions={(student) => setSelectedStudentForActions(student)}
+                />
+              ))
+            )}
+          </div>
+
+          {/* 6. Floating Action Button (+) for Mobile */}
+          <button
+            type="button"
+            onClick={() => {
+              if (limitStatus && !limitStatus.allowed) {
+                toast.error(limitStatus.message || "Student limit reached.");
+                return;
+              }
+              setIsAddWizardOpen(true);
+            }}
+            aria-label="Add Student"
+            className="fixed bottom-20 right-5 z-30 h-14 w-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center shadow-xl shadow-blue-500/40 active:scale-95 transition-all cursor-pointer"
           >
+            <Plus className="h-7 w-7 stroke-[2.5]" />
+          </button>
+
+          {/* 7. Bottom Navigation Bar (Screen 10) */}
+          <AdminMobileBottomNav
+            onOpenDrawer={() => setIsMobileDrawerOpen(true)}
+            onOpenAddStudent={() => setIsAddWizardOpen(true)}
+          />
+        </div>
+
+        {/* Desktop Container */}
+        <div className={`${showClassicAppPreview ? "hidden" : "hidden md:block"} space-y-6`}>
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+                Student Admissions & Directory
+              </h1>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Enroll students, issue admission numbers, and manage class assignments.
+              </p>
+            </div>
+
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <button
+              type="button"
+              onClick={() => setShowClassicAppPreview(!showClassicAppPreview)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-300 transition-colors"
+              title="Toggle Classic Mobile App UI Preview"
+            >
+              <Smartphone className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              <span>Classic Mobile View</span>
+            </button>
+            <Link
+              href="/admin/classes/transfer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+              title="Class-wise student promotion & transfer"
+            >
             <GraduationCap className="h-4 w-4 text-emerald-600" />
             <span className="hidden sm:inline">Promote Students</span>
           </Link>
@@ -2261,6 +2485,83 @@ export default function AdminStudentsPage() {
           }}
         />
       )}
+        </div>
+
+        {/* =========================================================
+            CONNECTED MOBILE SHEETS & MODALS (Screens 1, 3, 4, 5, 6, 7, 8, 9)
+        ========================================================= */}
+        {/* Screen 1: Mobile Navigation Drawer */}
+        <AdminMobileNavDrawer
+          isOpen={isMobileDrawerOpen}
+          onClose={() => setIsMobileDrawerOpen(false)}
+          schoolName={profile?.schoolName || (profile as any)?.tenantSettings?.schoolName || "SBCI School"}
+        />
+
+        {/* Screen 3: Filter Options Bottom Sheet */}
+        <StudentFilterSheet
+          isOpen={isFilterSheetOpen}
+          onClose={() => setIsFilterSheetOpen(false)}
+          uniqueClasses={uniqueClasses}
+          filters={mobileFilters}
+          onChangeFilter={handleChangeMobileFilter}
+          onReset={handleResetMobileFilters}
+          onApply={() => setIsFilterSheetOpen(false)}
+        />
+
+        {/* Screen 4: Student Profile Bottom Sheet / Modal */}
+        <StudentProfileSheet
+          isOpen={Boolean(selectedStudentForProfile)}
+          onClose={() => setSelectedStudentForProfile(null)}
+          student={selectedStudentForProfile}
+          schoolId={schoolId}
+          onOpenActions={(student) => {
+            setSelectedStudentForProfile(null);
+            setSelectedStudentForActions(student);
+          }}
+          onOpenFees={(student) => {
+            setSelectedStudentForProfile(null);
+            setSelectedStudentForFees(student);
+          }}
+          onEditStudent={(student) => {
+            setSelectedStudentForProfile(null);
+            router.push(`/admin/students/${student.id}`);
+          }}
+        />
+
+        {/* Screen 5: Student Actions Bottom Sheet */}
+        <StudentActionsSheet
+          isOpen={Boolean(selectedStudentForActions)}
+          onClose={() => setSelectedStudentForActions(null)}
+          student={selectedStudentForActions}
+          onViewProfile={(student) => setSelectedStudentForProfile(student)}
+          onViewFees={(student) => setSelectedStudentForFees(student)}
+          onEditStudent={(student) => {
+            setSelectedStudentForActions(null);
+            router.push(`/admin/students/${student.id}`);
+          }}
+          onAssignClass={(student) => setTransferringStudent(student)}
+          onDeactivateStudent={(student) => setDeletingStudent(student)}
+        />
+
+        {/* Screens 6, 7, 8: Add Student 4-Step Wizard Modal */}
+        <AddStudentWizardModal
+          isOpen={isAddWizardOpen}
+          onClose={() => setIsAddWizardOpen(false)}
+          schoolId={schoolId}
+          uniqueClasses={uniqueClasses}
+          onStudentCreated={() => {
+            loadData();
+            refetchLimit(true);
+          }}
+        />
+
+        {/* Screen 9: Student Fee Details Bottom Sheet */}
+        <StudentFeeDetailsSheet
+          isOpen={Boolean(selectedStudentForFees)}
+          onClose={() => setSelectedStudentForFees(null)}
+          student={selectedStudentForFees}
+          schoolId={schoolId}
+        />
       </div>
     </EntitlementGate>
   );

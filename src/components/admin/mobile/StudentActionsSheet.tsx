@@ -23,6 +23,7 @@ interface StudentActionsSheetProps {
   isOpen: boolean;
   onClose: () => void;
   student: StudentProfile | null;
+  onViewProfile?: (student: StudentProfile) => void;
   onEditStudent: (student: StudentProfile) => void;
   onViewFees: (student: StudentProfile) => void;
   onAssignClass: (student: StudentProfile) => void;
@@ -33,6 +34,7 @@ export function StudentActionsSheet({
   isOpen,
   onClose,
   student,
+  onViewProfile,
   onEditStudent,
   onViewFees,
   onAssignClass,
@@ -68,7 +70,13 @@ export function StudentActionsSheet({
       label: "View Profile",
       icon: User,
       color: "text-blue-600 dark:text-blue-400",
-      action: () => router.push(`/admin/students/${student.id}`),
+      action: () => {
+        if (onViewProfile) {
+          onViewProfile(student);
+        } else {
+          router.push(`/admin/students/${student.id}`);
+        }
+      },
     },
     {
       id: "edit_student",

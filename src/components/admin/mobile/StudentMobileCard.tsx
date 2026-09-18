@@ -8,11 +8,13 @@ import type { StudentProfile } from "@/types";
 interface StudentMobileCardProps {
   student: StudentProfile;
   onOpenActions: (student: StudentProfile) => void;
+  onSelectProfile?: (student: StudentProfile) => void;
 }
 
 export function StudentMobileCard({
   student,
   onOpenActions,
+  onSelectProfile,
 }: StudentMobileCardProps) {
   const router = useRouter();
 
@@ -40,7 +42,13 @@ export function StudentMobileCard({
 
   return (
     <div
-      onClick={() => router.push(`/admin/students/${student.id}`)}
+      onClick={() => {
+        if (onSelectProfile) {
+          onSelectProfile(student);
+        } else {
+          router.push(`/admin/students/${student.id}`);
+        }
+      }}
       className="group relative flex items-center justify-between p-3.5 sm:p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs hover:shadow-md transition-all active:scale-[0.99] cursor-pointer"
     >
       <div className="flex items-center gap-3.5 min-w-0">

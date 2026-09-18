@@ -44,10 +44,12 @@ export function AdminMobileNavDrawer({
     { label: "Students", href: "/admin/students", icon: GraduationCap },
     { label: "Teachers", href: "/admin/teachers", icon: Users },
     { label: "Classes & Sections", href: "/admin/classes", icon: BookOpen },
+    { label: "Subjects", href: "/admin/classes", icon: BookOpen },
     { label: "Attendance", href: "/admin/attendance", icon: ClipboardCheck },
     { label: "Fees", href: "/admin/fees", icon: CreditCard },
-    { label: "Reports & Exports", href: "/admin/reports", icon: FileText },
+    { label: "Exams & Results", href: "/admin/reports", icon: FileText },
     { label: "Notices", href: "/admin/notices", icon: Bell },
+    { label: "Reports", href: "/admin/reports", icon: FileText },
   ];
 
   const adminName = profile?.name || "Administrator";
