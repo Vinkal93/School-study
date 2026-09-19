@@ -26,12 +26,26 @@ import type {
   FeeFollowUpStatus,
 } from "@/types";
 import { createBillingAuditLog } from "@/lib/billing/audit";
-import { getFeeDashboardSummary, getFeeDefaulters } from "@/lib/services/fee-analytics.service";
+import {
+  getFeeDashboardSummary,
+  getFeeDefaulters,
+  type FeeDashboardSummary,
+} from "@/lib/services/fee-analytics.service";
 import { appQueryClient } from "@/lib/cache";
 
 const MONTH_NAMES = [
-  "April", "May", "June", "July", "August", "September",
-  "October", "November", "December", "January", "February", "March"
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+  "January",
+  "February",
+  "March",
 ];
 
 // ==========================================
@@ -63,7 +77,15 @@ export async function getFeeSettings(schoolId: string): Promise<FeeSettings> {
       value: 50, // ₹50
       maxLimitPaise: 50000, // ₹500
     },
-    paymentMethods: ["Cash", "UPI", "Bank Transfer", "Card", "Cheque", "Online Payment", "Other"],
+    paymentMethods: [
+      "Cash",
+      "UPI",
+      "Bank Transfer",
+      "Card",
+      "Cheque",
+      "Online Payment",
+      "Other",
+    ],
     updatedAt: new Date().toISOString(),
   };
 
@@ -149,7 +171,9 @@ export async function getFeeStructures(
       where("schoolId", "==", schoolId)
     );
     const snap = await getDocs(q);
-    let list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as FeeStructure));
+    let list = snap.docs.map(
+      (d) => ({ id: d.id, ...d.data() }) as FeeStructure
+    );
 
     if (academicYearId) {
       list = list.filter((f) => f.academicYearId === academicYearId);
@@ -287,7 +311,9 @@ export async function deleteFeeStructure(
   const paymentsSnap = await getDocs(paymentsQuery);
 
   if (paymentsSnap.size > 0) {
-    throw new Error("Cannot delete fee structure because financial transactions already depend on it. Deactivate it instead.");
+    throw new Error(
+      "Cannot delete fee structure because financial transactions already depend on it. Deactivate it instead."
+    );
   }
 
   await deleteDoc(docRef);
@@ -308,7 +334,10 @@ export async function deleteFeeStructure(
 // 3. RECEIPT NUMBER GENERATION
 // ==========================================
 
-export async function generateReceiptNumber(schoolId: string, prefix: string = "REC"): Promise<string> {
+export async function generateReceiptNumber(
+  schoolId: string,
+  prefix: string = "REC"
+): Promise<string> {
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   const db = getFirebaseDb();
   let count = 1;
@@ -354,11 +383,17 @@ export function calculateLateFee(
       lateFeePaise = Math.round((settings.lateFeeRule.value || 50) * 100);
     }
   } else {
-    const pct = settings.lateFeeRule.value !== undefined ? settings.lateFeeRule.value : (ruleAny.amountPaise || 5);
+    const pct =
+      settings.lateFeeRule.value !== undefined
+        ? settings.lateFeeRule.value
+        : ruleAny.amountPaise || 5;
     lateFeePaise = Math.round(amountPaise * (pct / 100));
   }
 
-  if (settings.lateFeeRule.maxLimitPaise && lateFeePaise > settings.lateFeeRule.maxLimitPaise) {
+  if (
+    settings.lateFeeRule.maxLimitPaise &&
+    lateFeePaise > settings.lateFeeRule.maxLimitPaise
+  ) {
     lateFeePaise = settings.lateFeeRule.maxLimitPaise;
   }
 
@@ -439,7 +474,10 @@ export function subscribeToStudentFeePayments(
   return onSnapshot(
     q,
     (snap) => {
-      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as FeePayment[];
+      const list = snap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      })) as FeePayment[];
       list.sort((a, b) => b.paymentDate.localeCompare(a.paymentDate));
       callback(list);
     },
@@ -462,7 +500,10 @@ export async function getStudentFeePayments(
       where("studentId", "==", studentId)
     );
     const snap = await getDocs(q);
-    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as FeePayment[];
+    const list = snap.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+    })) as FeePayment[];
     list.sort((a, b) => b.paymentDate.localeCompare(a.paymentDate));
     return list;
   } catch (err) {
@@ -471,7 +512,10 @@ export async function getStudentFeePayments(
   }
 }
 
-export function matchesClass(structureClassName: string, studentClassName: string): boolean {
+export function matchesClass(
+  structureClassName: string,
+  studentClassName: string
+): boolean {
   if (!structureClassName || !studentClassName) return false;
   const s = structureClassName.trim().toLowerCase();
   const st = studentClassName.trim().toLowerCase();
@@ -535,7 +579,11 @@ export async function getStudentFeeSummary(
   },
   academicYearId: string = "ay_current"
 ): Promise<StudentFeeSummary> {
-  let assignment = await getStudentFeeAssignment(schoolId, student.id, academicYearId);
+  let assignment = await getStudentFeeAssignment(
+    schoolId,
+    student.id,
+    academicYearId
+  );
   if (!assignment) {
     assignment = await provisionStudentFeeAssignment(
       schoolId,
@@ -554,11 +602,21 @@ export async function getStudentFeeSummary(
   const payments = await getStudentFeePayments(schoolId, student.id);
   const structures = await getFeeStructures(schoolId, academicYearId);
   const classStructures = structures.filter(
-    (s) => s.status === "ACTIVE" && matchesClass(s.className, student.className || "")
+    (s) =>
+      s.status === "ACTIVE" &&
+      matchesClass(s.className, student.className || "")
   );
 
-  if (assignment && assignment.totalAssignedPaise === 0 && classStructures.length > 0) {
-    const reconciled = await reconcileStudentFeeLedger(schoolId, student.id, academicYearId);
+  if (
+    assignment &&
+    assignment.totalAssignedPaise === 0 &&
+    classStructures.length > 0
+  ) {
+    const reconciled = await reconcileStudentFeeLedger(
+      schoolId,
+      student.id,
+      academicYearId
+    );
     if (reconciled) assignment = reconciled;
   }
 
@@ -596,7 +654,10 @@ export async function getStudentFeeSummary(
   let nextDueMonth: string | null = null;
 
   assignment.monthLedger.forEach((item) => {
-    if (item.status === "PAID" || (item.pendingAmountPaise === 0 && item.amountPaise > 0)) {
+    if (
+      item.status === "PAID" ||
+      (item.pendingAmountPaise === 0 && item.amountPaise > 0)
+    ) {
       paidMonths.push(item.month);
       lastPaidMonth = item.month;
     } else {
@@ -643,7 +704,9 @@ export async function getStudentApplicableFee(
 
   if (db) {
     try {
-      const snap = await getDoc(doc(db, "schools", schoolId, "students", studentId));
+      const snap = await getDoc(
+        doc(db, "schools", schoolId, "students", studentId)
+      );
       if (snap.exists()) studentDoc = snap.data();
     } catch (e) {}
   }
@@ -669,12 +732,18 @@ export async function getStudentApplicableFee(
     });
   }
 
-  const assignment = await getStudentFeeAssignment(schoolId, studentId, academicYearId);
+  const assignment = await getStudentFeeAssignment(
+    schoolId,
+    studentId,
+    academicYearId
+  );
   const previousDuePaise = assignment?.totalPendingPaise || 0;
   const discountPaise = assignment?.totalDiscountPaise || 0;
   const lateFeePaise = assignment?.totalLateFeePaise || 0;
 
-  const payablePaise = isConfigured ? Math.max(0, baseFeePaise - discountPaise + lateFeePaise) : 0;
+  const payablePaise = isConfigured
+    ? Math.max(0, baseFeePaise - discountPaise + lateFeePaise)
+    : 0;
   const totalPaise = payablePaise + previousDuePaise;
 
   return {
@@ -684,7 +753,9 @@ export async function getStudentApplicableFee(
     className,
     academicYearId,
     isConfigured,
-    feeStructureTitle: feeStructureTitle || (isConfigured ? `Class ${className} Tuition Fee` : undefined),
+    feeStructureTitle:
+      feeStructureTitle ||
+      (isConfigured ? `Class ${className} Tuition Fee` : undefined),
     baseFeePaise,
     baseFeeRupees: baseFeePaise / 100,
     discountPaise,
@@ -725,11 +796,16 @@ export async function provisionStudentFeeAssignment(
   );
 
   const monthLedger: MonthLedgerItem[] = [];
-  const startSessionYear = parseInt(settings.academicSession?.slice(0, 4) || "") || new Date().getFullYear();
+  const startSessionYear =
+    parseInt(settings.academicSession?.slice(0, 4) || "") ||
+    new Date().getFullYear();
 
   // Configured start month: default April
   const configuredStartMonth = settings.feeStartMonth || "April";
-  const startCycleIdx = MONTH_NAMES.indexOf(configuredStartMonth) !== -1 ? MONTH_NAMES.indexOf(configuredStartMonth) : 0;
+  const startCycleIdx =
+    MONTH_NAMES.indexOf(configuredStartMonth) !== -1
+      ? MONTH_NAMES.indexOf(configuredStartMonth)
+      : 0;
 
   // Generate only months starting from the configured feeStartMonth
   MONTH_NAMES.forEach((m, idx) => {
@@ -746,8 +822,10 @@ export async function provisionStudentFeeAssignment(
     if (applicableStructures.length > 0) {
       applicableStructures.forEach((s) => {
         if (s.frequency === "monthly") monthAmountPaise += s.amountPaise;
-        else if (s.frequency === "one_time" && idx === startCycleIdx) monthAmountPaise += s.amountPaise;
-        else if (s.frequency === "annual" && idx === startCycleIdx) monthAmountPaise += s.amountPaise;
+        else if (s.frequency === "one_time" && idx === startCycleIdx)
+          monthAmountPaise += s.amountPaise;
+        else if (s.frequency === "annual" && idx === startCycleIdx)
+          monthAmountPaise += s.amountPaise;
       });
     }
 
@@ -765,7 +843,10 @@ export async function provisionStudentFeeAssignment(
     });
   });
 
-  const totalAssignedPaise = monthLedger.reduce((sum, item) => sum + item.amountPaise, 0);
+  const totalAssignedPaise = monthLedger.reduce(
+    (sum, item) => sum + item.amountPaise,
+    0
+  );
 
   const assignment: StudentFeeAssignment = {
     id: `${schoolId}_${student.id}_${academicYearId}`,
@@ -776,7 +857,8 @@ export async function provisionStudentFeeAssignment(
     className: student.className,
     sectionName: student.sectionName || "A",
     academicYearId,
-    academicYearName: settings.academicSession || `${startSessionYear}-${startSessionYear + 1}`,
+    academicYearName:
+      settings.academicSession || `${startSessionYear}-${startSessionYear + 1}`,
     feeStructureIds: applicableStructures.map((s) => s.id),
     totalAssignedPaise,
     totalPaidPaise: 0,
@@ -791,7 +873,9 @@ export async function provisionStudentFeeAssignment(
 
   const db = getFirebaseDb();
   if (db) {
-    await setDoc(doc(db, "studentFeeAssignments", assignment.id), assignment, { merge: true });
+    await setDoc(doc(db, "studentFeeAssignments", assignment.id), assignment, {
+      merge: true,
+    });
   }
 
   return assignment;
@@ -839,7 +923,11 @@ export async function reconcileStudentFeeLedger(
     // 1. Never overwrite if manually adjusted by School Admin
     if (item.isManuallyAdjusted) return item;
     // 2. Never overwrite if real payments or receipts exist
-    if (item.paidAmountPaise > 0 || (item.paymentIds && item.paymentIds.length > 0) || (item.receiptNumbers && item.receiptNumbers.length > 0)) {
+    if (
+      item.paidAmountPaise > 0 ||
+      (item.paymentIds && item.paymentIds.length > 0) ||
+      (item.receiptNumbers && item.receiptNumbers.length > 0)
+    ) {
       return item;
     }
     // 3. If month was previously generated with 0 rate, update to the active fee rate
@@ -851,7 +939,9 @@ export async function reconcileStudentFeeLedger(
         ...item,
         amountPaise: monthlyPaise,
         pendingAmountPaise: pending,
-        status: (pending === 0 ? "PAID" : "PENDING") as MonthLedgerItem["status"],
+        status: (pending === 0
+          ? "PAID"
+          : "PENDING") as MonthLedgerItem["status"],
       };
     }
     return item;
@@ -859,11 +949,26 @@ export async function reconcileStudentFeeLedger(
 
   if (!hasModifications) return current;
 
-  const totalAssignedPaise = updatedLedger.reduce((sum, m) => sum + m.amountPaise, 0);
-  const totalPaidPaise = updatedLedger.reduce((sum, m) => sum + m.paidAmountPaise, 0);
-  const totalDiscountPaise = updatedLedger.reduce((sum, m) => sum + m.discountPaise, 0);
-  const totalLateFeePaise = updatedLedger.reduce((sum, m) => sum + m.lateFeePaise, 0);
-  const totalPendingPaise = updatedLedger.reduce((sum, m) => sum + m.pendingAmountPaise, 0);
+  const totalAssignedPaise = updatedLedger.reduce(
+    (sum, m) => sum + m.amountPaise,
+    0
+  );
+  const totalPaidPaise = updatedLedger.reduce(
+    (sum, m) => sum + m.paidAmountPaise,
+    0
+  );
+  const totalDiscountPaise = updatedLedger.reduce(
+    (sum, m) => sum + m.discountPaise,
+    0
+  );
+  const totalLateFeePaise = updatedLedger.reduce(
+    (sum, m) => sum + m.lateFeePaise,
+    0
+  );
+  const totalPendingPaise = updatedLedger.reduce(
+    (sum, m) => sum + m.pendingAmountPaise,
+    0
+  );
 
   const updated: StudentFeeAssignment = {
     ...current,
@@ -874,7 +979,12 @@ export async function reconcileStudentFeeLedger(
     totalDiscountPaise,
     totalLateFeePaise,
     totalPendingPaise,
-    status: totalPendingPaise === 0 ? "PAID" : totalPaidPaise > 0 ? "PARTIAL" : "PENDING",
+    status:
+      totalPendingPaise === 0
+        ? "PAID"
+        : totalPaidPaise > 0
+          ? "PARTIAL"
+          : "PENDING",
     updatedAt: new Date().toISOString(),
   };
 
@@ -920,13 +1030,27 @@ export async function adjustStudentMonthLedger(
 
   const current = snap.data() as StudentFeeAssignment;
 
-  const expectedPaise = Math.round(Math.max(0, adjustment.expectedFeeRupees) * 100);
+  const expectedPaise = Math.round(
+    Math.max(0, adjustment.expectedFeeRupees) * 100
+  );
   const paidPaise = Math.round(Math.max(0, adjustment.paidAmountRupees) * 100);
-  const discountPaise = Math.round(Math.max(0, adjustment.discountRupees) * 100);
-  const lateFeePaise = Math.round(Math.max(0, adjustment.lateFeeRupees || 0) * 100);
-  const previousDuePaise = Math.round(Math.max(0, adjustment.previousDueRupees || 0) * 100);
+  const discountPaise = Math.round(
+    Math.max(0, adjustment.discountRupees) * 100
+  );
+  const lateFeePaise = Math.round(
+    Math.max(0, adjustment.lateFeeRupees || 0) * 100
+  );
+  const previousDuePaise = Math.round(
+    Math.max(0, adjustment.previousDueRupees || 0) * 100
+  );
 
-  const pendingPaise = Math.max(0, (expectedPaise + lateFeePaise + previousDuePaise) - (paidPaise + discountPaise));
+  const pendingPaise = Math.max(
+    0,
+    expectedPaise +
+      lateFeePaise +
+      previousDuePaise -
+      (paidPaise + discountPaise)
+  );
   let newStatus: MonthLedgerItem["status"] = "PENDING";
   if (pendingPaise === 0) newStatus = "PAID";
   else if (paidPaise > 0 || discountPaise > 0) newStatus = "PARTIAL";
@@ -955,11 +1079,26 @@ export async function adjustStudentMonthLedger(
     throw new Error(`Month "${monthName}" not found in student's fee ledger.`);
   }
 
-  const totalAssignedPaise = updatedLedger.reduce((sum, m) => sum + m.amountPaise, 0);
-  const totalPaidPaise = updatedLedger.reduce((sum, m) => sum + m.paidAmountPaise, 0);
-  const totalDiscountPaise = updatedLedger.reduce((sum, m) => sum + m.discountPaise, 0);
-  const totalLateFeePaise = updatedLedger.reduce((sum, m) => sum + m.lateFeePaise, 0);
-  const totalPendingPaise = updatedLedger.reduce((sum, m) => sum + m.pendingAmountPaise, 0);
+  const totalAssignedPaise = updatedLedger.reduce(
+    (sum, m) => sum + m.amountPaise,
+    0
+  );
+  const totalPaidPaise = updatedLedger.reduce(
+    (sum, m) => sum + m.paidAmountPaise,
+    0
+  );
+  const totalDiscountPaise = updatedLedger.reduce(
+    (sum, m) => sum + m.discountPaise,
+    0
+  );
+  const totalLateFeePaise = updatedLedger.reduce(
+    (sum, m) => sum + m.lateFeePaise,
+    0
+  );
+  const totalPendingPaise = updatedLedger.reduce(
+    (sum, m) => sum + m.pendingAmountPaise,
+    0
+  );
 
   const updatedAssignment: StudentFeeAssignment = {
     ...current,
@@ -969,7 +1108,12 @@ export async function adjustStudentMonthLedger(
     totalDiscountPaise,
     totalLateFeePaise,
     totalPendingPaise,
-    status: totalPendingPaise === 0 ? "PAID" : totalPaidPaise > 0 ? "PARTIAL" : "PENDING",
+    status:
+      totalPendingPaise === 0
+        ? "PAID"
+        : totalPaidPaise > 0
+          ? "PARTIAL"
+          : "PENDING",
     updatedAt: new Date().toISOString(),
   };
 
@@ -1016,7 +1160,9 @@ export async function recalculateStudentFutureDues(
   const currentAssignment = snap.data() as StudentFeeAssignment;
   const structures = await getFeeStructures(schoolId, academicYearId);
   const newClassStructures = structures.filter(
-    (s) => s.status === "ACTIVE" && (s.className === "all" || s.className === newClassName)
+    (s) =>
+      s.status === "ACTIVE" &&
+      (s.className === "all" || s.className === newClassName)
   );
 
   let newMonthlyFeePaise = 0;
@@ -1030,21 +1176,43 @@ export async function recalculateStudentFutureDues(
 
     // Recalculate pending month with new class monthly fee
     const revisedAmount = newMonthlyFeePaise;
-    const pendingAmount = Math.max(0, revisedAmount - item.paidAmountPaise - item.discountPaise);
+    const pendingAmount = Math.max(
+      0,
+      revisedAmount - item.paidAmountPaise - item.discountPaise
+    );
 
     return {
       ...item,
       amountPaise: revisedAmount,
       pendingAmountPaise: pendingAmount,
-      status: (pendingAmount <= 0 ? "PAID" : item.paidAmountPaise > 0 ? "PARTIAL" : "PENDING") as any,
+      status: (pendingAmount <= 0
+        ? "PAID"
+        : item.paidAmountPaise > 0
+          ? "PARTIAL"
+          : "PENDING") as any,
     };
   });
 
-  const totalAssignedPaise = updatedLedger.reduce((sum, item) => sum + item.amountPaise, 0);
-  const totalPaidPaise = updatedLedger.reduce((sum, item) => sum + item.paidAmountPaise, 0);
-  const totalDiscountPaise = updatedLedger.reduce((sum, item) => sum + item.discountPaise, 0);
-  const totalLateFeePaise = updatedLedger.reduce((sum, item) => sum + item.lateFeePaise, 0);
-  const totalPendingPaise = updatedLedger.reduce((sum, item) => sum + item.pendingAmountPaise, 0);
+  const totalAssignedPaise = updatedLedger.reduce(
+    (sum, item) => sum + item.amountPaise,
+    0
+  );
+  const totalPaidPaise = updatedLedger.reduce(
+    (sum, item) => sum + item.paidAmountPaise,
+    0
+  );
+  const totalDiscountPaise = updatedLedger.reduce(
+    (sum, item) => sum + item.discountPaise,
+    0
+  );
+  const totalLateFeePaise = updatedLedger.reduce(
+    (sum, item) => sum + item.lateFeePaise,
+    0
+  );
+  const totalPendingPaise = updatedLedger.reduce(
+    (sum, item) => sum + item.pendingAmountPaise,
+    0
+  );
 
   await updateDoc(assignRef, {
     className: newClassName,
@@ -1054,7 +1222,12 @@ export async function recalculateStudentFutureDues(
     totalDiscountPaise,
     totalLateFeePaise,
     totalPendingPaise,
-    status: totalPendingPaise <= 0 ? "PAID" : totalPaidPaise > 0 ? "PARTIAL" : "PENDING",
+    status:
+      totalPendingPaise <= 0
+        ? "PAID"
+        : totalPaidPaise > 0
+          ? "PARTIAL"
+          : "PENDING",
     updatedAt: new Date().toISOString(),
   });
 }
@@ -1088,21 +1261,32 @@ export async function collectFeePayment(
   }
 
   const settings = await getFeeSettings(schoolId);
-  const receiptNumber = await generateReceiptNumber(schoolId, settings.receiptPrefix || "REC");
+  const receiptNumber = await generateReceiptNumber(
+    schoolId,
+    settings.receiptPrefix || "REC"
+  );
 
   const amountPaidPaise = Math.round(input.amountPaidRupees * 100);
   const discountPaise = Math.round((input.discountRupees || 0) * 100);
 
   // Authoritative server-side student fee assignment lookup & update
-  let assignment = await getStudentFeeAssignment(schoolId, input.studentId, input.academicYearId);
+  let assignment = await getStudentFeeAssignment(
+    schoolId,
+    input.studentId,
+    input.academicYearId
+  );
   if (!assignment) {
-    assignment = await provisionStudentFeeAssignment(schoolId, {
-      id: input.studentId,
-      name: input.studentName,
-      admissionNumber: input.admissionNumber,
-      className: input.className,
-      sectionName: input.sectionName,
-    }, input.academicYearId);
+    assignment = await provisionStudentFeeAssignment(
+      schoolId,
+      {
+        id: input.studentId,
+        name: input.studentName,
+        admissionNumber: input.admissionNumber,
+        className: input.className,
+        sectionName: input.sectionName,
+      },
+      input.academicYearId
+    );
   }
 
   // Calculate late fee for selected period months
@@ -1112,7 +1296,12 @@ export async function collectFeePayment(
 
   assignment.monthLedger.forEach((item) => {
     if (input.periodMonths.includes(item.month) && item.status !== "PAID") {
-      lateFeePaise += calculateLateFee(item.amountPaise, item.dueDate, settings, nowMs);
+      lateFeePaise += calculateLateFee(
+        item.amountPaise,
+        item.dueDate,
+        settings,
+        nowMs
+      );
     }
   });
 
@@ -1153,13 +1342,22 @@ export async function collectFeePayment(
   assignment.monthLedger = assignment.monthLedger.map((item) => {
     if (input.periodMonths.includes(item.month)) {
       // If item.amountPaise is 0 or less than payment, ensure it reflects at least the fee being collected
-      const allocatedAmount = Math.max(item.amountPaise, Math.round(amountPaidPaise / Math.max(1, input.periodMonths.length)));
+      const allocatedAmount = Math.max(
+        item.amountPaise,
+        Math.round(amountPaidPaise / Math.max(1, input.periodMonths.length))
+      );
       if (item.amountPaise < allocatedAmount) {
         item.amountPaise = allocatedAmount;
-        item.pendingAmountPaise = Math.max(0, item.amountPaise - item.paidAmountPaise - item.discountPaise);
+        item.pendingAmountPaise = Math.max(
+          0,
+          item.amountPaise - item.paidAmountPaise - item.discountPaise
+        );
       }
 
-      const needed = item.pendingAmountPaise > 0 ? item.pendingAmountPaise : item.amountPaise;
+      const needed =
+        item.pendingAmountPaise > 0
+          ? item.pendingAmountPaise
+          : item.amountPaise;
       const curDiscount = Math.min(needed, remainingDiscountPaise);
       remainingDiscountPaise -= curDiscount;
 
@@ -1168,7 +1366,10 @@ export async function collectFeePayment(
 
       const newPaid = item.paidAmountPaise + curPaid;
       const newDiscount = item.discountPaise + curDiscount;
-      const newPending = Math.max(0, item.amountPaise - (newPaid + newDiscount));
+      const newPending = Math.max(
+        0,
+        item.amountPaise - (newPaid + newDiscount)
+      );
 
       let newStatus: MonthLedgerItem["status"] = "PENDING";
       if (newPending === 0) newStatus = "PAID";
@@ -1188,13 +1389,20 @@ export async function collectFeePayment(
     return item;
   });
 
-  assignment.totalAssignedPaise = assignment.monthLedger.reduce((sum, item) => sum + item.amountPaise, 0);
+  assignment.totalAssignedPaise = assignment.monthLedger.reduce(
+    (sum, item) => sum + item.amountPaise,
+    0
+  );
   assignment.totalPaidPaise += amountPaidPaise;
   assignment.totalDiscountPaise += discountPaise;
   assignment.totalLateFeePaise += lateFeePaise;
-  assignment.totalPendingPaise = Math.max(0, assignment.totalAssignedPaise - (assignment.totalPaidPaise + assignment.totalDiscountPaise));
+  assignment.totalPendingPaise = Math.max(
+    0,
+    assignment.totalAssignedPaise -
+      (assignment.totalPaidPaise + assignment.totalDiscountPaise)
+  );
   assignment.lastPaymentDate = nowIso;
-  
+
   payment.remainingDuePaise = assignment.totalPendingPaise;
 
   if (assignment.totalPendingPaise === 0) assignment.status = "PAID";
@@ -1204,7 +1412,9 @@ export async function collectFeePayment(
   const db = getFirebaseDb();
   if (db) {
     await setDoc(doc(db, "feePayments", paymentId), payment);
-    await setDoc(doc(db, "studentFeeAssignments", assignment.id), assignment, { merge: true });
+    await setDoc(doc(db, "studentFeeAssignments", assignment.id), assignment, {
+      merge: true,
+    });
 
     // Financial Ledger Record
     await setDoc(doc(db, "financeTransactions", paymentId), {
@@ -1229,7 +1439,12 @@ export async function collectFeePayment(
     action: "SUBSCRIPTION_ACTIVATED",
     targetType: "invoice",
     targetId: paymentId,
-    metadata: { schoolId, studentId: input.studentId, amountPaidPaise, receiptNumber },
+    metadata: {
+      schoolId,
+      studentId: input.studentId,
+      amountPaidPaise,
+      receiptNumber,
+    },
   }).catch(() => {});
 
   return { success: true, payment, receiptNumber };
@@ -1241,20 +1456,32 @@ export async function collectFeePayment(
 
 export async function getFeeTransactions(
   schoolId: string,
-  filters?: { studentId?: string; className?: string; paymentMethod?: string; feeType?: string }
+  filters?: {
+    studentId?: string;
+    className?: string;
+    paymentMethod?: string;
+    feeType?: string;
+  }
 ): Promise<FeePayment[]> {
   const db = getFirebaseDb();
   if (!db || !schoolId) return [];
 
   try {
-    const q = query(collection(db, "feePayments"), where("schoolId", "==", schoolId));
+    const q = query(
+      collection(db, "feePayments"),
+      where("schoolId", "==", schoolId)
+    );
     const snap = await getDocs(q);
-    let list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as FeePayment));
+    let list = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as FeePayment);
 
-    if (filters?.studentId) list = list.filter((p) => p.studentId === filters.studentId);
-    if (filters?.className && filters.className !== "all") list = list.filter((p) => p.className === filters.className);
-    if (filters?.paymentMethod && filters.paymentMethod !== "all") list = list.filter((p) => p.paymentMethod === filters.paymentMethod);
-    if (filters?.feeType && filters.feeType !== "all") list = list.filter((p) => p.feeType === filters.feeType);
+    if (filters?.studentId)
+      list = list.filter((p) => p.studentId === filters.studentId);
+    if (filters?.className && filters.className !== "all")
+      list = list.filter((p) => p.className === filters.className);
+    if (filters?.paymentMethod && filters.paymentMethod !== "all")
+      list = list.filter((p) => p.paymentMethod === filters.paymentMethod);
+    if (filters?.feeType && filters.feeType !== "all")
+      list = list.filter((p) => p.feeType === filters.feeType);
 
     list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return list;
@@ -1272,9 +1499,14 @@ export async function getDefaultersList(
   if (!db || !schoolId) return [];
 
   try {
-    const q = query(collection(db, "studentFeeAssignments"), where("schoolId", "==", schoolId));
+    const q = query(
+      collection(db, "studentFeeAssignments"),
+      where("schoolId", "==", schoolId)
+    );
     const snap = await getDocs(q);
-    let list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as StudentFeeAssignment));
+    let list = snap.docs.map(
+      (d) => ({ id: d.id, ...d.data() }) as StudentFeeAssignment
+    );
 
     list = list.filter((a) => a.totalPendingPaise > 0);
     if (className && className !== "all") {
@@ -1299,14 +1531,36 @@ export async function getFeeDashboardMetrics(schoolId: string) {
   const todayStr = now.toISOString().slice(0, 10);
   const currentMonthStr = now.toISOString().slice(0, 7);
 
-  const totalCollectedPaise = transactions.reduce((sum, t) => sum + (t.status === "SUCCESS" ? t.amountPaidPaise : 0), 0);
-  const todayCollectionPaise = transactions.reduce((sum, t) => sum + (t.status === "SUCCESS" && t.createdAt.slice(0, 10) === todayStr ? t.amountPaidPaise : 0), 0);
-  const thisMonthCollectionPaise = transactions.reduce((sum, t) => sum + (t.status === "SUCCESS" && t.createdAt.slice(0, 7) === currentMonthStr ? t.amountPaidPaise : 0), 0);
+  const totalCollectedPaise = transactions.reduce(
+    (sum, t) => sum + (t.status === "SUCCESS" ? t.amountPaidPaise : 0),
+    0
+  );
+  const todayCollectionPaise = transactions.reduce(
+    (sum, t) =>
+      sum +
+      (t.status === "SUCCESS" && t.createdAt.slice(0, 10) === todayStr
+        ? t.amountPaidPaise
+        : 0),
+    0
+  );
+  const thisMonthCollectionPaise = transactions.reduce(
+    (sum, t) =>
+      sum +
+      (t.status === "SUCCESS" && t.createdAt.slice(0, 7) === currentMonthStr
+        ? t.amountPaidPaise
+        : 0),
+    0
+  );
 
-  const totalPendingPaise = defaulters.reduce((sum, d) => sum + d.totalPendingPaise, 0);
+  const totalPendingPaise = defaulters.reduce(
+    (sum, d) => sum + d.totalPendingPaise,
+    0
+  );
   const totalExpectedPaise = totalCollectedPaise + totalPendingPaise;
 
-  const paidStudentsCount = transactions.map((t) => t.studentId).filter((v, i, a) => a.indexOf(v) === i).length;
+  const paidStudentsCount = transactions
+    .map((t) => t.studentId)
+    .filter((v, i, a) => a.indexOf(v) === i).length;
   const defaultersCount = defaulters.length;
 
   // 100% Real Database Calculation: Zero fake multipliers!
@@ -1314,23 +1568,34 @@ export async function getFeeDashboardMetrics(schoolId: string) {
   let partialPaymentsCount = 0;
 
   defaulters.forEach((d) => {
-    if (d.status === "PARTIAL" || (d.totalPaidPaise > 0 && d.totalPendingPaise > 0)) {
+    if (
+      d.status === "PARTIAL" ||
+      (d.totalPaidPaise > 0 && d.totalPendingPaise > 0)
+    ) {
       partialPaymentsCount++;
     }
 
     let studentOverdue = 0;
     if (d.monthLedger && d.monthLedger.length > 0) {
       d.monthLedger.forEach((m) => {
-        if (m.dueDate && m.dueDate.slice(0, 10) <= todayStr && m.pendingAmountPaise > 0) {
+        if (
+          m.dueDate &&
+          m.dueDate.slice(0, 10) <= todayStr &&
+          m.pendingAmountPaise > 0
+        ) {
           studentOverdue += m.pendingAmountPaise;
         }
       });
     }
-    realOverduePaise += studentOverdue > 0 ? studentOverdue : d.totalPendingPaise;
+    realOverduePaise +=
+      studentOverdue > 0 ? studentOverdue : d.totalPendingPaise;
   });
 
   const overdueAmountPaise = realOverduePaise;
-  const collectionRate = totalExpectedPaise > 0 ? Math.round((totalCollectedPaise / totalExpectedPaise) * 100) : 100;
+  const collectionRate =
+    totalExpectedPaise > 0
+      ? Math.round((totalCollectedPaise / totalExpectedPaise) * 100)
+      : 100;
 
   return {
     totalExpectedPaise,
@@ -1405,25 +1670,58 @@ export interface FeeDashboardOverviewData {
 
 export async function getFeeDashboardOverviewData(
   schoolId: string,
-  filter?: { academicYearId?: string; month?: string; className?: string; sectionName?: string }
+  filter?: {
+    academicYearId?: string;
+    month?: string;
+    className?: string;
+    sectionName?: string;
+    searchQuery?: string;
+    paymentStatusFilter?: "all" | "pending" | "paid" | "overdue";
+  }
 ): Promise<FeeDashboardOverviewData> {
-  const cacheKey = `feeDashboardOverview:${schoolId}:${filter?.academicYearId || "default"}:${filter?.month || "all"}:${filter?.className || "all"}:${filter?.sectionName || "all"}`;
+  const cacheKey = `feeDashboardOverview:${schoolId}:${filter?.academicYearId || "default"}:${filter?.month || "all"}:${filter?.className || "all"}:${filter?.sectionName || "all"}:${filter?.searchQuery || "none"}:${filter?.paymentStatusFilter || "all"}`;
   return appQueryClient.fetchWithCache(
     cacheKey,
     async () => {
-      const summary = await getFeeDashboardSummary(schoolId, {
-        month: filter?.month,
-        className: filter?.className,
-        sectionName: filter?.sectionName,
-        academicYearId: filter?.academicYearId || "ay_2026_27",
-      });
+      let summary: FeeDashboardSummary | null = null;
+      try {
+        summary = await getFeeDashboardSummary(schoolId, {
+          month: filter?.month,
+          className: filter?.className,
+          sectionName: filter?.sectionName,
+          academicYearId: filter?.academicYearId || "ay_2026_27",
+          searchQuery: filter?.searchQuery,
+          paymentStatusFilter: filter?.paymentStatusFilter,
+        });
+      } catch (clientErr) {
+        if (typeof window !== "undefined") {
+          try {
+            const params = new URLSearchParams();
+            params.set("schoolId", schoolId);
+            if (filter?.academicYearId) params.set("academicYearId", filter.academicYearId);
+            if (filter?.month) params.set("month", filter.month);
+            if (filter?.className) params.set("className", filter.className);
+            if (filter?.sectionName) params.set("sectionName", filter.sectionName);
+            const res = await fetch(`/api/fees/foundation/analytics/dashboard?${params.toString()}`);
+            if (res.ok) {
+              const resData = await res.json();
+              if (resData?.summary) {
+                summary = resData.summary;
+              }
+            }
+          } catch {}
+        }
+        if (!summary) throw clientErr;
+      }
 
       return {
         metrics: {
           totalExpectedPaise: summary.totalExpectedPaise,
           totalCollectedPaise: summary.totalCollectedPaise,
           totalPendingPaise: summary.totalOutstandingPaise,
-          overdueAmountPaise: summary.paymentFollowUp.overdueAmountPaise + summary.paymentFollowUp.criticalAmountPaise,
+          overdueAmountPaise:
+            summary.paymentFollowUp.overdueAmountPaise +
+            summary.paymentFollowUp.criticalAmountPaise,
           todayCollectionPaise: summary.todayCollectionPaise,
           thisMonthCollectionPaise: summary.totalCollectedPaise,
           todayPaymentsCount: summary.todayPaymentsCount,
@@ -1482,14 +1780,14 @@ export async function getFeeDashboardOverviewData(
           paymentMethod: (p.paymentMethod === "CASH"
             ? "Cash"
             : p.paymentMethod === "UPI"
-            ? "UPI"
-            : p.paymentMethod === "BANK_TRANSFER"
-            ? "Bank Transfer"
-            : p.paymentMethod === "CHEQUE"
-            ? "Cheque"
-            : p.paymentMethod === "CARD"
-            ? "Card"
-            : "Other") as any,
+              ? "UPI"
+              : p.paymentMethod === "BANK_TRANSFER"
+                ? "Bank Transfer"
+                : p.paymentMethod === "CHEQUE"
+                  ? "Cheque"
+                  : p.paymentMethod === "CARD"
+                    ? "Card"
+                    : "Other") as any,
           transactionRef: p.referenceNumber,
           remarks: p.remarks,
           paymentDate: p.paymentDate,
@@ -1552,7 +1850,10 @@ export async function recordFeeFollowUp(
   };
 
   // Write follow-up document
-  await setDoc(doc(db, "schools", schoolId, "feeFollowUps", followUpId), followUp);
+  await setDoc(
+    doc(db, "schools", schoolId, "feeFollowUps", followUpId),
+    followUp
+  );
 
   // Sync latest status to studentFeeAssignments document
   try {
@@ -1593,7 +1894,9 @@ export async function getFeeFollowUps(
       : query(coll, limit(100));
 
     const snap = await getDocs(q);
-    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as FeeFollowUp));
+    const list = snap.docs.map(
+      (d) => ({ id: d.id, ...d.data() }) as FeeFollowUp
+    );
     list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return list;
   } catch (err) {

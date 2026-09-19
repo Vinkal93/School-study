@@ -15,6 +15,10 @@ service cloud.firestore {
     // Helper: Is user Super Admin?
     function isSuperAdmin() {
       return isAuthenticated() && (
+        // Check for Super Admin role in custom claims (set by backend on login)
+        request.auth.token.get('role', '') == 'super_admin' ||
+        request.auth.token.get('isSuperAdmin', false) == true ||
+        // Check email patterns for known Super Admin accounts
         (request.auth.token.email != null && (
           request.auth.token.email in ['vinkal93041@gmail.com', 'vinkal93@gmail.com', 'sbci224234@gmail.com', 'superadmin@schoolstudy.com', 'admin@schoolstudy.com'] ||
           request.auth.token.email.matches('.*vinkal.*') ||
@@ -22,7 +26,7 @@ service cloud.firestore {
           request.auth.token.email.matches('.*superadmin.*') ||
           request.auth.token.email.matches('.*super_admin.*')
         )) ||
-        request.auth.token.get('role', '') == 'super_admin' ||
+        // Fallback: Check user document in Firestore
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'super_admin')
       );
@@ -278,6 +282,67 @@ service cloud.firestore {
     match /feeSettings/{schoolId} {
       allow read: if isAuthenticated();
       allow write: if isSchoolAdmin(schoolId) || isSuperAdmin();
+    }
+
+    // Fee Foundation & Double-Entry Accounting Collections (Phases 1-8)
+    match /feeDemands/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /financialPayments/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /paymentAllocations/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /financialRefunds/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /paymentReversals/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /feeAdjustments/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /studentLedgerEntries/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /chartOfAccounts/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /accountingJournals/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /cashBankAccounts/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /cashBankTransactions/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+    }
+
+    match /financialStatements/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
     }
 
     // Inquiries and Parent Leads Collections

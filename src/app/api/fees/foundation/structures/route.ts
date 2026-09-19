@@ -4,7 +4,7 @@ import {
   createFeeStructureDefinition,
   updateFeeStructureDefinition,
 } from "@/lib/services/fee-foundation.service";
-import { getFirebaseDb } from "@/lib/firebase/client";
+import { getSafeAdminDb } from "@/lib/firebase/admin";
 import { collection, doc, getDocs, query, where, deleteDoc, setDoc } from "firebase/firestore";
 import type { FeeStructureDefinition } from "@/types/fee-foundation";
 
@@ -25,15 +25,39 @@ export async function GET(request: Request) {
     const academicYearId = searchParams.get("academicYearId");
     const className = searchParams.get("className");
 
-    const db = getFirebaseDb();
-    if (!db) throw new Error("Database not connected");
+    // Use Admin SDK for server-side queries to bypass security rules with proper authorization
+    const adminDb = getSafeAdminDb();
+    if (!adminDb) {
+      // Fallback to client SDK if Admin SDK not available
+      const { getFirebaseDb } = await import("@/lib/firebase/client");
+      const clientDb = getFirebaseDb();
+      if (!clientDb) throw new Error("Database not connected");
 
-    const q = query(
-      collection(db, "feeStructures"),
-      where("schoolId", "==", targetSchoolId)
-    );
+      const q = query(
+        collection(clientDb, "feeStructures"),
+        where("schoolId", "==", targetSchoolId)
+      );
 
-    const snap = await getDocs(q);
+      const snap = await getDocs(q);
+      let structures = snap.docs.map((d) => ({ id: d.id, ...d.data() } as FeeStructureDefinition));
+
+      if (academicYearId && academicYearId !== "all") {
+        structures = structures.filter((s) => s.academicYearId === academicYearId);
+      }
+      if (className && className !== "all") {
+        structures = structures.filter((s) => s.className === className || s.className === "all");
+      }
+
+      structures.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+
+      return NextResponse.json({ success: true, structures });
+    }
+
+    // Admin SDK uses a different API - use adminDb.collection() directly
+    const snap = await adminDb.collection("feeStructures")
+      .where("schoolId", "==", targetSchoolId)
+      .get();
+
     let structures = snap.docs.map((d) => ({ id: d.id, ...d.data() } as FeeStructureDefinition));
 
     if (academicYearId && academicYearId !== "all") {
@@ -176,22 +200,51 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Missing structureId or schoolId" }, { status: 400 });
     }
 
-    const db = getFirebaseDb();
-    if (!db) throw new Error("Database not connected");
+    // Use Admin SDK for server-side queries
+    const adminDb = getSafeAdminDb();
+    if (!adminDb) {
+      // Fallback to client SDK if Admin SDK not available
+      const { getFirebaseDb } = await import("@/lib/firebase/client");
+      const db = getFirebaseDb();
+      if (!db) throw new Error("Database not connected");
 
+      // Safety check: verify if demands have been issued for this structure
+      const qDemands = query(
+        collection(db, "feeDemands"),
+        where("schoolId", "==", targetSchoolId),
+        where("feeStructureId", "==", structureId)
+      );
+      const demandSnap = await getDocs(qDemands);
+
+      const structRef = doc(db, "feeStructures", structureId);
+
+      if (!demandSnap.empty) {
+        // Demands exist: Do not hard delete to maintain historical financial audit integrity! Deactivate instead.
+        await setDoc(structRef, { status: "INACTIVE", updatedAt: new Date().toISOString() }, { merge: true });
+        return NextResponse.json({
+          success: true,
+          deactivated: true,
+          message: "Fee structure deactivated. Historical demand records were preserved.",
+        });
+      }
+
+      // No demands issued: Safe to delete
+      await deleteDoc(structRef);
+      return NextResponse.json({ success: true, deleted: true });
+    }
+
+    // Admin SDK path
     // Safety check: verify if demands have been issued for this structure
-    const qDemands = query(
-      collection(db, "feeDemands"),
-      where("schoolId", "==", targetSchoolId),
-      where("feeStructureId", "==", structureId)
-    );
-    const demandSnap = await getDocs(qDemands);
+    const demandsSnap = await adminDb.collection("feeDemands")
+      .where("schoolId", "==", targetSchoolId)
+      .where("feeStructureId", "==", structureId)
+      .get();
 
-    const structRef = doc(db, "feeStructures", structureId);
+    const structRef = adminDb.collection("feeStructures").doc(structureId);
 
-    if (!demandSnap.empty) {
+    if (!demandsSnap.empty) {
       // Demands exist: Do not hard delete to maintain historical financial audit integrity! Deactivate instead.
-      await setDoc(structRef, { status: "INACTIVE", updatedAt: new Date().toISOString() }, { merge: true });
+      await structRef.set({ status: "INACTIVE", updatedAt: new Date().toISOString() }, { merge: true });
       return NextResponse.json({
         success: true,
         deactivated: true,
@@ -200,7 +253,7 @@ export async function DELETE(request: Request) {
     }
 
     // No demands issued: Safe to delete
-    await deleteDoc(structRef);
+    await structRef.delete();
     return NextResponse.json({ success: true, deleted: true });
   } catch (err: any) {
     console.error("DELETE /api/fees/foundation/structures error:", err);

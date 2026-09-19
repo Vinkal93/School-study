@@ -7,6 +7,7 @@ import { generateAiResponse } from "@/lib/ai/providers/aiProvider";
 import { recordAiUsage, getMonthlyAiUsageCount } from "@/lib/ai/usage/usageTracker";
 import { getSafeAdminDb } from "@/lib/firebase/admin";
 import { getFirebaseDb } from "@/lib/firebase/client";
+import { analyzePromptNlp } from "@/lib/ai/nlp/nlpEngine";
 import { collection, addDoc, doc, updateDoc, getDocs, query, where, limit } from "firebase/firestore";
 import type { AiMessage, AiConversation } from "@/types/ai";
 
@@ -22,6 +23,7 @@ export async function POST(req: NextRequest) {
 
     const { user } = authResult;
     const portal = mapRoleToAiPortal(user.role);
+    const schoolId = user.schoolId || "";
 
     // 2. Authoritative 5-tier Entitlement Check
     const entitlement = await canAccessAiFeature({ user });
@@ -144,26 +146,71 @@ export async function POST(req: NextRequest) {
       console.warn("[API: AI Chat] Could not load conversation history:", hErr);
     }
 
-    // 7. Securely assemble live, role-scoped school context
+    // 7. Analyze user prompt with NLP to determine intent and required tool call
+    const nlpAnalysis = analyzePromptNlp(userPrompt);
+
+    // 8. Build auth headers for internal tool call
+    const authHeaders: Record<string, string> = {};
+    try {
+      const token = user.uid; // We're server-side, we can construct a direct auth context
+      // Use the same auth verification but pass through via cookies/headers
+      const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
+      if (authHeader) authHeaders["Authorization"] = authHeader;
+    } catch {}
+
+    // 9. If a tool call is identified, execute it via the tools API
+    let toolResult: any = null;
+    let contextDataForNlp: any = {};
+
+    if (nlpAnalysis.toolCall) {
+      try {
+        // Build the auth header for internal tool execution
+        const internalAuthHeaders: Record<string, string> = {};
+        const bearerToken = req.headers.get("authorization") || req.headers.get("Authorization");
+        if (bearerToken) {
+          internalAuthHeaders["Authorization"] = bearerToken;
+        }
+
+        // Execute the tool request directly within this serverless function
+        // to avoid network round-trips and ensure proper auth forwarding
+        const { executeToolLocally } = await import("../tools/route");
+        const toolResponse = await executeToolLocally(nlpAnalysis.toolCall!, user, schoolId);
+        toolResult = toolResponse;
+      } catch (toolErr: any) {
+        console.warn("[API: AI Chat] Tool execution error:", toolErr.message);
+        toolResult = { error: toolErr.message || "Tool execution failed" };
+      }
+    }
+
+    // 10. Build secure context data for the system prompt
     let contextData = {};
     try {
       contextData = await buildAiContext(user, portal);
     } catch (cErr) {
       console.warn("[API: AI Chat] buildAiContext warning:", cErr);
     }
-    const systemPrompt = getSystemPromptForPortal(portal, contextData);
 
-    // 8. Generate AI response (Gemini -> OpenAI -> Context Intelligence fallback)
+    // 11. Merge tool result data into context for LLM-based providers (Gemini/OpenAI)
+    if (toolResult) {
+      contextDataForNlp = { ...contextData, toolData: toolResult };
+    }
+
+    const systemPrompt = getSystemPromptForPortal(portal, contextDataForNlp);
+
+    // 12. Generate AI response — now using real tool data
     const aiResult = await generateAiResponse({
       portal,
       systemPrompt,
       userPrompt,
       conversationHistory,
-      contextData,
+      contextData: contextDataForNlp,
       model: body.model,
+      toolCall: nlpAnalysis.toolCall,
+      authHeaders: authHeaders,
+      toolResult: toolResult || undefined,
     });
 
-    // 9. Persist User Message
+    // 13. Persist User Message
     const userMsg: Omit<AiMessage, "id"> = {
       conversationId: conversationId || `conv_${Date.now()}`,
       role: "user",
@@ -171,7 +218,7 @@ export async function POST(req: NextRequest) {
       createdAt: now,
     };
 
-    // 10. Persist Assistant Message
+    // 14. Persist Assistant Message
     const assistantMsg: Omit<AiMessage, "id"> = {
       conversationId: conversationId || `conv_${Date.now()}`,
       role: "assistant",
@@ -183,6 +230,8 @@ export async function POST(req: NextRequest) {
         quickLinks: aiResult.quickLinks,
         suggestedFollowUps: aiResult.suggestedFollowUps,
         metrics: aiResult.metrics,
+        intent: nlpAnalysis.intent,
+        confidence: nlpAnalysis.confidence,
       },
     };
 
@@ -222,7 +271,7 @@ export async function POST(req: NextRequest) {
       console.warn("[API: AI Chat] Could not persist messages to Firestore:", msgPersistErr);
     }
 
-    // 11. Record Usage
+    // 15. Record Usage
     recordAiUsage({
       userId: user.uid,
       instituteId: user.schoolId || "",
@@ -237,6 +286,7 @@ export async function POST(req: NextRequest) {
       timestamp: new Date().toISOString(),
     }).catch(() => {});
 
+    // 16. Return response with tool data for the frontend to render
     return NextResponse.json({
       conversationId,
       message: assistantMsg.content,
@@ -244,6 +294,12 @@ export async function POST(req: NextRequest) {
       metadata: assistantMsg.metadata,
       userMessage: { id: userMsgId, ...userMsg },
       assistantMessage: { id: assistantMsgId, ...assistantMsg },
+      toolResult: toolResult || undefined,
+      nlpAnalysis: {
+        intent: nlpAnalysis.intent,
+        isHinglish: nlpAnalysis.isHinglish,
+        confidence: nlpAnalysis.confidence,
+      },
     });
   } catch (error: any) {
     console.error("[API: AI Chat Error]", error);

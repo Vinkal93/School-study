@@ -40,16 +40,16 @@ export function AdminMobileNavDrawer({
   if (!isOpen) return null;
 
   const navItems = [
-    { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
-    { label: "Students", href: "/admin/students", icon: GraduationCap },
-    { label: "Teachers", href: "/admin/teachers", icon: Users },
-    { label: "Classes & Sections", href: "/admin/classes", icon: BookOpen },
-    { label: "Subjects", href: "/admin/classes", icon: BookOpen },
-    { label: "Attendance", href: "/admin/attendance", icon: ClipboardCheck },
-    { label: "Fees", href: "/admin/fees", icon: CreditCard },
-    { label: "Exams & Results", href: "/admin/reports", icon: FileText },
-    { label: "Notices", href: "/admin/notices", icon: Bell },
-    { label: "Reports", href: "/admin/reports", icon: FileText },
+    { id: "dashboard", label: "Dashboard", href: "/admin", icon: LayoutDashboard },
+    { id: "students", label: "Students", href: "/admin/students", icon: GraduationCap },
+    { id: "teachers", label: "Teachers", href: "/admin/teachers", icon: Users },
+    { id: "classes", label: "Classes & Sections", href: "/admin/classes", icon: BookOpen },
+    { id: "subjects", label: "Subjects", href: "/admin/classes?tab=subjects", icon: BookOpen },
+    { id: "attendance", label: "Attendance", href: "/admin/attendance", icon: ClipboardCheck },
+    { id: "fees", label: "Fees", href: "/admin/fees", icon: CreditCard },
+    { id: "exams", label: "Exams & Results", href: "/admin/reports?tab=exams", icon: FileText },
+    { id: "notices", label: "Notices", href: "/admin/notices", icon: Bell },
+    { id: "reports", label: "Reports", href: "/admin/reports", icon: FileText },
   ];
 
   const adminName = profile?.name || "Administrator";
@@ -116,7 +116,7 @@ export function AdminMobileNavDrawer({
 
             return (
               <Link
-                key={item.href}
+                key={item.id}
                 href={item.href}
                 onClick={onClose}
                 className={`flex items-center gap-3.5 px-4 py-3 rounded-2xl text-xs font-bold transition-all ${

@@ -41,7 +41,6 @@ export function getFirebaseDb(): Firestore {
     try {
       if (typeof window !== "undefined") {
         dbInstance = initializeFirestore(app, {
-          experimentalForceLongPolling: true,
           ignoreUndefinedProperties: true,
         });
       } else {

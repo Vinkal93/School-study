@@ -31,6 +31,11 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+firebase-debug.log*
+
+# IDEs
+.cursor/
+.kilo/
 
 # env files (can opt-in for committing if needed)
 .env*
@@ -45,3 +50,6 @@ vercel.env
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Sentry Config File
+.env.sentry-build-plugin

@@ -3,9 +3,12 @@ import { getFirebaseDb } from "@/lib/firebase/client";
 import { collection, query, where, getDocs, limit, getDoc, doc } from "firebase/firestore";
 import type { AuthenticatedUser } from "@/lib/auth/serverAuth";
 import type { AiPortalType } from "@/types/ai";
+import { paiseToRupees } from "@/lib/services/fee-foundation.service";
 
 /**
  * Builds securely scoped, tenant-isolated context for AI queries.
+ * This context provides REAL school-level aggregate statistics from Firestore.
+ * No hardcoded or placeholder data — all values come from the database.
  */
 export async function buildAiContext(
   user: AuthenticatedUser,
@@ -42,6 +45,7 @@ export async function buildAiContext(
 
 /**
  * Super Admin Context: Multi-tenant portfolio and platform status.
+ * All data is fetched from Firestore — no hardcoded values.
  */
 async function buildSuperAdminContext(adminDb: any) {
   const summary: Record<string, any> = {
@@ -100,7 +104,8 @@ async function buildSuperAdminContext(adminDb: any) {
 }
 
 /**
- * School Admin Context: School-wide statistics (students, teachers, fees, attendance, notices).
+ * School Admin Context: School-wide statistics (students, teachers, fees, attendance).
+ * All data is fetched from Firestore — no hardcoded or placeholder values.
  */
 async function buildSchoolAdminContext(adminDb: any, schoolId: string) {
   const summary: Record<string, any> = {
@@ -118,15 +123,18 @@ async function buildSchoolAdminContext(adminDb: any, schoolId: string) {
       activeTeachers: 0,
     },
     feeStatistics: {
-      totalExpected: 0,
-      totalCollected: 0,
-      totalPending: 0,
+      totalExpectedPaise: 0,
+      totalCollectedPaise: 0,
+      totalOutstandingPaise: 0,
       defaultersCount: 0,
     },
     attendanceStatistics: {
       todayDate: new Date().toISOString().split("T")[0],
-      overallAttendanceRate: "92%",
-      markedCount: 0,
+      overallAttendanceRate: null,
+      present: 0,
+      absent: 0,
+      late: 0,
+      total: 0,
     },
     recentNotices: [],
   };
@@ -152,7 +160,7 @@ async function buildSchoolAdminContext(adminDb: any, schoolId: string) {
       const studentsSnap = await adminDb
         .collection("students")
         .where("schoolId", "==", schoolId)
-        .limit(300)
+        .limit(1000)
         .get();
       summary.studentStatistics.totalStudents = studentsSnap.size;
       let activeStudents = 0;
@@ -160,9 +168,12 @@ async function buildSchoolAdminContext(adminDb: any, schoolId: string) {
 
       studentsSnap.docs.forEach((doc: any) => {
         const data = doc.data();
-        if (data.status !== "inactive" && data.status !== "deleted") activeStudents++;
+        const status = data.status || "active";
+        if (status !== "inactive" && status !== "deleted") activeStudents++;
         const className = data.className || data.class || "Unassigned";
-        byClass[className] = (byClass[className] || 0) + 1;
+        const sectionName = data.sectionName || data.section || "";
+        const classKey = sectionName ? `${className} - ${sectionName}` : className;
+        byClass[classKey] = (byClass[classKey] || 0) + 1;
       });
       summary.studentStatistics.activeStudents = activeStudents;
       summary.studentStatistics.byClass = byClass;
@@ -175,29 +186,41 @@ async function buildSchoolAdminContext(adminDb: any, schoolId: string) {
         .get();
       summary.teacherStatistics.totalTeachers = teachersSnap.size;
 
-      // 4. Fees Summary
-      const feesSnap = await adminDb
-        .collection("fees")
+      // 4. Fees Summary — from feeDemands collection (authoritative)
+      const demandsSnap = await adminDb
+        .collection("feeDemands")
         .where("schoolId", "==", schoolId)
-        .limit(200)
+        .limit(500)
         .get();
       let totalExpected = 0;
       let totalCollected = 0;
       let defaulters = 0;
 
-      feesSnap.docs.forEach((d: any) => {
+      // Also fetch payments for collected amount
+      const paymentsSnap = await adminDb
+        .collection("financialPayments")
+        .where("schoolId", "==", schoolId)
+        .limit(500)
+        .get();
+
+      let totalPaid = 0;
+      paymentsSnap.docs.forEach((d: any) => {
         const data = d.data();
-        const amount = Number(data.amount || data.totalAmount || 0);
-        const paid = Number(data.paidAmount || 0);
-        totalExpected += amount;
-        totalCollected += paid;
-        if (amount > paid) defaulters++;
+        totalPaid += Number(data.amountPaise || 0);
+      });
+
+      demandsSnap.docs.forEach((d: any) => {
+        const data = d.data();
+        if (data.status === "CANCELLED") return;
+        totalExpected += Number(data.netAmountPaise || 0);
+        totalCollected += Number(data.paidAmountPaise || 0);
+        if (Number(data.balanceAmountPaise || 0) > 0) defaulters++;
       });
 
       summary.feeStatistics = {
-        totalExpected,
-        totalCollected,
-        totalPending: Math.max(0, totalExpected - totalCollected),
+        totalExpectedPaise: totalExpected,
+        totalCollectedPaise: totalCollected,
+        totalOutstandingPaise: Math.max(0, totalExpected - totalCollected),
         defaultersCount: defaulters,
       };
 
@@ -213,7 +236,7 @@ async function buildSchoolAdminContext(adminDb: any, schoolId: string) {
       });
     } catch (e) {}
   } else {
-    // Client-side Firestore fallback when server-side Admin SDK is not initialized
+    // Client-side Firestore fallback
     try {
       const clientDb = getFirebaseDb();
       if (clientDb) {
@@ -233,16 +256,19 @@ async function buildSchoolAdminContext(adminDb: any, schoolId: string) {
 
         try {
           const studentsSnap = await getDocs(
-            query(collection(clientDb, "students"), where("schoolId", "==", schoolId), limit(300))
+            query(collection(clientDb, "students"), where("schoolId", "==", schoolId), limit(1000))
           );
           summary.studentStatistics.totalStudents = studentsSnap.size;
           let activeStudents = 0;
           const byClass: Record<string, number> = {};
           studentsSnap.docs.forEach((doc) => {
             const data = doc.data();
-            if (data.status !== "inactive" && data.status !== "deleted") activeStudents++;
+            const status = data.status || "active";
+            if (status !== "inactive" && status !== "deleted") activeStudents++;
             const className = data.className || data.class || "Unassigned";
-            byClass[className] = (byClass[className] || 0) + 1;
+            const sectionName = data.sectionName || data.section || "";
+            const classKey = sectionName ? `${className} - ${sectionName}` : className;
+            byClass[classKey] = (byClass[classKey] || 0) + 1;
           });
           summary.studentStatistics.activeStudents = activeStudents;
           summary.studentStatistics.byClass = byClass;
@@ -256,24 +282,34 @@ async function buildSchoolAdminContext(adminDb: any, schoolId: string) {
         } catch (e) {}
 
         try {
-          const feesSnap = await getDocs(
-            query(collection(clientDb, "fees"), where("schoolId", "==", schoolId), limit(200))
+          const demandsSnap = await getDocs(
+            query(collection(clientDb, "feeDemands"), where("schoolId", "==", schoolId), limit(500))
           );
           let totalExpected = 0;
           let totalCollected = 0;
           let defaulters = 0;
-          feesSnap.docs.forEach((d) => {
+
+          const paymentsSnap = await getDocs(
+            query(collection(clientDb, "financialPayments"), where("schoolId", "==", schoolId), limit(500))
+          );
+          let totalPaid = 0;
+          paymentsSnap.docs.forEach((d) => {
             const data = d.data();
-            const amount = Number(data.amount || data.totalAmount || 0);
-            const paid = Number(data.paidAmount || 0);
-            totalExpected += amount;
-            totalCollected += paid;
-            if (amount > paid) defaulters++;
+            totalPaid += Number(data.amountPaise || 0);
           });
+
+          demandsSnap.docs.forEach((d) => {
+            const data = d.data();
+            if (data.status === "CANCELLED") return;
+            totalExpected += Number(data.netAmountPaise || 0);
+            totalCollected += Number(data.paidAmountPaise || 0);
+            if (Number(data.balanceAmountPaise || 0) > 0) defaulters++;
+          });
+
           summary.feeStatistics = {
-            totalExpected,
-            totalCollected,
-            totalPending: Math.max(0, totalExpected - totalCollected),
+            totalExpectedPaise: totalExpected,
+            totalCollectedPaise: totalCollected,
+            totalOutstandingPaise: Math.max(0, totalExpected - totalCollected),
             defaultersCount: defaulters,
           };
         } catch (e) {}
@@ -286,6 +322,7 @@ async function buildSchoolAdminContext(adminDb: any, schoolId: string) {
 
 /**
  * Teacher Context: Classes, enrolled students, daily class attendance, homework.
+ * All data is fetched from Firestore — no hardcoded or placeholder values.
  */
 async function buildTeacherContext(adminDb: any, schoolId: string, teacherUid: string) {
   const summary: Record<string, any> = {
@@ -295,7 +332,7 @@ async function buildTeacherContext(adminDb: any, schoolId: string, teacherUid: s
     assignedClasses: [],
     totalStudents: 0,
     activeHomeworks: [],
-    todayAttendanceStatus: "Pending submission",
+    todayAttendanceStatus: null,
   };
 
   if (!adminDb || !schoolId) return summary;
@@ -305,10 +342,26 @@ async function buildTeacherContext(adminDb: any, schoolId: string, teacherUid: s
     if (teacherDoc.exists) {
       const tData = teacherDoc.data();
       summary.name = tData.name || tData.fullName;
-      summary.assignedClasses = tData.assignedClasses || tData.classes || ["Class 10-A", "Class 9-B"];
-      summary.subjects = tData.subjects || ["Mathematics", "Science"];
+      summary.assignedClasses = tData.assignedClasses || tData.classes || [];
+      summary.subjects = tData.subjects || [];
     }
 
+    // Count students in assigned classes
+    if (summary.assignedClasses.length > 0) {
+      for (const classId of summary.assignedClasses) {
+        try {
+          const classSnap = await adminDb
+            .collection("students")
+            .where("schoolId", "==", schoolId)
+            .where("classId", "==", classId)
+            .limit(100)
+            .get();
+          summary.totalStudents += classSnap.size;
+        } catch (e) {}
+      }
+    }
+
+    // Homework
     const homeworkSnap = await adminDb
       .collection("homework")
       .where("schoolId", "==", schoolId)
@@ -327,6 +380,7 @@ async function buildTeacherContext(adminDb: any, schoolId: string, teacherUid: s
 
 /**
  * Student Context: Personal attendance, pending fees, homework, timetable, exams.
+ * All data is fetched from Firestore — no hardcoded or placeholder values.
  */
 async function buildStudentContext(
   adminDb: any,
@@ -339,27 +393,25 @@ async function buildStudentContext(
     schoolId,
     studentUid,
     profile: {
-      name: "Student",
-      rollNo: "",
-      className: "Class 10",
-      section: "A",
+      name: null,
+      rollNo: null,
+      className: null,
+      section: null,
     },
     attendance: {
-      percentage: "94.5%",
-      presentDays: 45,
-      absentDays: 3,
-      totalWorkingDays: 48,
+      percentage: null,
+      presentDays: null,
+      absentDays: null,
+      totalWorkingDays: null,
     },
     fees: {
-      totalFee: 15000,
-      paidAmount: 15000,
-      pendingAmount: 0,
-      status: "Paid",
+      totalFee: null,
+      paidAmount: null,
+      pendingAmount: null,
+      status: null,
     },
     homework: [],
-    upcomingExams: [
-      { name: "Mid-Term Examination", date: "Next Monday", subjects: ["Maths", "Science", "English"] },
-    ],
+    upcomingExams: [],
   };
 
   if (!adminDb || !schoolId) return summary;
@@ -371,28 +423,121 @@ async function buildStudentContext(
       sDoc = await adminDb.collection("students").doc(studentId).get();
     }
 
-    if (sDoc.exists) {
-      const sData = sDoc.data();
-      summary.profile = {
-        name: sData.name || sData.studentName || "Student",
-        rollNo: sData.rollNo || sData.rollNumber || "",
-        className: sData.className || sData.class || "Class 10",
-        section: sData.section || "A",
-        admissionNo: sData.admissionNo || "",
-      };
+    // Also try looking up by studentId field in subcollection pattern
+    if (!sDoc.exists) {
+      const studentSnap = await adminDb
+        .collection("schools")
+        .doc(schoolId)
+        .collection("students")
+        .where("userId", "==", studentUid)
+        .limit(1)
+        .get();
+      if (!studentSnap.empty) {
+        sDoc = studentSnap.docs[0];
+      }
     }
 
-    // Homework for student's class
-    const homeworkSnap = await adminDb
-      .collection("homework")
-      .where("schoolId", "==", schoolId)
-      .limit(5)
-      .get();
-    summary.homework = homeworkSnap.docs.map((d: any) => ({
-      title: d.data().title,
-      subject: d.data().subject,
-      dueDate: d.data().dueDate,
-    }));
+    const resolvedStudentDoc = sDoc || (await adminDb.collection("students").where("userId", "==", studentUid).limit(1).get()).docs[0];
+
+    if (resolvedStudentDoc && resolvedStudentDoc.exists) {
+      const sData = resolvedStudentDoc.data();
+      const studentFirestoreId = resolvedStudentDoc.id;
+
+      summary.profile = {
+        name: sData.name || sData.studentName || null,
+        rollNo: sData.rollNo || sData.rollNumber || null,
+        className: sData.className || sData.class || null,
+        section: sData.section || null,
+        admissionNo: sData.admissionNo || sData.admissionNumber || null,
+      };
+
+      // 2. Attendance history for this student
+      try {
+        const attSnap = await adminDb
+          .collection("attendance")
+          .where("schoolId", "==", schoolId)
+          .where("studentId", "==", studentFirestoreId)
+          .limit(50)
+          .get();
+
+        let present = 0;
+        let absent = 0;
+        let late = 0;
+        attSnap.docs.forEach((d: any) => {
+          const status = d.data().status;
+          if (status === "PRESENT") present++;
+          else if (status === "ABSENT") absent++;
+          else if (status === "LATE") late++;
+        });
+        const total = present + absent + late;
+        summary.attendance = {
+          percentage: total > 0 ? Math.round(((present + late) / total) * 1000) / 10 : null,
+          presentDays: present,
+          absentDays: absent,
+          totalWorkingDays: total,
+        };
+      } catch (e) {}
+
+      // 3. Fee outstanding for this student
+      try {
+        const demandsSnap = await adminDb
+          .collection("feeDemands")
+          .where("schoolId", "==", schoolId)
+          .where("studentId", "==", studentFirestoreId)
+          .limit(100)
+          .get();
+
+        let totalNet = 0;
+        let totalPaid = 0;
+        demandsSnap.docs.forEach((d: any) => {
+          const data = d.data();
+          if (data.status === "CANCELLED") return;
+          totalNet += Number(data.netAmountPaise || 0);
+          totalPaid += Number(data.paidAmountPaise || 0);
+        });
+
+        const pending = Math.max(0, totalNet - totalPaid);
+        summary.fees = {
+          totalFee: paiseToRupees(totalNet),
+          paidAmount: paiseToRupees(totalPaid),
+          pendingAmount: paiseToRupees(pending),
+          status: pending > 0 ? (totalPaid > 0 ? "PARTIAL" : "DUE") : (totalNet > 0 ? "PAID" : null),
+        };
+      } catch (e) {}
+
+      // 4. Homework for student's class
+      const className = sData.className || sData.class;
+      if (className) {
+        try {
+          const homeworkSnap = await adminDb
+            .collection("homework")
+            .where("schoolId", "==", schoolId)
+            .where("className", "==", className)
+            .limit(10)
+            .get();
+          summary.homework = homeworkSnap.docs.map((d: any) => ({
+            title: d.data().title,
+            subject: d.data().subject,
+            dueDate: d.data().dueDate,
+          }));
+        } catch (e) {}
+      }
+
+      // 5. Upcoming exams
+      try {
+        const examsSnap = await adminDb
+          .collection("exams")
+          .where("schoolId", "==", schoolId)
+          .where("className", "==", className)
+          .limit(10)
+          .get();
+        summary.upcomingExams = examsSnap.docs.map((d: any) => ({
+          name: d.data().name || d.data().title,
+          date: d.data().date,
+          subjects: d.data().subjects || [],
+        }));
+      } catch (e) {}
+    }
   } catch (e) {}
 
   return summary;
@@ -400,20 +545,87 @@ async function buildStudentContext(
 
 /**
  * Parent Context: Permitted child academic and fee information.
+ * All data is fetched from Firestore — no hardcoded or placeholder values.
  */
 async function buildParentContext(adminDb: any, schoolId: string, parentUid: string) {
-  return {
+  const summary: Record<string, any> = {
     role: "parent",
     schoolId,
     parentUid,
-    linkedChildren: [
-      {
-        name: "Aarav Sharma",
-        class: "Class 8-B",
-        attendanceRate: "96%",
-        pendingFees: "₹0",
-        upcomingExams: ["Science Unit Test - Friday"],
-      },
-    ],
+    linkedChildren: [],
   };
+
+  if (!adminDb || !schoolId) return summary;
+
+  try {
+    const childrenSnap = await adminDb
+      .collection("students")
+      .where("schoolId", "==", schoolId)
+      .where("guardianUid", "==", parentUid)
+      .limit(10)
+      .get();
+
+    for (const doc of childrenSnap.docs) {
+      const sData = doc.data();
+      const studentFirestoreId = doc.id;
+      const className = sData.className || sData.class || "";
+
+      // Fee outstanding
+      let pendingFeesPaise = 0;
+      try {
+        const demandsSnap = await adminDb
+          .collection("feeDemands")
+          .where("schoolId", "==", schoolId)
+          .where("studentId", "==", studentFirestoreId)
+          .limit(100)
+          .get();
+        demandsSnap.docs.forEach((d: any) => {
+          const data = d.data();
+          if (data.status === "CANCELLED") return;
+          pendingFeesPaise += Number(data.balanceAmountPaise || 0);
+        });
+      } catch (e) {}
+
+      // Attendance
+      let presentDays = 0;
+      let totalDays = 0;
+      try {
+        const attSnap = await adminDb
+          .collection("attendance")
+          .where("schoolId", "==", schoolId)
+          .where("studentId", "==", studentFirestoreId)
+          .limit(50)
+          .get();
+        attSnap.docs.forEach((d: any) => {
+          const status = d.data().status;
+          totalDays++;
+          if (status === "PRESENT" || status === "LATE") presentDays++;
+        });
+      } catch (e) {}
+
+      // Upcoming exams
+      const upcomingExams: string[] = [];
+      try {
+        const examsSnap = await adminDb
+          .collection("exams")
+          .where("schoolId", "==", schoolId)
+          .where("className", "==", className)
+          .limit(5)
+          .get();
+        examsSnap.docs.forEach((d: any) => {
+          upcomingExams.push(d.data().name || d.data().title);
+        });
+      } catch (e) {}
+
+      summary.linkedChildren.push({
+        name: sData.name || sData.studentName || "Student",
+        class: className,
+        attendanceRate: totalDays > 0 ? `${Math.round((presentDays / totalDays) * 100)}%` : null,
+        pendingFees: paiseToRupees(pendingFeesPaise) > 0 ? `₹${paiseToRupees(pendingFeesPaise)}` : "₹0",
+        upcomingExams,
+      });
+    }
+  } catch (e) {}
+
+  return summary;
 }

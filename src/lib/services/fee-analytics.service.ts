@@ -1,7 +1,7 @@
 /**
  * PHASE 4 — CENTRAL FEE ANALYTICS & REPORTING SERVICE
  * Single Source of Truth for Fee Dashboard, Defaulters, Analytics, and Reports.
- * 
+ *
  * Powered by authoritative Firestore entities:
  * - feeDemands
  * - financialPayments
@@ -9,7 +9,7 @@
  * - financialRefunds
  * - paymentReversals
  * - feeAdjustments
- * 
+ *
  * Strict multi-tenant isolation, integer-paise precision, Indian session (Apr-Mar) aware.
  */
 
@@ -51,6 +51,8 @@ export interface DashboardFilterOptions {
   sectionName?: string; // "all" or specific section
   startDate?: string; // ISO date
   endDate?: string; // ISO date
+  searchQuery?: string; // Student search query (name, admission number)
+  paymentStatusFilter?: "all" | "pending" | "paid" | "overdue"; // Payment status filter
 }
 
 export interface FeeDashboardSummary {
@@ -217,10 +219,28 @@ export async function getFeeDashboardSummary(
 
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
-  const selectedYear = filter?.academicYearId && filter.academicYearId !== "all" ? filter.academicYearId : "ay_2026_27";
-  const selectedClass = filter?.className && filter.className !== "all" ? filter.className.trim() : null;
-  const selectedSection = filter?.sectionName && filter.sectionName !== "all" ? filter.sectionName.trim() : null;
-  const selectedMonth = filter?.month && filter.month !== "all" ? filter.month.trim() : null;
+  const selectedYear =
+    filter?.academicYearId && filter.academicYearId !== "all"
+      ? filter.academicYearId
+      : "ay_2026_27";
+  const selectedClass =
+    filter?.className && filter.className !== "all"
+      ? filter.className.trim()
+      : null;
+  const selectedSection =
+    filter?.sectionName && filter.sectionName !== "all"
+      ? filter.sectionName.trim()
+      : null;
+  const selectedMonth =
+    filter?.month && filter.month !== "all" ? filter.month.trim() : null;
+  const searchQuery =
+    filter?.searchQuery && filter.searchQuery.trim() !== ""
+      ? filter.searchQuery.trim().toLowerCase()
+      : null;
+  const paymentStatusFilter =
+    filter?.paymentStatusFilter && filter.paymentStatusFilter !== "all"
+      ? filter.paymentStatusFilter
+      : null;
 
   // 1. Fetch Demands for school and academic year
   let demandsQuery = query(
@@ -228,11 +248,16 @@ export async function getFeeDashboardSummary(
     where("schoolId", "==", schoolId)
   );
   if (selectedYear) {
-    demandsQuery = query(demandsQuery, where("academicYearId", "==", selectedYear));
+    demandsQuery = query(
+      demandsQuery,
+      where("academicYearId", "==", selectedYear)
+    );
   }
 
   const demandsSnap = await getDocs(demandsQuery);
-  let allDemands = demandsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as FeeDemand));
+  let allDemands = demandsSnap.docs.map(
+    (d) => ({ id: d.id, ...d.data() }) as FeeDemand
+  );
 
   // Filter out cancelled demands
   allDemands = allDemands.filter((d) => d.status !== "CANCELLED");
@@ -249,16 +274,30 @@ export async function getFeeDashboardSummary(
     );
   }
 
+  // Apply search query filter to Demands (student name or admission number)
+  if (searchQuery) {
+    allDemands = allDemands.filter(
+      (d) =>
+        d.studentName?.toLowerCase().includes(searchQuery) ||
+        d.admissionNumber?.toLowerCase().includes(searchQuery)
+    );
+  }
+
   // 2. Fetch Payments for school
   let paymentsQuery = query(
     collection(db, "financialPayments"),
     where("schoolId", "==", schoolId)
   );
   if (selectedYear) {
-    paymentsQuery = query(paymentsQuery, where("academicYearId", "==", selectedYear));
+    paymentsQuery = query(
+      paymentsQuery,
+      where("academicYearId", "==", selectedYear)
+    );
   }
   const paymentsSnap = await getDocs(paymentsQuery);
-  let allPayments = paymentsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as FinancialPayment));
+  let allPayments = paymentsSnap.docs.map(
+    (d) => ({ id: d.id, ...d.data() }) as FinancialPayment
+  );
 
   // Apply Class and Section filters to Payments
   if (selectedClass) {
@@ -272,21 +311,55 @@ export async function getFeeDashboardSummary(
     );
   }
 
+  // Apply search query filter to Payments
+  if (searchQuery) {
+    allPayments = allPayments.filter(
+      (p) =>
+        p.studentName?.toLowerCase().includes(searchQuery) ||
+        p.admissionNumber?.toLowerCase().includes(searchQuery) ||
+        p.receiptNumber?.toLowerCase().includes(searchQuery)
+    );
+  }
+
+  // Apply payment status filter to Payments
+  if (paymentStatusFilter) {
+    const statusMap: Record<string, string[]> = {
+      pending: ["PENDING", "PARTIAL"],
+      paid: ["PAID", "SUCCESS", "PARTIALLY_REFUNDED"],
+      overdue: ["OVERDUE", "OVERDUE_PARTIAL"],
+    };
+    const allowedStatuses = statusMap[paymentStatusFilter] || [];
+    if (allowedStatuses.length > 0) {
+      allPayments = allPayments.filter((p) =>
+        allowedStatuses.includes(p.status?.toUpperCase() || "")
+      );
+    }
+  }
+
   // 3. Fetch Allocations (for exact fee-head and period matching)
   const allocSnap = await getDocs(
-    query(collection(db, "paymentAllocations"), where("schoolId", "==", schoolId))
+    query(
+      collection(db, "paymentAllocations"),
+      where("schoolId", "==", schoolId)
+    )
   );
-  const allAllocations = allocSnap.docs.map((d) => ({ id: d.id, ...d.data() } as PaymentAllocation));
+  const allAllocations = allocSnap.docs.map(
+    (d) => ({ id: d.id, ...d.data() }) as PaymentAllocation
+  );
 
   // 4. Fetch Refunds
   const refundSnap = await getDocs(
     query(collection(db, "financialRefunds"), where("schoolId", "==", schoolId))
   );
-  const allRefunds = refundSnap.docs.map((d) => ({ id: d.id, ...d.data() } as FinancialRefund));
+  const allRefunds = refundSnap.docs.map(
+    (d) => ({ id: d.id, ...d.data() }) as FinancialRefund
+  );
 
   // 5. Active Target Demands for Selected Month filter
   const activeDemands = selectedMonth
-    ? allDemands.filter((d) => d.period?.toLowerCase().includes(selectedMonth.toLowerCase()))
+    ? allDemands.filter((d) =>
+        d.period?.toLowerCase().includes(selectedMonth.toLowerCase())
+      )
     : allDemands;
 
   // 6. Aggregate Total Expected, Collected, Outstanding
@@ -315,16 +388,30 @@ export async function getFeeDashboardSummary(
   if (selectedMonth) {
     // Filter by demands belonging to this month
     const activeDemandIdSet = new Set(activeDemands.map((d) => d.id));
-    const matchingAllocations = allAllocations.filter((a) => activeDemandIdSet.has(a.demandId));
-    totalCollectedPaise = matchingAllocations.reduce((sum, a) => sum + (a.allocatedAmountPaise || 0), 0);
+    const matchingAllocations = allAllocations.filter((a) =>
+      activeDemandIdSet.has(a.demandId)
+    );
+    totalCollectedPaise = matchingAllocations.reduce(
+      (sum, a) => sum + (a.allocatedAmountPaise || 0),
+      0
+    );
   } else {
     // Overall scope: sum valid successful payments
-    totalCollectedPaise = validSuccessfulPayments.reduce((sum, p) => sum + (p.amountPaise || 0), 0);
+    totalCollectedPaise = validSuccessfulPayments.reduce(
+      (sum, p) => sum + (p.amountPaise || 0),
+      0
+    );
   }
 
   // Refunds calculation
-  totalRefundedPaise = allRefunds.reduce((sum, r) => sum + (r.amountPaise || 0), 0);
-  const netCollectedPaise = Math.max(0, totalCollectedPaise - totalRefundedPaise);
+  totalRefundedPaise = allRefunds.reduce(
+    (sum, r) => sum + (r.amountPaise || 0),
+    0
+  );
+  const netCollectedPaise = Math.max(
+    0,
+    totalCollectedPaise - totalRefundedPaise
+  );
 
   // Collection Rate = (Collected / Expected) * 100
   const collectionRate =
@@ -344,18 +431,32 @@ export async function getFeeDashboardSummary(
   }
 
   // 8. 12-Month Academic Session Collection Trend (April -> March)
-  const sessionName = selectedYear ? selectedYear.replace("ay_", "").replace("_", "-") : "2026-2027";
+  const sessionName = selectedYear
+    ? selectedYear.replace("ay_", "").replace("_", "-")
+    : "2026-2027";
   const sessionPeriods = getAcademicYearPeriods(sessionName);
   const collectionTrend = sessionPeriods.map((period) => {
     // Filter demands matching this month name
     const monthDemands = allDemands.filter((d) =>
       d.period?.toLowerCase().includes(period.monthName.toLowerCase())
     );
-    const mExpected = monthDemands.reduce((sum, d) => sum + d.netAmountPaise, 0);
-    const mOutstanding = monthDemands.reduce((sum, d) => sum + d.balanceAmountPaise, 0);
-    const mPaidFromDemands = monthDemands.reduce((sum, d) => sum + d.paidAmountPaise, 0);
+    const mExpected = monthDemands.reduce(
+      (sum, d) => sum + d.netAmountPaise,
+      0
+    );
+    const mOutstanding = monthDemands.reduce(
+      (sum, d) => sum + d.balanceAmountPaise,
+      0
+    );
+    const mPaidFromDemands = monthDemands.reduce(
+      (sum, d) => sum + d.paidAmountPaise,
+      0
+    );
 
-    const mRate = mExpected > 0 ? Number(((mPaidFromDemands / mExpected) * 100).toFixed(1)) : 0;
+    const mRate =
+      mExpected > 0
+        ? Number(((mPaidFromDemands / mExpected) * 100).toFixed(1))
+        : 0;
 
     return {
       monthName: period.monthName,
@@ -404,17 +505,22 @@ export async function getFeeDashboardSummary(
     }
   }
 
-  const paymentMethodSummary = Object.entries(methodMap).map(([method, data]) => {
-    const pct = totalCollectedPaise > 0 ? Number(((data.amountPaise / totalCollectedPaise) * 100).toFixed(1)) : 0;
-    return {
-      method,
-      count: data.count,
-      amountPaise: data.amountPaise,
-      amountRupees: paiseToRupees(data.amountPaise),
-      percentage: pct,
-      color: METHOD_COLORS[method] || "#64748B",
-    };
-  });
+  const paymentMethodSummary = Object.entries(methodMap).map(
+    ([method, data]) => {
+      const pct =
+        totalCollectedPaise > 0
+          ? Number(((data.amountPaise / totalCollectedPaise) * 100).toFixed(1))
+          : 0;
+      return {
+        method,
+        count: data.count,
+        amountPaise: data.amountPaise,
+        amountRupees: paiseToRupees(data.amountPaise),
+        percentage: pct,
+        color: METHOD_COLORS[method] || "#64748B",
+      };
+    }
+  );
 
   // 10. Defaulters & Payment Follow-Up Aggregation
   // Group allDemands by studentId
@@ -450,7 +556,9 @@ export async function getFeeDashboardSummary(
     sEntry.totalOutstandingPaise += d.balanceAmountPaise || 0;
     if (d.balanceAmountPaise > 0) {
       sEntry.demands.push(d);
-      if (new Date(d.dueDate).getTime() < new Date(sEntry.oldestDueDate).getTime()) {
+      if (
+        new Date(d.dueDate).getTime() < new Date(sEntry.oldestDueDate).getTime()
+      ) {
         sEntry.oldestDueDate = d.dueDate;
       }
     }
@@ -494,10 +602,32 @@ export async function getFeeDashboardSummary(
       status = "CURRENT";
     }
 
+    // Apply payment status filter to defaulters
+    // Map the filter to defaulter statuses
+    if (paymentStatusFilter) {
+      const defaulterStatusMap: Record<string, DefaulterRecord["status"][]> = {
+        pending: ["DUE_SOON", "OVERDUE", "CRITICAL"], // Has outstanding balance
+        paid: [], // Paid students have 0 outstanding, so they're filtered out above (onTrackCount)
+        overdue: ["OVERDUE", "CRITICAL"], // Overdue specifically
+      };
+      const allowedDefaulterStatuses =
+        defaulterStatusMap[paymentStatusFilter] || [];
+      if (
+        allowedDefaulterStatuses.length > 0 &&
+        !allowedDefaulterStatuses.includes(status)
+      ) {
+        continue; // Skip this defaulter if it doesn't match the filter
+      }
+    }
+
     // Find student's last payment
-    const studentPayments = allPayments.filter((p) => p.studentId === entry.studentId && p.status === "SUCCESS");
+    const studentPayments = allPayments.filter(
+      (p) => p.studentId === entry.studentId && p.status === "SUCCESS"
+    );
     studentPayments.sort(
-      (a, b) => new Date(b.paymentDate || b.createdAt).getTime() - new Date(a.paymentDate || a.createdAt).getTime()
+      (a, b) =>
+        new Date(b.paymentDate || b.createdAt).getTime() -
+        new Date(a.paymentDate || a.createdAt).getTime()
     );
     const lastPay = studentPayments[0];
 
@@ -513,7 +643,9 @@ export async function getFeeDashboardSummary(
       daysOverdue: Math.max(0, diffDays),
       lastPaymentDate: lastPay?.paymentDate,
       lastPaymentAmountPaise: lastPay?.amountPaise,
-      lastPaymentAmountRupees: lastPay ? paiseToRupees(lastPay.amountPaise) : undefined,
+      lastPaymentAmountRupees: lastPay
+        ? paiseToRupees(lastPay.amountPaise)
+        : undefined,
       status,
       dueDemandsCount: entry.demands.length,
       unpaidDemands: entry.demands.map((d) => ({
@@ -527,28 +659,48 @@ export async function getFeeDashboardSummary(
   }
 
   // Sort defaulters: highest outstanding first
-  defaulterList.sort((a, b) => b.totalOutstandingPaise - a.totalOutstandingPaise);
+  defaulterList.sort(
+    (a, b) => b.totalOutstandingPaise - a.totalOutstandingPaise
+  );
 
   // 11. Recent Collections (latest successful)
   const recentCollections = [...validSuccessfulPayments]
-    .sort((a, b) => new Date(b.paymentDate || b.createdAt).getTime() - new Date(a.paymentDate || a.createdAt).getTime())
+    .sort(
+      (a, b) =>
+        new Date(b.paymentDate || b.createdAt).getTime() -
+        new Date(a.paymentDate || a.createdAt).getTime()
+    )
     .slice(0, 10);
 
   // 12. Selected Month Focus Summary
-  const focusPeriod = sessionPeriods.find((p) =>
-    selectedMonth ? p.monthName.toLowerCase() === selectedMonth.toLowerCase() : p.monthName === "September"
-  ) || sessionPeriods[5];
+  const focusPeriod =
+    sessionPeriods.find((p) =>
+      selectedMonth
+        ? p.monthName.toLowerCase() === selectedMonth.toLowerCase()
+        : p.monthName === "September"
+    ) || sessionPeriods[5];
 
   const focusDemands = allDemands.filter((d) =>
     d.period?.toLowerCase().includes(focusPeriod.monthName.toLowerCase())
   );
-  const focusExpected = focusDemands.reduce((sum, d) => sum + d.netAmountPaise, 0);
-  const focusDue = focusDemands.reduce((sum, d) => sum + d.balanceAmountPaise, 0);
+  const focusExpected = focusDemands.reduce(
+    (sum, d) => sum + d.netAmountPaise,
+    0
+  );
+  const focusDue = focusDemands.reduce(
+    (sum, d) => sum + d.balanceAmountPaise,
+    0
+  );
   const focusPaid = focusDemands.reduce((sum, d) => sum + d.paidAmountPaise, 0);
-  const focusRate = focusExpected > 0 ? Number(((focusPaid / focusExpected) * 100).toFixed(1)) : 0;
+  const focusRate =
+    focusExpected > 0
+      ? Number(((focusPaid / focusExpected) * 100).toFixed(1))
+      : 0;
 
   // 13. Monthly Class Overview Matrix
-  const distinctClasses = Array.from(new Set(allDemands.map((d) => d.className).filter(Boolean))).sort();
+  const distinctClasses = Array.from(
+    new Set(allDemands.map((d) => d.className).filter(Boolean))
+  ).sort();
   const monthlyClassOverview = distinctClasses.map((cls) => {
     const classDemands = allDemands.filter((d) => d.className === cls);
     const rates = sessionPeriods.map((sp) => {
@@ -632,7 +784,11 @@ export async function getFeeDefaulters(
     sortBy?: "highestAmount" | "oldestDue" | "studentName";
     limitCount?: number;
   }
-): Promise<{ count: number; totalOutstandingPaise: number; defaulters: DefaulterRecord[] }> {
+): Promise<{
+  count: number;
+  totalOutstandingPaise: number;
+  defaulters: DefaulterRecord[];
+}> {
   const summary = await getFeeDashboardSummary(schoolId, {
     academicYearId: filter?.academicYearId,
     className: filter?.className,
@@ -661,7 +817,10 @@ export async function getFeeDefaulters(
     list.sort((a, b) => b.totalOutstandingPaise - a.totalOutstandingPaise);
   }
 
-  const totalOutstandingPaise = list.reduce((sum, d) => sum + d.totalOutstandingPaise, 0);
+  const totalOutstandingPaise = list.reduce(
+    (sum, d) => sum + d.totalOutstandingPaise,
+    0
+  );
 
   if (filter?.limitCount && filter.limitCount > 0) {
     list = list.slice(0, filter.limitCount);
@@ -692,7 +851,9 @@ export async function getClassCollectionSummary(
     where("academicYearId", "==", yearId)
   );
   const snap = await getDocs(q);
-  const demands = snap.docs.map((d) => ({ id: d.id, ...d.data() } as FeeDemand));
+  const demands = snap.docs.map(
+    (d) => ({ id: d.id, ...d.data() }) as FeeDemand
+  );
 
   const classMap = new Map<
     string,
@@ -710,7 +871,11 @@ export async function getClassCollectionSummary(
 
   for (const d of demands) {
     if (d.status === "CANCELLED") continue;
-    if (filter?.month && filter.month !== "all" && !d.period?.toLowerCase().includes(filter.month.toLowerCase())) {
+    if (
+      filter?.month &&
+      filter.month !== "all" &&
+      !d.period?.toLowerCase().includes(filter.month.toLowerCase())
+    ) {
       continue;
     }
 
@@ -741,7 +906,12 @@ export async function getClassCollectionSummary(
 
   const rows: ClassCollectionRow[] = [];
   for (const entry of classMap.values()) {
-    const rate = entry.expectedPaise > 0 ? Number(((entry.collectedPaise / entry.expectedPaise) * 100).toFixed(1)) : 0;
+    const rate =
+      entry.expectedPaise > 0
+        ? Number(
+            ((entry.collectedPaise / entry.expectedPaise) * 100).toFixed(1)
+          )
+        : 0;
     rows.push({
       className: entry.className,
       academicYearId: yearId,
@@ -760,7 +930,9 @@ export async function getClassCollectionSummary(
   }
 
   // Sort by class name naturally
-  rows.sort((a, b) => a.className.localeCompare(b.className, undefined, { numeric: true }));
+  rows.sort((a, b) =>
+    a.className.localeCompare(b.className, undefined, { numeric: true })
+  );
   return rows;
 }
 
@@ -782,13 +954,17 @@ export async function getFeeHeadCollectionSummary(
     where("academicYearId", "==", yearId)
   );
   const snap = await getDocs(q);
-  let demands = snap.docs.map((d) => ({ id: d.id, ...d.data() } as FeeDemand));
+  let demands = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as FeeDemand);
 
   if (filter?.className && filter.className !== "all") {
-    demands = demands.filter((d) => d.className?.toLowerCase() === filter.className!.toLowerCase());
+    demands = demands.filter(
+      (d) => d.className?.toLowerCase() === filter.className!.toLowerCase()
+    );
   }
   if (filter?.month && filter.month !== "all") {
-    demands = demands.filter((d) => d.period?.toLowerCase().includes(filter.month!.toLowerCase()));
+    demands = demands.filter((d) =>
+      d.period?.toLowerCase().includes(filter.month!.toLowerCase())
+    );
   }
 
   const headMap = new Map<
@@ -825,7 +1001,12 @@ export async function getFeeHeadCollectionSummary(
 
   const rows: FeeHeadCollectionRow[] = [];
   for (const entry of headMap.values()) {
-    const rate = entry.expectedPaise > 0 ? Number(((entry.collectedPaise / entry.expectedPaise) * 100).toFixed(1)) : 0;
+    const rate =
+      entry.expectedPaise > 0
+        ? Number(
+            ((entry.collectedPaise / entry.expectedPaise) * 100).toFixed(1)
+          )
+        : 0;
     rows.push({
       feeHeadId: entry.feeHeadId,
       feeHeadName: entry.feeHeadName,
@@ -866,23 +1047,37 @@ export async function getPaymentMethodReport(
   if (!db || !schoolId) return [];
 
   const paySnap = await getDocs(
-    query(collection(db, "financialPayments"), where("schoolId", "==", schoolId))
+    query(
+      collection(db, "financialPayments"),
+      where("schoolId", "==", schoolId)
+    )
   );
-  let payments = paySnap.docs.map((d) => ({ id: d.id, ...d.data() } as FinancialPayment));
+  let payments = paySnap.docs.map(
+    (d) => ({ id: d.id, ...d.data() }) as FinancialPayment
+  );
 
   if (filter?.academicYearId && filter.academicYearId !== "all") {
-    payments = payments.filter((p) => p.academicYearId === filter.academicYearId);
+    payments = payments.filter(
+      (p) => p.academicYearId === filter.academicYearId
+    );
   }
   if (filter?.startDate) {
     const sTime = new Date(filter.startDate).getTime();
-    payments = payments.filter((p) => new Date(p.paymentDate || p.createdAt).getTime() >= sTime);
+    payments = payments.filter(
+      (p) => new Date(p.paymentDate || p.createdAt).getTime() >= sTime
+    );
   }
   if (filter?.endDate) {
     const eTime = new Date(filter.endDate).getTime();
-    payments = payments.filter((p) => new Date(p.paymentDate || p.createdAt).getTime() <= eTime);
+    payments = payments.filter(
+      (p) => new Date(p.paymentDate || p.createdAt).getTime() <= eTime
+    );
   }
 
-  const methodMap: Record<string, { count: number; collected: number; refunded: number }> = {
+  const methodMap: Record<
+    string,
+    { count: number; collected: number; refunded: number }
+  > = {
     Cash: { count: 0, collected: 0, refunded: 0 },
     UPI: { count: 0, collected: 0, refunded: 0 },
     "Bank Transfer": { count: 0, collected: 0, refunded: 0 },

@@ -69,6 +69,14 @@ export interface AiMessage {
     quickLinks?: Array<{ label: string; href: string }>;
     suggestedFollowUps?: string[];
     metrics?: Record<string, string | number>;
+    intent?: string;
+    confidence?: number;
+    toolResult?: any;
+    nlpAnalysis?: {
+      intent: string;
+      isHinglish?: boolean;
+      confidence: number;
+    };
   };
 }
 

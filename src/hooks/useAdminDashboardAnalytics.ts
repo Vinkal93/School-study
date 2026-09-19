@@ -215,21 +215,22 @@ export function useAdminDashboardAnalytics(schoolId: string | undefined): AdminD
       // 5. Recent Students (Top 5)
       let recentStudents: DashboardStudentItem[] = [];
       try {
-        // Try top-level students collection
-        const stuQuery = query(
-          collection(db, "students"),
-          where("schoolId", "==", schoolId)
-        );
-        const stuSnap = await getDocs(stuQuery);
-        let stuList = stuSnap.docs
-          .map((d) => ({ id: d.id, ...d.data() } as any))
-          .filter((s) => s.status !== "deleted");
+        let stuList: any[] = [];
+        try {
+          const subSnap = await getDocs(collection(db, "schools", schoolId, "students"));
+          stuList = subSnap.docs
+            .map((d) => ({ id: d.id, ...d.data() } as any))
+            .filter((s) => s.status !== "deleted");
+        } catch {}
 
-        // Fallback to subcollection if empty
         if (stuList.length === 0) {
           try {
-            const subSnap = await getDocs(collection(db, "schools", schoolId, "students"));
-            stuList = subSnap.docs
+            const stuQuery = query(
+              collection(db, "students"),
+              where("schoolId", "==", schoolId)
+            );
+            const stuSnap = await getDocs(stuQuery);
+            stuList = stuSnap.docs
               .map((d) => ({ id: d.id, ...d.data() } as any))
               .filter((s) => s.status !== "deleted");
           } catch {}
@@ -315,19 +316,22 @@ export function useAdminDashboardAnalytics(schoolId: string | undefined): AdminD
       // 7. Recent Teachers (Top 5)
       let recentTeachers: DashboardTeacherItem[] = [];
       try {
-        const tchQuery = query(
-          collection(db, "teachers"),
-          where("schoolId", "==", schoolId)
-        );
-        const tchSnap = await getDocs(tchQuery);
-        let tchList = tchSnap.docs
-          .map((d) => ({ id: d.id, ...d.data() } as any))
-          .filter((t) => t.status !== "deleted");
+        let tchList: any[] = [];
+        try {
+          const subSnap = await getDocs(collection(db, "schools", schoolId, "teachers"));
+          tchList = subSnap.docs
+            .map((d) => ({ id: d.id, ...d.data() } as any))
+            .filter((t) => t.status !== "deleted");
+        } catch {}
 
         if (tchList.length === 0) {
           try {
-            const subSnap = await getDocs(collection(db, "schools", schoolId, "teachers"));
-            tchList = subSnap.docs
+            const tchQuery = query(
+              collection(db, "teachers"),
+              where("schoolId", "==", schoolId)
+            );
+            const tchSnap = await getDocs(tchQuery);
+            tchList = tchSnap.docs
               .map((d) => ({ id: d.id, ...d.data() } as any))
               .filter((t) => t.status !== "deleted");
           } catch {}

@@ -1,3 +1,4 @@
+import { withSentryConfig } from "@sentry/nextjs/config";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
@@ -57,6 +58,51 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+
+  // Sentry tunnel rewrite: proxy /monitoring to Sentry's ingestion API
+  // This bypasses ad-blockers and works with Turbopack (unlike the webpack plugin's tunnelRoute)
+  async rewrites() {
+    return [
+      {
+        source: "/monitoring",
+        destination: "https://o4512044365447168.ingest.de.sentry.io/api/4512111626616912/envelope/",
+      },
+      {
+        source: "/monitoring/:path*",
+        destination: "https://o4512044365447168.ingest.de.sentry.io/api/4512111626616912/:path*",
+      },
+    ];
+  },
 };
 
-export default nextConfig;
+export default withSentryConfig(nextConfig, {
+  // For all available options, see:
+  // https://www.npmjs.com/package/@sentry/webpack-plugin#options
+
+  org: "sbci",
+
+  project: "school-study",
+
+  // Only print logs for uploading source maps in CI
+  silent: !process.env.CI,
+
+  // For all available options, see:
+  // https://docs.sentry.io/platforms/javascript/guides/nextjs/manual-setup/
+
+  // Upload a larger set of source maps for prettier stack traces (increases build time)
+  widenClientFileUpload: true,
+
+  webpack: {
+    // Enables automatic instrumentation of Vercel Cron Monitors. (Does not yet work with App Router route handlers.)
+    // See the following for more information:
+    // https://docs.sentry.io/product/crons/
+    // https://vercel.com/docs/cron-jobs
+    automaticVercelMonitors: true,
+
+    // Tree-shaking options for reducing bundle size
+    treeshake: {
+      // Automatically tree-shake Sentry logger statements to reduce bundle size
+      removeDebugLogging: true,
+    },
+  },
+});

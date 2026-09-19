@@ -10,7 +10,10 @@ import { LiquidGlassDashboardShell } from "@/components/portal-ui/shells/LiquidG
 import { PortalUIErrorBoundary } from "@/components/portal-ui/PortalUIErrorBoundary";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getRedirectByRole, isRoleAllowedForPath } from "@/lib/utils/redirect-by-role";
+import {
+  getRedirectByRole,
+  isRoleAllowedForPath,
+} from "@/lib/utils/redirect-by-role";
 import { Spinner } from "@/components/common/Spinner";
 import { AdminWelcomeOverlay } from "@/components/common/AdminWelcomeOverlay";
 import { FeatureShowcaseModal } from "@/components/showcase/FeatureShowcaseModal";
@@ -68,13 +71,17 @@ export default function DashboardLayout({
       userUid: firebaseUser?.uid,
       hasProfile: !!profile,
       role: profile?.role,
-      cachedSession: typeof window !== "undefined" ? !!localStorage.getItem("school_study_auth_session") : false,
+      cachedSession:
+        typeof window !== "undefined"
+          ? !!localStorage.getItem("school_study_auth_session")
+          : false,
     });
 
     // Suppress navigation redirects inside iframes/previews to prevent session disruption
     if (
       typeof window !== "undefined" &&
-      (window.self !== window.top || window.location.search.includes("preview=true"))
+      (window.self !== window.top ||
+        window.location.search.includes("preview=true"))
     ) {
       traceClient("layout:guard_suppressed_iframe", { pathname });
       return;
@@ -82,7 +89,9 @@ export default function DashboardLayout({
 
     if (isMounted && !loading) {
       if (!firebaseUser && !profile) {
-        const hasCachedSession = typeof window !== "undefined" && Boolean(localStorage.getItem("school_study_auth_session"));
+        const hasCachedSession =
+          typeof window !== "undefined" &&
+          Boolean(localStorage.getItem("school_study_auth_session"));
         traceClient("layout:guard_no_user", { pathname, hasCachedSession });
         if (!hasCachedSession) {
           traceClient("layout:REDIRECT_TO_LOGIN", { pathname });
@@ -93,7 +102,9 @@ export default function DashboardLayout({
 
       if (pathname.startsWith("/super-admin")) {
         if (profile?.role !== "super_admin") {
-          const correctRoute = getRedirectByRole(profile?.role || "school_admin");
+          const correctRoute = getRedirectByRole(
+            profile?.role || "school_admin"
+          );
           router.replace(correctRoute);
           return;
         }
@@ -102,6 +113,8 @@ export default function DashboardLayout({
             ? localStorage.getItem("ss_super_admin_verified") === "true" ||
               sessionStorage.getItem("ss_super_admin_verified") === "true"
             : false;
+
+        // AI Mode is a dedicated workspace - redirect to PIN verification like other super-admin pages
         if (!isPinVerified) {
           router.replace("/super-admin/login");
           return;
@@ -116,12 +129,13 @@ export default function DashboardLayout({
     }
   }, [firebaseUser, profile, loading, router, pathname, isMounted]);
 
-  const isEmbeddedIframe = typeof window !== "undefined" && window.self !== window.top;
+  const isEmbeddedIframe =
+    typeof window !== "undefined" && window.self !== window.top;
 
   // During SSR or initial client hydration or while auth is connecting, render the identical loading spinner
   if (!isMounted || loading || (!firebaseUser && !isEmbeddedIframe)) {
     return (
-      <div className="flex min-h-screen min-h-[100dvh] items-center justify-center">
+      <div className="flex min-h-[100dvh] min-h-screen items-center justify-center">
         <Spinner size="lg" />
       </div>
     );
@@ -135,9 +149,15 @@ export default function DashboardLayout({
         sessionStorage.getItem("ss_super_admin_verified") === "true"
       : false;
 
-  if (isSuperAdminRoute && (!profile || profile.role !== "super_admin" || !isSuperAdminVerified) && !isEmbeddedIframe) {
+  // AI Mode is a dedicated desktop workspace - redirect handled in guard above
+  // This check only applies if somehow we get past the guard (e.g., iframe)
+  if (
+    isSuperAdminRoute &&
+    (!profile || profile.role !== "super_admin" || !isSuperAdminVerified) &&
+    !isEmbeddedIframe
+  ) {
     return (
-      <div className="flex min-h-screen min-h-[100dvh] items-center justify-center">
+      <div className="flex min-h-[100dvh] min-h-screen items-center justify-center">
         <Spinner size="lg" />
       </div>
     );
@@ -146,7 +166,7 @@ export default function DashboardLayout({
   // If profile is loaded but user is on wrong route, prevent flash before redirect
   if (profile && !isRoleAllowedForPath(profile.role, pathname)) {
     return (
-      <div className="flex min-h-screen min-h-[100dvh] items-center justify-center">
+      <div className="flex min-h-[100dvh] min-h-screen items-center justify-center">
         <Spinner size="lg" />
       </div>
     );
@@ -161,7 +181,7 @@ export default function DashboardLayout({
         <MobileNavProvider>
           <EntitlementProvider>
             <FeatureShowcaseModal />
-            <div className="min-h-screen min-h-[100dvh] bg-[#F8FAFC] dark:bg-slate-950">
+            <div className="min-h-[100dvh] min-h-screen bg-[#F8FAFC] dark:bg-slate-950">
               {children}
             </div>
           </EntitlementProvider>
@@ -171,32 +191,35 @@ export default function DashboardLayout({
   }
 
   // AI Mode is a dedicated desktop workspace (live phone on left, AI assistant on right)
-  const isAiRoute = pathname.endsWith("/ai") || pathname.includes("/ai/");
+  // Must be checked BEFORE student route to avoid student route catching /super-admin/ai
+  const isAiRoute =
+    pathname === "/super-admin/ai" ||
+    pathname.startsWith("/super-admin/ai/") ||
+    pathname.endsWith("/ai") ||
+    pathname.includes("/ai/");
 
   if (isAiRoute && !isEmbeddedIframe) {
     return (
       <PortalUIProvider>
-        <MobileNavProvider>
-          <EntitlementProvider>
-            <div className="h-screen h-[100dvh] w-screen overflow-hidden bg-slate-100/80 dark:bg-slate-950">
-              {children}
-            </div>
-          </EntitlementProvider>
-        </MobileNavProvider>
+        <EntitlementProvider>
+          <div className="h-[100dvh] h-screen w-screen overflow-hidden bg-slate-100/80 dark:bg-slate-950">
+            {children}
+          </div>
+        </EntitlementProvider>
       </PortalUIProvider>
     );
   }
 
   if (isAiRoute && isEmbeddedIframe) {
     return (
-      <div className="flex h-screen items-center justify-center p-6 text-center bg-white dark:bg-slate-900">
+      <div className="flex h-screen items-center justify-center bg-white p-6 text-center dark:bg-slate-900">
         <div className="space-y-2">
           <p className="text-sm font-bold text-slate-800 dark:text-slate-200">
             AI Assistant is active on the right panel.
           </p>
           <a
             href={profile?.role === "super_admin" ? "/super-admin" : "/admin"}
-            className="inline-block px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold"
+            className="inline-block rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white"
           >
             Back to Dashboard
           </a>
