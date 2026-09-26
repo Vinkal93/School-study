@@ -46,7 +46,7 @@ import { toast } from "sonner";
 import { HelpCenterModal } from "@/components/help/HelpCenterModal";
 
 export default function PlatformSettingsPage() {
-  const { profile } = useAuth();
+  const { profile, firebaseUser } = useAuth();
   const [showHelpModal, setShowHelpModal] = useState(false);
 
   // Active Tab State
@@ -1468,23 +1468,28 @@ export default function PlatformSettingsPage() {
                     onClick={async () => {
                       const allPublished = showcases.some((s) => s.status === "PUBLISHED");
                       const targetStatus = allPublished ? "PAUSED" : "PUBLISHED";
+                      const targetEnabled = !allPublished;
                       try {
-                        for (const s of showcases) {
-                          await fetch("/api/super-admin/feature-showcase", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ ...s, status: targetStatus }),
-                          });
-                        }
-                        const res = await fetch("/api/super-admin/feature-showcase");
+                        const token = (await firebaseUser?.getIdToken?.().catch(() => "")) || "";
+                        await fetch("/api/super-admin/feature-showcase", {
+                          method: "POST",
+                          headers: {
+                            "Content-Type": "application/json",
+                            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                          },
+                          body: JSON.stringify({ action: "toggle_all", enabled: targetEnabled }),
+                        });
+                        const res = await fetch("/api/super-admin/feature-showcase", {
+                          headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+                        });
                         if (res.ok) {
                           const data = await res.json();
                           setShowcases(data.showcases || []);
                         }
                         toast.success(
                           targetStatus === "PAUSED"
-                            ? "All update popups paused (turned off)!"
-                            : "Update popups published (active)!"
+                            ? "All update popups & banners paused (turned off)!"
+                            : "Update popups & banners published (active)!"
                         );
                       } catch {
                         toast.error("Failed to toggle update popup state");
@@ -1497,8 +1502,8 @@ export default function PlatformSettingsPage() {
                     }`}
                   >
                     {showcases.some((s) => s.status === "PUBLISHED")
-                      ? "Turn All Popups OFF"
-                      : "Turn Update Popups ON"}
+                      ? "Turn All Popups & Banners OFF"
+                      : "Turn All Popups & Banners ON"}
                   </button>
                 </div>
               </div>

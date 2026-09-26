@@ -21,13 +21,28 @@ export async function GET(req: NextRequest) {
     const clientDb = getFirebaseDb();
     let showcases: FeatureShowcase[] = [];
 
-    // Check if showcase feature is disabled platform-wide
+    // Check if showcase feature or context is disabled platform-wide
     let globalShowcaseEnabled = true;
+    let landingBannerEnabled = true;
+    let dashboardModalEnabled = true;
+
     try {
       if (adminDb) {
         const setDoc = await adminDb.collection("siteSettings").doc("feature_showcase_settings").get();
-        if (setDoc.exists && setDoc.data()?.enabled === false) {
-          globalShowcaseEnabled = false;
+        if (setDoc.exists) {
+          const sData = setDoc.data() || {};
+          if (sData.enabled === false) globalShowcaseEnabled = false;
+          if (sData.landingBannerEnabled === false) landingBannerEnabled = false;
+          if (sData.dashboardModalEnabled === false) dashboardModalEnabled = false;
+        }
+      } else if (clientDb) {
+        const { getDoc, doc: fDoc } = await import("firebase/firestore");
+        const setDoc = await getDoc(fDoc(clientDb, "siteSettings", "feature_showcase_settings"));
+        if (setDoc.exists()) {
+          const sData = setDoc.data() || {};
+          if (sData.enabled === false) globalShowcaseEnabled = false;
+          if (sData.landingBannerEnabled === false) landingBannerEnabled = false;
+          if (sData.dashboardModalEnabled === false) dashboardModalEnabled = false;
         }
       }
     } catch {}
@@ -36,26 +51,41 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ activeShowcase: null });
     }
 
+    if (context === "landing" && !landingBannerEnabled) {
+      return NextResponse.json({ activeShowcase: null });
+    }
+
+    if (context === "dashboard" && !dashboardModalEnabled) {
+      return NextResponse.json({ activeShowcase: null });
+    }
+
+    let hasDbRecords = false;
     if (adminDb) {
-      const snap = await adminDb
-        .collection("feature_showcases")
-        .where("status", "==", "PUBLISHED")
-        .get();
-      showcases = snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) as FeatureShowcase[];
+      try {
+        const snap = await adminDb.collection("feature_showcases").get();
+        if (!snap.empty) {
+          hasDbRecords = true;
+          showcases = snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) as FeatureShowcase[];
+        }
+      } catch {}
     } else if (clientDb) {
       try {
-        const snap = await getDocs(query(collection(clientDb, "feature_showcases"), where("status", "==", "PUBLISHED")));
-        showcases = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as FeatureShowcase[];
+        const snap = await getDocs(collection(clientDb, "feature_showcases"));
+        if (!snap.empty) {
+          hasDbRecords = true;
+          showcases = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as FeatureShowcase[];
+        }
       } catch {}
     }
 
-    if (showcases.length === 0) {
+    // Only inject default showcase if NO database records exist at all yet
+    if (!hasDbRecords) {
       showcases = [DEFAULT_AI_SHOWCASE];
     }
 
-    // Filter by context, enabled flag, and target portal
+    // Filter strictly by published status, enabled flag, context, and target portal
     showcases = showcases.filter((s) => {
-      if (s.enabled === false || s.status === "PAUSED" || s.status === "ARCHIVED") return false;
+      if (s.enabled === false || s.status !== "PUBLISHED") return false;
       if (context === "landing" && !s.showOnLandingPage) return false;
       if (context === "dashboard" && !s.showOnDashboard) return false;
       if (portal && s.targetPortals && s.targetPortals.length > 0 && !s.targetPortals.includes(portal as any)) {

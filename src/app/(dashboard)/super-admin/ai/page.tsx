@@ -23,6 +23,7 @@ import { AiWorkspace } from "@/components/ai/AiWorkspace";
 import type { AiGlobalSettings, AiPortalType } from "@/types/ai";
 import { useAuth } from "@/hooks/use-auth";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { toast } from "sonner";
 
 interface AuthState {
@@ -31,7 +32,7 @@ interface AuthState {
 }
 
 export default function SuperAdminAiPage() {
-  const { profile, loading: authLoading, bootstrapState } = useAuth();
+  const { profile, firebaseUser, loading: authLoading, bootstrapState } = useAuth();
   const router = useRouter();
 
   const [activeTab, setActiveTab] = useState<
@@ -39,6 +40,8 @@ export default function SuperAdminAiPage() {
   >("workspace");
   const [settings, setSettings] = useState<AiGlobalSettings | null>(null);
   const [analytics, setAnalytics] = useState<any>(null);
+  const [landingNoticeActive, setLandingNoticeActive] = useState<boolean>(true);
+  const [togglingNotice, setTogglingNotice] = useState<boolean>(false);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
@@ -84,9 +87,10 @@ export default function SuperAdminAiPage() {
     setDataError(null);
 
     try {
-      const [settingsRes, analyticsRes] = await Promise.all([
+      const [settingsRes, analyticsRes, showcaseRes] = await Promise.all([
         fetch("/api/super-admin/ai/settings"),
         fetch("/api/super-admin/ai/usage"),
+        fetch("/api/super-admin/feature-showcase").catch(() => null),
       ]);
 
       if (!settingsRes.ok) {
@@ -110,6 +114,17 @@ export default function SuperAdminAiPage() {
 
       setSettings(settingsData.settings);
       setAnalytics(analyticsData.analytics);
+
+      if (showcaseRes && showcaseRes.ok) {
+        const scData = await showcaseRes.json().catch(() => null);
+        if (scData) {
+          const isGlobEnabled = scData.settings?.enabled !== false;
+          const isLandEnabled = scData.settings?.landingBannerEnabled !== false;
+          const aiItem = scData.showcases?.find((s: any) => s.id === "showcase_ai_mode" || s.featureKey === "ai_mode");
+          const isAiPub = !aiItem || (aiItem.status === "PUBLISHED" && aiItem.showOnLandingPage !== false);
+          setLandingNoticeActive(Boolean(isGlobEnabled && isLandEnabled && isAiPub));
+        }
+      }
     } catch (error: any) {
       console.error("AI Page data fetch error:", error);
       setDataError(
@@ -186,6 +201,38 @@ export default function SuperAdminAiPage() {
         [portalKey]: !settings.portalAccess[portalKey],
       },
     });
+  };
+
+  const toggleLandingNotice = async (targetState: boolean) => {
+    setTogglingNotice(true);
+    try {
+      const token = (await firebaseUser?.getIdToken?.().catch(() => "")) || "";
+      const res = await fetch("/api/super-admin/feature-showcase", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          action: "toggle_landing",
+          enabled: targetState,
+        }),
+      });
+      if (res.ok) {
+        setLandingNoticeActive(targetState);
+        toast.success(
+          targetState
+            ? "New AI Feature Notice Banner is now ON (Live on Homepage)!"
+            : "New AI Feature Notice Banner is now OFF (Hidden from Homepage)!"
+        );
+      } else {
+        toast.error("Failed to toggle landing notice");
+      }
+    } catch {
+      toast.error("Error connecting to server");
+    } finally {
+      setTogglingNotice(false);
+    }
   };
 
   // Render functions for each auth state
@@ -397,6 +444,51 @@ export default function SuperAdminAiPage() {
                         enabledGlobally: e.target.checked,
                       })
                     }
+                    className="peer sr-only"
+                  />
+                  <div className="peer h-6 w-11 rounded-full bg-slate-200 peer-checked:bg-purple-600 peer-focus:outline-none after:absolute after:top-[2px] after:left-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-slate-300 after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-checked:after:border-white dark:bg-slate-700"></div>
+                </label>
+              </div>
+            </div>
+
+            {/* AI Landing Notice Banner Switch */}
+            <div className="rounded-2xl border border-purple-200/80 bg-linear-to-r from-purple-50/50 to-indigo-50/30 p-6 shadow-xs dark:border-purple-900/40 dark:bg-purple-950/20">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="space-y-1 max-w-xl">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                      "NEW AI FEATURE" Notice Banner (Landing Page)
+                    </h3>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
+                        landingNoticeActive
+                          ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300"
+                          : "bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                      }`}
+                    >
+                      {landingNoticeActive ? "LIVE ON HOMEPAGE" : "HIDDEN (OFF)"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                    Controls whether the purple top notice banner ("Introducing School Study AI") appears on the public landing page.
+                  </p>
+                  <div className="pt-1">
+                    <Link
+                      href="/super-admin/showcase"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-purple-600 hover:text-purple-700 dark:text-purple-400 hover:underline"
+                    >
+                      Open Full Showcase & Text Editor →
+                    </Link>
+                  </div>
+                </div>
+
+                <label className="relative inline-flex cursor-pointer items-center shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={landingNoticeActive}
+                    disabled={togglingNotice}
+                    onChange={(e) => toggleLandingNotice(e.target.checked)}
                     className="peer sr-only"
                   />
                   <div className="peer h-6 w-11 rounded-full bg-slate-200 peer-checked:bg-purple-600 peer-focus:outline-none after:absolute after:top-[2px] after:left-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-slate-300 after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-checked:after:border-white dark:bg-slate-700"></div>

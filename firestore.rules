@@ -523,6 +523,18 @@ service cloud.firestore {
     }
 
     // ==========================================
+    // 6a. FEATURE SHOWCASES & ANNOUNCEMENT BANNERS
+    // ==========================================
+    match /feature_showcases/{showcaseId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    match /feature_showcase_views/{viewId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // ==========================================
     // 6b. EMERGENCY & SECURITY CONTROLS
     // ==========================================
     match /schoolEmergency/{schoolId} {
