@@ -38,7 +38,12 @@ import { toast } from "sonner";
 
 export default function AdminCollectFeePage() {
   const { profile } = useAuth();
-  const schoolId = profile?.schoolId || "";
+  const effectiveSchoolId =
+    profile?.schoolId ||
+    (typeof window !== "undefined"
+      ? localStorage.getItem("currentSchoolId") || ""
+      : "");
+  const schoolId = effectiveSchoolId;
   const schoolName = (profile as any)?.schoolName || "Lord Buddha Public School";
 
   const searchParams = useSearchParams();
@@ -285,7 +290,10 @@ export default function AdminCollectFeePage() {
         admissionNumber: selectedStudent.admissionNumber || selectedStudent.id,
         className: selectedStudent.className || "",
         sectionName: selectedStudent.sectionName || "A",
-        academicYearId: "ay_2026_27",
+        academicYearId:
+          demands.find((d) => selectedDemandIds.includes(d.id))?.academicYearId ||
+          (selectedStudent as any).academicYearId ||
+          "all",
         amountPaidRupees: Number(amountPaidRupees),
         paymentMethod,
         targetDemandIds: selectedDemandIds,

@@ -35,8 +35,8 @@ import {
   X,
 } from "lucide-react";
 import { getStudents } from "@/lib/services/student.service";
-import { getClassesWithSections } from "@/lib/services/academic.service";
-import type { StudentProfile, SchoolClass } from "@/types";
+import { getClassesWithSections, getAcademicYears } from "@/lib/services/academic.service";
+import type { StudentProfile, SchoolClass, AcademicYear } from "@/types";
 import type {
   StudentLedgerEntry,
   StudentLedgerSummary,
@@ -50,7 +50,12 @@ import { toast } from "sonner";
 
 export default function AdminStudentLedgerPage() {
   const { profile } = useAuth();
-  const schoolId = profile?.schoolId || "";
+  const effectiveSchoolId =
+    profile?.schoolId ||
+    (typeof window !== "undefined"
+      ? localStorage.getItem("currentSchoolId") || ""
+      : "");
+  const schoolId = effectiveSchoolId;
   const schoolName = (profile as any)?.schoolName || "Lord Buddha Public School";
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -60,6 +65,7 @@ export default function AdminStudentLedgerPage() {
   // Data states
   const [students, setStudents] = useState<StudentProfile[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<StudentProfile | null>(null);
   const [ledgerSummary, setLedgerSummary] = useState<StudentLedgerSummary | null>(null);
   const [ledgerEntries, setLedgerEntries] = useState<StudentLedgerEntry[]>([]);
@@ -73,7 +79,7 @@ export default function AdminStudentLedgerPage() {
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedClass, setSelectedClass] = useState("all");
-  const [selectedAcademicYear, setSelectedAcademicYear] = useState("ay_2026_27");
+  const [selectedAcademicYear, setSelectedAcademicYear] = useState("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [entryTypeFilter, setEntryTypeFilter] = useState<string>("all");
@@ -84,12 +90,14 @@ export default function AdminStudentLedgerPage() {
       if (!schoolId) return;
       setLoadingList(true);
       try {
-        const [studList, clsList] = await Promise.all([
+        const [studList, clsList, yrList] = await Promise.all([
           getStudents(schoolId, { status: "active" }).catch(() => []),
           getClassesWithSections(schoolId).catch(() => []),
+          getAcademicYears(schoolId).catch(() => []),
         ]);
         setStudents(studList);
         setClasses(clsList);
+        setAcademicYears(yrList);
 
         if (queryStudentId && studList.length > 0) {
           const match = studList.find((s) => s.id === queryStudentId || s.studentId === queryStudentId);
@@ -385,9 +393,12 @@ export default function AdminStudentLedgerPage() {
                 onChange={(e) => setSelectedAcademicYear(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white cursor-pointer"
               >
-                <option value="ay_2026_27">2026–2027 (Apr–Mar)</option>
-                <option value="ay_2025_26">2025–2026 (Apr–Mar)</option>
-                <option value="all">All Academic Years</option>
+                <option value="all">All Academic Sessions</option>
+                {academicYears.map((y) => (
+                  <option key={y.id} value={y.id}>
+                    {y.name}
+                  </option>
+                ))}
               </select>
             </div>
 

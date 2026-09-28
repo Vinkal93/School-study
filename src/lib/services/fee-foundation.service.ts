@@ -528,6 +528,29 @@ export async function generateStudentFeeDemands(
         { studentId: student.id, academicYearId }
       );
 
+      // Auto-post balanced double-entry journal voucher
+      try {
+        const { postJournalForDemand } = await import("./accounting.service");
+        await postJournalForDemand(
+          schoolId,
+          {
+            id: demand.id,
+            invoiceNumber: demand.invoiceNumber,
+            studentId: demand.studentId,
+            studentName: demand.studentName,
+            feeHeadName: demand.feeHeadName,
+            grossAmountPaise: demand.grossAmountPaise,
+            concessionAmountPaise: demand.concessionAmountPaise,
+            netAmountPaise: demand.netAmountPaise,
+            dueDate: demand.dueDate,
+            academicYearId: demand.academicYearId,
+          },
+          { id: actorId, name: "System" }
+        );
+      } catch (jErr) {
+        console.warn("[fee-foundation] Auto journal posting for demand warning:", jErr);
+      }
+
       generatedDemands.push(demand);
     }
   }
@@ -852,6 +875,30 @@ export async function processFeePaymentWithAllocations(
     { studentId: input.studentId, academicYearId: input.academicYearId }
   );
 
+  // Auto-post double-entry journal entry for fee collection
+  try {
+    const { postJournalForPayment } = await import("./accounting.service");
+    await postJournalForPayment(
+      schoolId,
+      {
+        id: payment.id,
+        receiptNumber: payment.receiptNumber,
+        studentId: payment.studentId,
+        studentName: payment.studentName,
+        amountPaise: payment.amountPaise,
+        allocatedTotalPaise: payment.allocatedTotalPaise,
+        unallocatedPaise: payment.unallocatedPaise,
+        paymentMethod: payment.paymentMethod,
+        paymentDate: payment.paymentDate,
+        transactionReference: payment.referenceNumber,
+        academicYearId: payment.academicYearId,
+      },
+      { id: actorId, name: actorName }
+    );
+  } catch (journalErr) {
+    console.warn("[fee-foundation] Auto journal posting for payment warning:", journalErr);
+  }
+
   return { payment, allocations, updatedDemands };
 }
 
@@ -1070,6 +1117,28 @@ export async function processFeeRefund(
     { studentId: payment.studentId, academicYearId: payment.academicYearId }
   );
 
+  // Auto-post double-entry journal entry for refund
+  try {
+    const { postJournalForRefund } = await import("./accounting.service");
+    await postJournalForRefund(
+      schoolId,
+      {
+        id: refundRecord.id,
+        refundReceiptNumber: refundRecord.refundReceiptNumber,
+        studentId: refundRecord.studentId,
+        studentName: refundRecord.studentName,
+        amountPaise: refundRecord.amountPaise,
+        refundMethod: refundRecord.refundMethod,
+        refundDate: refundRecord.refundDate,
+        reason: refundRecord.reason,
+        academicYearId: refundRecord.academicYearId,
+      },
+      { id: actorId, name: actorName }
+    );
+  } catch (journalErr) {
+    console.warn("[fee-foundation] Auto journal posting for refund warning:", journalErr);
+  }
+
   return { refund: refundRecord, updatedPayment, updatedDemands };
 }
 
@@ -1222,6 +1291,27 @@ export async function processPaymentReversal(
     `Reversed payment ${payment.receiptNumber} (${formatINR(payment.amountPaise)}). Reason: ${input.reason}`,
     { studentId: payment.studentId, academicYearId: payment.academicYearId }
   );
+
+  // Auto-post double-entry journal entry for reversal
+  try {
+    const { postJournalForReversal } = await import("./accounting.service");
+    await postJournalForReversal(
+      schoolId,
+      {
+        id: reversalRecord.id,
+        receiptNumber: reversalRecord.receiptNumber,
+        studentId: reversalRecord.studentId,
+        reversedAmountPaise: reversalRecord.reversedAmountPaise,
+        reason: reversalRecord.reason,
+        paymentMethod: payment.paymentMethod,
+        reversedAt: reversalRecord.reversedAt,
+        academicYearId: payment.academicYearId,
+      },
+      { id: actorId, name: actorName }
+    );
+  } catch (journalErr) {
+    console.warn("[fee-foundation] Auto journal posting for reversal warning:", journalErr);
+  }
 
   return { reversal: reversalRecord, updatedPayment, updatedDemands };
 }
@@ -1544,6 +1634,27 @@ export async function applyFeeAdjustment(
     `Applied ${input.type} of ${formatINR(adjPaise)}. Reason: ${input.reason}`,
     { studentId: input.studentId, academicYearId: input.academicYearId }
   );
+
+  // Auto-post double-entry journal entry for adjustment
+  try {
+    const { postJournalForAdjustment } = await import("./accounting.service");
+    await postJournalForAdjustment(
+      schoolId,
+      {
+        id: adjustment.id,
+        type: adjustment.type,
+        studentId: adjustment.studentId,
+        studentName: adjustment.studentName,
+        amountPaise: adjustment.amountPaise,
+        reason: adjustment.reason,
+        date: adjustment.date,
+        academicYearId: adjustment.academicYearId,
+      },
+      { id: input.actorId || "admin", name: input.approvedBy || "Admin" }
+    );
+  } catch (journalErr) {
+    console.warn("[fee-foundation] Auto journal posting for adjustment warning:", journalErr);
+  }
 
   return { adjustment, updatedDemand };
 }
@@ -2353,6 +2464,35 @@ export async function generateBulkFeeDemands(
     { academicYearId: options.academicYearId }
   );
 
+  // Auto-post double-entry journal entries for committed demands
+  try {
+    const { postJournalForDemand } = await import("./accounting.service");
+    for (const dem of committedDemands) {
+      try {
+        await postJournalForDemand(
+          schoolId,
+          {
+            id: dem.id,
+            invoiceNumber: dem.invoiceNumber,
+            studentId: dem.studentId,
+            studentName: dem.studentName,
+            feeHeadName: dem.feeHeadName,
+            grossAmountPaise: dem.grossAmountPaise,
+            concessionAmountPaise: dem.concessionAmountPaise,
+            netAmountPaise: dem.netAmountPaise,
+            dueDate: dem.dueDate,
+            academicYearId: dem.academicYearId,
+          },
+          { id: options.actorId || "admin", name: options.actorName || "Admin" }
+        );
+      } catch (jErr) {
+        // Individual journal failures should not abort the bulk generation
+      }
+    }
+  } catch (err) {
+    console.warn("[fee-foundation] Auto journal posting for bulk demands warning:", err);
+  }
+
   return {
     eligibleStudents: preview.eligibleStudents,
     alreadyGenerated: preview.alreadyGenerated,
@@ -2646,6 +2786,27 @@ export async function applyFeeWaiver(
     `Applied fee waiver of ${formatINR(waiverPaise)}. Reason: ${reason}. Approved by: ${approvedBy}`,
     { studentId, academicYearId: demand.academicYearId }
   );
+
+  // Auto-post double-entry journal entry for fee waiver
+  try {
+    const { postJournalForAdjustment } = await import("./accounting.service");
+    await postJournalForAdjustment(
+      schoolId,
+      {
+        id: adjustment.id,
+        type: adjustment.type,
+        studentId: adjustment.studentId,
+        studentName: adjustment.studentName,
+        amountPaise: adjustment.amountPaise,
+        reason: adjustment.reason,
+        date: adjustment.date,
+        academicYearId: adjustment.academicYearId,
+      },
+      { id: actorId, name: approvedBy }
+    );
+  } catch (journalErr) {
+    console.warn("[fee-foundation] Auto journal posting for waiver warning:", journalErr);
+  }
 
   return { adjustment, updatedDemand };
 }

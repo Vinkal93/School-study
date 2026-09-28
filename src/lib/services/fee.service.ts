@@ -491,25 +491,7 @@ export async function getStudentFeePayments(
   schoolId: string,
   studentId: string
 ): Promise<FeePayment[]> {
-  const db = getFirebaseDb();
-  if (!db || !schoolId || !studentId) return [];
-  try {
-    const q = query(
-      collection(db, "feePayments"),
-      where("schoolId", "==", schoolId),
-      where("studentId", "==", studentId)
-    );
-    const snap = await getDocs(q);
-    const list = snap.docs.map((d) => ({
-      id: d.id,
-      ...d.data(),
-    })) as FeePayment[];
-    list.sort((a, b) => b.paymentDate.localeCompare(a.paymentDate));
-    return list;
-  } catch (err) {
-    console.warn("getStudentFeePayments notice:", err);
-    return [];
-  }
+  return getFeeTransactions(schoolId, { studentId });
 }
 
 export function matchesClass(
@@ -1461,29 +1443,122 @@ export async function getFeeTransactions(
     className?: string;
     paymentMethod?: string;
     feeType?: string;
+    academicYearId?: string;
   }
 ): Promise<FeePayment[]> {
   const db = getFirebaseDb();
   if (!db || !schoolId) return [];
 
   try {
-    const q = query(
-      collection(db, "feePayments"),
-      where("schoolId", "==", schoolId)
-    );
-    const snap = await getDocs(q);
-    let list = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as FeePayment);
+    const seenIds = new Set<string>();
+    const seenReceipts = new Set<string>();
+    const unifiedList: FeePayment[] = [];
+
+    // 1. Primary Authoritative: financialPayments
+    try {
+      const fpQuery = query(
+        collection(db, "financialPayments"),
+        where("schoolId", "==", schoolId)
+      );
+      let fpDocs = (await getDocs(fpQuery)).docs;
+
+      // Fallback to subcollection if root empty
+      if (fpDocs.length === 0) {
+        const subSnap = await getDocs(
+          collection(db, "schools", schoolId, "financialPayments")
+        ).catch(() => null);
+        if (subSnap && !subSnap.empty) fpDocs = subSnap.docs;
+      }
+
+      for (const d of fpDocs) {
+        const data = d.data();
+        const id = d.id;
+        const rec = data.receiptNumber || id;
+        seenIds.add(id);
+        if (rec) seenReceipts.add(rec);
+
+        const rawMethod = (data.paymentMethod || "CASH").toUpperCase();
+        const methodDisplay =
+          rawMethod === "CASH"
+            ? "Cash"
+            : rawMethod === "UPI"
+            ? "UPI"
+            : rawMethod === "BANK_TRANSFER" || rawMethod === "BANK TRANSFER"
+            ? "Bank Transfer"
+            : rawMethod === "CHEQUE"
+            ? "Cheque"
+            : rawMethod === "CARD"
+            ? "Card"
+            : "Other";
+
+        const amtPaise = data.amountPaise ?? data.amountPaidPaise ?? 0;
+
+        unifiedList.push({
+          id,
+          schoolId: data.schoolId || schoolId,
+          receiptNumber: rec,
+          studentId: data.studentId || "",
+          studentName: data.studentName || "Student",
+          admissionNumber: data.admissionNumber || "N/A",
+          className: data.className || "",
+          sectionName: data.sectionName || "A",
+          academicYearId: data.academicYearId || "",
+          feeType: data.feeType || "tuition",
+          periodMonths: data.periodMonths || [],
+          amountPaidPaise: amtPaise,
+          discountPaise: data.discountPaise || 0,
+          lateFeePaise: data.lateFeePaise || 0,
+          netAmountPaise: amtPaise,
+          paymentMethod: methodDisplay as any,
+          paymentDate: data.paymentDate || data.createdAt || new Date().toISOString(),
+          transactionRef: data.referenceNumber || data.transactionRef || "",
+          remarks: data.remarks || "",
+          collectedBy: data.collectedBy || data.collectedByName || "Staff",
+          status: (data.status || "SUCCESS") as any,
+          createdAt: data.createdAt || new Date().toISOString(),
+        });
+      }
+    } catch (fpErr) {
+      console.warn("financialPayments fetch notice in getFeeTransactions:", fpErr);
+    }
+
+    // 2. Legacy / Secondary: feePayments
+    try {
+      const legQuery = query(
+        collection(db, "feePayments"),
+        where("schoolId", "==", schoolId)
+      );
+      const legSnap = await getDocs(legQuery);
+      for (const d of legSnap.docs) {
+        if (seenIds.has(d.id)) continue;
+        const data = d.data();
+        const rec = data.receiptNumber || d.id;
+        if (rec && seenReceipts.has(rec)) continue;
+
+        seenIds.add(d.id);
+        if (rec) seenReceipts.add(rec);
+        unifiedList.push({ id: d.id, ...data } as FeePayment);
+      }
+    } catch (legErr) {
+      console.warn("feePayments fetch notice in getFeeTransactions:", legErr);
+    }
+
+    let list = unifiedList;
 
     if (filters?.studentId)
       list = list.filter((p) => p.studentId === filters.studentId);
     if (filters?.className && filters.className !== "all")
       list = list.filter((p) => p.className === filters.className);
-    if (filters?.paymentMethod && filters.paymentMethod !== "all")
-      list = list.filter((p) => p.paymentMethod === filters.paymentMethod);
+    if (filters?.paymentMethod && filters.paymentMethod !== "all") {
+      const pmLower = filters.paymentMethod.toLowerCase();
+      list = list.filter((p) => (p.paymentMethod || "").toLowerCase().includes(pmLower));
+    }
     if (filters?.feeType && filters.feeType !== "all")
       list = list.filter((p) => p.feeType === filters.feeType);
+    if (filters?.academicYearId && filters.academicYearId !== "all")
+      list = list.filter((p) => p.academicYearId === filters.academicYearId);
 
-    list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    list.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
     return list;
   } catch (err) {
     console.warn("getFeeTransactions notice:", err);
@@ -1511,6 +1586,72 @@ export async function getDefaultersList(
     list = list.filter((a) => a.totalPendingPaise > 0);
     if (className && className !== "all") {
       list = list.filter((a) => a.className === className);
+    }
+
+    if (list.length === 0) {
+      try {
+        const demandsQ = query(
+          collection(db, "feeDemands"),
+          where("schoolId", "==", schoolId)
+        );
+        const dSnap = await getDocs(demandsQ);
+        const studentDueMap = new Map<string, any>();
+        for (const doc of dSnap.docs) {
+          const d = doc.data() as any;
+          const bal = d.balanceAmountPaise ?? (d.netAmountPaise - (d.paidAmountPaise || 0));
+          if (bal <= 0) continue;
+          if (className && className !== "all" && d.className !== className) continue;
+
+          const sId = d.studentId;
+          const existing = studentDueMap.get(sId);
+          if (!existing) {
+            studentDueMap.set(sId, {
+              id: `def_${sId}`,
+              schoolId,
+              studentId: sId,
+              studentName: d.studentName || "Student",
+              admissionNumber: d.admissionNumber || sId,
+              className: d.className || "",
+              sectionName: d.sectionName || "A",
+              academicYearId: d.academicYearId || "all",
+              feeStructureId: d.feeStructureId || "",
+              frequency: "monthly",
+              monthlyFeeRupees: Math.round(bal / 100),
+              totalAnnualFeePaise: bal,
+              totalDiscountPaise: d.discountAmountPaise || 0,
+              totalPaidPaise: d.paidAmountPaise || 0,
+              totalPendingPaise: bal,
+              status: "OVERDUE",
+              monthLedger: [
+                {
+                  month: d.period || "Current",
+                  dueDate: d.dueDate || new Date().toISOString(),
+                  amountPaise: bal,
+                  paidAmountPaise: d.paidAmountPaise || 0,
+                  pendingAmountPaise: bal,
+                  status: "OVERDUE",
+                },
+              ],
+              createdAt: d.createdAt || new Date().toISOString(),
+              updatedAt: d.updatedAt || new Date().toISOString(),
+            });
+          } else {
+            existing.totalAnnualFeePaise += bal;
+            existing.totalPendingPaise += bal;
+            existing.monthLedger.push({
+              month: d.period || "Current",
+              dueDate: d.dueDate || new Date().toISOString(),
+              amountPaise: bal,
+              paidAmountPaise: d.paidAmountPaise || 0,
+              pendingAmountPaise: bal,
+              status: "OVERDUE",
+            });
+          }
+        }
+        list = Array.from(studentDueMap.values());
+      } catch (dErr) {
+        console.warn("feeDemands fallback in getDefaultersList notice:", dErr);
+      }
     }
 
     list.sort((a, b) => b.totalPendingPaise - a.totalPendingPaise);

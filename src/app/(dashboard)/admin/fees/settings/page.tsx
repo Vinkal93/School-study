@@ -28,7 +28,12 @@ const MONTH_OPTIONS = [
 
 export default function AdminFeeSettingsPage() {
   const { profile } = useAuth();
-  const schoolId = profile?.schoolId || "";
+  const effectiveSchoolId =
+    profile?.schoolId ||
+    (typeof window !== "undefined"
+      ? localStorage.getItem("currentSchoolId") || ""
+      : "");
+  const schoolId = effectiveSchoolId;
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

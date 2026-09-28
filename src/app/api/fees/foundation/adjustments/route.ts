@@ -56,7 +56,49 @@ export async function POST(request: Request) {
       updatedDemand: result.updatedDemand,
     });
   } catch (err: any) {
-    console.error("POST /api/fees/foundation/adjustments error:", err);
     return NextResponse.json({ error: err.message || "Failed to apply fee adjustment" }, { status: 400 });
   }
 }
+
+export async function GET(request: Request) {
+  try {
+    const authResult = await authenticateRequest(request);
+    if (!authResult.isAuthenticated || !authResult.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const clientSchoolId = searchParams.get("schoolId");
+    const targetSchoolId =
+      authResult.user.role === "super_admin"
+        ? clientSchoolId || authResult.user.schoolId
+        : authResult.user.schoolId;
+
+    if (!targetSchoolId) {
+      return NextResponse.json({ error: "schoolId is required" }, { status: 400 });
+    }
+
+    const studentId = searchParams.get("studentId");
+    const { getFirebaseDb } = await import("@/lib/firebase/client");
+    const { collection, query, where, getDocs } = await import("firebase/firestore");
+    const db = getFirebaseDb();
+    if (!db) return NextResponse.json({ success: true, adjustments: [] });
+
+    let q = query(
+      collection(db, "feeAdjustments"),
+      where("schoolId", "==", targetSchoolId)
+    );
+    if (studentId) {
+      q = query(q, where("studentId", "==", studentId));
+    }
+    const snap = await getDocs(q);
+    const adjustments = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    adjustments.sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+
+    return NextResponse.json({ success: true, adjustments });
+  } catch (err: any) {
+    console.error("GET /api/fees/foundation/adjustments error:", err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+

@@ -34,14 +34,19 @@ import {
   Check,
 } from "lucide-react";
 import { getFeeTransactions } from "@/lib/services/fee.service";
-import { getClassesWithSections } from "@/lib/services/academic.service";
-import type { FeePayment, SchoolClass } from "@/types";
+import { getClassesWithSections, getAcademicYears } from "@/lib/services/academic.service";
+import type { FeePayment, SchoolClass, AcademicYear } from "@/types";
 import { FeeReceiptModal } from "@/components/fees/FeeReceiptModal";
 import { toast } from "sonner";
 
 export default function AdminFeeReportsPage() {
   const { profile } = useAuth();
-  const schoolId = profile?.schoolId || "";
+  const effectiveSchoolId =
+    profile?.schoolId ||
+    (typeof window !== "undefined"
+      ? localStorage.getItem("currentSchoolId") || ""
+      : "");
+  const schoolId = effectiveSchoolId;
   const schoolName = (profile as any)?.schoolName || "Lord Buddha Public School";
 
   // Data states
@@ -53,6 +58,7 @@ export default function AdminFeeReportsPage() {
   const [paymentModeList, setPaymentModeList] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<FeePayment[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
 
   // Filters
   const [reportType, setReportType] = useState("collection_summary");
@@ -82,12 +88,14 @@ export default function AdminFeeReportsPage() {
     try {
       const queryParams = new URLSearchParams({
         schoolId,
-        academicYearId: dateRange,
       });
+      if (dateRange && dateRange !== "all") {
+        queryParams.set("academicYearId", dateRange);
+      }
       if (selectedClass !== "all") queryParams.set("className", selectedClass);
       if (selectedSection !== "all") queryParams.set("sectionName", selectedSection);
 
-      const [summaryRes, classRes, defRes, payRes, txList, clsList] = await Promise.all([
+      const [summaryRes, classRes, defRes, payRes, txList, clsList, ayList] = await Promise.all([
         fetch(`/api/fees/foundation/analytics/dashboard?${queryParams.toString()}`)
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
@@ -102,6 +110,7 @@ export default function AdminFeeReportsPage() {
           .catch(() => null),
         getFeeTransactions(schoolId).catch(() => []),
         getClassesWithSections(schoolId).catch(() => []),
+        getAcademicYears(schoolId).catch(() => []),
       ]);
 
       if (summaryRes?.data) {
@@ -118,6 +127,9 @@ export default function AdminFeeReportsPage() {
       }
       setTransactions(txList);
       setClasses(clsList);
+      if (ayList && Array.isArray(ayList)) {
+        setAcademicYears(ayList);
+      }
     } catch (err) {
       console.error("Failed to load fee reports data:", err);
       toast.error("Failed to load real reporting data.");
@@ -411,8 +423,19 @@ export default function AdminFeeReportsPage() {
                 onChange={(e) => setDateRange(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white cursor-pointer focus:ring-2 focus:ring-blue-500"
               >
-                <option value="ay_2026_27">2026–2027 (Apr–Mar)</option>
-                <option value="ay_2025_26">2025–2026 (Apr–Mar)</option>
+                <option value="all">All Sessions</option>
+                {academicYears.length > 0 ? (
+                  academicYears.map((ay) => (
+                    <option key={ay.id} value={ay.id}>
+                      {ay.name} {ay.isCurrent ? "(Current)" : ""}
+                    </option>
+                  ))
+                ) : (
+                  <>
+                    <option value="ay_2026_27">2026–2027 (Apr–Mar)</option>
+                    <option value="ay_2025_26">2025–2026 (Apr–Mar)</option>
+                  </>
+                )}
               </select>
             </div>
 

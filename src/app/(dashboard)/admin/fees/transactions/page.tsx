@@ -43,7 +43,12 @@ import { toast } from "sonner";
 
 export default function AdminFeeTransactionsPage() {
   const { profile } = useAuth();
-  const schoolId = profile?.schoolId || "";
+  const effectiveSchoolId =
+    profile?.schoolId ||
+    (typeof window !== "undefined"
+      ? localStorage.getItem("currentSchoolId") || ""
+      : "");
+  const schoolId = effectiveSchoolId;
   const schoolName = (profile as any)?.schoolName || "Lord Buddha Public School";
 
   const [payments, setPayments] = useState<FinancialPayment[]>([]);

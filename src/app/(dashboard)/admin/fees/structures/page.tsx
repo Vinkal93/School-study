@@ -29,7 +29,12 @@ import { toast } from "sonner";
 
 export default function AdminFeeStructuresPage() {
   const { profile } = useAuth();
-  const schoolId = profile?.schoolId || "";
+  const effectiveSchoolId =
+    profile?.schoolId ||
+    (typeof window !== "undefined"
+      ? localStorage.getItem("currentSchoolId") || ""
+      : "");
+  const schoolId = effectiveSchoolId;
 
   // Data States
   const [structures, setStructures] = useState<FeeStructureDefinition[]>([]);

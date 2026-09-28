@@ -45,7 +45,12 @@ type AccountTab = "ALL" | "CASH" | "UPI" | "BANK_TRANSFER" | "CHEQUE";
 
 export default function AdminCashBankLedgerPage() {
   const { profile } = useAuth();
-  const schoolId = profile?.schoolId || "";
+  const effectiveSchoolId =
+    profile?.schoolId ||
+    (typeof window !== "undefined"
+      ? localStorage.getItem("currentSchoolId") || ""
+      : "");
+  const schoolId = effectiveSchoolId;
   const schoolName = (profile as any)?.schoolName || "Lord Buddha Public School";
 
   const [activeTab, setActiveTab] = useState<AccountTab>("ALL");
