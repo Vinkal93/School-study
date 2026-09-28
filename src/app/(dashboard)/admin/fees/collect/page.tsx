@@ -8,7 +8,13 @@ import { EntitlementGate } from "@/components/common/EntitlementGate";
 import { FeeReceiptModal } from "@/components/fees/FeeReceiptModal";
 import { getStudents } from "@/lib/services/student.service";
 import { getAcademicYears } from "@/lib/services/academic.service";
-import { getFeeTransactions } from "@/lib/services/fee.service";
+import {
+  getFeeTransactions,
+  getFeeStructures,
+  getStudentFeeAssignment,
+  provisionStudentFeeAssignment,
+  collectFeePayment,
+} from "@/lib/services/fee.service";
 import { formatINR, paiseToRupees } from "@/lib/services/fee-foundation.service";
 import {
   Receipt,
@@ -38,7 +44,7 @@ import {
   Loader2,
   Printer,
 } from "lucide-react";
-import type { StudentProfile, FeePayment, AcademicYear } from "@/types";
+import type { StudentProfile, FeePayment, AcademicYear, StudentFeeAssignment } from "@/types";
 import type {
   FeeDemand,
   PaymentMethod,
@@ -107,6 +113,7 @@ export default function AdminCollectFeePage() {
   // Demands & Class Fee Structures
   const [demands, setDemands] = useState<FeeDemand[]>([]);
   const [classStructures, setClassStructures] = useState<FeeStructureDefinition[]>([]);
+  const [studentAssignment, setStudentAssignment] = useState<StudentFeeAssignment | null>(null);
   const [loadingDemands, setLoadingDemands] = useState(false);
 
   // Fee rates auto-assigned for this student
@@ -208,41 +215,33 @@ export default function AdminCollectFeePage() {
     const targetSessionId = sessionId || activeSessionId;
 
     try {
-      // Step A: Load active fee structures for this school & class
+      // Step A: Load active fee structures for this school & student's class
       let monthlyRate = 500;
       let admissionRate = 1000;
 
       try {
-        const structRes = await fetch(
-          `/api/fees/foundation/structures?schoolId=${encodeURIComponent(
-            schoolId
-          )}&className=${encodeURIComponent(student.className || "all")}`
-        );
-        if (structRes.ok) {
-          const structJson = await structRes.json();
-          const list: FeeStructureDefinition[] = structJson.structures || [];
-          setClassStructures(list);
+        const structures = await getFeeStructures(schoolId, targetSessionId);
+        if (structures && structures.length > 0) {
+          const cleanStudentClass = (student.className || "").toLowerCase().replace(/^(class|grade)\s*/i, "").trim();
 
-          // Find monthly tuition structure
-          const tuitionStruct = list.find(
-            (s) =>
-              s.frequency === "monthly" ||
-              s.feeHeadName?.toLowerCase().includes("tuition") ||
-              s.title?.toLowerCase().includes("tuition")
-          );
+          const classStructs = structures.filter((s) => {
+            const sc = (s.className || "").toLowerCase().replace(/^(class|grade)\s*/i, "").trim();
+            return sc === "all" || sc === "any" || sc === cleanStudentClass || s.className === student.className;
+          });
+
+          const tuitionStruct = classStructs.find(
+            (s) => s.frequency === "monthly" || s.feeType === "tuition" || s.title?.toLowerCase().includes("tuition")
+          ) || structures.find((s) => s.frequency === "monthly");
+
           if (tuitionStruct && tuitionStruct.amountPaise) {
-            monthlyRate = paiseToRupees(tuitionStruct.amountPaise);
+            monthlyRate = tuitionStruct.amountPaise / 100;
           }
 
-          // Find admission structure
-          const admissionStruct = list.find(
-            (s) =>
-              s.frequency === "one_time" ||
-              s.feeHeadName?.toLowerCase().includes("admission") ||
-              s.title?.toLowerCase().includes("admission")
+          const admissionStruct = classStructs.find(
+            (s) => s.frequency === "one_time" || s.feeType === "admission" || s.title?.toLowerCase().includes("admission")
           );
           if (admissionStruct && admissionStruct.amountPaise) {
-            admissionRate = paiseToRupees(admissionStruct.amountPaise);
+            admissionRate = admissionStruct.amountPaise / 100;
           }
         }
       } catch (err) {
@@ -252,86 +251,50 @@ export default function AdminCollectFeePage() {
       setMonthlyTuitionRateRupees(monthlyRate);
       setAdmissionFeeRateRupees(admissionRate);
 
-      // Step B: Fetch student demands
-      let studentDemands: FeeDemand[] = [];
-      const res = await fetch(
-        `/api/fees/foundation/student-summary?schoolId=${encodeURIComponent(
-          schoolId
-        )}&studentId=${encodeURIComponent(student.id)}&academicYearId=${encodeURIComponent(
-          targetSessionId
-        )}`
-      );
-
-      if (res.ok) {
-        const json = await res.json();
-        studentDemands = json.summary?.recentDemands || [];
-      }
-
-      // If demands don't exist yet, generate them lazily
-      if (studentDemands.length === 0) {
-        try {
-          const genRes = await fetch("/api/fees/foundation/demands/generate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              schoolId,
-              studentId: student.id,
-              studentName: student.name,
+      // Step B: Load or provision student's authoritative fee assignment (April to March)
+      let assignment: StudentFeeAssignment | null = null;
+      try {
+        assignment = await getStudentFeeAssignment(schoolId, student.id, targetSessionId);
+        if (!assignment || !assignment.monthLedger || assignment.monthLedger.length === 0) {
+          assignment = await provisionStudentFeeAssignment(
+            schoolId,
+            {
+              id: student.id,
+              name: student.name,
               admissionNumber: student.admissionNumber || student.id,
-              className: student.className,
+              className: student.className || "Class",
               sectionName: student.sectionName || "A",
-              academicYearId: targetSessionId,
-              academicYearName: activeSession,
-            }),
-          });
-          if (genRes.ok) {
-            const genJson = await genRes.json();
-            studentDemands = genJson.demands || [];
-          }
-        } catch (genErr) {
-          console.warn("Demand auto-generation note:", genErr);
+            },
+            targetSessionId
+          );
         }
+      } catch (assignErr) {
+        console.warn("Student assignment lookup/provision note:", assignErr);
       }
 
-      setDemands(studentDemands);
+      setStudentAssignment(assignment);
 
-      // Check admission fee demand status
-      const admDemand = studentDemands.find((d) =>
-        d.feeHeadName?.toLowerCase().includes("admission") ||
-        d.period?.toLowerCase().includes("admission")
-      );
-      if (admDemand) {
-        setAdmissionFeeDemandId(admDemand.id);
-        setAdmissionFeePaid(admDemand.balanceAmountPaise <= 0);
-      } else {
-        setAdmissionFeeDemandId(null);
-        setAdmissionFeePaid(false);
-      }
+      // Check admission fee status
+      const hasPaidAdmission = assignment?.monthLedger?.some(
+        (l) => l.month.toLowerCase().includes("admission") && l.status === "PAID"
+      ) || false;
+      setAdmissionFeePaid(hasPaidAdmission);
 
       // Step C: Auto-select initial unpaid due month
-      // Map current month key
-      const now = new Date();
-      const currentMonthIndex = now.getMonth(); // 0-based: 0=Jan, 3=Apr, 8=Sep
-      const currentCalYear = now.getFullYear();
-
-      // Find first month that is DUE or PENDING
       const firstDueMonth = SESSION_MONTHS.find((m) => {
-        const matchingDemand = studentDemands.find(
-          (d) =>
-            d.period?.toLowerCase().includes(m.name.toLowerCase()) ||
-            d.period?.toLowerCase().includes(m.key)
+        const item = assignment?.monthLedger?.find((l) =>
+          l.month.toLowerCase().startsWith(m.name.toLowerCase())
         );
-        if (matchingDemand) {
-          return matchingDemand.balanceAmountPaise > 0;
+        if (item) {
+          return item.status !== "PAID" && item.pendingAmountPaise > 0;
         }
-        // Default: if past or present, it's due
         return true;
       });
 
       if (firstDueMonth) {
         setSelectedMonthKeys([firstDueMonth.key]);
       } else {
-        setSelectedMonthKeys(["sep"]); // Default September as in user mockup
+        setSelectedMonthKeys(["apr"]);
       }
     } catch (err: any) {
       console.error("loadStudentFeeSchedule error:", err);
@@ -357,7 +320,12 @@ export default function AdminCollectFeePage() {
       const year = startSessionYear + m.yearOffset;
       const periodLabel = `${m.name} ${year}`;
 
-      // Check if existing demand matches this month
+      // Check studentAssignment.monthLedger first
+      const ledgerItem = studentAssignment?.monthLedger?.find((l) =>
+        l.month.toLowerCase().startsWith(m.name.toLowerCase())
+      );
+
+      // Check if existing demand matches this month as secondary
       const matchedDemand = demands.find(
         (d) =>
           d.period?.toLowerCase().includes(m.name.toLowerCase()) ||
@@ -366,12 +334,24 @@ export default function AdminCollectFeePage() {
 
       let status: "PAID" | "DUE" | "PENDING" = "PENDING";
       let amountRupees = monthlyTuitionRateRupees;
-      let demandId: string | undefined = undefined;
-      let dueDate: string | undefined = undefined;
-      let paidAmountPaise = 0;
-      let balanceAmountPaise = monthlyTuitionRateRupees * 100;
+      let demandId: string | undefined = matchedDemand?.id;
+      let dueDate: string | undefined = ledgerItem?.dueDate || matchedDemand?.dueDate;
+      let paidAmountPaise = ledgerItem?.paidAmountPaise ?? matchedDemand?.paidAmountPaise ?? 0;
+      let balanceAmountPaise =
+        ledgerItem?.pendingAmountPaise ??
+        matchedDemand?.balanceAmountPaise ??
+        monthlyTuitionRateRupees * 100;
 
-      if (matchedDemand) {
+      if (ledgerItem) {
+        amountRupees = ledgerItem.amountPaise > 0 ? ledgerItem.amountPaise / 100 : monthlyTuitionRateRupees;
+        if (ledgerItem.status === "PAID" || ledgerItem.pendingAmountPaise <= 0) {
+          status = "PAID";
+        } else if (new Date(ledgerItem.dueDate).getTime() < now.getTime()) {
+          status = "DUE";
+        } else {
+          status = "PENDING";
+        }
+      } else if (matchedDemand) {
         demandId = matchedDemand.id;
         dueDate = matchedDemand.dueDate;
         amountRupees = paiseToRupees(matchedDemand.grossAmountPaise || matchedDemand.netAmountPaise);
@@ -387,7 +367,6 @@ export default function AdminCollectFeePage() {
         }
       } else {
         // Virtual schedule based on calendar date
-        // Months up to the current active month in session
         const monthDueDate = new Date(year, m.monthNum - 1, 10);
         dueDate = monthDueDate.toISOString();
 
@@ -410,7 +389,7 @@ export default function AdminCollectFeePage() {
         balanceAmountPaise,
       };
     });
-  }, [demands, startSessionYear, monthlyTuitionRateRupees]);
+  }, [studentAssignment, demands, startSessionYear, monthlyTuitionRateRupees]);
 
   // Months due count for badge
   const dueMonthsCount = useMemo(() => {
@@ -545,102 +524,53 @@ export default function AdminCollectFeePage() {
     }
 
     setSubmitting(true);
-    const idempotencyKey = `pay_${schoolId}_${selectedStudent.id}_${Date.now()}_${Math.random()
-      .toString(36)
-      .substring(2, 6)}`;
 
     try {
-      // Find demand IDs corresponding to selected months
-      const targetDemandIds: string[] = [];
-      for (const k of selectedMonthKeys) {
-        const item = monthsStatusList.find((m) => m.key === k);
-        if (item?.demandId) {
-          targetDemandIds.push(item.demandId);
-        }
-      }
-      if (includeAdmissionFee && admissionFeeDemandId) {
-        targetDemandIds.push(admissionFeeDemandId);
+      const methodMap: Record<PaymentMethodTab, FeePayment["paymentMethod"]> = {
+        CASH: "Cash",
+        UPI: "UPI",
+        BANK_TRANSFER: "Bank Transfer",
+        CHEQUE: "Cheque",
+        CARD: "Card",
+        OTHER: "Other",
+      };
+
+      const selectedMonthsNames = selectedMonthKeys.map(
+        (k) => monthsStatusList.find((m) => m.key === k)?.periodLabel || k
+      );
+      if (includeAdmissionFee && !admissionFeePaid) {
+        selectedMonthsNames.push("Admission Fee");
       }
 
-      const payload = {
+      const result = await collectFeePayment(
         schoolId,
-        studentId: selectedStudent.id,
-        studentName: selectedStudent.name,
-        admissionNumber: selectedStudent.admissionNumber || selectedStudent.id,
-        className: selectedStudent.className || "Class",
-        sectionName: selectedStudent.sectionName || "A",
-        academicYearId: activeSessionId,
-        amountPaidRupees: payAmount,
-        paymentMethod,
-        targetDemandIds: targetDemandIds.length > 0 ? targetDemandIds : undefined,
-        referenceNumber: referenceNumber.trim(),
-        remarks:
-          remarks.trim() ||
-          `Fee Collection for ${selectedMonthKeys
-            .map((k) => monthsStatusList.find((m) => m.key === k)?.name)
-            .filter(Boolean)
-            .join(", ")}${includeAdmissionFee ? " + Admission Fee" : ""}`,
-        paymentDate: paymentDate || new Date().toISOString(),
-        idempotencyKey,
-      };
+        {
+          studentId: selectedStudent.id,
+          studentName: selectedStudent.name,
+          admissionNumber: selectedStudent.admissionNumber || selectedStudent.id,
+          className: selectedStudent.className || "Class",
+          sectionName: selectedStudent.sectionName || "A",
+          academicYearId: activeSessionId,
+          feeType: includeAdmissionFee && selectedMonthKeys.length === 0 ? "admission" : "tuition",
+          periodMonths: selectedMonthsNames,
+          amountPaidRupees: payAmount,
+          discountRupees: calculatedDiscount,
+          paymentMethod: methodMap[paymentMethod] || "Cash",
+          transactionRef: referenceNumber.trim(),
+          remarks:
+            remarks.trim() ||
+            `Fee Collection for ${selectedMonthsNames.join(", ")}`,
+          paymentDate: paymentDate || new Date().toISOString(),
+        },
+        profile?.uid || profile?.name || "admin"
+      );
 
-      const res = await fetch("/api/fees/foundation/payments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const json = await res.json();
-      if (!res.ok) {
-        throw new Error(json.error || "Payment collection failed.");
-      }
-
-      toast.success(`Fee collected successfully! Receipt #${json.receiptNumber}`);
-
-      // Prepare receipt data
-      const payment: FinancialPayment = json.payment;
-      const receiptModalData: FeePayment = {
-        id: payment.id,
-        schoolId: payment.schoolId,
-        receiptNumber: payment.receiptNumber,
-        studentId: payment.studentId,
-        studentName: payment.studentName,
-        admissionNumber: payment.admissionNumber,
-        className: payment.className,
-        sectionName: payment.sectionName,
-        academicYearId: payment.academicYearId,
-        feeType: "tuition",
-        periodMonths: payment.periodMonths || selectedMonthKeys.map((k) => monthsStatusList.find((m) => m.key === k)?.periodLabel || k),
-        amountPaidPaise: payment.amountPaise,
-        discountPaise: calculatedDiscount * 100,
-        lateFeePaise: lateFeeAmountRupees * 100,
-        netAmountPaise: payment.amountPaise,
-        paymentMethod: (payment.paymentMethod === "CASH"
-          ? "Cash"
-          : payment.paymentMethod === "UPI"
-          ? "UPI"
-          : payment.paymentMethod === "BANK_TRANSFER"
-          ? "Bank Transfer"
-          : payment.paymentMethod === "CHEQUE"
-          ? "Cheque"
-          : payment.paymentMethod === "CARD"
-          ? "Card"
-          : "Other") as any,
-        transactionRef: payment.referenceNumber,
-        remarks: payment.remarks,
-        paymentDate: payment.paymentDate,
-        collectedBy: payment.collectedBy,
-        collectedByName: payment.collectedByName,
-        status: "SUCCESS",
-        remainingDuePaise: payment.remainingDuePaise,
-        createdAt: payment.createdAt,
-      };
-
-      setIssuedPayment(receiptModalData);
+      toast.success(`Fee collected successfully! Receipt #${result.receiptNumber}`);
+      setIssuedPayment(result.payment);
       setShowReceiptModal(true);
 
-      // Refresh student fee schedule
-      loadStudentFeeSchedule(selectedStudent);
+      // Refresh student fee schedule so newly paid months turn Green
+      await loadStudentFeeSchedule(selectedStudent);
     } catch (err: any) {
       console.error("Payment error:", err);
       toast.error(err.message || "An error occurred while collecting fees.");

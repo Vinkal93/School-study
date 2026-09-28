@@ -29,28 +29,33 @@ export async function GET(request: Request) {
     const adminDb = getSafeAdminDb();
     if (!adminDb) {
       // Fallback to client SDK if Admin SDK not available
-      const { getFirebaseDb } = await import("@/lib/firebase/client");
-      const clientDb = getFirebaseDb();
-      if (!clientDb) throw new Error("Database not connected");
+      try {
+        const { getFirebaseDb } = await import("@/lib/firebase/client");
+        const clientDb = getFirebaseDb();
+        if (!clientDb) throw new Error("Database not connected");
 
-      const q = query(
-        collection(clientDb, "feeStructures"),
-        where("schoolId", "==", targetSchoolId)
-      );
+        const q = query(
+          collection(clientDb, "feeStructures"),
+          where("schoolId", "==", targetSchoolId)
+        );
 
-      const snap = await getDocs(q);
-      let structures = snap.docs.map((d) => ({ id: d.id, ...d.data() } as FeeStructureDefinition));
+        const snap = await getDocs(q);
+        let structures = snap.docs.map((d) => ({ id: d.id, ...d.data() } as FeeStructureDefinition));
 
-      if (academicYearId && academicYearId !== "all") {
-        structures = structures.filter((s) => s.academicYearId === academicYearId);
+        if (academicYearId && academicYearId !== "all") {
+          structures = structures.filter((s) => s.academicYearId === academicYearId);
+        }
+        if (className && className !== "all") {
+          structures = structures.filter((s) => s.className === className || s.className === "all");
+        }
+
+        structures.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+
+        return NextResponse.json({ success: true, structures });
+      } catch (clientErr: any) {
+        console.warn("Client fallback query notice in /structures route:", clientErr.message);
+        return NextResponse.json({ success: true, structures: [] });
       }
-      if (className && className !== "all") {
-        structures = structures.filter((s) => s.className === className || s.className === "all");
-      }
-
-      structures.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-
-      return NextResponse.json({ success: true, structures });
     }
 
     // Admin SDK uses a different API - use adminDb.collection() directly

@@ -21,7 +21,7 @@ import {
 import { toast } from "sonner";
 import Link from "next/link";
 import { useSchoolCommunication } from "@/hooks/useSchoolCommunication";
-import { resolveTemplateVariables } from "@/lib/services/communication.service";
+import { resolveTemplateVariables } from "@/lib/services/communication-template.utils";
 import type {
   CommunicationChannel,
   CommunicationTriggerType,
