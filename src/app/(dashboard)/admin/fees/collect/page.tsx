@@ -220,7 +220,10 @@ export default function AdminCollectFeePage() {
       let admissionRate = 1000;
 
       try {
-        const structures = await getFeeStructures(schoolId, targetSessionId);
+        let structures = await getFeeStructures(schoolId, targetSessionId);
+        if (!structures || structures.length === 0) {
+          structures = await getFeeStructures(schoolId);
+        }
         if (structures && structures.length > 0) {
           const cleanStudentClass = (student.className || "").toLowerCase().replace(/^(class|grade)\s*/i, "").trim();
 
@@ -255,7 +258,21 @@ export default function AdminCollectFeePage() {
       let assignment: StudentFeeAssignment | null = null;
       try {
         assignment = await getStudentFeeAssignment(schoolId, student.id, targetSessionId);
-        if (!assignment || !assignment.monthLedger || assignment.monthLedger.length === 0) {
+
+        // Check if assignment needs repair (missing, empty, zero rates, or falsely marked PAID months without real payment)
+        const needsRepair =
+          !assignment ||
+          !assignment.monthLedger ||
+          assignment.monthLedger.length === 0 ||
+          assignment.monthLedger.some(
+            (l) =>
+              (l.amountPaise === 0 && monthlyRate > 0) ||
+              (l.status === "PAID" &&
+                (l.paidAmountPaise || 0) === 0 &&
+                (!l.receiptNumbers || l.receiptNumbers.length === 0))
+          );
+
+        if (needsRepair) {
           assignment = await provisionStudentFeeAssignment(
             schoolId,
             {
@@ -265,7 +282,8 @@ export default function AdminCollectFeePage() {
               className: student.className || "Class",
               sectionName: student.sectionName || "A",
             },
-            targetSessionId
+            targetSessionId,
+            monthlyRate
           );
         }
       } catch (assignErr) {
@@ -275,9 +293,12 @@ export default function AdminCollectFeePage() {
       setStudentAssignment(assignment);
 
       // Check admission fee status
-      const hasPaidAdmission = assignment?.monthLedger?.some(
-        (l) => l.month.toLowerCase().includes("admission") && l.status === "PAID"
-      ) || false;
+      const hasPaidAdmission =
+        assignment?.monthLedger?.some(
+          (l) =>
+            l.month.toLowerCase().includes("admission") &&
+            ((l.paidAmountPaise || 0) > 0 || (l.receiptNumbers && l.receiptNumbers.length > 0))
+        ) || false;
       setAdmissionFeePaid(hasPaidAdmission);
 
       // Step C: Auto-select initial unpaid due month
@@ -286,7 +307,10 @@ export default function AdminCollectFeePage() {
           l.month.toLowerCase().startsWith(m.name.toLowerCase())
         );
         if (item) {
-          return item.status !== "PAID" && item.pendingAmountPaise > 0;
+          const isPaid =
+            (item.paidAmountPaise > 0 && item.pendingAmountPaise <= 0) ||
+            (item.receiptNumbers && item.receiptNumbers.length > 0);
+          return !isPaid && item.pendingAmountPaise > 0;
         }
         return true;
       });
@@ -336,45 +360,53 @@ export default function AdminCollectFeePage() {
       let amountRupees = monthlyTuitionRateRupees;
       let demandId: string | undefined = matchedDemand?.id;
       let dueDate: string | undefined = ledgerItem?.dueDate || matchedDemand?.dueDate;
-      let paidAmountPaise = ledgerItem?.paidAmountPaise ?? matchedDemand?.paidAmountPaise ?? 0;
-      let balanceAmountPaise =
-        ledgerItem?.pendingAmountPaise ??
-        matchedDemand?.balanceAmountPaise ??
-        monthlyTuitionRateRupees * 100;
+      let paidAmountPaise = 0;
+      let balanceAmountPaise = monthlyTuitionRateRupees * 100;
 
       if (ledgerItem) {
         amountRupees = ledgerItem.amountPaise > 0 ? ledgerItem.amountPaise / 100 : monthlyTuitionRateRupees;
-        if (ledgerItem.status === "PAID" || ledgerItem.pendingAmountPaise <= 0) {
+        paidAmountPaise = ledgerItem.paidAmountPaise || 0;
+
+        const isActuallyPaid =
+          (paidAmountPaise > 0 && (ledgerItem.pendingAmountPaise <= 0 || paidAmountPaise >= amountRupees * 100)) ||
+          (Array.isArray(ledgerItem.receiptNumbers) && ledgerItem.receiptNumbers.length > 0) ||
+          (Array.isArray(ledgerItem.paymentIds) && ledgerItem.paymentIds.length > 0);
+
+        if (isActuallyPaid) {
           status = "PAID";
-        } else if (new Date(ledgerItem.dueDate).getTime() < now.getTime()) {
-          status = "DUE";
+          balanceAmountPaise = 0;
+          paidAmountPaise = paidAmountPaise > 0 ? paidAmountPaise : amountRupees * 100;
         } else {
-          status = "PENDING";
+          balanceAmountPaise = Math.max(0, amountRupees * 100 - paidAmountPaise);
+          const monthDueTime = ledgerItem.dueDate
+            ? new Date(ledgerItem.dueDate).getTime()
+            : new Date(year, m.monthNum - 1, 10).getTime();
+          status = monthDueTime < now.getTime() ? "DUE" : "PENDING";
         }
       } else if (matchedDemand) {
         demandId = matchedDemand.id;
         dueDate = matchedDemand.dueDate;
-        amountRupees = paiseToRupees(matchedDemand.grossAmountPaise || matchedDemand.netAmountPaise);
-        paidAmountPaise = matchedDemand.paidAmountPaise;
-        balanceAmountPaise = matchedDemand.balanceAmountPaise;
+        amountRupees =
+          paiseToRupees(matchedDemand.grossAmountPaise || matchedDemand.netAmountPaise) || monthlyTuitionRateRupees;
+        paidAmountPaise = matchedDemand.paidAmountPaise || 0;
 
-        if (matchedDemand.balanceAmountPaise <= 0 || matchedDemand.status === "PAID") {
+        const isActuallyPaid =
+          (matchedDemand.status === "PAID" && paidAmountPaise > 0) ||
+          (matchedDemand.balanceAmountPaise <= 0 && paidAmountPaise > 0);
+
+        if (isActuallyPaid) {
           status = "PAID";
-        } else if (new Date(matchedDemand.dueDate).getTime() < now.getTime()) {
-          status = "DUE";
+          balanceAmountPaise = 0;
         } else {
-          status = "PENDING";
+          balanceAmountPaise = matchedDemand.balanceAmountPaise || amountRupees * 100;
+          status = new Date(matchedDemand.dueDate).getTime() < now.getTime() ? "DUE" : "PENDING";
         }
       } else {
         // Virtual schedule based on calendar date
         const monthDueDate = new Date(year, m.monthNum - 1, 10);
         dueDate = monthDueDate.toISOString();
-
-        if (monthDueDate.getTime() < now.getTime()) {
-          status = "DUE";
-        } else {
-          status = "PENDING";
-        }
+        balanceAmountPaise = amountRupees * 100;
+        status = monthDueDate.getTime() < now.getTime() ? "DUE" : "PENDING";
       }
 
       return {
@@ -788,41 +820,72 @@ export default function AdminCollectFeePage() {
                   </div>
                 </div>
 
-                {/* View Switcher: Monthly View | Term View | Custom */}
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("monthly")}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                      viewMode === "monthly"
-                        ? "bg-blue-600 text-white shadow-md shadow-blue-600/25"
-                        : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
-                    }`}
-                  >
-                    Monthly View
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("term")}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                      viewMode === "term"
-                        ? "bg-blue-600 text-white shadow-md shadow-blue-600/25"
-                        : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
-                    }`}
-                  >
-                    Term View
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("custom")}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                      viewMode === "custom"
-                        ? "bg-blue-600 text-white shadow-md shadow-blue-600/25"
-                        : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
-                    }`}
-                  >
-                    Custom
-                  </button>
+                {/* View Switcher: Monthly View | Term View | Custom + Quick Selection Controls */}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("monthly")}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                        viewMode === "monthly"
+                          ? "bg-blue-600 text-white shadow-md shadow-blue-600/25"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
+                      }`}
+                    >
+                      Monthly View
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("term")}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                        viewMode === "term"
+                          ? "bg-blue-600 text-white shadow-md shadow-blue-600/25"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
+                      }`}
+                    >
+                      Term View
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("custom")}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                        viewMode === "custom"
+                          ? "bg-blue-600 text-white shadow-md shadow-blue-600/25"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
+                      }`}
+                    >
+                      Custom
+                    </button>
+                  </div>
+
+                  {/* Quick Month Selection Actions */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const unpaidDue = monthsStatusList.filter((m) => m.status === "DUE").map((m) => m.key);
+                        if (unpaidDue.length > 0) {
+                          setSelectedMonthKeys(unpaidDue);
+                        } else {
+                          const allUnpaid = monthsStatusList.filter((m) => m.status !== "PAID").map((m) => m.key);
+                          setSelectedMonthKeys(allUnpaid);
+                        }
+                        setIsAmountManuallyEdited(false);
+                      }}
+                      className="px-3 py-1.5 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30 hover:bg-blue-100 text-xs font-bold text-blue-700 dark:text-blue-300 transition-all"
+                    >
+                      Select All Due {dueMonthsCount > 0 ? `(${dueMonthsCount})` : ""}
+                    </button>
+                    {selectedMonthKeys.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={clearAllSelected}
+                        className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-xs font-bold text-slate-600 dark:text-slate-300 transition-all"
+                      >
+                        Clear Selection ({selectedMonthKeys.length})
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* OPTIONAL ADMISSION FEE CARD (As requested by user: admission fee bhi optional add kar dena) */}

@@ -176,7 +176,17 @@ export async function getFeeStructures(
     );
 
     if (academicYearId) {
-      list = list.filter((f) => f.academicYearId === academicYearId);
+      const filtered = list.filter((f) => {
+        if (!f.academicYearId || f.academicYearId === "all") return true;
+        if (f.academicYearId === academicYearId) return true;
+        const aNum = academicYearId.replace(/[^0-9]/g, "");
+        const fNum = f.academicYearId.replace(/[^0-9]/g, "");
+        if (aNum && fNum && aNum === fNum) return true;
+        return false;
+      });
+      if (filtered.length > 0) {
+        list = filtered;
+      }
     }
     list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return list;
@@ -636,10 +646,13 @@ export async function getStudentFeeSummary(
   let nextDueMonth: string | null = null;
 
   assignment.monthLedger.forEach((item) => {
-    if (
-      item.status === "PAID" ||
-      (item.pendingAmountPaise === 0 && item.amountPaise > 0)
-    ) {
+    const isActuallyPaid =
+      (item.paidAmountPaise > 0 && item.pendingAmountPaise <= 0) ||
+      (item.paidAmountPaise >= item.amountPaise && item.amountPaise > 0) ||
+      (Array.isArray(item.receiptNumbers) && item.receiptNumbers.length > 0) ||
+      (Array.isArray(item.paymentIds) && item.paymentIds.length > 0);
+
+    if (isActuallyPaid) {
       paidMonths.push(item.month);
       lastPaidMonth = item.month;
     } else {
@@ -766,16 +779,28 @@ export async function provisionStudentFeeAssignment(
     sectionName: string;
     admissionDate?: string;
   },
-  academicYearId: string = "ay_current"
+  academicYearId: string = "ay_current",
+  fallbackMonthlyFeeRupees?: number
 ): Promise<StudentFeeAssignment> {
   const [structures, settings] = await Promise.all([
     getFeeStructures(schoolId, academicYearId),
     getFeeSettings(schoolId),
   ]);
   const dueDay = settings?.feeDueDayOfMonth || 10;
-  const applicableStructures = structures.filter(
+  let applicableStructures = structures.filter(
     (s) => s.status === "ACTIVE" && matchesClass(s.className, student.className)
   );
+
+  // If no structures matched this specific session & class, check all structures for school
+  if (applicableStructures.length === 0) {
+    const allStructures = await getFeeStructures(schoolId);
+    applicableStructures = allStructures.filter(
+      (s) => s.status === "ACTIVE" && matchesClass(s.className, student.className)
+    );
+  }
+
+  // Check if student already has an existing assignment so we preserve real payments
+  const existingAssignment = await getStudentFeeAssignment(schoolId, student.id, academicYearId);
 
   const monthLedger: MonthLedgerItem[] = [];
   const startSessionYear =
@@ -788,6 +813,8 @@ export async function provisionStudentFeeAssignment(
     MONTH_NAMES.indexOf(configuredStartMonth) !== -1
       ? MONTH_NAMES.indexOf(configuredStartMonth)
       : 0;
+
+  const nowTime = Date.now();
 
   // Generate only months starting from the configured feeStartMonth
   MONTH_NAMES.forEach((m, idx) => {
@@ -811,22 +838,56 @@ export async function provisionStudentFeeAssignment(
       });
     }
 
-    monthLedger.push({
-      month: `${m} ${year}`,
-      dueDate,
-      amountPaise: monthAmountPaise,
-      paidAmountPaise: 0,
-      discountPaise: 0,
-      lateFeePaise: 0,
-      pendingAmountPaise: monthAmountPaise,
-      status: monthAmountPaise === 0 ? "PAID" : "PENDING",
-      paymentIds: [],
-      receiptNumbers: [],
-    });
+    if (monthAmountPaise === 0 && fallbackMonthlyFeeRupees && fallbackMonthlyFeeRupees > 0) {
+      monthAmountPaise = fallbackMonthlyFeeRupees * 100;
+    }
+
+    // Check if previously paid in existing ledger
+    const prevItem = existingAssignment?.monthLedger?.find((p) => p.month.toLowerCase().startsWith(m.toLowerCase()));
+    const hasPreviousPayment = prevItem && (
+      (prevItem.paidAmountPaise > 0 && prevItem.pendingAmountPaise <= 0) ||
+      (prevItem.paidAmountPaise >= monthAmountPaise && monthAmountPaise > 0) ||
+      (Array.isArray(prevItem.receiptNumbers) && prevItem.receiptNumbers.length > 0) ||
+      (Array.isArray(prevItem.paymentIds) && prevItem.paymentIds.length > 0)
+    );
+
+    if (hasPreviousPayment && prevItem) {
+      monthLedger.push({
+        ...prevItem,
+        dueDate,
+        amountPaise: prevItem.amountPaise > 0 ? prevItem.amountPaise : monthAmountPaise,
+        status: "PAID",
+      });
+    } else {
+      const isPastDue = new Date(dueDate).getTime() < nowTime;
+      const prevPaid = (prevItem && prevItem.paidAmountPaise) || 0;
+      const prevDiscount = (prevItem && prevItem.discountPaise) || 0;
+      const pendingPaise = Math.max(0, monthAmountPaise - prevPaid - prevDiscount);
+      monthLedger.push({
+        month: `${m} ${year}`,
+        dueDate,
+        amountPaise: monthAmountPaise,
+        paidAmountPaise: prevPaid,
+        discountPaise: prevDiscount,
+        lateFeePaise: (prevItem && prevItem.lateFeePaise) || 0,
+        pendingAmountPaise: pendingPaise,
+        status: isPastDue ? "OVERDUE" : "PENDING",
+        paymentIds: (prevItem && prevItem.paymentIds) || [],
+        receiptNumbers: (prevItem && prevItem.receiptNumbers) || [],
+      });
+    }
   });
 
   const totalAssignedPaise = monthLedger.reduce(
     (sum, item) => sum + item.amountPaise,
+    0
+  );
+  const totalPaidPaise = monthLedger.reduce(
+    (sum, item) => sum + item.paidAmountPaise,
+    0
+  );
+  const totalPendingPaise = monthLedger.reduce(
+    (sum, item) => sum + item.pendingAmountPaise,
     0
   );
 
@@ -843,13 +904,13 @@ export async function provisionStudentFeeAssignment(
       settings.academicSession || `${startSessionYear}-${startSessionYear + 1}`,
     feeStructureIds: applicableStructures.map((s) => s.id),
     totalAssignedPaise,
-    totalPaidPaise: 0,
+    totalPaidPaise,
     totalDiscountPaise: 0,
     totalLateFeePaise: 0,
-    totalPendingPaise: totalAssignedPaise,
+    totalPendingPaise,
     monthLedger,
-    status: totalAssignedPaise === 0 ? "PAID" : "PENDING",
-    lastPaymentDate: null,
+    status: totalPendingPaise === 0 && totalAssignedPaise > 0 ? "PAID" : "PENDING",
+    lastPaymentDate: existingAssignment?.lastPaymentDate || null,
     updatedAt: new Date().toISOString(),
   };
 
@@ -872,7 +933,8 @@ export async function provisionStudentFeeAssignment(
 export async function reconcileStudentFeeLedger(
   schoolId: string,
   studentId: string,
-  academicYearId: string = "ay_current"
+  academicYearId: string = "ay_current",
+  fallbackMonthlyFeeRupees?: number
 ): Promise<StudentFeeAssignment | null> {
   const db = getFirebaseDb();
   if (!db) return null;
@@ -888,11 +950,14 @@ export async function reconcileStudentFeeLedger(
     getFeeSettings(schoolId),
   ]);
 
-  const applicableStructures = structures.filter(
+  let applicableStructures = structures.filter(
     (s) => s.status === "ACTIVE" && matchesClass(s.className, current.className)
   );
   if (applicableStructures.length === 0) {
-    return current;
+    const allStructures = await getFeeStructures(schoolId);
+    applicableStructures = allStructures.filter(
+      (s) => s.status === "ACTIVE" && matchesClass(s.className, current.className)
+    );
   }
 
   let monthlyPaise = 0;
@@ -900,6 +965,11 @@ export async function reconcileStudentFeeLedger(
     if (s.frequency === "monthly") monthlyPaise += s.amountPaise;
   });
 
+  if (monthlyPaise === 0 && fallbackMonthlyFeeRupees && fallbackMonthlyFeeRupees > 0) {
+    monthlyPaise = fallbackMonthlyFeeRupees * 100;
+  }
+
+  const nowTime = Date.now();
   let hasModifications = false;
   const updatedLedger = current.monthLedger.map((item) => {
     // 1. Never overwrite if manually adjusted by School Admin
@@ -912,17 +982,23 @@ export async function reconcileStudentFeeLedger(
     ) {
       return item;
     }
-    // 3. If month was previously generated with 0 rate, update to the active fee rate
-    if (item.amountPaise === 0 && monthlyPaise > 0) {
+    // 3. If month was previously generated with 0 rate, or falsely marked PAID with no payment
+    const isFalsePaid = item.status === "PAID" && item.paidAmountPaise === 0 && (!item.receiptNumbers || item.receiptNumbers.length === 0);
+    if ((item.amountPaise === 0 && monthlyPaise > 0) || isFalsePaid) {
       hasModifications = true;
+      const rate = monthlyPaise > 0 ? monthlyPaise : item.amountPaise;
       const discount = item.discountPaise || 0;
-      const pending = Math.max(0, monthlyPaise - discount);
+      const pending = Math.max(0, rate - discount);
+      const isPastDue = new Date(item.dueDate).getTime() < nowTime;
       return {
         ...item,
-        amountPaise: monthlyPaise,
+        amountPaise: rate,
         pendingAmountPaise: pending,
+        paidAmountPaise: 0,
         status: (pending === 0
           ? "PAID"
+          : isPastDue
+          ? "OVERDUE"
           : "PENDING") as MonthLedgerItem["status"],
       };
     }
