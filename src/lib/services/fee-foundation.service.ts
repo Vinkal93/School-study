@@ -437,8 +437,78 @@ export async function generateStudentFeeDemands(
   const db = getFirebaseDb();
   if (!db) return [];
 
-  const structures = await getStudentApplicableFeeStructures(schoolId, student.id, academicYearId);
-  if (structures.length === 0) return [];
+  let structures = await getStudentApplicableFeeStructures(schoolId, student.id, academicYearId);
+  if (structures.length === 0) {
+    try {
+      const qAllActive = query(
+        collection(db, "feeStructures"),
+        where("schoolId", "==", schoolId),
+        where("status", "==", "ACTIVE")
+      );
+      const snap = await getDocs(qAllActive);
+      const normClass = normalizeClassKey(student.className);
+      for (const d of snap.docs) {
+        const s = d.data() as any;
+        const sClass = normalizeClassKey(s.className);
+        if (sClass === "all" || sClass === "any" || sClass === normClass) {
+          structures.push({ id: d.id, ...s } as FeeStructureDefinition);
+        }
+      }
+    } catch (e) {
+      console.warn("Fee structure fallback search error:", e);
+    }
+  }
+
+  // If no structures are configured yet for this school/class, provide standard defaults
+  if (structures.length === 0) {
+    const normClass = normalizeClassKey(student.className || "Class");
+    structures = [
+      {
+        id: `fs_${schoolId}_${normClass}_tuition`,
+        schoolId,
+        academicYearId,
+        academicYearName,
+        feeHeadId: "fh_tuition",
+        feeHeadName: "Tuition Fee",
+        className: student.className || "All Classes",
+        sectionName: "all",
+        title: "Tuition Fee",
+        amountPaise: 50000, // ₹500/month default
+        frequency: "monthly",
+        dueDayOfMonth: 10,
+        applicableMonths: SESSION_MONTHS,
+        gracePeriodDays: 5,
+        lateFeeRule: { enabled: false, gracePeriodDays: 5, type: "FIXED", amountPaise: 0, maxLimitPaise: 50000 },
+        version: 1,
+        status: "ACTIVE",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        createdBy: actorId,
+      },
+      {
+        id: `fs_${schoolId}_${normClass}_admission`,
+        schoolId,
+        academicYearId,
+        academicYearName,
+        feeHeadId: "fh_admission",
+        feeHeadName: "Admission Fee",
+        className: student.className || "All Classes",
+        sectionName: "all",
+        title: "Admission Fee",
+        amountPaise: 100000, // ₹1,000 one-time admission fee
+        frequency: "one_time",
+        dueDayOfMonth: 10,
+        applicableMonths: [`Admission ${academicYearName}`],
+        gracePeriodDays: 5,
+        lateFeeRule: { enabled: false, gracePeriodDays: 5, type: "FIXED", amountPaise: 0, maxLimitPaise: 50000 },
+        version: 1,
+        status: "ACTIVE",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        createdBy: actorId,
+      },
+    ];
+  }
 
   const generatedDemands: FeeDemand[] = [];
   const startSessionYear = parseInt(academicYearName.slice(0, 4)) || new Date().getFullYear();

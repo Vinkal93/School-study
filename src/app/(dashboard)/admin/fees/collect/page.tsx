@@ -1,42 +1,89 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
 import { FeeReceiptModal } from "@/components/fees/FeeReceiptModal";
 import { getStudents } from "@/lib/services/student.service";
+import { getAcademicYears } from "@/lib/services/academic.service";
+import { getFeeTransactions } from "@/lib/services/fee.service";
 import { formatINR, paiseToRupees } from "@/lib/services/fee-foundation.service";
 import {
-  CreditCard,
-  User,
-  Calendar,
-  CheckCircle2,
-  AlertCircle,
-  Loader2,
-  Search,
-  ChevronDown,
-  Check,
-  UserCheck,
-  X,
-  GraduationCap,
-  Clock,
-  Sparkles,
-  RefreshCw,
-  Layers,
-  ArrowRight,
   Receipt,
-  FileText,
-  AlertTriangle,
+  Check,
+  CheckCircle2,
+  Clock,
+  ArrowLeft,
+  Calendar,
+  CreditCard,
+  Banknote,
+  QrCode,
   Building2,
-  DollarSign,
+  BookOpen,
+  MoreHorizontal,
+  AlertCircle,
   ShieldCheck,
+  Search,
+  RefreshCw,
+  FileText,
+  X,
+  ChevronDown,
+  User,
+  Sparkles,
+  RotateCcw,
+  FileSpreadsheet,
+  Zap,
+  Loader2,
+  Printer,
 } from "lucide-react";
-import type { StudentProfile, FeePayment } from "@/types";
-import type { FeeDemand, PaymentMethod, PaymentAllocation, FinancialPayment } from "@/types/fee-foundation";
+import type { StudentProfile, FeePayment, AcademicYear } from "@/types";
+import type {
+  FeeDemand,
+  PaymentMethod,
+  FinancialPayment,
+  FeeStructureDefinition,
+} from "@/types/fee-foundation";
 import { toast } from "sonner";
 
+// 12 Academic Session Months (April to March)
+const SESSION_MONTHS = [
+  { key: "apr", name: "April", monthNum: 4, yearOffset: 0 },
+  { key: "may", name: "May", monthNum: 5, yearOffset: 0 },
+  { key: "jun", name: "June", monthNum: 6, yearOffset: 0 },
+  { key: "jul", name: "July", monthNum: 7, yearOffset: 0 },
+  { key: "aug", name: "August", monthNum: 8, yearOffset: 0 },
+  { key: "sep", name: "September", monthNum: 9, yearOffset: 0 },
+  { key: "oct", name: "October", monthNum: 10, yearOffset: 0 },
+  { key: "nov", name: "November", monthNum: 11, yearOffset: 0 },
+  { key: "dec", name: "December", monthNum: 12, yearOffset: 0 },
+  { key: "jan", name: "January", monthNum: 1, yearOffset: 1 },
+  { key: "feb", name: "February", monthNum: 2, yearOffset: 1 },
+  { key: "mar", name: "March", monthNum: 3, yearOffset: 1 },
+];
+
+type ViewMode = "monthly" | "term" | "custom";
+type PaymentMethodTab = "CASH" | "UPI" | "BANK_TRANSFER" | "CHEQUE" | "CARD" | "OTHER";
+type DiscountType = "NONE" | "FLAT" | "PERCENTAGE";
+
+interface MonthStatusItem {
+  key: string;
+  name: string;
+  periodLabel: string;
+  amountRupees: number;
+  status: "PAID" | "DUE" | "PENDING";
+  demandId?: string;
+  dueDate?: string;
+  paidAmountPaise?: number;
+  balanceAmountPaise?: number;
+}
+
 export default function AdminCollectFeePage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const studentIdParam = searchParams?.get("studentId") || "";
+
   const { profile } = useAuth();
   const effectiveSchoolId =
     profile?.schoolId ||
@@ -44,121 +91,251 @@ export default function AdminCollectFeePage() {
       ? localStorage.getItem("currentSchoolId") || ""
       : "");
   const schoolId = effectiveSchoolId;
-  const schoolName = (profile as any)?.schoolName || "Lord Buddha Public School";
 
-  const searchParams = useSearchParams();
-  const studentIdParam = searchParams?.get("studentId") || "";
+  // Session & Academic Years
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
+  const [activeSession, setActiveSession] = useState("2026-27");
+  const [activeSessionId, setActiveSessionId] = useState("ay_2026_27");
 
-  // Students Search state
+  // Students list & Selection
   const [studentsList, setStudentsList] = useState<StudentProfile[]>([]);
   const [loadingStudents, setLoadingStudents] = useState(false);
-  const [studentSearch, setStudentSearch] = useState("");
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<StudentProfile | null>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [studentSearch, setStudentSearch] = useState("");
+  const [showStudentModal, setShowStudentModal] = useState(false);
 
-  // Demands state
+  // Demands & Class Fee Structures
   const [demands, setDemands] = useState<FeeDemand[]>([]);
+  const [classStructures, setClassStructures] = useState<FeeStructureDefinition[]>([]);
   const [loadingDemands, setLoadingDemands] = useState(false);
-  const [selectedDemandIds, setSelectedDemandIds] = useState<string[]>([]);
 
-  // Payment Form state
-  const [amountPaidRupees, setAmountPaidRupees] = useState<string>("");
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
+  // Fee rates auto-assigned for this student
+  const [monthlyTuitionRateRupees, setMonthlyTuitionRateRupees] = useState<number>(500);
+  const [admissionFeeRateRupees, setAdmissionFeeRateRupees] = useState<number>(1000);
+  const [includeAdmissionFee, setIncludeAdmissionFee] = useState<boolean>(false);
+  const [admissionFeePaid, setAdmissionFeePaid] = useState<boolean>(false);
+  const [admissionFeeDemandId, setAdmissionFeeDemandId] = useState<string | null>(null);
+
+  // View switch: Monthly, Term, Custom
+  const [viewMode, setViewMode] = useState<ViewMode>("monthly");
+
+  // Months selection
+  const [selectedMonthKeys, setSelectedMonthKeys] = useState<string[]>([]);
+
+  // Fee Details & Discounts
+  const [selectedFeeHead, setSelectedFeeHead] = useState<string>("tuition");
+  const [discountType, setDiscountType] = useState<DiscountType>("NONE");
+  const [discountValue, setDiscountValue] = useState<string>("0");
+  const [lateFeeAmountRupees, setLateFeeAmountRupees] = useState<number>(0);
+
+  // Payment Method & Details
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodTab>("CASH");
+  const [receivedAmount, setReceivedAmount] = useState<string>("500");
+  const [isAmountManuallyEdited, setIsAmountManuallyEdited] = useState(false);
   const [referenceNumber, setReferenceNumber] = useState("");
+  const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [remarks, setRemarks] = useState("");
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
 
-  // Confirmation & Processing state
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  // Modals
   const [submitting, setSubmitting] = useState(false);
-
-  // Receipt Modal state
-  const [issuedPayment, setIssuedPayment] = useState<FeePayment | null>(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [issuedPayment, setIssuedPayment] = useState<FeePayment | null>(null);
+  const [showRecentModal, setShowRecentModal] = useState(false);
+  const [recentPayments, setRecentPayments] = useState<FeePayment[]>([]);
+  const [loadingRecent, setLoadingRecent] = useState(false);
 
-  // Load students for school
+  // 1. Load initial academic years and students
   useEffect(() => {
     if (!schoolId) return;
     setLoadingStudents(true);
-    getStudents(schoolId)
-      .then((data) => {
-        setStudentsList(data);
-        if (studentIdParam && data.length > 0) {
-          const target = data.find(
-            (s) => s.id === studentIdParam || s.studentId === studentIdParam || s.admissionNumber === studentIdParam
+
+    Promise.all([
+      getStudents(schoolId).catch(() => []),
+      getAcademicYears(schoolId).catch(() => []),
+    ])
+      .then(([students, years]) => {
+        setStudentsList(students);
+        if (years && years.length > 0) {
+          setAcademicYears(years);
+          const current = years.find((y) => y.isCurrent) || years[0];
+          setActiveSession(current.name || "2026-27");
+          setActiveSessionId(current.id || "ay_2026_27");
+        }
+
+        // If studentId param is passed, preselect that student!
+        if (studentIdParam && students.length > 0) {
+          const target = students.find(
+            (s) =>
+              s.id === studentIdParam ||
+              s.studentId === studentIdParam ||
+              s.admissionNumber === studentIdParam
           );
           if (target) {
-            setSelectedStudent(target);
-            fetchStudentDemands(target);
+            handleSelectStudent(target);
           }
         }
       })
       .catch((err) => {
-        console.error("Error loading students:", err);
-        toast.error("Failed to load students list.");
+        console.error("Initial load error:", err);
       })
       .finally(() => setLoadingStudents(false));
   }, [schoolId, studentIdParam]);
 
-  // Close student search dropdown on outside click
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  // Load Recent Collections
+  const loadRecentCollections = async () => {
+    if (!schoolId) return;
+    setLoadingRecent(true);
+    setShowRecentModal(true);
+    try {
+      const txs = await getFeeTransactions(schoolId);
+      setRecentPayments(txs.slice(0, 20));
+    } catch (err) {
+      console.error("Failed to load recent collections:", err);
+      toast.error("Failed to load recent collections.");
+    } finally {
+      setLoadingRecent(false);
+    }
+  };
 
-  // Filter students based on search query
-  const filteredStudents = useMemo(() => {
-    if (!studentSearch.trim()) return studentsList.slice(0, 15);
-    const q = studentSearch.toLowerCase().trim();
-    return studentsList
-      .filter(
-        (s) =>
-          String(s.name || "").toLowerCase().includes(q) ||
-          String(s.admissionNumber || "").toLowerCase().includes(q) ||
-          String(s.studentId || "").toLowerCase().includes(q) ||
-          (s.rollNumber !== undefined && s.rollNumber !== null && String(s.rollNumber) === q) ||
-          String(s.className || "").toLowerCase().includes(q) ||
-          String(s.fatherName || s.guardianName || "").toLowerCase().includes(q) ||
-          String(s.phone || "").toLowerCase().includes(q)
-      )
-      .slice(0, 20);
-  }, [studentsList, studentSearch]);
-
-  // Fetch student demands when a student is selected
-  const fetchStudentDemands = async (student: StudentProfile) => {
+  // 2. Fetch or auto-assign student's class fee structures and demands
+  const loadStudentFeeSchedule = async (student: StudentProfile, sessionId?: string) => {
     if (!schoolId || !student?.id) return;
     setLoadingDemands(true);
-    setSelectedDemandIds([]);
+    setSelectedMonthKeys([]);
+    setIncludeAdmissionFee(false);
+    setIsAmountManuallyEdited(false);
+
+    const targetSessionId = sessionId || activeSessionId;
+
     try {
+      // Step A: Load active fee structures for this school & class
+      let monthlyRate = 500;
+      let admissionRate = 1000;
+
+      try {
+        const structRes = await fetch(
+          `/api/fees/foundation/structures?schoolId=${encodeURIComponent(
+            schoolId
+          )}&className=${encodeURIComponent(student.className || "all")}`
+        );
+        if (structRes.ok) {
+          const structJson = await structRes.json();
+          const list: FeeStructureDefinition[] = structJson.structures || [];
+          setClassStructures(list);
+
+          // Find monthly tuition structure
+          const tuitionStruct = list.find(
+            (s) =>
+              s.frequency === "monthly" ||
+              s.feeHeadName?.toLowerCase().includes("tuition") ||
+              s.title?.toLowerCase().includes("tuition")
+          );
+          if (tuitionStruct && tuitionStruct.amountPaise) {
+            monthlyRate = paiseToRupees(tuitionStruct.amountPaise);
+          }
+
+          // Find admission structure
+          const admissionStruct = list.find(
+            (s) =>
+              s.frequency === "one_time" ||
+              s.feeHeadName?.toLowerCase().includes("admission") ||
+              s.title?.toLowerCase().includes("admission")
+          );
+          if (admissionStruct && admissionStruct.amountPaise) {
+            admissionRate = paiseToRupees(admissionStruct.amountPaise);
+          }
+        }
+      } catch (err) {
+        console.warn("Could not fetch class structures, using defaults:", err);
+      }
+
+      setMonthlyTuitionRateRupees(monthlyRate);
+      setAdmissionFeeRateRupees(admissionRate);
+
+      // Step B: Fetch student demands
+      let studentDemands: FeeDemand[] = [];
       const res = await fetch(
-        `/api/fees/foundation/student-summary?schoolId=${encodeURIComponent(schoolId)}&studentId=${encodeURIComponent(
-          student.id
-        )}&academicYearId=all`
+        `/api/fees/foundation/student-summary?schoolId=${encodeURIComponent(
+          schoolId
+        )}&studentId=${encodeURIComponent(student.id)}&academicYearId=${encodeURIComponent(
+          targetSessionId
+        )}`
       );
-      if (!res.ok) throw new Error("Failed to fetch student fee demands");
-      const json = await res.json();
-      const allDemands: FeeDemand[] = json.summary?.recentDemands || [];
-      // Sort demands: oldest due date first
-      allDemands.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
-      setDemands(allDemands);
 
-      // By default, select all unpaid demands
-      const unpaid = allDemands.filter((d) => d.balanceAmountPaise > 0);
-      const defaultSelectedIds = unpaid.map((d) => d.id);
-      setSelectedDemandIds(defaultSelectedIds);
+      if (res.ok) {
+        const json = await res.json();
+        studentDemands = json.summary?.recentDemands || [];
+      }
 
-      // Default amount is the total balance of selected demands
-      const totalDueRupees = unpaid.reduce((sum, d) => sum + paiseToRupees(d.balanceAmountPaise), 0);
-      setAmountPaidRupees(totalDueRupees > 0 ? String(totalDueRupees) : "0");
+      // If demands don't exist yet, generate them lazily
+      if (studentDemands.length === 0) {
+        try {
+          const genRes = await fetch("/api/fees/foundation/demands/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              schoolId,
+              studentId: student.id,
+              studentName: student.name,
+              admissionNumber: student.admissionNumber || student.id,
+              className: student.className,
+              sectionName: student.sectionName || "A",
+              academicYearId: targetSessionId,
+              academicYearName: activeSession,
+            }),
+          });
+          if (genRes.ok) {
+            const genJson = await genRes.json();
+            studentDemands = genJson.demands || [];
+          }
+        } catch (genErr) {
+          console.warn("Demand auto-generation note:", genErr);
+        }
+      }
+
+      setDemands(studentDemands);
+
+      // Check admission fee demand status
+      const admDemand = studentDemands.find((d) =>
+        d.feeHeadName?.toLowerCase().includes("admission") ||
+        d.period?.toLowerCase().includes("admission")
+      );
+      if (admDemand) {
+        setAdmissionFeeDemandId(admDemand.id);
+        setAdmissionFeePaid(admDemand.balanceAmountPaise <= 0);
+      } else {
+        setAdmissionFeeDemandId(null);
+        setAdmissionFeePaid(false);
+      }
+
+      // Step C: Auto-select initial unpaid due month
+      // Map current month key
+      const now = new Date();
+      const currentMonthIndex = now.getMonth(); // 0-based: 0=Jan, 3=Apr, 8=Sep
+      const currentCalYear = now.getFullYear();
+
+      // Find first month that is DUE or PENDING
+      const firstDueMonth = SESSION_MONTHS.find((m) => {
+        const matchingDemand = studentDemands.find(
+          (d) =>
+            d.period?.toLowerCase().includes(m.name.toLowerCase()) ||
+            d.period?.toLowerCase().includes(m.key)
+        );
+        if (matchingDemand) {
+          return matchingDemand.balanceAmountPaise > 0;
+        }
+        // Default: if past or present, it's due
+        return true;
+      });
+
+      if (firstDueMonth) {
+        setSelectedMonthKeys([firstDueMonth.key]);
+      } else {
+        setSelectedMonthKeys(["sep"]); // Default September as in user mockup
+      }
     } catch (err: any) {
-      console.error("fetchStudentDemands error:", err);
-      toast.error(err.message || "Failed to load student dues.");
+      console.error("loadStudentFeeSchedule error:", err);
+      toast.error(err.message || "Failed to load fee schedule.");
     } finally {
       setLoadingDemands(false);
     }
@@ -166,139 +343,243 @@ export default function AdminCollectFeePage() {
 
   const handleSelectStudent = (student: StudentProfile) => {
     setSelectedStudent(student);
-    setIsDropdownOpen(false);
+    setShowStudentModal(false);
     setStudentSearch("");
-    fetchStudentDemands(student);
+    loadStudentFeeSchedule(student);
   };
 
-  // Toggle selection of individual demand
-  const toggleDemandSelection = (demandId: string) => {
-    setSelectedDemandIds((prev) => {
-      const updated = prev.includes(demandId)
-        ? prev.filter((id) => id !== demandId)
-        : [...prev, demandId];
+  // 3. Compute 12 Months Status Array
+  const startSessionYear = parseInt(activeSession.slice(0, 4)) || 2026;
+  const now = new Date();
 
-      // Auto update amount based on new selection
-      const totalSelectedBalance = demands
-        .filter((d) => updated.includes(d.id))
-        .reduce((sum, d) => sum + paiseToRupees(d.balanceAmountPaise), 0);
-      setAmountPaidRupees(String(totalSelectedBalance));
+  const monthsStatusList: MonthStatusItem[] = useMemo(() => {
+    return SESSION_MONTHS.map((m, idx) => {
+      const year = startSessionYear + m.yearOffset;
+      const periodLabel = `${m.name} ${year}`;
 
-      return updated;
+      // Check if existing demand matches this month
+      const matchedDemand = demands.find(
+        (d) =>
+          d.period?.toLowerCase().includes(m.name.toLowerCase()) ||
+          d.period?.toLowerCase().includes(m.key)
+      );
+
+      let status: "PAID" | "DUE" | "PENDING" = "PENDING";
+      let amountRupees = monthlyTuitionRateRupees;
+      let demandId: string | undefined = undefined;
+      let dueDate: string | undefined = undefined;
+      let paidAmountPaise = 0;
+      let balanceAmountPaise = monthlyTuitionRateRupees * 100;
+
+      if (matchedDemand) {
+        demandId = matchedDemand.id;
+        dueDate = matchedDemand.dueDate;
+        amountRupees = paiseToRupees(matchedDemand.grossAmountPaise || matchedDemand.netAmountPaise);
+        paidAmountPaise = matchedDemand.paidAmountPaise;
+        balanceAmountPaise = matchedDemand.balanceAmountPaise;
+
+        if (matchedDemand.balanceAmountPaise <= 0 || matchedDemand.status === "PAID") {
+          status = "PAID";
+        } else if (new Date(matchedDemand.dueDate).getTime() < now.getTime()) {
+          status = "DUE";
+        } else {
+          status = "PENDING";
+        }
+      } else {
+        // Virtual schedule based on calendar date
+        // Months up to the current active month in session
+        const monthDueDate = new Date(year, m.monthNum - 1, 10);
+        dueDate = monthDueDate.toISOString();
+
+        if (monthDueDate.getTime() < now.getTime()) {
+          status = "DUE";
+        } else {
+          status = "PENDING";
+        }
+      }
+
+      return {
+        key: m.key,
+        name: m.name,
+        periodLabel,
+        amountRupees,
+        status,
+        demandId,
+        dueDate,
+        paidAmountPaise,
+        balanceAmountPaise,
+      };
     });
-  };
+  }, [demands, startSessionYear, monthlyTuitionRateRupees]);
 
-  // Select all unpaid demands
-  const selectAllUnpaid = () => {
-    const unpaid = demands.filter((d) => d.balanceAmountPaise > 0);
-    setSelectedDemandIds(unpaid.map((d) => d.id));
-    const total = unpaid.reduce((sum, d) => sum + paiseToRupees(d.balanceAmountPaise), 0);
-    setAmountPaidRupees(String(total));
-  };
+  // Months due count for badge
+  const dueMonthsCount = useMemo(() => {
+    return monthsStatusList.filter((m) => m.status === "DUE").length;
+  }, [monthsStatusList]);
 
-  // Clear all selections
-  const clearSelection = () => {
-    setSelectedDemandIds([]);
-    setAmountPaidRupees("0");
-  };
-
-  // Compute live allocation plan preview based on entered amount
-  const allocationPlan = useMemo(() => {
-    const enteredPaise = Math.round(Number(amountPaidRupees || 0) * 100);
-    if (enteredPaise <= 0) return [];
-
-    const candidateDemands = demands.filter(
-      (d) => selectedDemandIds.includes(d.id) && d.balanceAmountPaise > 0
-    );
-
-    let unallocated = enteredPaise;
-    const plan: Array<{
-      demand: FeeDemand;
-      allocatedRupees: number;
-      remainingBalanceRupees: number;
-      willBePaid: boolean;
-    }> = [];
-
-    for (const d of candidateDemands) {
-      if (unallocated <= 0) break;
-      const needed = d.balanceAmountPaise;
-      const allocated = Math.min(needed, unallocated);
-      unallocated -= allocated;
-
-      plan.push({
-        demand: d,
-        allocatedRupees: paiseToRupees(allocated),
-        remainingBalanceRupees: paiseToRupees(Math.max(0, needed - allocated)),
-        willBePaid: needed - allocated <= 0,
-      });
+  // Toggle single month selection
+  const toggleMonth = (monthKey: string) => {
+    const monthItem = monthsStatusList.find((m) => m.key === monthKey);
+    if (monthItem?.status === "PAID") {
+      toast.info(`${monthItem.name} fee is already paid!`);
+      return;
     }
 
-    return plan;
-  }, [amountPaidRupees, demands, selectedDemandIds]);
+    setSelectedMonthKeys((prev) => {
+      const exists = prev.includes(monthKey);
+      const next = exists ? prev.filter((k) => k !== monthKey) : [...prev, monthKey];
+      return next;
+    });
+    setIsAmountManuallyEdited(false);
+  };
 
-  // Overall student stats
-  const totalStudentBalanceRupees = useMemo(() => {
-    return demands.reduce((sum, d) => sum + paiseToRupees(d.balanceAmountPaise), 0);
-  }, [demands]);
+  // Select Term (Quarter)
+  const selectTerm = (quarterIdx: number) => {
+    const termMonths = [
+      ["apr", "may", "jun"],
+      ["jul", "aug", "sep"],
+      ["oct", "nov", "dec"],
+      ["jan", "feb", "mar"],
+    ][quarterIdx];
 
-  const totalSelectedBalanceRupees = useMemo(() => {
-    return demands
-      .filter((d) => selectedDemandIds.includes(d.id))
-      .reduce((sum, d) => sum + paiseToRupees(d.balanceAmountPaise), 0);
-  }, [demands, selectedDemandIds]);
+    if (!termMonths) return;
 
-  // Handle Form Submission Pre-check
-  const handleInitiatePayment = (e: React.FormEvent) => {
-    e.preventDefault();
+    setSelectedMonthKeys((prev) => {
+      const unpaidKeys = termMonths.filter(
+        (k) => monthsStatusList.find((m) => m.key === k)?.status !== "PAID"
+      );
+      // Toggle
+      const allSelected = unpaidKeys.every((k) => prev.includes(k));
+      if (allSelected) {
+        return prev.filter((k) => !termMonths.includes(k));
+      } else {
+        return Array.from(new Set([...prev, ...unpaidKeys]));
+      }
+    });
+    setIsAmountManuallyEdited(false);
+  };
+
+  // Clear all selected months
+  const clearAllSelected = () => {
+    setSelectedMonthKeys([]);
+    setIncludeAdmissionFee(false);
+    setIsAmountManuallyEdited(false);
+  };
+
+  // 4. Financial Calculations
+  const calculatedFeeAmount = useMemo(() => {
+    let total = 0;
+    for (const key of selectedMonthKeys) {
+      const m = monthsStatusList.find((item) => item.key === key);
+      total += m ? m.amountRupees : monthlyTuitionRateRupees;
+    }
+    if (includeAdmissionFee && !admissionFeePaid) {
+      total += admissionFeeRateRupees;
+    }
+    return total;
+  }, [selectedMonthKeys, monthsStatusList, monthlyTuitionRateRupees, includeAdmissionFee, admissionFeePaid, admissionFeeRateRupees]);
+
+  const calculatedDiscount = useMemo(() => {
+    const val = Number(discountValue) || 0;
+    if (discountType === "FLAT") {
+      return Math.min(val, calculatedFeeAmount);
+    }
+    if (discountType === "PERCENTAGE") {
+      return Math.round((calculatedFeeAmount * Math.min(val, 100)) / 100);
+    }
+    return 0;
+  }, [discountType, discountValue, calculatedFeeAmount]);
+
+  const totalPayable = useMemo(() => {
+    return Math.max(0, calculatedFeeAmount - calculatedDiscount + lateFeeAmountRupees);
+  }, [calculatedFeeAmount, calculatedDiscount, lateFeeAmountRupees]);
+
+  // Keep Received Amount in sync with Total Payable unless user manually modified it
+  useEffect(() => {
+    if (!isAmountManuallyEdited) {
+      setReceivedAmount(String(totalPayable));
+    }
+  }, [totalPayable, isAmountManuallyEdited]);
+
+  // Reset form
+  const handleResetForm = () => {
+    setSelectedMonthKeys(["sep"]);
+    setIncludeAdmissionFee(false);
+    setDiscountType("NONE");
+    setDiscountValue("0");
+    setLateFeeAmountRupees(0);
+    setPaymentMethod("CASH");
+    setReferenceNumber("");
+    setRemarks("");
+    setIsAmountManuallyEdited(false);
+    toast.info("Form reset to default.");
+  };
+
+  // 5. Submit Payment & Generate Receipt
+  const handleCollectFee = async () => {
     if (!selectedStudent) {
-      toast.error("Please search and select a student first.");
+      toast.error("Please select a student first.");
+      setShowStudentModal(true);
       return;
     }
-    const numAmount = Number(amountPaidRupees);
-    if (isNaN(numAmount) || numAmount <= 0) {
-      toast.error("Please enter a valid payment amount greater than ₹0.");
+
+    if (selectedMonthKeys.length === 0 && !includeAdmissionFee) {
+      toast.error("Please select at least one month or admission fee to collect.");
       return;
     }
-    if (selectedDemandIds.length === 0) {
-      toast.error("Please select at least one fee demand to pay.");
+
+    const payAmount = Number(receivedAmount);
+    if (isNaN(payAmount) || payAmount <= 0) {
+      toast.error("Please enter a valid received amount greater than ₹0.");
       return;
     }
+
     if (paymentMethod === "UPI" && !referenceNumber.trim()) {
-      toast.error("Please enter UTR / Transaction reference for UPI payment.");
+      toast.error("Please enter UTR / Reference number for UPI payment.");
       return;
     }
+
     if (paymentMethod === "CHEQUE" && !referenceNumber.trim()) {
       toast.error("Please enter Cheque Number & Bank name.");
       return;
     }
-    setShowConfirmModal(true);
-  };
-
-  // Submit payment to server
-  const handleConfirmAndCollect = async () => {
-    if (!selectedStudent || !schoolId) return;
 
     setSubmitting(true);
-    // Deterministic idempotency key for this payment action
-    const idempotencyKey = `pay_client_${schoolId}_${selectedStudent.id}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const idempotencyKey = `pay_${schoolId}_${selectedStudent.id}_${Date.now()}_${Math.random()
+      .toString(36)
+      .substring(2, 6)}`;
 
     try {
+      // Find demand IDs corresponding to selected months
+      const targetDemandIds: string[] = [];
+      for (const k of selectedMonthKeys) {
+        const item = monthsStatusList.find((m) => m.key === k);
+        if (item?.demandId) {
+          targetDemandIds.push(item.demandId);
+        }
+      }
+      if (includeAdmissionFee && admissionFeeDemandId) {
+        targetDemandIds.push(admissionFeeDemandId);
+      }
+
       const payload = {
         schoolId,
         studentId: selectedStudent.id,
         studentName: selectedStudent.name,
         admissionNumber: selectedStudent.admissionNumber || selectedStudent.id,
-        className: selectedStudent.className || "",
+        className: selectedStudent.className || "Class",
         sectionName: selectedStudent.sectionName || "A",
-        academicYearId:
-          demands.find((d) => selectedDemandIds.includes(d.id))?.academicYearId ||
-          (selectedStudent as any).academicYearId ||
-          "all",
-        amountPaidRupees: Number(amountPaidRupees),
+        academicYearId: activeSessionId,
+        amountPaidRupees: payAmount,
         paymentMethod,
-        targetDemandIds: selectedDemandIds,
+        targetDemandIds: targetDemandIds.length > 0 ? targetDemandIds : undefined,
         referenceNumber: referenceNumber.trim(),
-        remarks: remarks.trim(),
+        remarks:
+          remarks.trim() ||
+          `Fee Collection for ${selectedMonthKeys
+            .map((k) => monthsStatusList.find((m) => m.key === k)?.name)
+            .filter(Boolean)
+            .join(", ")}${includeAdmissionFee ? " + Admission Fee" : ""}`,
         paymentDate: paymentDate || new Date().toISOString(),
         idempotencyKey,
       };
@@ -315,9 +596,8 @@ export default function AdminCollectFeePage() {
       }
 
       toast.success(`Fee collected successfully! Receipt #${json.receiptNumber}`);
-      setShowConfirmModal(false);
 
-      // Prepare data for FeeReceiptModal
+      // Prepare receipt data
       const payment: FinancialPayment = json.payment;
       const receiptModalData: FeePayment = {
         id: payment.id,
@@ -330,10 +610,10 @@ export default function AdminCollectFeePage() {
         sectionName: payment.sectionName,
         academicYearId: payment.academicYearId,
         feeType: "tuition",
-        periodMonths: payment.periodMonths || [],
+        periodMonths: payment.periodMonths || selectedMonthKeys.map((k) => monthsStatusList.find((m) => m.key === k)?.periodLabel || k),
         amountPaidPaise: payment.amountPaise,
-        discountPaise: 0,
-        lateFeePaise: 0,
+        discountPaise: calculatedDiscount * 100,
+        lateFeePaise: lateFeeAmountRupees * 100,
         netAmountPaise: payment.amountPaise,
         paymentMethod: (payment.paymentMethod === "CASH"
           ? "Cash"
@@ -359,540 +639,934 @@ export default function AdminCollectFeePage() {
       setIssuedPayment(receiptModalData);
       setShowReceiptModal(true);
 
-      // Refresh student demands
-      fetchStudentDemands(selectedStudent);
+      // Refresh student fee schedule
+      loadStudentFeeSchedule(selectedStudent);
     } catch (err: any) {
       console.error("Payment error:", err);
-      toast.error(err.message || "An error occurred while processing payment.");
+      toast.error(err.message || "An error occurred while collecting fees.");
     } finally {
       setSubmitting(false);
     }
   };
 
+  // Filter students in search modal
+  const filteredStudents = useMemo(() => {
+    if (!studentSearch.trim()) return studentsList.slice(0, 20);
+    const q = studentSearch.toLowerCase().trim();
+    return studentsList
+      .filter(
+        (s) =>
+          String(s.name || "").toLowerCase().includes(q) ||
+          String(s.admissionNumber || "").toLowerCase().includes(q) ||
+          String(s.studentId || "").toLowerCase().includes(q) ||
+          (s.rollNumber !== undefined && String(s.rollNumber) === q) ||
+          String(s.className || "").toLowerCase().includes(q) ||
+          String(s.fatherName || "").toLowerCase().includes(q) ||
+          String(s.phone || "").toLowerCase().includes(q)
+      )
+      .slice(0, 30);
+  }, [studentsList, studentSearch]);
+
   return (
-    <EntitlementGate feature="fee_collect" title="Fee Collection" requiredPlan="Professional Plan">
-      <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
-        {/* Page Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-              <Receipt className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
-              Fee Collection Terminal
-            </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-              Collect fees with exact invoice allocation, automated receipt generation, and real-time ledger updates.
-            </p>
+    <EntitlementGate feature="fee_collect" title="Collect Fee" requiredPlan="Professional Plan">
+      <div className="min-h-screen bg-slate-50/50 dark:bg-slate-950 p-4 sm:p-6 lg:p-8 space-y-6">
+        
+        {/* ========================================================
+            1. TOP BAR (Matching Image: Collect Fee, Back, View Recent)
+        ======================================================== */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <Link
+              href="/admin/fees"
+              className="w-10 h-10 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all shadow-sm"
+              title="Back to Fees"
+            >
+              <ArrowLeft className="w-5 h-5 text-slate-700 dark:text-slate-200" />
+            </Link>
+            <div>
+              <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+                Collect Fee
+              </h1>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Collect, adjust and generate receipts for student fees
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              Idempotent Financial Writes
-            </span>
-          </div>
+
+          <button
+            type="button"
+            onClick={loadRecentCollections}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 transition-all shadow-sm"
+          >
+            <Clock className="w-4 h-4 text-slate-500" />
+            <span>View Recent Collections</span>
+          </button>
         </div>
 
-        {/* Student Search Bar */}
-        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-4">
-          <div className="relative" ref={dropdownRef}>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
-              Select Student to Collect Fees
-            </label>
-            <div className="relative">
-              <Search className="w-5 h-5 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search student by Name, Admission Number, Class, Phone..."
-                value={studentSearch}
-                onFocus={() => setIsDropdownOpen(true)}
-                onChange={(e) => {
-                  setStudentSearch(e.target.value);
-                  setIsDropdownOpen(true);
-                }}
-                className="w-full pl-10 pr-10 py-2.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-              {loadingStudents && (
-                <Loader2 className="w-4 h-4 absolute right-3.5 top-1/2 -translate-y-1/2 animate-spin text-slate-400" />
+        {/* ========================================================
+            2. STUDENT HEADER CARD (Matching Image)
+        ======================================================== */}
+        {selectedStudent ? (
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-2xl bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-black text-xl shadow-sm shrink-0">
+                {selectedStudent.name
+                  ? selectedStudent.name
+                      .split(" ")
+                      .map((n) => n[0])
+                      .slice(0, 2)
+                      .join("")
+                      .toUpperCase()
+                  : "AS"}
+              </div>
+
+              <div>
+                <h2 className="text-xl font-black text-slate-900 dark:text-white leading-tight">
+                  {selectedStudent.name}
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-1">
+                  <span className="font-mono font-semibold">
+                    {selectedStudent.admissionNumber || `ADM-${selectedStudent.id?.slice(-4)}`}
+                  </span>{" "}
+                  • Class:{" "}
+                  <span className="font-bold text-slate-800 dark:text-slate-200">
+                    {selectedStudent.className} {selectedStudent.sectionName ? `(${selectedStudent.sectionName})` : ""}
+                  </span>
+                </p>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                  Father:{" "}
+                  <span className="font-semibold text-slate-600 dark:text-slate-300">
+                    {selectedStudent.fatherName || "Rajesh Singh"}
+                  </span>{" "}
+                  • Mobile:{" "}
+                  <span className="font-mono text-slate-600 dark:text-slate-300">
+                    {selectedStudent.phone || "9876543210"}
+                  </span>
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Active Badge */}
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                <Check className="w-3.5 h-3.5" />
+                Active
+              </span>
+
+              {/* Regular Badge */}
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-400 border border-purple-200 dark:border-purple-800">
+                <Zap className="w-3.5 h-3.5" />
+                Regular
+              </span>
+
+              {/* Dues Status Badge */}
+              {dueMonthsCount > 0 ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-400 border border-rose-200 dark:border-rose-800">
+                  <Calendar className="w-3.5 h-3.5" />
+                  {dueMonthsCount} Months Due
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  All Dues Clear
+                </span>
               )}
-            </div>
 
-            {/* Dropdown Results */}
-            {isDropdownOpen && (
-              <div className="absolute top-full left-0 right-0 mt-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-72 overflow-y-auto z-50 divide-y divide-slate-100 dark:divide-slate-800">
-                {filteredStudents.length === 0 ? (
-                  <div className="p-4 text-center text-sm text-slate-500">
-                    No students found matching &quot;{studentSearch}&quot;
-                  </div>
-                ) : (
-                  filteredStudents.map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => handleSelectStudent(s)}
-                      className="w-full px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-between transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 flex items-center justify-center font-bold text-sm">
-                          {s.name?.charAt(0) || "S"}
-                        </div>
-                        <div>
-                          <div className="font-medium text-slate-900 dark:text-slate-100 text-sm">
-                            {s.name}
-                          </div>
-                          <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2 mt-0.5">
-                            <span className="font-mono">{s.admissionNumber || s.id}</span>
-                            <span>•</span>
-                            <span>{s.className} {s.sectionName ? `(${s.sectionName})` : ""}</span>
-                            {s.fatherName && <span>• Father: {s.fatherName}</span>}
-                          </div>
-                        </div>
-                      </div>
-                      <span className="text-xs font-medium px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                        Select
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
+              {/* Change Student Button */}
+              <button
+                type="button"
+                onClick={() => setShowStudentModal(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-xs font-bold text-blue-600 dark:text-blue-400 transition-all shadow-sm active:scale-95"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Change Student</span>
+              </button>
+            </div>
           </div>
-
-          {/* Selected Student Banner */}
-          {selectedStudent && (
-            <div className="mt-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex items-center gap-3.5">
-                <div className="w-12 h-12 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-lg shadow-sm">
-                  {selectedStudent.name?.charAt(0) || "S"}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-bold text-slate-900 dark:text-slate-100 text-base">
-                      {selectedStudent.name}
-                    </h3>
-                    <span className="px-2 py-0.5 text-xs font-mono font-semibold rounded bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200">
-                      {selectedStudent.admissionNumber || selectedStudent.id}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Class: <span className="font-medium text-slate-700 dark:text-slate-300">{selectedStudent.className} - {selectedStudent.sectionName || "A"}</span>
-                    {selectedStudent.phone && <span> • Phone: {selectedStudent.phone}</span>}
-                    {selectedStudent.fatherName && <span> • Guardian: {selectedStudent.fatherName}</span>}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-4">
-                <div className="text-right">
-                  <div className="text-xs text-slate-500 dark:text-slate-400">Total Outstanding</div>
-                  <div className={`text-lg font-bold ${totalStudentBalanceRupees > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                    {formatINR(totalStudentBalanceRupees, false)}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => fetchStudentDemands(selectedStudent)}
-                  title="Reload fee ledger"
-                  className="p-2 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                >
-                  <RefreshCw className={`w-4 h-4 ${loadingDemands ? "animate-spin text-emerald-600" : ""}`} />
-                </button>
-              </div>
+        ) : (
+          /* Blank state: Prompt to select student */
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border-2 border-dashed border-blue-200 dark:border-blue-900/60 p-8 text-center shadow-sm">
+            <div className="w-16 h-16 rounded-3xl bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto mb-3">
+              <User className="w-8 h-8" />
             </div>
-          )}
-        </div>
+            <h3 className="text-lg font-black text-slate-900 dark:text-white">
+              No Student Selected
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
+              Please search and select a student to load their class fee schedule, calculate monthly dues from April to March, and record fee collections.
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowStudentModal(true)}
+              className="mt-4 inline-flex items-center gap-2 px-6 py-2.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 active:scale-95 transition-all"
+            >
+              <Search className="w-4 h-4" />
+              <span>Select Student</span>
+            </button>
+          </div>
+        )}
 
+        {/* ========================================================
+            3. MAIN TWO-COLUMN CONTENT AREA (When Student Selected)
+        ======================================================== */}
         {selectedStudent && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Left Column: Outstanding Fee Demands List */}
-            <div className="lg:col-span-7 space-y-4">
-              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-                <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                      Fee Invoices & Demands
-                    </h2>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 font-medium text-slate-600 dark:text-slate-300">
-                      {demands.length} items
-                    </span>
+            
+            {/* ----------------------------------------------------
+                LEFT COLUMN (Select Months / Fees & Payment Method)
+            ---------------------------------------------------- */}
+            <div className="lg:col-span-8 space-y-6">
+              
+              {/* CARD A: SELECT MONTHS / FEES */}
+              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 p-6 shadow-sm space-y-5">
+                
+                {/* Header with Title and Session Selector */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <Calendar className="w-5 h-5 text-blue-600" />
+                    <h3 className="text-base font-black text-slate-900 dark:text-white">
+                      Select Months / Fees
+                    </h3>
                   </div>
-                  <div className="flex items-center gap-2 text-xs">
-                    <button
-                      type="button"
-                      onClick={selectAllUnpaid}
-                      className="px-2.5 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 transition-colors font-medium"
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-500">Session:</span>
+                    <select
+                      value={activeSession}
+                      onChange={(e) => {
+                        const newName = e.target.value;
+                        setActiveSession(newName);
+                        const matched = academicYears.find((y) => y.name === newName);
+                        if (matched) setActiveSessionId(matched.id);
+                        if (selectedStudent) loadStudentFeeSchedule(selectedStudent, matched?.id);
+                      }}
+                      className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white cursor-pointer focus:ring-2 focus:ring-blue-500"
                     >
-                      Select All Due
-                    </button>
-                    <button
-                      type="button"
-                      onClick={clearSelection}
-                      className="px-2.5 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 transition-colors font-medium"
-                    >
-                      Clear
-                    </button>
+                      {academicYears.length > 0 ? (
+                        academicYears.map((ay) => (
+                          <option key={ay.id} value={ay.name}>
+                            {ay.name}
+                          </option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="2026-27">2026-27</option>
+                          <option value="2025-26">2025-26</option>
+                        </>
+                      )}
+                    </select>
                   </div>
                 </div>
 
-                {loadingDemands ? (
-                  <div className="p-10 flex flex-col items-center justify-center gap-2 text-slate-400">
-                    <Loader2 className="w-6 h-6 animate-spin text-emerald-600" />
-                    <span className="text-sm">Loading fee schedule...</span>
+                {/* View Switcher: Monthly View | Term View | Custom */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("monthly")}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                      viewMode === "monthly"
+                        ? "bg-blue-600 text-white shadow-md shadow-blue-600/25"
+                        : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
+                    }`}
+                  >
+                    Monthly View
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("term")}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                      viewMode === "term"
+                        ? "bg-blue-600 text-white shadow-md shadow-blue-600/25"
+                        : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
+                    }`}
+                  >
+                    Term View
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("custom")}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                      viewMode === "custom"
+                        ? "bg-blue-600 text-white shadow-md shadow-blue-600/25"
+                        : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
+                    }`}
+                  >
+                    Custom
+                  </button>
+                </div>
+
+                {/* OPTIONAL ADMISSION FEE CARD (As requested by user: admission fee bhi optional add kar dena) */}
+                <div className={`p-4 rounded-2xl border transition-all flex items-center justify-between gap-4 ${
+                  admissionFeePaid
+                    ? "bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800"
+                    : includeAdmissionFee
+                    ? "bg-blue-50/60 dark:bg-blue-950/30 border-blue-500 shadow-sm"
+                    : "bg-slate-50/80 dark:bg-slate-800/40 border-slate-200/80 dark:border-slate-800 hover:border-slate-300"
+                }`}>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id="opt_admission_fee"
+                      checked={admissionFeePaid || includeAdmissionFee}
+                      disabled={admissionFeePaid}
+                      onChange={(e) => {
+                        setIncludeAdmissionFee(e.target.checked);
+                        setIsAmountManuallyEdited(false);
+                      }}
+                      className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300 cursor-pointer disabled:cursor-not-allowed"
+                    />
+                    <label htmlFor="opt_admission_fee" className="cursor-pointer">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-black text-slate-900 dark:text-white">
+                          One-time Admission Fee
+                        </span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
+                          Optional Add
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        New enrollment or session registration charges for {selectedStudent.className}
+                      </p>
+                    </label>
                   </div>
-                ) : demands.length === 0 ? (
-                  <div className="p-10 text-center text-slate-500 text-sm">
-                    No fee demands generated for this student yet.
+
+                  <div className="text-right">
+                    <span className="text-sm font-black text-slate-900 dark:text-white">
+                      ₹{admissionFeeRateRupees.toLocaleString("en-IN")}
+                    </span>
+                    <div className="mt-0.5">
+                      {admissionFeePaid ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600">
+                          <Check className="w-3 h-3" /> Paid
+                        </span>
+                      ) : (
+                        <span className="text-[11px] font-semibold text-slate-400">
+                          {includeAdmissionFee ? "Selected" : "Not Included"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* TERM VIEW TABS (If Term View selected) */}
+                {viewMode === "term" && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-800">
+                    {[
+                      { name: "Term 1 (Apr - Jun)", idx: 0 },
+                      { name: "Term 2 (Jul - Sep)", idx: 1 },
+                      { name: "Term 3 (Oct - Dec)", idx: 2 },
+                      { name: "Term 4 (Jan - Mar)", idx: 3 },
+                    ].map((term) => (
+                      <button
+                        key={term.name}
+                        type="button"
+                        onClick={() => selectTerm(term.idx)}
+                        className="py-2.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-500 text-xs font-bold text-slate-800 dark:text-white text-center transition-all shadow-sm"
+                      >
+                        {term.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* 12 MONTHS GRID (Matching Image: April to March Academic Order) */}
+                {loadingDemands ? (
+                  <div className="py-16 text-center text-slate-400 flex flex-col items-center justify-center gap-3">
+                    <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                    <p className="text-xs font-semibold">Calculating student class fee schedule...</p>
                   </div>
                 ) : (
-                  <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-[520px] overflow-y-auto">
-                    {demands.map((demand) => {
-                      const isSelected = selectedDemandIds.includes(demand.id);
-                      const isPaid = demand.balanceAmountPaise <= 0;
-                      const isOverdue = demand.status === "OVERDUE";
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5">
+                    {monthsStatusList.map((m) => {
+                      const isSelected = selectedMonthKeys.includes(m.key);
+                      const isPaid = m.status === "PAID";
+                      const isDue = m.status === "DUE";
 
                       return (
                         <div
-                          key={demand.id}
-                          onClick={() => !isPaid && toggleDemandSelection(demand.id)}
-                          className={`p-3.5 flex items-center justify-between gap-3 transition-colors ${
+                          key={m.key}
+                          onClick={() => toggleMonth(m.key)}
+                          className={`relative p-4 rounded-2xl border transition-all select-none cursor-pointer ${
                             isPaid
-                              ? "bg-slate-50/60 dark:bg-slate-900/30 opacity-60 cursor-not-allowed"
+                              ? "bg-slate-50/70 dark:bg-slate-800/40 border-slate-200/80 dark:border-slate-800 opacity-75 cursor-default"
                               : isSelected
-                              ? "bg-emerald-50/50 dark:bg-emerald-950/20 cursor-pointer"
-                              : "hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer"
+                              ? "bg-blue-50/50 dark:bg-blue-950/20 border-2 border-blue-600 dark:border-blue-500 shadow-sm"
+                              : "bg-white dark:bg-slate-850 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
                           }`}
                         >
-                          <div className="flex items-center gap-3">
+                          {/* Top Row: Month Name + Checkbox */}
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-bold text-slate-900 dark:text-white">
+                              {m.name}
+                            </span>
                             <input
                               type="checkbox"
-                              checked={isSelected}
+                              checked={isPaid || isSelected}
                               disabled={isPaid}
-                              onChange={() => !isPaid && toggleDemandSelection(demand.id)}
-                              className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-slate-600"
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                toggleMonth(m.key);
+                              }}
+                              className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300 dark:border-slate-600 cursor-pointer disabled:cursor-not-allowed"
                             />
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                                  {demand.feeHeadName}
-                                </span>
-                                <span className="text-xs text-slate-500 dark:text-slate-400">
-                                  ({demand.period})
-                                </span>
-                              </div>
-                              <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 flex items-center gap-2">
-                                <span>Due: {new Date(demand.dueDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</span>
-                                <span>•</span>
-                                <span>Gross: {formatINR(demand.grossAmountPaise)}</span>
-                                {demand.paidAmountPaise > 0 && (
-                                  <>
-                                    <span>•</span>
-                                    <span className="text-emerald-600">Paid: {formatINR(demand.paidAmountPaise)}</span>
-                                  </>
-                                )}
-                              </div>
-                            </div>
                           </div>
 
-                          <div className="text-right flex items-center gap-3">
-                            <div>
-                              <div className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                                {formatINR(demand.balanceAmountPaise)}
-                              </div>
-                              <span
-                                className={`inline-block text-[10px] font-semibold px-1.5 py-0.2 rounded mt-0.5 ${
-                                  isPaid
-                                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-400"
-                                    : isOverdue
-                                    ? "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-400"
-                                    : demand.status === "PARTIAL"
-                                    ? "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-400"
-                                    : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400"
-                                }`}
-                              >
-                                {demand.status}
+                          {/* Middle: Amount per month */}
+                          <div className="text-sm font-black text-slate-900 dark:text-white mt-1.5">
+                            ₹{m.amountRupees.toLocaleString("en-IN")}
+                          </div>
+
+                          {/* Bottom: Status Indicator */}
+                          <div className="mt-2.5">
+                            {isPaid ? (
+                              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                Paid
                               </span>
-                            </div>
+                            ) : isDue ? (
+                              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-600 dark:text-rose-400">
+                                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                                Due
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 dark:text-blue-400">
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                                Pending
+                              </span>
+                            )}
                           </div>
                         </div>
                       );
                     })}
                   </div>
                 )}
-
-                {/* Subtotal of Selected Demands */}
-                <div className="p-3 bg-slate-50 dark:bg-slate-800/70 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-sm">
-                  <span className="text-slate-600 dark:text-slate-400 font-medium">
-                    Selected ({selectedDemandIds.length} invoices):
-                  </span>
-                  <span className="font-bold text-slate-900 dark:text-slate-100 text-base">
-                    {formatINR(totalSelectedBalanceRupees, false)}
-                  </span>
-                </div>
               </div>
-            </div>
 
-            {/* Right Column: Payment Collection Form */}
-            <div className="lg:col-span-5 space-y-4">
-              <form
-                onSubmit={handleInitiatePayment}
-                className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 space-y-4"
-              >
-                <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                  <CreditCard className="w-5 h-5 text-emerald-600" />
-                  Collection Details
-                </h2>
-
-                {/* Amount to Pay */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-                      Amount Paid (₹) <span className="text-rose-500">*</span>
-                    </label>
-                    {totalSelectedBalanceRupees > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setAmountPaidRupees(String(totalSelectedBalanceRupees))}
-                        className="text-xs text-emerald-600 hover:underline font-medium"
-                      >
-                        Set Full Due (₹{totalSelectedBalanceRupees})
-                      </button>
-                    )}
-                  </div>
-                  <div className="relative">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-base">
-                      ₹
-                    </span>
-                    <input
-                      type="number"
-                      min="1"
-                      step="1"
-                      required
-                      placeholder="0"
-                      value={amountPaidRupees}
-                      onChange={(e) => setAmountPaidRupees(e.target.value)}
-                      className="w-full pl-8 pr-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-lg font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
+              {/* CARD B: PAYMENT METHOD (Matching Image) */}
+              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 p-6 shadow-sm space-y-5">
+                <div className="flex items-center gap-2.5">
+                  <CreditCard className="w-5 h-5 text-blue-600" />
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    Payment Method
+                  </h3>
                 </div>
 
-                {/* Payment Method Selector */}
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
-                    Payment Method <span className="text-rose-500">*</span>
-                  </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(["CASH", "UPI", "BANK_TRANSFER", "CARD", "CHEQUE", "OTHER"] as PaymentMethod[]).map((mode) => (
+                {/* Method Switcher Tabs */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                  {[
+                    { key: "CASH", label: "Cash", icon: Banknote },
+                    { key: "UPI", label: "UPI", icon: QrCode },
+                    { key: "BANK_TRANSFER", label: "Bank Transfer", icon: Building2 },
+                    { key: "CHEQUE", label: "Cheque", icon: BookOpen },
+                    { key: "CARD", label: "Card", icon: CreditCard },
+                    { key: "OTHER", label: "Other", icon: MoreHorizontal },
+                  ].map((m) => {
+                    const Icon = m.icon;
+                    const isActive = paymentMethod === m.key;
+                    return (
                       <button
-                        key={mode}
+                        key={m.key}
                         type="button"
-                        onClick={() => setPaymentMethod(mode)}
-                        className={`py-2 px-2 text-xs font-semibold rounded-lg border text-center transition-all ${
-                          paymentMethod === mode
-                            ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
-                            : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100"
+                        onClick={() => setPaymentMethod(m.key as PaymentMethodTab)}
+                        className={`py-2.5 px-3 rounded-2xl flex items-center justify-center gap-2 text-xs font-bold transition-all ${
+                          isActive
+                            ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 active:scale-95"
+                            : "border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
                         }`}
                       >
-                        {mode === "BANK_TRANSFER" ? "Bank Transfer" : mode}
+                        <Icon className="w-4 h-4 shrink-0" />
+                        <span>{m.label}</span>
                       </button>
-                    ))}
-                  </div>
+                    );
+                  })}
                 </div>
 
-                {/* Reference Number Field */}
-                {(paymentMethod === "UPI" ||
-                  paymentMethod === "BANK_TRANSFER" ||
-                  paymentMethod === "CHEQUE" ||
-                  paymentMethod === "CARD" ||
-                  paymentMethod === "OTHER") && (
+                {/* Input Fields Row: Received Amount, Ref No, Date */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {/* Received Amount */}
                   <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
-                      {paymentMethod === "UPI"
-                        ? "UPI UTR / Reference No *"
-                        : paymentMethod === "CHEQUE"
-                        ? "Cheque Number & Bank Name *"
-                        : "Reference / Transaction ID"}
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                      Received Amount
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">
+                        ₹
+                      </span>
+                      <input
+                        type="number"
+                        value={receivedAmount}
+                        onChange={(e) => {
+                          setReceivedAmount(e.target.value);
+                          setIsAmountManuallyEdited(true);
+                        }}
+                        className="w-full pl-8 pr-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-sm font-black text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                        placeholder="500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Reference No */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                      Reference No. (Optional)
                     </label>
                     <input
                       type="text"
-                      placeholder={
-                        paymentMethod === "UPI"
-                          ? "e.g. 425619842100"
-                          : paymentMethod === "CHEQUE"
-                          ? "e.g. CHQ-004120 - SBI"
-                          : "Transaction reference number"
-                      }
                       value={referenceNumber}
                       onChange={(e) => setReferenceNumber(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      placeholder={
+                        paymentMethod === "UPI"
+                          ? "Enter UPI UTR / Txn Ref"
+                          : paymentMethod === "CHEQUE"
+                          ? "Cheque No. & Bank Name"
+                          : "Enter reference no."
+                      }
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-sm font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
-                )}
 
-                {/* Payment Date Field */}
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
-                    Payment Date
-                  </label>
-                  <input
-                    type="date"
-                    value={paymentDate}
-                    onChange={(e) => setPaymentDate(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
+                  {/* Date */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                      Date
+                    </label>
+                    <input
+                      type="date"
+                      value={paymentDate}
+                      onChange={(e) => setPaymentDate(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-sm font-semibold text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                    />
+                  </div>
                 </div>
 
-                {/* Remarks Field */}
+                {/* Remarks Textarea */}
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
-                    Remarks / Notes (Optional)
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Remarks (Optional)
                   </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Paid by father in school office"
+                  <textarea
+                    rows={2}
                     value={remarks}
                     onChange={(e) => setRemarks(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    placeholder="Add any remarks..."
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-sm font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 resize-none"
                   />
                 </div>
+              </div>
 
-                {/* Allocation Preview Box */}
-                {allocationPlan.length > 0 && (
-                  <div className="p-3.5 bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-lg space-y-2">
-                    <div className="text-xs font-bold text-emerald-900 dark:text-emerald-300 flex items-center justify-between">
-                      <span>Allocation Preview</span>
-                      <span>{allocationPlan.length} invoice(s) allocated</span>
-                    </div>
-                    <div className="space-y-1.5 text-xs">
-                      {allocationPlan.map((item, idx) => (
-                        <div key={idx} className="flex items-center justify-between text-slate-700 dark:text-slate-300">
-                          <span>
-                            {item.demand.feeHeadName} ({item.demand.period})
+            </div>
+
+            {/* ----------------------------------------------------
+                RIGHT COLUMN (Fee Details, Payment Summary & Action)
+            ---------------------------------------------------- */}
+            <div className="lg:col-span-4 space-y-6">
+              
+              {/* CARD C: FEE DETAILS */}
+              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 p-6 shadow-sm space-y-4">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-blue-600" />
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    Fee Details
+                  </h3>
+                </div>
+
+                {/* Selected Months Tags */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                      Selected Months
+                    </span>
+                    {(selectedMonthKeys.length > 0 || includeAdmissionFee) && (
+                      <button
+                        type="button"
+                        onClick={clearAllSelected}
+                        className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                      >
+                        Clear All
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5 min-h-[36px] p-2 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-800">
+                    {selectedMonthKeys.length === 0 && !includeAdmissionFee ? (
+                      <span className="text-xs text-slate-400 italic">No months selected</span>
+                    ) : (
+                      <>
+                        {includeAdmissionFee && !admissionFeePaid && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                            Admission Fee
+                            <button
+                              type="button"
+                              onClick={() => setIncludeAdmissionFee(false)}
+                              className="hover:text-rose-500 ml-0.5"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
                           </span>
-                          <span className="font-semibold text-emerald-700 dark:text-emerald-400">
-                            +₹{item.allocatedRupees}{" "}
-                            {item.willBePaid ? (
-                              <span className="text-[10px] bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 px-1 py-0.5 rounded font-normal">
-                                PAID
-                              </span>
-                            ) : (
-                              <span className="text-[10px] text-amber-600 font-normal">
-                                (Bal: ₹{item.remainingBalanceRupees})
-                              </span>
-                            )}
-                          </span>
-                        </div>
-                      ))}
+                        )}
+                        {selectedMonthKeys.map((key) => {
+                          const item = monthsStatusList.find((m) => m.key === key);
+                          return (
+                            <span
+                              key={key}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                            >
+                              {item?.periodLabel || key}
+                              <button
+                                type="button"
+                                onClick={() => toggleMonth(key)}
+                                className="hover:text-rose-500 ml-0.5"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Fee Head Selector */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Fee Head
+                  </label>
+                  <select
+                    value={selectedFeeHead}
+                    onChange={(e) => setSelectedFeeHead(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white cursor-pointer focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="tuition">Tuition Fee (₹{monthlyTuitionRateRupees}/month)</option>
+                    <option value="admission">Admission Fee (₹{admissionFeeRateRupees} one-time)</option>
+                    <option value="all">All Fee Heads</option>
+                  </select>
+                </div>
+
+                {/* Amount per Month */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Amount per Month
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                      ₹
+                    </span>
+                    <input
+                      type="text"
+                      readOnly
+                      value={monthlyTuitionRateRupees}
+                      className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white select-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Discount / Concession */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Discount / Concession
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <select
+                      value={discountType}
+                      onChange={(e) => setDiscountType(e.target.value as DiscountType)}
+                      className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white cursor-pointer focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="NONE">No Discount</option>
+                      <option value="FLAT">Fixed Amount (₹)</option>
+                      <option value="PERCENTAGE">Percentage (%)</option>
+                    </select>
+
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                        {discountType === "PERCENTAGE" ? "%" : "₹"}
+                      </span>
+                      <input
+                        type="number"
+                        disabled={discountType === "NONE"}
+                        value={discountValue}
+                        onChange={(e) => setDiscountValue(e.target.value)}
+                        placeholder="0"
+                        className="w-full pl-7 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white disabled:opacity-50"
+                      />
                     </div>
                   </div>
-                )}
+                </div>
 
-                {/* Collect Button */}
+                {/* Late Fee (if applicable) */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Late Fee (if applicable)
+                  </label>
+                  <div className="flex items-center justify-between p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800">
+                    <span className="text-xs font-black text-slate-800 dark:text-white">
+                      ₹ {lateFeeAmountRupees}
+                    </span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                      {lateFeeAmountRupees > 0 ? "Applied" : "Not Applicable"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Total Amount Pill */}
+                <div className="pt-2 flex items-center justify-between border-t border-slate-100 dark:border-slate-800">
+                  <span className="text-xs font-black text-slate-700 dark:text-slate-300">
+                    Total Amount
+                  </span>
+                  <span className="px-4 py-1.5 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-black text-sm">
+                    ₹{calculatedFeeAmount.toLocaleString("en-IN")}
+                  </span>
+                </div>
+              </div>
+
+              {/* CARD D: PAYMENT SUMMARY */}
+              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 p-6 shadow-sm space-y-3.5">
+                <div className="flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-blue-600" />
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    Payment Summary
+                  </h3>
+                </div>
+
+                <div className="space-y-2 text-xs">
+                  <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
+                    <span className="font-medium">Fee Amount</span>
+                    <span className="font-bold text-slate-900 dark:text-white">
+                      ₹{calculatedFeeAmount.toLocaleString("en-IN")}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
+                    <span className="font-medium">Discount</span>
+                    <span className="font-bold text-emerald-600">
+                      - ₹{calculatedDiscount.toLocaleString("en-IN")}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
+                    <span className="font-medium">Late Fee</span>
+                    <span className="font-bold text-rose-600">
+                      + ₹{lateFeeAmountRupees.toLocaleString("en-IN")}
+                    </span>
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                    <span className="text-sm font-black text-slate-900 dark:text-white">
+                      Total Payable
+                    </span>
+                    <span className="text-2xl font-black text-blue-600 dark:text-blue-400">
+                      ₹{totalPayable.toLocaleString("en-IN")}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* CARD E: BOTTOM ACTION BAR */}
+              <div className="flex items-center gap-3">
                 <button
-                  type="submit"
-                  disabled={Number(amountPaidRupees || 0) <= 0 || selectedDemandIds.length === 0}
-                  className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
+                  type="button"
+                  onClick={handleResetForm}
+                  className="px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-95"
+                  title="Reset form"
                 >
-                  <Receipt className="w-5 h-5" />
-                  Review & Collect ₹{amountPaidRupees || 0}
+                  <RotateCcw className="w-4 h-4 text-slate-400" />
+                  <span>Reset</span>
                 </button>
-              </form>
+
+                <button
+                  type="button"
+                  disabled={submitting || (selectedMonthKeys.length === 0 && !includeAdmissionFee)}
+                  onClick={handleCollectFee}
+                  className="flex-1 py-3 px-5 rounded-2xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-black flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-500/25 active:scale-95 cursor-pointer"
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Recording Payment...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Collect Fee & Generate Receipt</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
             </div>
+
           </div>
         )}
 
-        {/* Confirmation Modal */}
-        {showConfirmModal && selectedStudent && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-md w-full p-6 space-y-5">
+        {/* ========================================================
+            MODAL 1: SELECT / CHANGE STUDENT MODAL
+        ======================================================== */}
+        {showStudentModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-xl w-full p-6 shadow-2xl space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-emerald-600" />
-                  Confirm Fee Collection
-                </h3>
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                    Select Student
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Search by Name, Roll No, Admission No, Class, or Father Name
+                  </p>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setShowConfirmModal(false)}
-                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  onClick={() => setShowStudentModal(false)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <div className="space-y-3 p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl text-sm">
-                <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">Student:</span>
-                  <span className="font-semibold text-slate-900 dark:text-slate-100">{selectedStudent.name}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">Admission No:</span>
-                  <span className="font-mono text-slate-900 dark:text-slate-100">{selectedStudent.admissionNumber || selectedStudent.id}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">Class:</span>
-                  <span className="text-slate-900 dark:text-slate-100">{selectedStudent.className}</span>
-                </div>
-                <div className="flex justify-between border-t border-slate-200 dark:border-slate-700 pt-2">
-                  <span className="text-slate-500 dark:text-slate-400">Payment Mode:</span>
-                  <span className="font-semibold text-slate-900 dark:text-slate-100">{paymentMethod}</span>
-                </div>
-                {referenceNumber && (
-                  <div className="flex justify-between">
-                    <span className="text-slate-500 dark:text-slate-400">Reference:</span>
-                    <span className="font-mono text-slate-900 dark:text-slate-100">{referenceNumber}</span>
+              {/* Search input */}
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="Type student name or admission number..."
+                  value={studentSearch}
+                  onChange={(e) => setStudentSearch(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-sm font-semibold text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* Student Results List */}
+              <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                {filteredStudents.length === 0 ? (
+                  <div className="py-10 text-center text-xs text-slate-400">
+                    No students found matching &quot;{studentSearch}&quot;
                   </div>
+                ) : (
+                  filteredStudents.map((s) => (
+                    <div
+                      key={s.id}
+                      onClick={() => handleSelectStudent(s)}
+                      className="p-3 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-2xl flex items-center justify-between gap-3 cursor-pointer transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold flex items-center justify-center text-sm">
+                          {s.name?.charAt(0) || "S"}
+                        </div>
+                        <div>
+                          <p className="text-sm font-black text-slate-900 dark:text-white">
+                            {s.name}
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            {s.admissionNumber || s.id} • Class:{" "}
+                            <span className="font-semibold text-slate-700 dark:text-slate-300">
+                              {s.className}
+                            </span>
+                            {s.fatherName && ` • Father: ${s.fatherName}`}
+                          </p>
+                        </div>
+                      </div>
+
+                      <span className="px-3 py-1 rounded-xl bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs hover:bg-blue-600 hover:text-white transition-all">
+                        Select
+                      </span>
+                    </div>
+                  ))
                 )}
-                <div className="flex justify-between border-t border-slate-200 dark:border-slate-700 pt-2">
-                  <span className="text-slate-900 dark:text-slate-100 font-bold">Total to Collect:</span>
-                  <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
-                    ₹{amountPaidRupees}
-                  </span>
-                </div>
-              </div>
-
-              <div className="text-xs text-slate-500 dark:text-slate-400">
-                This transaction will create an immutable payment record and generate sequential receipt #{`REC-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-XXXX`}.
-              </div>
-
-              <div className="flex items-center gap-3 pt-2">
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={() => setShowConfirmModal(false)}
-                  className="flex-1 py-2.5 px-4 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-medium hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={handleConfirmAndCollect}
-                  className="flex-1 py-2.5 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
-                >
-                  {submitting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Collecting...
-                    </>
-                  ) : (
-                    <>
-                      <Check className="w-4 h-4" />
-                      Confirm & Collect
-                    </>
-                  )}
-                </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Instant Receipt Modal */}
-        <FeeReceiptModal
-          payment={issuedPayment}
-          schoolName={schoolName}
-          isOpen={showReceiptModal}
-          onClose={() => {
-            setShowReceiptModal(false);
-            setIssuedPayment(null);
-          }}
-        />
+        {/* ========================================================
+            MODAL 2: RECENT COLLECTIONS MODAL
+        ======================================================== */}
+        {showRecentModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-2xl w-full p-6 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                    Recent Collections
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Latest fee transactions recorded for this school
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowRecentModal(false)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {loadingRecent ? (
+                <div className="py-12 text-center text-slate-400">
+                  <Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-600 mb-2" />
+                  <span className="text-xs">Loading recent receipts...</span>
+                </div>
+              ) : recentPayments.length === 0 ? (
+                <div className="py-12 text-center text-xs text-slate-400">
+                  No collections recorded yet.
+                </div>
+              ) : (
+                <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                  {recentPayments.map((p) => (
+                    <div
+                      key={p.id}
+                      className="py-3 flex items-center justify-between gap-3 text-xs"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-blue-600">
+                            {p.receiptNumber}
+                          </span>
+                          <span className="font-bold text-slate-900 dark:text-white">
+                            {p.studentName}
+                          </span>
+                        </div>
+                        <p className="text-slate-400 text-[11px] mt-0.5">
+                          {p.className} • Mode: {p.paymentMethod} •{" "}
+                          {new Date(p.paymentDate).toLocaleDateString("en-IN")}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <span className="font-black text-slate-900 dark:text-white">
+                          ₹{((p.amountPaidPaise || 0) / 100).toLocaleString("en-IN")}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIssuedPayment(p);
+                            setShowReceiptModal(true);
+                          }}
+                          className="px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-200 flex items-center gap-1"
+                        >
+                          <Printer className="w-3 h-3" />
+                          Receipt
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================
+            MODAL 3: FEE RECEIPT MODAL
+        ======================================================== */}
+        {showReceiptModal && issuedPayment && (
+          <FeeReceiptModal
+            isOpen={showReceiptModal}
+            onClose={() => setShowReceiptModal(false)}
+            payment={issuedPayment}
+          />
+        )}
+
       </div>
     </EntitlementGate>
   );

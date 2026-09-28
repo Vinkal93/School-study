@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
@@ -43,6 +43,7 @@ import {
   getClassesWithSections,
   getAcademicYears,
 } from "@/lib/services/academic.service";
+import { getStudents } from "@/lib/services/student.service";
 import { FeeReceiptModal } from "@/components/fees/FeeReceiptModal";
 import { FeeFollowUpModal } from "@/components/fees/FeeFollowUpModal";
 import { ShareFeeModal } from "@/components/fees/ShareFeeModal";
@@ -51,6 +52,7 @@ import type {
   FeePayment,
   StudentFeeAssignment,
   AcademicYear,
+  StudentProfile,
 } from "@/types";
 import { toast } from "sonner";
 
@@ -87,6 +89,9 @@ export default function AdminFeeDashboardPage() {
     "reminder" | "received" | "custom"
   >("reminder");
   const [copied, setCopied] = useState(false);
+  const [students, setStudents] = useState<StudentProfile[]>([]);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
 
   // Dynamic month options based on selected academic year
   const monthOptions = useMemo(() => {
@@ -162,16 +167,23 @@ export default function AdminFeeDashboardPage() {
   // Tooltip state for Collection Trend chart
   const [hoveredTrendIndex, setHoveredTrendIndex] = useState<number | null>(5);
 
-  // 1. Load Academic Years & Classes on initial mount
+  // 1. Load Academic Years, Classes & Students on initial mount
   useEffect(() => {
     if (!schoolId) {
       if (!authLoading) setLoading(false);
       return;
     }
-    Promise.all([getAcademicYears(schoolId), getClassesWithSections(schoolId)])
-      .then(([years, classList]) => {
+    Promise.all([
+      getAcademicYears(schoolId).catch(() => []),
+      getClassesWithSections(schoolId).catch(() => []),
+      getStudents(schoolId).catch(() => []),
+    ])
+      .then(([years, classList, studentList]) => {
         setAcademicYears(years);
         setClasses(classList);
+        if (studentList && Array.isArray(studentList)) {
+          setStudents(studentList);
+        }
         if (years.length > 0) {
           const currentYear = years.find((y) => y.isCurrent) || years[0];
           if (currentYear && !selectedYear) {
@@ -187,6 +199,36 @@ export default function AdminFeeDashboardPage() {
         console.error("Failed to load initial fee metadata:", err);
       });
   }, [schoolId, authLoading]);
+
+  // Close search dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        searchContainerRef.current &&
+        !searchContainerRef.current.contains(e.target as Node)
+      ) {
+        setIsSearchFocused(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Filter students based on search query
+  const searchedStudents = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase().trim();
+    return students.filter(
+      (s) =>
+        String(s.name || "").toLowerCase().includes(q) ||
+        String(s.admissionNumber || "").toLowerCase().includes(q) ||
+        String(s.studentId || "").toLowerCase().includes(q) ||
+        (s.rollNumber !== undefined && String(s.rollNumber) === q) ||
+        String(s.className || "").toLowerCase().includes(q) ||
+        String(s.fatherName || "").toLowerCase().includes(q) ||
+        String(s.phone || "").toLowerCase().includes(q)
+    );
+  }, [students, searchQuery]);
 
   // 2. Load Dashboard Data whenever any filter changes
   useEffect(() => {
@@ -652,15 +694,90 @@ export default function AdminFeeDashboardPage() {
             </div>
 
             {/* Student Search */}
-            <div className="relative hidden sm:block">
-              <input
-                type="text"
-                placeholder="Search student..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-[180px] cursor-pointer appearance-none rounded-xl border border-slate-200 bg-white py-2 pr-3 pl-8 text-xs font-semibold text-slate-700 shadow-sm hover:border-slate-300 focus:ring-2 focus:ring-blue-500 focus:outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
-              />
-              <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <div className="relative hidden sm:block" ref={searchContainerRef}>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Search student by name, roll no..."
+                  value={searchQuery}
+                  onFocus={() => setIsSearchFocused(true)}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setIsSearchFocused(true);
+                  }}
+                  className="w-[200px] lg:w-[260px] cursor-text appearance-none rounded-xl border border-slate-200 bg-white py-2 pr-7 pl-8 text-xs font-semibold text-slate-700 shadow-sm hover:border-slate-300 focus:ring-2 focus:ring-blue-500 focus:outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+                />
+                <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery("");
+                      setIsSearchFocused(false);
+                    }}
+                    className="absolute top-1/2 right-2.5 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Instant Search Results Dropdown */}
+              {isSearchFocused && searchQuery.trim().length > 0 && (
+                <div className="absolute top-full left-0 mt-1.5 w-[320px] sm:w-[380px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-2 z-50 divide-y divide-slate-100 dark:divide-slate-800 animate-in fade-in">
+                  <div className="px-3 py-1.5 flex items-center justify-between text-[11px] font-bold text-slate-400">
+                    <span>Matching Students ({searchedStudents.length})</span>
+                    <span>Action</span>
+                  </div>
+
+                  <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                    {searchedStudents.length === 0 ? (
+                      <div className="p-4 text-center text-xs text-slate-400">
+                        No student found matching &quot;{searchQuery}&quot;
+                      </div>
+                    ) : (
+                      searchedStudents.slice(0, 10).map((s) => (
+                        <div
+                          key={s.id}
+                          className="p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-xl flex items-center justify-between gap-2.5 transition-colors"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xs shrink-0">
+                              {s.name?.charAt(0) || "S"}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                                {s.name}
+                              </p>
+                              <p className="text-[10px] text-slate-400 truncate">
+                                {s.admissionNumber || s.id} • {s.className}
+                                {s.rollNumber ? ` • Roll: ${s.rollNumber}` : ""}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <Link
+                              href={`/admin/fees/collect?studentId=${s.id}`}
+                              onClick={() => setIsSearchFocused(false)}
+                              className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] shadow-sm transition-all flex items-center gap-1"
+                            >
+                              <span>Collect</span>
+                            </Link>
+                            <Link
+                              href={`/admin/fees/ledger?studentId=${s.id}`}
+                              onClick={() => setIsSearchFocused(false)}
+                              className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 font-semibold text-[11px] transition-all"
+                            >
+                              <span>Ledger</span>
+                            </Link>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Payment Status Filter */}
@@ -730,6 +847,82 @@ export default function AdminFeeDashboardPage() {
             </Link>
           </div>
         </div>
+
+        {/* ========================================================
+            STUDENT SEARCH RESULTS BANNER (When searchQuery is active)
+        ======================================================== */}
+        {searchQuery.trim().length > 0 && (
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-blue-200 dark:border-blue-900/60 p-5 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <Search className="w-5 h-5 text-blue-600" />
+                <h3 className="text-base font-black text-slate-900 dark:text-white">
+                  Student Fee Search Results for &quot;{searchQuery}&quot;
+                </h3>
+                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                  {searchedStudents.length} Students Found
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="text-xs font-bold text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 transition-all cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Clear Search</span>
+              </button>
+            </div>
+
+            {searchedStudents.length === 0 ? (
+              <div className="py-8 text-center text-xs text-slate-400">
+                No students found matching &quot;{searchQuery}&quot;. Please verify the name, roll number, or admission number.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                {searchedStudents.slice(0, 9).map((s) => (
+                  <div
+                    key={s.id}
+                    className="p-4 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-blue-300 dark:hover:border-blue-700 transition-all flex items-center justify-between gap-3 shadow-xs"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-11 h-11 rounded-2xl bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
+                        {s.name?.charAt(0) || "S"}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-black text-slate-900 dark:text-white truncate">
+                          {s.name}
+                        </p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                          {s.className} {s.sectionName ? `(${s.sectionName})` : ""} {s.rollNumber ? `• Roll: ${s.rollNumber}` : ""}
+                        </p>
+                        <p className="text-[11px] text-slate-400 truncate mt-0.5">
+                          Adm: <span className="font-mono">{s.admissionNumber || s.id}</span>
+                          {s.fatherName ? ` • ${s.fatherName}` : ""}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5 shrink-0">
+                      <Link
+                        href={`/admin/fees/collect?studentId=${s.id}`}
+                        className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm transition-all text-center flex items-center justify-center gap-1 active:scale-95"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Collect Fee</span>
+                      </Link>
+                      <Link
+                        href={`/admin/fees/ledger?studentId=${s.id}`}
+                        className="px-3 py-1 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-[11px] transition-all text-center hover:bg-slate-50"
+                      >
+                        Ledger
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ========================================================
             DASHBOARD CONTENT / SKELETON
