@@ -1,0 +1,926 @@
+/**
+ * ADMIN FEATURE REGISTRY — SINGLE SOURCE OF TRUTH
+ * 
+ * Authoritative single registry for all Admin Panel sidebar navigation,
+ * Plan Editor feature entitlements, access control, and route permissions.
+ * 
+ * Architecture Rule:
+ *   Feature Registry (Single Source of Truth)
+ *       ↓
+ *   ┌───┴──────────┐
+ *   ↓              ↓
+ * Admin Sidebar   Plan Editor & Entitlements
+ */
+
+export type FeatureType = "module" | "page" | "subfeature" | "action";
+export type FeatureAccessMode = "FULL_ACCESS" | "SHOWCASE" | "HIDDEN";
+export type FeaturePermission = "view" | "create" | "edit" | "delete" | "send" | "export" | "manage";
+
+export interface AdminFeatureItem {
+  id: string;
+  key: string;
+  parentId?: string | null;
+  type: FeatureType;
+  label: string;
+  description: string;
+  icon: string; // Lucide icon name
+  route?: string;
+  category: string;
+  sortOrder: number;
+  defaultAccess: FeatureAccessMode;
+  permissions?: FeaturePermission[];
+  status: "active" | "coming_soon" | "disabled";
+  showInSidebar: boolean;
+  planControlled: boolean;
+  aliases?: string[];
+  isNew?: boolean;
+}
+
+export interface AdminFeatureNode extends AdminFeatureItem {
+  children: AdminFeatureItem[];
+}
+
+/**
+ * AUTHORITATIVE FEATURE CATALOG
+ * All modules and sub-features matching the Admin Panel sidebar hierarchy.
+ */
+export const ADMIN_FEATURE_REGISTRY: AdminFeatureItem[] = [
+  // 1. Dashboard
+  {
+    id: "dashboard",
+    key: "school_dashboard",
+    parentId: null,
+    type: "module",
+    label: "Dashboard",
+    description: "Core institution metrics, key operational indicators, and daily shortcuts.",
+    icon: "LayoutDashboard",
+    route: "/admin",
+    category: "core",
+    sortOrder: 1,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: false,
+    aliases: ["dashboard", "module:dashboard"],
+  },
+
+  // 2. Admissions & Inquiries
+  {
+    id: "inquiries_portal",
+    key: "inquiries_portal",
+    parentId: null,
+    type: "module",
+    label: "Admissions & Inquiries",
+    description: "Prospect admissions intake, inquiry triage, campus visit scheduling, and status tracking.",
+    icon: "MessageSquare",
+    route: "/admin/inquiries",
+    category: "admissions",
+    sortOrder: 2,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "create", "edit", "delete", "export"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+    aliases: ["inquiries", "admissions"],
+  },
+
+  // 3. Teachers & Faculty
+  {
+    id: "teacher_management",
+    key: "teacher_management",
+    parentId: null,
+    type: "module",
+    label: "Teachers & Faculty",
+    description: "Faculty directory, subject allocations, qualifications, and profile records.",
+    icon: "Users",
+    route: "/admin/teachers",
+    category: "academics",
+    sortOrder: 3,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "create", "edit", "delete", "export", "manage"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+    aliases: ["teachers", "faculty"],
+  },
+  {
+    id: "teacher_directory",
+    key: "teacher_directory",
+    parentId: "teacher_management",
+    type: "page",
+    label: "All Teachers",
+    description: "Directory of all registered teachers, status, and subjects.",
+    icon: "Users",
+    route: "/admin/teachers",
+    category: "academics",
+    sortOrder: 31,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "create", "edit", "delete"],
+    status: "active",
+    showInSidebar: false,
+    planControlled: true,
+  },
+  {
+    id: "teacher_profile",
+    key: "teacher_profile",
+    parentId: "teacher_management",
+    type: "subfeature",
+    label: "Teacher Profile",
+    description: "Teacher credentials, assigned classes, and contact info.",
+    icon: "User",
+    route: "/admin/teachers",
+    category: "academics",
+    sortOrder: 32,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "edit"],
+    status: "active",
+    showInSidebar: false,
+    planControlled: true,
+  },
+
+  // 4. Students
+  {
+    id: "student_management",
+    key: "student_management",
+    parentId: null,
+    type: "module",
+    label: "Students",
+    description: "Student admission ledger, class assignments, profiles, and documentation.",
+    icon: "GraduationCap",
+    route: "/admin/students",
+    category: "students",
+    sortOrder: 4,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "create", "edit", "delete", "export", "manage"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+    aliases: ["students"],
+  },
+  {
+    id: "student_directory",
+    key: "student_directory",
+    parentId: "student_management",
+    type: "page",
+    label: "All Students",
+    description: "Complete student directory with filter by class, section, and status.",
+    icon: "GraduationCap",
+    route: "/admin/students",
+    category: "students",
+    sortOrder: 41,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "create", "edit", "delete"],
+    status: "active",
+    showInSidebar: false,
+    planControlled: true,
+  },
+  {
+    id: "student_profile",
+    key: "student_profile",
+    parentId: "student_management",
+    type: "subfeature",
+    label: "Student Profile",
+    description: "Individual student 360-view: academic records, parent info, and fee status.",
+    icon: "User",
+    route: "/admin/students",
+    category: "students",
+    sortOrder: 42,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "edit"],
+    status: "active",
+    showInSidebar: false,
+    planControlled: true,
+  },
+  {
+    id: "student_documents",
+    key: "student_documents",
+    parentId: "student_management",
+    type: "subfeature",
+    label: "Documents",
+    description: "Upload and verify birth certificates, Aadhaar, and transfer certificates.",
+    icon: "FileText",
+    route: "/admin/students",
+    category: "students",
+    sortOrder: 43,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "create", "delete"],
+    status: "active",
+    showInSidebar: false,
+    planControlled: true,
+  },
+  {
+    id: "student_portal",
+    key: "student_portal",
+    parentId: "student_management",
+    type: "subfeature",
+    label: "Student Portal",
+    description: "Student & Parent login portal for homework, attendance, and fee receipts.",
+    icon: "ExternalLink",
+    route: "/student",
+    category: "students",
+    sortOrder: 44,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view"],
+    status: "active",
+    showInSidebar: false,
+    planControlled: true,
+  },
+
+  // 5. Classes
+  {
+    id: "class_management",
+    key: "class_management",
+    parentId: null,
+    type: "module",
+    label: "Classes",
+    description: "Classrooms, sections, student capacity, and academic batch promotions.",
+    icon: "BookOpen",
+    route: "/admin/classes",
+    category: "academics",
+    sortOrder: 5,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "create", "edit", "delete", "manage"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+    aliases: ["classes"],
+  },
+  {
+    id: "classes_all",
+    key: "classes_all",
+    parentId: "class_management",
+    type: "page",
+    label: "All Classes",
+    description: "Manage classes, sections, and class teacher assignments.",
+    icon: "BookOpen",
+    route: "/admin/classes",
+    category: "academics",
+    sortOrder: 51,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "create", "edit"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+  {
+    id: "classes_transfer",
+    key: "classes_transfer",
+    parentId: "class_management",
+    type: "page",
+    label: "Promote / Transfer",
+    description: "Batch student promotion to the next grade or section transfer.",
+    icon: "ArrowRight",
+    route: "/admin/classes/transfer",
+    category: "academics",
+    sortOrder: 52,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "manage"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+
+  // 6. Attendance
+  {
+    id: "basic_attendance",
+    key: "basic_attendance",
+    parentId: null,
+    type: "module",
+    label: "Attendance",
+    description: "Daily student and staff attendance roll-call, monthly reports, and leave logs.",
+    icon: "ClipboardCheck",
+    route: "/admin/attendance",
+    category: "attendance",
+    sortOrder: 6,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "create", "edit", "export"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+    aliases: ["attendance"],
+  },
+
+  // 7. Timetable / Bells
+  {
+    id: "timetable_bells",
+    key: "timetable_bells",
+    parentId: null,
+    type: "module",
+    label: "Timetable / Bells",
+    description: "Weekly period schedules, bell timings, and teacher substitutions.",
+    icon: "Clock",
+    route: "/admin/timetable",
+    category: "academics",
+    sortOrder: 7,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "create", "edit", "manage"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+    aliases: ["timetable"],
+  },
+
+  // 8. Fee Management
+  {
+    id: "fee_management",
+    key: "fee_management",
+    parentId: null,
+    type: "module",
+    label: "Fee Management",
+    description: "Comprehensive fee collection, invoices, receipts, student ledgers, and cash/bank accounting.",
+    icon: "CreditCard",
+    route: "/admin/fees",
+    category: "finance",
+    sortOrder: 8,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "create", "edit", "delete", "export", "manage"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+    aliases: ["fees"],
+  },
+  {
+    id: "fee_dashboard",
+    key: "fee_dashboard",
+    parentId: "fee_management",
+    type: "page",
+    label: "Fee Dashboard",
+    description: "Real-time fee collection overview, collection rates, and monthly trends.",
+    icon: "LayoutDashboard",
+    route: "/admin/fees",
+    category: "finance",
+    sortOrder: 81,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+  {
+    id: "fee_structures",
+    key: "fee_structures",
+    parentId: "fee_management",
+    type: "page",
+    label: "Fee Structure",
+    description: "Class-wise tuition, transport, exam, and annual fee structures.",
+    icon: "Sliders",
+    route: "/admin/fees/structures",
+    category: "finance",
+    sortOrder: 82,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "create", "edit", "delete"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+  {
+    id: "fee_student_fees",
+    key: "fee_student_fees",
+    parentId: "fee_management",
+    type: "page",
+    label: "Student Fees",
+    description: "Student-wise fee schedules, 8-tab ledger, waivers, and adjustments.",
+    icon: "Users",
+    route: "/admin/fees/student-fees",
+    category: "finance",
+    sortOrder: 83,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "edit", "manage"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+  {
+    id: "fee_collect",
+    key: "fee_collect",
+    parentId: "fee_management",
+    type: "page",
+    label: "Collect Fee",
+    description: "Counter fee collection with instant receipt generation, UPI, Cash, Cheque.",
+    icon: "Receipt",
+    route: "/admin/fees/collect",
+    category: "finance",
+    sortOrder: 84,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "create", "manage"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+  {
+    id: "fee_transactions",
+    key: "fee_transactions",
+    parentId: "fee_management",
+    type: "page",
+    label: "Transactions",
+    description: "Audit trail of all fee payments, bank reconciliation, and reversal records.",
+    icon: "Activity",
+    route: "/admin/fees/transactions",
+    category: "finance",
+    sortOrder: 85,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "export"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+  {
+    id: "fee_ledger",
+    key: "fee_ledger",
+    parentId: "fee_management",
+    type: "page",
+    label: "Student Ledger",
+    description: "Chronological debit/credit fee ledger per student and printable statements.",
+    icon: "FileSpreadsheet",
+    route: "/admin/fees/ledger",
+    category: "finance",
+    sortOrder: 86,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "export"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+  {
+    id: "fee_cash_bank",
+    key: "fee_cash_bank",
+    parentId: "fee_management",
+    type: "page",
+    label: "Cash & Bank Ledger",
+    description: "Reconciliation of Cash in Drawer, UPI, and Bank Transfer accounts.",
+    icon: "Building2",
+    route: "/admin/fees/cash-bank",
+    category: "finance",
+    sortOrder: 87,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "export"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+  {
+    id: "fee_accounting",
+    key: "fee_accounting",
+    parentId: "fee_management",
+    type: "page",
+    label: "Accounting & Trial Balance",
+    description: "Double-entry general ledger, Trial Balance, P&L statement, and Balance Sheet.",
+    icon: "Scale",
+    route: "/admin/fees/accounting",
+    category: "finance",
+    sortOrder: 88,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "export", "manage"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+  {
+    id: "fee_defaulters",
+    key: "fee_defaulters",
+    parentId: "fee_management",
+    type: "page",
+    label: "Dues / Defaulters",
+    description: "Track overdue fees, ageing breakdown, and student follow-up reminders.",
+    icon: "AlertTriangle",
+    route: "/admin/fees/defaulters",
+    category: "finance",
+    sortOrder: 89,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "export", "send"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+  {
+    id: "fee_discounts",
+    key: "fee_discounts",
+    parentId: "fee_management",
+    type: "page",
+    label: "Discounts / Concessions",
+    description: "Scholarship allocation, sibling discounts, and fee concessions.",
+    icon: "Percent",
+    route: "/admin/fees/discounts",
+    category: "finance",
+    sortOrder: 90,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "create", "edit"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+  {
+    id: "fee_receipts",
+    key: "fee_receipts",
+    parentId: "fee_management",
+    type: "page",
+    label: "Receipts",
+    description: "Search, view, print, and download PDF receipts with 3 design templates.",
+    icon: "Printer",
+    route: "/admin/fees/receipts",
+    category: "finance",
+    sortOrder: 91,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "export"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+  {
+    id: "fee_reports",
+    key: "fee_reports",
+    parentId: "fee_management",
+    type: "page",
+    label: "Fee Reports",
+    description: "Class-wise collection reports, fee head breakdown, and mode reconciliation.",
+    icon: "BarChart3",
+    route: "/admin/fees/reports",
+    category: "finance",
+    sortOrder: 92,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "export"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+  {
+    id: "fee_reminders",
+    key: "fee_reminders",
+    parentId: "fee_management",
+    type: "subfeature",
+    label: "Fee Reminder",
+    description: "Automated due date payment reminders to parents.",
+    icon: "Bell",
+    route: "/admin/fees/defaulters?reminder=true",
+    category: "finance",
+    sortOrder: 93,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["send", "manage"],
+    status: "active",
+    showInSidebar: false,
+    planControlled: true,
+  },
+  {
+    id: "fee_whatsapp_reminder",
+    key: "fee_whatsapp_reminder",
+    parentId: "fee_management",
+    type: "action",
+    label: "WhatsApp Reminder",
+    description: "One-click WhatsApp fee payment links and receipt dispatch.",
+    icon: "Send",
+    route: "/admin/fees/defaulters?tab=whatsapp",
+    category: "finance",
+    sortOrder: 94,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["send"],
+    status: "active",
+    showInSidebar: false,
+    planControlled: true,
+  },
+  {
+    id: "fee_settings",
+    key: "fee_settings",
+    parentId: "fee_management",
+    type: "page",
+    label: "Fee Settings",
+    description: "Configure receipt numbering prefixes, academic session periods, and late fee rules.",
+    icon: "Settings",
+    route: "/admin/fees/settings",
+    category: "finance",
+    sortOrder: 95,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "edit", "manage"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+
+  // 9. Communication
+  {
+    id: "communication_hub",
+    key: "communication_hub",
+    parentId: null,
+    type: "module",
+    label: "Communication",
+    description: "Multi-tenant notification dispatch: WhatsApp, Email, and In-App messaging.",
+    icon: "Send",
+    route: "/admin/communication",
+    category: "communication",
+    sortOrder: 9,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "create", "send", "manage"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+    aliases: ["communication", "whatsapp"],
+  },
+  {
+    id: "comm_whatsapp",
+    key: "comm_whatsapp",
+    parentId: "communication_hub",
+    type: "subfeature",
+    label: "WhatsApp",
+    description: "Official WhatsApp Cloud API messaging and automated templates.",
+    icon: "Send",
+    route: "/admin/communication?channel=whatsapp",
+    category: "communication",
+    sortOrder: 96,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "send"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+  {
+    id: "comm_email",
+    key: "comm_email",
+    parentId: "communication_hub",
+    type: "subfeature",
+    label: "Email",
+    description: "Branded HTML school email circulars, progress reports, and alerts.",
+    icon: "Mail",
+    route: "/admin/communication?channel=email",
+    category: "communication",
+    sortOrder: 97,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "send"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+  {
+    id: "comm_in_app",
+    key: "comm_in_app",
+    parentId: "communication_hub",
+    type: "subfeature",
+    label: "In-App Notifications",
+    description: "Instant push announcements to parent and student mobile web apps.",
+    icon: "Bell",
+    route: "/admin/communication?channel=in_app",
+    category: "communication",
+    sortOrder: 98,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "send"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+  {
+    id: "comm_automation",
+    key: "comm_automation",
+    parentId: "communication_hub",
+    type: "subfeature",
+    label: "Automation",
+    description: "Automated trigger-based messages for fee due, attendance absent, and exam alerts.",
+    icon: "Sparkles",
+    route: "/admin/communication?tab=automation",
+    category: "communication",
+    sortOrder: 99,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "edit", "manage"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+
+  // 10. Reports & Exports
+  {
+    id: "advanced_reports",
+    key: "advanced_reports",
+    parentId: null,
+    type: "module",
+    label: "Reports & Exports",
+    description: "Executive PDF and Excel exports for administration and compliance.",
+    icon: "FileText",
+    route: "/admin/reports",
+    category: "analytics",
+    sortOrder: 10,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "export"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+    aliases: ["reports"],
+  },
+
+  // 11. Notices & Announcements
+  {
+    id: "notices_announcements",
+    key: "notices_announcements",
+    parentId: null,
+    type: "module",
+    label: "Notices",
+    description: "Digital school noticeboard, circulars, and event announcements.",
+    icon: "Bell",
+    route: "/admin/notices",
+    category: "communication",
+    sortOrder: 11,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "create", "edit", "delete", "send"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+    aliases: ["notices"],
+  },
+
+  // 12. AI Assistant
+  {
+    id: "ai_assistant",
+    key: "ai_assistant",
+    parentId: null,
+    type: "module",
+    label: "AI Assistant",
+    description: "Generative AI workspace for drafting circulars, lesson notes, and reports.",
+    icon: "Sparkles",
+    route: "/admin/ai",
+    category: "ai",
+    sortOrder: 12,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "manage"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+    aliases: ["ai", "copilot"],
+  },
+
+  // 13. Data Backup & Sync
+  {
+    id: "data_backup_sync",
+    key: "data_backup_sync",
+    parentId: null,
+    type: "module",
+    label: "Data Backup & Sync",
+    description: "Automated Google Sheets mirroring, cloud backups, and CSV migrations.",
+    icon: "Database",
+    route: "/admin/backup",
+    category: "system",
+    sortOrder: 13,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "export", "manage"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+    aliases: ["backup", "sync"],
+  },
+  {
+    id: "backup_export",
+    key: "backup_export",
+    parentId: "data_backup_sync",
+    type: "page",
+    label: "Export & Backup",
+    description: "Full institution database download in JSON and CSV format.",
+    icon: "Database",
+    route: "/admin/backup?tab=export",
+    category: "system",
+    sortOrder: 131,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "export"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+  {
+    id: "backup_import",
+    key: "backup_import",
+    parentId: "data_backup_sync",
+    type: "page",
+    label: "Import Data",
+    description: "Bulk student, teacher, and class CSV onboarding wizard.",
+    icon: "Upload",
+    route: "/admin/backup?tab=import",
+    category: "system",
+    sortOrder: 132,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "create"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+  },
+
+  // 14. Rules & Policies
+  {
+    id: "rules_policies",
+    key: "rules_policies",
+    parentId: null,
+    type: "module",
+    label: "Rules & Policies",
+    description: "School handbook, disciplinary guidelines, attendance thresholds, and exam rules.",
+    icon: "ShieldCheck",
+    route: "/admin/rules",
+    category: "compliance",
+    sortOrder: 14,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "edit", "manage"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: true,
+    aliases: ["rules", "policies"],
+  },
+
+  // 15. Subscription & Billing
+  {
+    id: "subscription_billing",
+    key: "subscription_billing",
+    parentId: null,
+    type: "module",
+    label: "Subscription & Billing",
+    description: "Institutional SaaS subscription tier, plan upgrade invoices, and payment receipts.",
+    icon: "CreditCard",
+    route: "/admin/billing",
+    category: "billing",
+    sortOrder: 15,
+    defaultAccess: "FULL_ACCESS",
+    permissions: ["view", "manage"],
+    status: "active",
+    showInSidebar: true,
+    planControlled: false,
+    aliases: ["billing"],
+  },
+];
+
+/**
+ * Returns tree structure of features (Parents with their respective children).
+ */
+export function getAdminFeatureTree(): AdminFeatureNode[] {
+  const parents = ADMIN_FEATURE_REGISTRY.filter((f) => f.parentId === null).sort(
+    (a, b) => a.sortOrder - b.sortOrder
+  );
+
+  return parents.map((parent) => ({
+    ...parent,
+    children: ADMIN_FEATURE_REGISTRY.filter((f) => f.parentId === parent.id).sort(
+      (a, b) => a.sortOrder - b.sortOrder
+    ),
+  }));
+}
+
+/**
+ * Resolves a feature item by its key, id, or alias.
+ */
+export function findFeatureByKey(key: string): AdminFeatureItem | undefined {
+  if (!key) return undefined;
+  const clean = key.trim().toLowerCase();
+  return ADMIN_FEATURE_REGISTRY.find(
+    (f) =>
+      f.key.toLowerCase() === clean ||
+      f.id.toLowerCase() === clean ||
+      (f.aliases && f.aliases.some((a) => a.toLowerCase() === clean))
+  );
+}
+
+/**
+ * Checks if a feature is unconfigured in an existing plan's featureAccess map.
+ */
+export function isFeatureUnconfigured(
+  featureKey: string,
+  featureAccess?: Record<string, FeatureAccessMode>
+): boolean {
+  if (!featureAccess) return true;
+  return featureAccess[featureKey] === undefined;
+}
+
+/**
+ * Merges existing plan featureAccess with safe defaults for newly added registry features.
+ * Guarantees previous settings are NEVER overwritten.
+ */
+export function getSafeDefaultFeatureAccess(
+  existingAccess?: Record<string, FeatureAccessMode>
+): Record<string, FeatureAccessMode> {
+  const merged: Record<string, FeatureAccessMode> = { ...(existingAccess || {}) };
+
+  ADMIN_FEATURE_REGISTRY.forEach((feature) => {
+    if (merged[feature.key] === undefined) {
+      merged[feature.key] = feature.defaultAccess;
+    }
+    // Also ensure aliases exist for backward compatibility
+    if (feature.aliases) {
+      feature.aliases.forEach((alias) => {
+        if (merged[alias] === undefined) {
+          merged[alias] = merged[feature.key];
+        }
+      });
+    }
+  });
+
+  return merged;
+}
+
+/**
+ * Extracts active FULL_ACCESS feature keys from a featureAccess dictionary.
+ */
+export function getEnabledFeatureKeys(
+  featureAccess?: Record<string, FeatureAccessMode>
+): string[] {
+  if (!featureAccess) return [];
+  const enabled: string[] = [];
+  ADMIN_FEATURE_REGISTRY.forEach((f) => {
+    if (featureAccess[f.key] === "FULL_ACCESS") {
+      enabled.push(f.key);
+      if (f.aliases) {
+        enabled.push(...f.aliases);
+      }
+    }
+  });
+  return Array.from(new Set(enabled));
+}

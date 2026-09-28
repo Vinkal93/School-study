@@ -41,6 +41,7 @@ import {
   Send,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
+import { getAdminFeatureTree } from "@/lib/features/adminFeatureRegistry";
 
 interface SubNavItem {
   label: string;
@@ -54,6 +55,71 @@ interface NavItem {
   icon: React.ReactNode;
   featureKey?: string;
   subItems?: SubNavItem[];
+}
+
+function getSidebarIcon(iconName: string, category?: string) {
+  switch (iconName) {
+    case "LayoutDashboard":
+      return <LayoutDashboard className="h-5 w-5" />;
+    case "MessageSquare":
+      return <MessageSquare className="h-5 w-5 text-sky-500" />;
+    case "Users":
+      return <Users className="h-5 w-5" />;
+    case "GraduationCap":
+      return <GraduationCap className="h-5 w-5" />;
+    case "BookOpen":
+      return <BookOpen className="h-5 w-5" />;
+    case "ClipboardCheck":
+      return <ClipboardCheck className="h-5 w-5" />;
+    case "Clock":
+      return <Clock className="h-5 w-5 text-indigo-500" />;
+    case "CreditCard":
+      return category === "billing" ? (
+        <CreditCard className="h-5 w-5 text-blue-500" />
+      ) : (
+        <CreditCard className="h-5 w-5 text-emerald-500" />
+      );
+    case "Send":
+      return <Send className="h-5 w-5 text-indigo-500" />;
+    case "FileText":
+      return <FileText className="h-5 w-5 text-indigo-500" />;
+    case "Bell":
+      return <Bell className="h-5 w-5" />;
+    case "Sparkles":
+      return <Sparkles className="h-5 w-5 text-purple-500" />;
+    case "Database":
+      return <Database className="h-5 w-5 text-emerald-500" />;
+    case "ShieldCheck":
+      return <ShieldCheck className="h-5 w-5 text-indigo-500" />;
+    default:
+      return <LayoutDashboard className="h-5 w-5" />;
+  }
+}
+
+/**
+ * Builds School Admin navigation dynamically from ADMIN_FEATURE_REGISTRY (Single Source of Truth)
+ */
+function buildSchoolAdminNavItems(): NavItem[] {
+  const tree = getAdminFeatureTree();
+  return tree
+    .filter((mod) => mod.showInSidebar && mod.route)
+    .map((mod) => {
+      const sidebarSubItems = mod.children
+        .filter((child) => child.showInSidebar && child.route)
+        .map((child) => ({
+          label: child.label,
+          href: child.route!,
+          featureKey: child.planControlled ? child.key : undefined,
+        }));
+
+      return {
+        label: mod.label,
+        href: mod.route!,
+        featureKey: mod.planControlled ? mod.key : undefined,
+        icon: getSidebarIcon(mod.icon, mod.category),
+        subItems: sidebarSubItems.length > 0 ? sidebarSubItems : undefined,
+      };
+    });
 }
 
 const roleNavItems: Record<string, NavItem[]> = {
@@ -182,112 +248,7 @@ const roleNavItems: Record<string, NavItem[]> = {
       icon: <Settings className="h-5 w-5" />,
     },
   ],
-  school_admin: [
-    {
-      label: "Dashboard",
-      href: "/admin",
-      icon: <LayoutDashboard className="h-5 w-5" />,
-    },
-    {
-      label: "AI Assistant",
-      href: "/admin/ai",
-      featureKey: "ai_assistant",
-      icon: <Sparkles className="h-5 w-5 text-purple-500" />,
-    },
-    {
-      label: "Inquiries",
-      href: "/admin/inquiries",
-      featureKey: "inquiries_portal",
-      icon: <MessageSquare className="h-5 w-5 text-sky-500" />,
-    },
-    {
-      label: "Teachers",
-      href: "/admin/teachers",
-      featureKey: "teacher_management",
-      icon: <Users className="h-5 w-5" />,
-    },
-    {
-      label: "Rules & Policies",
-      href: "/admin/rules",
-      featureKey: "rules_policies",
-      icon: <ShieldCheck className="h-5 w-5 text-indigo-500" />,
-    },
-    {
-      label: "Students",
-      href: "/admin/students",
-      featureKey: "student_management",
-      icon: <GraduationCap className="h-5 w-5" />,
-    },
-    {
-      label: "Classes",
-      href: "/admin/classes",
-      featureKey: "class_management",
-      icon: <BookOpen className="h-5 w-5" />,
-      subItems: [
-        { label: "All Classes", href: "/admin/classes" },
-        { label: "Promote / Transfer", href: "/admin/classes/transfer" },
-      ],
-    },
-    {
-      label: "Data Backup & Sync",
-      href: "/admin/backup",
-      icon: <Database className="h-5 w-5 text-emerald-500" />,
-      subItems: [
-        { label: "Export & Backup", href: "/admin/backup?tab=export" },
-        { label: "Import Data", href: "/admin/backup?tab=import" },
-      ],
-    },
-    {
-      label: "Timetable / Bells",
-      href: "/admin/timetable",
-      featureKey: "timetable_bells",
-      icon: <Clock className="h-5 w-5 text-indigo-500" />,
-    },
-    {
-      label: "Attendance",
-      href: "/admin/attendance",
-      featureKey: "basic_attendance",
-      icon: <ClipboardCheck className="h-5 w-5" />,
-    },
-    {
-      label: "Reports & Exports",
-      href: "/admin/reports",
-      featureKey: "advanced_reports",
-      icon: <FileText className="h-5 w-5 text-indigo-500" />,
-    },
-    {
-      label: "Notices",
-      href: "/admin/notices",
-      featureKey: "notices_announcements",
-      icon: <Bell className="h-5 w-5" />,
-    },
-    {
-      label: "Fee Management",
-      href: "/admin/fees",
-      featureKey: "fee_management",
-      icon: <CreditCard className="h-5 w-5 text-emerald-500" />,
-      subItems: [
-        { label: "Fee Dashboard", href: "/admin/fees", featureKey: "fee_dashboard" },
-        { label: "Fee Structure", href: "/admin/fees/structures", featureKey: "fee_structures" },
-        { label: "Student Fees", href: "/admin/fees/student-fees", featureKey: "fee_student_fees" },
-        { label: "Collect Fee", href: "/admin/fees/collect", featureKey: "fee_collect" },
-        { label: "Transactions", href: "/admin/fees/transactions", featureKey: "fee_transactions" },
-        { label: "Student Ledger", href: "/admin/fees/ledger", featureKey: "fee_ledger" },
-        { label: "Cash & Bank Ledger", href: "/admin/fees/cash-bank", featureKey: "fee_cash_bank" },
-        { label: "Accounting & Trial Balance", href: "/admin/fees/accounting", featureKey: "fee_accounting" },
-        { label: "Dues / Defaulters", href: "/admin/fees/defaulters", featureKey: "fee_defaulters" },
-        { label: "Discounts / Concessions", href: "/admin/fees/discounts", featureKey: "fee_discounts" },
-        { label: "Receipts", href: "/admin/fees/receipts", featureKey: "fee_receipts" },
-        { label: "Fee Reports", href: "/admin/fees/reports", featureKey: "fee_reports" },
-        { label: "Fee Settings", href: "/admin/fees/settings", featureKey: "fee_settings" },
-      ],
-    },
-    {
-      label: "Subscription & Billing",
-      href: "/admin/billing",
-      icon: <CreditCard className="h-5 w-5 text-blue-500" />,
-    },
-  ],
+  school_admin: buildSchoolAdminNavItems(),
   teacher: [
     {
       label: "Dashboard",
@@ -395,6 +356,7 @@ const roleNavItems: Record<string, NavItem[]> = {
     },
   ],
 };
+roleNavItems.admin = roleNavItems.school_admin;
 
 import { subscribeToExperienceSettings } from "@/lib/services/experienceControl.service";
 import { ExperienceSettings, DEFAULT_EXPERIENCE_SETTINGS } from "@/types/experienceControl";
@@ -464,11 +426,14 @@ export function Sidebar({ variant = "classic" }: SidebarProps) {
     Activity: true,
   });
 
-  const toggleSection = (label: string) => {
-    setExpandedSections((prev) => ({
-      ...prev,
-      [label]: !prev[label],
-    }));
+  const toggleSection = (label: string, defaultOpen = false) => {
+    setExpandedSections((prev) => {
+      const current = prev[label] ?? defaultOpen;
+      return {
+        ...prev,
+        [label]: !current,
+      };
+    });
   };
 
   const currentNavItems = profile?.role ? roleNavItems[profile.role] || [] : [];
@@ -577,13 +542,13 @@ export function Sidebar({ variant = "classic" }: SidebarProps) {
               item.href !== "/super-admin" &&
               pathname.startsWith(item.href));
 
-          const isExpanded = expandedSections[item.label] ?? false;
+          const isExpanded = expandedSections[item.label] ?? isParentActive;
 
           if (hasSubItems && (!collapsed || isOpen)) {
             return (
               <div key={item.label} className="space-y-1">
                 <button
-                  onClick={() => toggleSection(item.label)}
+                  onClick={() => toggleSection(item.label, isParentActive)}
                   className={cn(
                     "flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                     isParentActive
