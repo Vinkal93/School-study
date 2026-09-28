@@ -34,6 +34,12 @@ import {
   Check,
 } from "lucide-react";
 import { getFeeTransactions } from "@/lib/services/fee.service";
+import {
+  getFeeDashboardSummary,
+  getClassCollectionSummary,
+  getFeeDefaulters,
+  getPaymentMethodReport,
+} from "@/lib/services/fee-analytics.service";
 import { getClassesWithSections, getAcademicYears } from "@/lib/services/academic.service";
 import type { FeePayment, SchoolClass, AcademicYear } from "@/types";
 import { FeeReceiptModal } from "@/components/fees/FeeReceiptModal";
@@ -113,17 +119,51 @@ export default function AdminFeeReportsPage() {
         getAcademicYears(schoolId).catch(() => []),
       ]);
 
-      if (summaryRes?.data) {
-        setDashboardSummary(summaryRes.data);
+      let summaryData = summaryRes?.data;
+      let classData = classRes?.data;
+      let defData = defRes?.defaulters;
+      let payData = payRes?.data;
+
+      // Resilient fallback to direct client services if API returned null (e.g. 401 Unauthorized)
+      if (!summaryData) {
+        summaryData = await getFeeDashboardSummary(schoolId, {
+          academicYearId: dateRange && dateRange !== "all" ? dateRange : "ay_2026_27",
+          className: selectedClass !== "all" ? selectedClass : undefined,
+          sectionName: selectedSection !== "all" ? selectedSection : undefined,
+        }).catch(() => null);
       }
-      if (classRes?.data && Array.isArray(classRes.data)) {
-        setClassWiseList(classRes.data);
+
+      if (!classData || !Array.isArray(classData) || classData.length === 0) {
+        classData = await getClassCollectionSummary(schoolId, {
+          academicYearId: dateRange && dateRange !== "all" ? dateRange : "ay_2026_27",
+        }).catch(() => []);
       }
-      if (defRes?.defaulters && Array.isArray(defRes.defaulters)) {
-        setDefaultersList(defRes.defaulters);
+
+      if (!defData || !Array.isArray(defData) || defData.length === 0) {
+        const defResult = await getFeeDefaulters(schoolId, {
+          academicYearId: dateRange && dateRange !== "all" ? dateRange : "ay_2026_27",
+          className: selectedClass !== "all" ? selectedClass : undefined,
+        }).catch(() => ({ defaulters: [] }));
+        defData = defResult?.defaulters || [];
       }
-      if (payRes?.data && Array.isArray(payRes.data)) {
-        setPaymentModeList(payRes.data);
+
+      if (!payData || !Array.isArray(payData) || payData.length === 0) {
+        payData = await getPaymentMethodReport(schoolId, {
+          academicYearId: dateRange && dateRange !== "all" ? dateRange : "ay_2026_27",
+        }).catch(() => []);
+      }
+
+      if (summaryData) {
+        setDashboardSummary(summaryData);
+      }
+      if (classData && Array.isArray(classData)) {
+        setClassWiseList(classData);
+      }
+      if (defData && Array.isArray(defData)) {
+        setDefaultersList(defData);
+      }
+      if (payData && Array.isArray(payData)) {
+        setPaymentModeList(payData);
       }
       setTransactions(txList);
       setClasses(clsList);

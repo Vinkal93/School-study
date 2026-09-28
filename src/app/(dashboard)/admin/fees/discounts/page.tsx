@@ -18,6 +18,7 @@ import {
   Percent,
 } from "lucide-react";
 import { getStudents } from "@/lib/services/student.service";
+import { getStudentFeeAssignment } from "@/lib/services/fee.service";
 import type { StudentProfile } from "@/types";
 import type { FeeDemand, FeeAdjustment, AdjustmentType } from "@/types/fee-foundation";
 import { formatINR, paiseToRupees } from "@/lib/services/fee-foundation.service";
@@ -102,25 +103,78 @@ export default function AdminFeeDiscountsPage() {
       `/api/fees/foundation/demands?schoolId=${encodeURIComponent(schoolId)}&studentId=${encodeURIComponent(selectedStudent.id)}&academicYearId=all`
     )
       .then((r) => r.json())
-      .then((data) => {
-        if (data.success && Array.isArray(data.demands)) {
-          const unpaid = data.demands.filter(
-            (d: FeeDemand) => d.balanceAmountPaise > 0
-          );
-          setDemands(unpaid);
-          if (unpaid.length > 0) {
-            setSelectedDemandId(unpaid[0].id);
-          } else {
-            setSelectedDemandId("");
+      .then(async (data) => {
+        let unpaid = (data?.demands || []).filter(
+          (d: FeeDemand) => d.balanceAmountPaise > 0
+        );
+
+        if (unpaid.length === 0) {
+          const assign = await getStudentFeeAssignment(schoolId, selectedStudent.id).catch(() => null);
+          if (assign?.monthLedger && Array.isArray(assign.monthLedger)) {
+            unpaid = assign.monthLedger
+              .filter((m: any) => (m.pendingAmountPaise ?? m.amountPaise) > 0 && m.amountPaise > 0)
+              .map((m: any, idx: number) => ({
+                id: `${assign.id}_${idx}`,
+                demandNumber: `DEM-${(assign.admissionNumber || assign.id).slice(-4)}-${idx}`,
+                schoolId,
+                studentId: selectedStudent.id,
+                studentName: selectedStudent.name,
+                admissionNumber: selectedStudent.admissionNumber || selectedStudent.studentId,
+                className: selectedStudent.className,
+                sectionName: selectedStudent.sectionName || "A",
+                academicYearId: assign.academicYearId || "ay_2026_27",
+                period: m.month,
+                dueDate: m.dueDate,
+                grossAmountPaise: m.amountPaise,
+                netAmountPaise: m.amountPaise - (m.discountPaise || 0),
+                paidAmountPaise: m.paidAmountPaise || 0,
+                balanceAmountPaise: m.pendingAmountPaise ?? Math.max(0, m.amountPaise - (m.paidAmountPaise || 0)),
+                status: "PENDING",
+              } as any));
           }
+        }
+
+        setDemands(unpaid);
+        if (unpaid.length > 0) {
+          setSelectedDemandId(unpaid[0].id);
         } else {
-          setDemands([]);
           setSelectedDemandId("");
         }
       })
-      .catch((err) => {
-        console.warn("Failed to fetch demands for student:", err);
+      .catch(async (err) => {
+        console.warn("Failed to fetch demands for student, fallback to studentFeeAssignment:", err);
+        try {
+          const assign = await getStudentFeeAssignment(schoolId, selectedStudent.id).catch(() => null);
+          if (assign?.monthLedger && Array.isArray(assign.monthLedger)) {
+            const unpaid = assign.monthLedger
+              .filter((m: any) => (m.pendingAmountPaise ?? m.amountPaise) > 0 && m.amountPaise > 0)
+              .map((m: any, idx: number) => ({
+                id: `${assign.id}_${idx}`,
+                demandNumber: `DEM-${(assign.admissionNumber || assign.id).slice(-4)}-${idx}`,
+                schoolId,
+                studentId: selectedStudent.id,
+                studentName: selectedStudent.name,
+                admissionNumber: selectedStudent.admissionNumber || selectedStudent.studentId,
+                className: selectedStudent.className,
+                sectionName: selectedStudent.sectionName || "A",
+                academicYearId: assign.academicYearId || "ay_2026_27",
+                period: m.month,
+                dueDate: m.dueDate,
+                grossAmountPaise: m.amountPaise,
+                netAmountPaise: m.amountPaise - (m.discountPaise || 0),
+                paidAmountPaise: m.paidAmountPaise || 0,
+                balanceAmountPaise: m.pendingAmountPaise ?? Math.max(0, m.amountPaise - (m.paidAmountPaise || 0)),
+                status: "PENDING",
+              } as any));
+            setDemands(unpaid);
+            if (unpaid.length > 0) {
+              setSelectedDemandId(unpaid[0].id);
+              return;
+            }
+          }
+        } catch (e) {}
         setDemands([]);
+        setSelectedDemandId("");
       })
       .finally(() => setLoadingDemands(false));
   }, [schoolId, selectedStudent]);

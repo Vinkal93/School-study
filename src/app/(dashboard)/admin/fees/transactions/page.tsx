@@ -6,7 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
 import { FeeReceiptModal } from "@/components/fees/FeeReceiptModal";
 import { getClassesWithSections } from "@/lib/services/academic.service";
-import { formatINR, paiseToRupees } from "@/lib/services/fee-foundation.service";
+import { formatINR, paiseToRupees, getFinancialPayments } from "@/lib/services/fee-foundation.service";
 import {
   Search,
   Printer,
@@ -106,14 +106,37 @@ export default function AdminFeeTransactionsPage() {
       if (endDate) params.set("endDate", endDate);
       if (searchQuery.trim()) params.set("search", searchQuery.trim());
 
-      const [res, clsList] = await Promise.all([
-        fetch(`/api/fees/foundation/payments?${params.toString()}`),
-        getClassesWithSections(schoolId),
-      ]);
+      let paymentsList: FinancialPayment[] = [];
+      let clsList: SchoolClass[] = [];
 
-      if (!res.ok) throw new Error("Failed to load financial payments");
-      const json = await res.json();
-      setPayments(json.payments || []);
+      try {
+        const [res, classesData] = await Promise.all([
+          fetch(`/api/fees/foundation/payments?${params.toString()}`),
+          getClassesWithSections(schoolId),
+        ]);
+        clsList = classesData;
+        if (res.ok) {
+          const json = await res.json();
+          paymentsList = json.payments || [];
+        } else {
+          throw new Error("API status " + res.status);
+        }
+      } catch (apiErr) {
+        console.warn("API fallback to direct client getFinancialPayments:", apiErr);
+        paymentsList = await getFinancialPayments(schoolId, {
+          className: selectedClass !== "all" ? selectedClass : undefined,
+          paymentMethod: selectedMethod !== "all" ? selectedMethod : undefined,
+          status: selectedStatus !== "all" ? selectedStatus : undefined,
+          startDate: startDate || undefined,
+          endDate: endDate || undefined,
+          searchQuery: searchQuery.trim() || undefined,
+        });
+        if (!clsList || clsList.length === 0) {
+          clsList = await getClassesWithSections(schoolId).catch(() => []);
+        }
+      }
+
+      setPayments(paymentsList);
       setClasses(clsList);
     } catch (err: any) {
       console.error("fetchPayments error:", err);

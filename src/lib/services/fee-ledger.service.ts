@@ -131,14 +131,109 @@ export async function getStudentLedger(
   const demandsSnap = await getDocs(demandsQuery);
   let demands = demandsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as FeeDemand));
 
-  // 3. Query Payments
-  const paymentsQuery = query(
-    collection(db, "financialPayments"),
-    where("schoolId", "==", schoolId),
-    where("studentId", "==", studentId)
+  // Resilient fallback: If no explicit feeDemands exist, synthesize from studentFeeAssignments
+  if (demands.length === 0) {
+    try {
+      const assignQ = query(
+        collection(db, "studentFeeAssignments"),
+        where("schoolId", "==", schoolId),
+        where("studentId", "==", studentId)
+      );
+      const aSnap = await getDocs(assignQ);
+      if (!aSnap.empty) {
+        const assign = aSnap.docs[0].data() as any;
+        if (assign.monthLedger && Array.isArray(assign.monthLedger)) {
+          assign.monthLedger.forEach((mItem: any, idx: number) => {
+            if (mItem.amountPaise > 0) {
+              demands.push({
+                id: `${aSnap.docs[0].id}_${idx}`,
+                demandNumber: `DEM-${(admissionNumber || studentId).slice(-4)}-${idx}`,
+                schoolId,
+                studentId,
+                studentName,
+                admissionNumber,
+                className,
+                sectionName,
+                academicYearId: assign.academicYearId || "ay_current",
+                academicYearName: assign.academicYearName,
+                period: mItem.month,
+                dueDate: mItem.dueDate,
+                grossAmountPaise: mItem.amountPaise,
+                netAmountPaise: mItem.amountPaise - (mItem.discountPaise || 0),
+                paidAmountPaise: mItem.paidAmountPaise || 0,
+                balanceAmountPaise: mItem.pendingAmountPaise ?? Math.max(0, mItem.amountPaise - (mItem.paidAmountPaise || 0)),
+                status: mItem.status === "PAID" ? "PAID" : (mItem.paidAmountPaise || 0) > 0 ? "PARTIAL" : "PENDING",
+                isOverdue: new Date(mItem.dueDate).getTime() < Date.now() && (mItem.pendingAmountPaise > 0),
+                createdAt: assign.updatedAt || new Date().toISOString(),
+              } as any);
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Virtual demands for student ledger notice:", e);
+    }
+  }
+
+  // 3. Query Payments (merging financialPayments AND feePayments)
+  const paymentsSnap = await getDocs(
+    query(
+      collection(db, "financialPayments"),
+      where("schoolId", "==", schoolId),
+      where("studentId", "==", studentId)
+    )
   );
-  const paymentsSnap = await getDocs(paymentsQuery);
   let payments = paymentsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as FinancialPayment));
+  const seenPayIds = new Set(payments.map((p) => p.id));
+  const seenReceipts = new Set(payments.map((p) => p.receiptNumber).filter(Boolean));
+
+  try {
+    const feePaySnap = await getDocs(
+      query(
+        collection(db, "feePayments"),
+        where("schoolId", "==", schoolId),
+        where("studentId", "==", studentId)
+      )
+    );
+    for (const d of feePaySnap.docs) {
+      if (seenPayIds.has(d.id)) continue;
+      const data = d.data();
+      const rec = data.receiptNumber || d.id;
+      if (rec && seenReceipts.has(rec)) continue;
+
+      seenPayIds.add(d.id);
+      if (rec) seenReceipts.add(rec);
+
+      payments.push({
+        id: d.id,
+        receiptNumber: rec,
+        schoolId,
+        studentId,
+        studentName,
+        admissionNumber,
+        className,
+        sectionName: sectionName || "A",
+        academicYearId: data.academicYearId || "",
+        amountPaise: data.amountPaidPaise || data.netAmountPaise || 0,
+        paymentDate: data.paymentDate || data.createdAt || new Date().toISOString(),
+        paymentMethod: (data.paymentMethod || "CASH").toUpperCase() as PaymentMethod,
+        referenceNumber: data.transactionRef || "",
+        collectedBy: data.collectedBy || "",
+        collectedByName: data.collectedByName || "",
+        status: (data.status || "SUCCESS") as FinancialPayment["status"],
+        remarks: data.remarks || "",
+        allocatedTotalPaise: data.amountPaidPaise || 0,
+        unallocatedPaise: 0,
+        allocationCount: 1,
+        periodMonths: Array.isArray(data.periodMonths) ? data.periodMonths : [],
+        remainingDuePaise: data.remainingDuePaise,
+        createdAt: data.createdAt || new Date().toISOString(),
+        updatedAt: data.updatedAt || data.createdAt || new Date().toISOString(),
+      });
+    }
+  } catch (e) {
+    console.warn("feePayments in student ledger notice:", e);
+  }
 
   // 4. Query Refunds
   const refundsQuery = query(
@@ -535,6 +630,56 @@ export async function getAccountLedger(
   );
   const paySnap = await getDocs(payQuery);
   let payments = paySnap.docs.map((d) => ({ id: d.id, ...d.data() } as FinancialPayment));
+
+  // Merge feePayments for legacy/direct payments
+  try {
+    const feePayQuery = query(
+      collection(db, "feePayments"),
+      where("schoolId", "==", schoolId)
+    );
+    const feePaySnap = await getDocs(feePayQuery);
+    const seenPayIds = new Set(payments.map((p) => p.id));
+    const seenReceipts = new Set(payments.map((p) => p.receiptNumber).filter(Boolean));
+
+    for (const d of feePaySnap.docs) {
+      if (seenPayIds.has(d.id)) continue;
+      const data = d.data();
+      const rec = data.receiptNumber || d.id;
+      if (rec && seenReceipts.has(rec)) continue;
+
+      seenPayIds.add(d.id);
+      if (rec) seenReceipts.add(rec);
+
+      payments.push({
+        id: d.id,
+        receiptNumber: rec,
+        schoolId,
+        studentId: data.studentId || "",
+        studentName: data.studentName || "",
+        admissionNumber: data.admissionNumber || "",
+        className: data.className || "",
+        sectionName: data.sectionName || "",
+        academicYearId: data.academicYearId || "",
+        amountPaise: data.amountPaidPaise || data.netAmountPaise || 0,
+        paymentDate: data.paymentDate || data.createdAt || new Date().toISOString(),
+        paymentMethod: (data.paymentMethod || "CASH").toUpperCase() as PaymentMethod,
+        referenceNumber: data.transactionRef || "",
+        collectedBy: data.collectedBy || "",
+        collectedByName: data.collectedByName || "",
+        status: (data.status || "SUCCESS") as FinancialPayment["status"],
+        remarks: data.remarks || "",
+        allocatedTotalPaise: data.amountPaidPaise || 0,
+        unallocatedPaise: 0,
+        allocationCount: 1,
+        periodMonths: Array.isArray(data.periodMonths) ? data.periodMonths : [],
+        remainingDuePaise: data.remainingDuePaise,
+        createdAt: data.createdAt || new Date().toISOString(),
+        updatedAt: data.updatedAt || data.createdAt || new Date().toISOString(),
+      });
+    }
+  } catch (e) {
+    console.warn("feePayments in account ledger notice:", e);
+  }
 
   // 2. Query Refunds for this School
   const refQuery = query(

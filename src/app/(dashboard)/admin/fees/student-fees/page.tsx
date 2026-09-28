@@ -52,6 +52,8 @@ import {
   reconcileStudentFeeLedger,
   getStudentFeeTransactions,
 } from "@/lib/services/fee.service";
+import { getStudentFinancialSummary } from "@/lib/services/fee-foundation.service";
+import { getStudentLedger } from "@/lib/services/fee-ledger.service";
 import { getStudents } from "@/lib/services/student.service";
 import { ShareFeeModal } from "@/components/fees/ShareFeeModal";
 import { FeeAdjustmentModal } from "@/components/fees/FeeAdjustmentModal";
@@ -193,12 +195,25 @@ export default function AdminStudentFeesPage() {
         const sumRes = await fetch(
           `/api/fees/foundation/student-summary?schoolId=${schoolId}&studentId=${selectedStudent.id}&academicYearId=${selectedAcademicYear}`
         );
-        const sumData = await sumRes.json();
-        if (sumData.success && sumData.summary) {
-          setFinancialSummary(sumData.summary);
+        if (sumRes.ok) {
+          const sumData = await sumRes.json();
+          if (sumData.success && sumData.summary) {
+            setFinancialSummary(sumData.summary);
+          } else {
+            throw new Error("API response lacked summary");
+          }
+        } else {
+          throw new Error("API status " + sumRes.status);
         }
       } catch (sumErr) {
-        console.warn("Notice: Foundation summary fetch:", sumErr);
+        const fallbackSummary = await getStudentFinancialSummary(
+          schoolId,
+          selectedStudent.id,
+          selectedAcademicYear || "ay_2026_27"
+        ).catch(() => null);
+        if (fallbackSummary) {
+          setFinancialSummary(fallbackSummary);
+        }
       }
 
       // 2. Fetch Legacy Assignment for backward compatibility
@@ -245,9 +260,24 @@ export default function AdminStudentFeesPage() {
           if (json.data?.summary) {
             setStudentLedgerSummary(json.data.summary);
             setStudentLedgerEntries(json.data.entries || []);
+          } else {
+            throw new Error("No ledger data returned");
           }
         })
-        .catch((err) => console.error("Error loading student ledger:", err))
+        .catch(async (err) => {
+          console.warn("API fallback to direct client getStudentLedger:", err);
+          try {
+            const fallbackLedger = await getStudentLedger(schoolId, selectedStudent.id, {
+              academicYearId: selectedAcademicYear,
+            });
+            if (fallbackLedger) {
+              setStudentLedgerSummary(fallbackLedger.summary);
+              setStudentLedgerEntries(fallbackLedger.entries || []);
+            }
+          } catch (ledgerErr) {
+            console.error("Direct getStudentLedger fallback error:", ledgerErr);
+          }
+        })
         .finally(() => setStudentLedgerLoading(false));
     }
   }, [schoolId, selectedStudent?.id, selectedAcademicYear]);

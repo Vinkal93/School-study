@@ -25,6 +25,8 @@ import {
 import type { FeeHead, FeeStructureDefinition } from "@/types/fee-foundation";
 import type { FeeFrequency, AcademicYear } from "@/types";
 import { getAcademicYears, getClassesWithSections } from "@/lib/services/academic.service";
+import { getFeeStructures } from "@/lib/services/fee.service";
+import { getFeeHeads } from "@/lib/services/fee-foundation.service";
 import { toast } from "sonner";
 
 export default function AdminFeeStructuresPage() {
@@ -104,11 +106,24 @@ export default function AdminFeeStructuresPage() {
         setClassList(uniqueNames);
 
         // Load Fee Heads
-        const headsRes = await fetch(`/api/fees/foundation/heads?schoolId=${schoolId}`);
-        const headsData = await headsRes.json();
-        if (headsData.success && headsData.heads?.length > 0) {
-          setFeeHeads(headsData.heads);
-          setFormFeeHeadId(headsData.heads[0].id);
+        let heads: FeeHead[] = [];
+        try {
+          const headsRes = await fetch(`/api/fees/foundation/heads?schoolId=${schoolId}`);
+          if (headsRes.ok) {
+            const headsData = await headsRes.json();
+            if (headsData.success && Array.isArray(headsData.heads) && headsData.heads.length > 0) {
+              heads = headsData.heads;
+            }
+          }
+        } catch (e) {}
+
+        if (heads.length === 0) {
+          heads = await getFeeHeads(schoolId).catch(() => []);
+        }
+
+        if (heads.length > 0) {
+          setFeeHeads(heads);
+          setFormFeeHeadId(heads[0].id);
         }
       } catch (err) {
         console.warn("Error loading auxiliary fee structure data:", err);
@@ -123,12 +138,25 @@ export default function AdminFeeStructuresPage() {
     setLoading(true);
     try {
       const res = await fetch(`/api/fees/foundation/structures?schoolId=${schoolId}`);
-      const data = await res.json();
-      if (data.success) {
-        setStructures(data.structures || []);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.structures) && data.structures.length > 0) {
+          setStructures(data.structures || []);
+          return;
+        }
+      }
+      const direct = await getFeeStructures(schoolId);
+      if (direct && direct.length > 0) {
+        setStructures(direct as any);
       }
     } catch (err) {
-      toast.error("Failed to load fee structures.");
+      console.warn("Structures API fallback to direct getFeeStructures:", err);
+      try {
+        const direct = await getFeeStructures(schoolId);
+        setStructures(direct as any);
+      } catch (e) {
+        toast.error("Failed to load fee structures.");
+      }
     } finally {
       setLoading(false);
     }

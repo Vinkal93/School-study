@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import type { StudentFeeAssignment, SchoolClass } from "@/types";
 import { getDefaultersList } from "@/lib/services/fee.service";
+import { getFeeDefaulters } from "@/lib/services/fee-analytics.service";
 import { getClassesWithSections } from "@/lib/services/academic.service";
 import { CommunicationComposerModal, type RecipientInfo } from "@/components/communication/CommunicationComposerModal";
 import { ShareFeeModal } from "@/components/fees/ShareFeeModal";
@@ -92,8 +93,22 @@ export default function AdminFeeDefaultersPage() {
         getClassesWithSections(schoolId),
       ]);
 
-      if (analyticsRes?.success && Array.isArray(analyticsRes.defaulters) && analyticsRes.defaulters.length > 0) {
-        const realMapped: StudentFeeAssignment[] = analyticsRes.defaulters.map((d: any) => ({
+      let rawDefaulters = analyticsRes?.defaulters;
+      if (!rawDefaulters || !Array.isArray(rawDefaulters) || rawDefaulters.length === 0) {
+        try {
+          const directDef = await getFeeDefaulters(schoolId, {
+            className: selectedClass !== "all" ? selectedClass : undefined,
+          });
+          if (directDef && directDef.defaulters.length > 0) {
+            rawDefaulters = directDef.defaulters;
+          }
+        } catch (e) {
+          console.warn("Direct getFeeDefaulters fallback notice:", e);
+        }
+      }
+
+      if (rawDefaulters && Array.isArray(rawDefaulters) && rawDefaulters.length > 0) {
+        const realMapped: StudentFeeAssignment[] = rawDefaulters.map((d: any) => ({
           id: `def_${d.studentId}`,
           schoolId,
           studentId: d.studentId,
@@ -103,10 +118,13 @@ export default function AdminFeeDefaultersPage() {
           sectionName: d.sectionName,
           academicYearId: "ay_2026_27",
           feeStructureId: "",
+          feeStructureIds: [],
           frequency: "monthly",
           monthlyFeeRupees: Math.round(d.totalOutstandingPaise / 100),
           totalAnnualFeePaise: d.totalOutstandingPaise,
+          totalAssignedPaise: d.totalOutstandingPaise,
           totalDiscountPaise: 0,
+          totalLateFeePaise: 0,
           totalPaidPaise: d.lastPaymentAmountPaise || 0,
           totalPendingPaise: d.totalOutstandingPaise,
           lastPaymentDate: d.lastPaymentDate,

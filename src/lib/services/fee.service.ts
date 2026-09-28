@@ -417,18 +417,46 @@ export function calculateLateFee(
 export async function getStudentFeeAssignment(
   schoolId: string,
   studentId: string,
-  academicYearId: string = "ay_current"
+  academicYearId?: string
 ): Promise<StudentFeeAssignment | null> {
   const db = getFirebaseDb();
-  if (!db) return null;
+  if (!db || !schoolId || !studentId) return null;
 
   try {
-    const docId = `${schoolId}_${studentId}_${academicYearId}`;
-    const snap = await getDoc(doc(db, "studentFeeAssignments", docId));
-    if (snap.exists()) {
-      return { id: snap.id, ...snap.data() } as StudentFeeAssignment;
+    // 1. Try exact docId if academicYearId provided
+    if (academicYearId && academicYearId !== "all") {
+      const docId = `${schoolId}_${studentId}_${academicYearId}`;
+      const snap = await getDoc(doc(db, "studentFeeAssignments", docId));
+      if (snap.exists()) {
+        return { id: snap.id, ...snap.data() } as StudentFeeAssignment;
+      }
     }
-  } catch (e) {}
+
+    // 2. Query collection for schoolId and studentId (resilient session fallback)
+    const q = query(
+      collection(db, "studentFeeAssignments"),
+      where("schoolId", "==", schoolId),
+      where("studentId", "==", studentId)
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as StudentFeeAssignment);
+      if (academicYearId && academicYearId !== "all") {
+        const cleanA = academicYearId.toLowerCase().replace(/[^0-9]/g, "");
+        const matched = docs.find((d) => {
+          if (d.academicYearId === academicYearId) return true;
+          const cleanD = (d.academicYearId || "").toLowerCase().replace(/[^0-9]/g, "");
+          return cleanA && cleanD && cleanA === cleanD;
+        });
+        if (matched) return matched;
+      }
+      // Return the most recently updated assignment
+      docs.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+      return docs[0];
+    }
+  } catch (e) {
+    console.warn("getStudentFeeAssignment notice:", e);
+  }
 
   return null;
 }
@@ -1469,12 +1497,50 @@ export async function collectFeePayment(
   // Firestore Writes & Financial Ledger Integration
   const db = getFirebaseDb();
   if (db) {
+    // 1. Write to feePayments
     await setDoc(doc(db, "feePayments", paymentId), payment);
+
+    // 2. Write to financialPayments (Unified Foundation collection)
+    const financialPaymentData = {
+      id: paymentId,
+      receiptNumber,
+      schoolId,
+      studentId: input.studentId,
+      studentName: input.studentName,
+      admissionNumber: input.admissionNumber,
+      className: input.className,
+      sectionName: input.sectionName,
+      academicYearId: input.academicYearId,
+      amountPaise: amountPaidPaise,
+      amountPaidPaise: amountPaidPaise,
+      netAmountPaise: amountPaidPaise,
+      discountPaise,
+      lateFeePaise,
+      paymentDate: nowIso,
+      paymentMethod: (input.paymentMethod || "CASH").toUpperCase(),
+      referenceNumber: input.transactionRef || "",
+      transactionRef: input.transactionRef || "",
+      collectedBy: actorId,
+      collectedByName: actorId,
+      status: "SUCCESS",
+      remarks: input.remarks || "",
+      allocatedTotalPaise: amountPaidPaise,
+      unallocatedPaise: 0,
+      allocationCount: input.periodMonths.length,
+      periodMonths: input.periodMonths,
+      remainingDuePaise: assignment.totalPendingPaise,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    await setDoc(doc(db, "financialPayments", paymentId), financialPaymentData).catch(() => {});
+    await setDoc(doc(db, "schools", schoolId, "financialPayments", paymentId), financialPaymentData).catch(() => {});
+
+    // 3. Update student fee assignment
     await setDoc(doc(db, "studentFeeAssignments", assignment.id), assignment, {
       merge: true,
     });
 
-    // Financial Ledger Record
+    // 4. Financial Ledger Record
     await setDoc(doc(db, "financeTransactions", paymentId), {
       id: paymentId,
       schoolId,
@@ -1489,6 +1555,11 @@ export async function collectFeePayment(
       actorId,
       createdAt: nowIso,
     }).catch(() => {});
+
+    // 5. Invalidate dashboard query cache so metrics update live
+    try {
+      appQueryClient.invalidateCache("feeDashboardOverview*");
+    } catch {}
   }
 
   await createBillingAuditLog({
