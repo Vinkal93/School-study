@@ -104,6 +104,16 @@ export const FEATURE_REGISTRY: FeatureDefinition[] = [
     defaultRollout: "ON_FOR_ALL",
     apiEndpoints: [{ path: "/api/ai", method: "ALL" }],
   },
+  {
+    id: "module:communication",
+    key: "communication",
+    name: "Multi-Tenant Communication & WhatsApp",
+    moduleKey: "communication",
+    category: "module",
+    description: "Multi-channel WhatsApp, Email, In-App notifications, and fee reminder automation.",
+    defaultRollout: "ON_FOR_ALL",
+    apiEndpoints: [{ path: "/api/communication", method: "ALL" }],
+  },
 
   // =========================================================================
   // 2. GRANULAR FEATURES
@@ -614,6 +624,10 @@ export const CAPABILITY_TO_FEATURE_KEY: Record<string, string> = {
   inquiries_portal: "students",
   ai: "ai",
   ai_assistant: "ai",
+  communication: "communication",
+  whatsapp_messaging: "communication",
+  communication_automation: "communication",
+  fee_reminders: "communication",
 
   // Granular Actions
   student_action_add: "students.create",

@@ -35,7 +35,10 @@ import {
   Eye,
   Share2,
   Sparkles,
+  Send,
+  MessageSquare,
 } from "lucide-react";
+import { CommunicationComposerModal, type RecipientInfo } from "@/components/communication/CommunicationComposerModal";
 import {
   normalizeClassName,
   getCanonicalClassKey,
@@ -299,6 +302,11 @@ export default function AdminStudentsPage() {
   const router = useRouter();
   const [shareFeeStudent, setShareFeeStudent] = useState<StudentProfile | null>(null);
 
+  // Communication & Notification Modal State
+  const [isCommModalOpen, setIsCommModalOpen] = useState(false);
+  const [commRecipients, setCommRecipients] = useState<RecipientInfo[]>([]);
+  const [commCategory, setCommCategory] = useState<"admission_welcome" | "fee_reminder" | "general">("admission_welcome");
+
   // Photo Cropping State
   const [rawImageForCrop, setRawImageForCrop] = useState<string | null>(null);
   const [cropTarget, setCropTarget] = useState<"edit" | "enroll" | null>(null);
@@ -447,6 +455,22 @@ export default function AdminStudentsPage() {
         `Student "${name}" enrolled! ID: ${created.studentId}, Roll No: ${created.rollNumber}`
       );
       setIsAddModalOpen(false);
+
+      // Prompt to dispatch welcome notification & credentials
+      setCommRecipients([
+        {
+          studentId: created.studentId,
+          studentName: name.trim(),
+          admissionNumber: admissionNumber.trim().toUpperCase(),
+          className: selectedClass?.name || "",
+          recipientPhone: phone.trim(),
+          recipientEmail: email.trim().toLowerCase(),
+          userId: created.studentId,
+        },
+      ]);
+      setCommCategory("admission_welcome");
+      setIsCommModalOpen(true);
+
       resetForm();
       appQueryClient.invalidateCache(`students:${schoolId}`);
       appQueryClient.invalidateCache(`planLimit:${schoolId}:*`);
@@ -1290,6 +1314,33 @@ export default function AdminStudentsPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* Bulk Communication / Send Message */}
+            <button
+              type="button"
+              onClick={() => {
+                const listToMessage = isAllFilteredSelected
+                  ? filteredStudents
+                  : filteredStudents.filter((s) => selectedStudentIds.has(s.id));
+                setCommRecipients(
+                  listToMessage.map((s) => ({
+                    studentId: s.id,
+                    studentName: s.name,
+                    admissionNumber: s.admissionNumber,
+                    className: s.className,
+                    recipientPhone: s.phone,
+                    recipientEmail: s.email,
+                    userId: s.userId,
+                  }))
+                );
+                setCommCategory("general");
+                setIsCommModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-xs font-bold transition-all cursor-pointer text-white shadow-xs"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>Send Message</span>
+            </button>
+
             {/* Bulk Suspend */}
             <button
               type="button"
@@ -1781,6 +1832,25 @@ export default function AdminStudentsPage() {
                                   label: "View Full Profile",
                                   icon: <Eye className="h-3.5 w-3.5 text-blue-600" />,
                                   onClick: () => router.push(`/admin/students/${s.id}`),
+                                },
+                                {
+                                  label: "Send Message (WhatsApp/Email)",
+                                  icon: <MessageSquare className="h-3.5 w-3.5 text-emerald-600" />,
+                                  onClick: () => {
+                                    setCommRecipients([
+                                      {
+                                        studentId: s.id,
+                                        studentName: s.name,
+                                        admissionNumber: s.admissionNumber,
+                                        className: s.className,
+                                        recipientPhone: s.phone,
+                                        recipientEmail: s.email,
+                                        userId: s.userId,
+                                      },
+                                    ]);
+                                    setCommCategory("general");
+                                    setIsCommModalOpen(true);
+                                  },
                                 },
                                 {
                                   label: "Share Fee Details",
@@ -2465,6 +2535,15 @@ export default function AdminStudentsPage() {
           searchQuery: debouncedSearch || undefined,
         }}
         isDeleting={isBulkDeleting}
+      />
+
+      {/* Communication Composer Modal */}
+      <CommunicationComposerModal
+        isOpen={isCommModalOpen}
+        onClose={() => setIsCommModalOpen(false)}
+        schoolId={schoolId}
+        recipients={commRecipients}
+        initialTemplateCategory={commCategory}
       />
 
       {/* Centralized Share Fee Details Modal */}

@@ -17,6 +17,7 @@
     "test:reports": "node scripts/test-reports-finance.mjs",
     "test:admin": "node scripts/test-super-admin-audit.mjs",
     "test:activity": "node scripts/test-activity-monitoring.mjs",
+    "test:communication": "node scripts/test-communication-system.mjs",
     "backup:firestore": "node scripts/backup-firestore.mjs",
     "restore:firestore": "node scripts/restore-firestore.mjs",
     "seed:super-admin": "node scripts/create-super-admin.mjs",

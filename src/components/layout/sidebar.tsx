@@ -38,6 +38,7 @@ import {
   ShieldCheck,
   Database,
   Megaphone,
+  Send,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
@@ -71,6 +72,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       label: "Inquiries",
       href: "/super-admin/inquiries",
       icon: <MessageSquare className="h-5 w-5" />,
+    },
+    {
+      label: "Communication Hub",
+      href: "/super-admin/communication",
+      icon: <Send className="h-5 w-5 text-indigo-500" />,
     },
     {
       label: "Users",

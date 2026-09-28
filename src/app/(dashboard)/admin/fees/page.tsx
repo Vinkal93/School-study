@@ -46,6 +46,8 @@ import {
 import { getStudents } from "@/lib/services/student.service";
 import { FeeReceiptModal } from "@/components/fees/FeeReceiptModal";
 import { FeeFollowUpModal } from "@/components/fees/FeeFollowUpModal";
+import { CommunicationComposerModal, type RecipientInfo } from "@/components/communication/CommunicationComposerModal";
+import { FeeAutomationSettingsModal } from "@/components/communication/FeeAutomationSettingsModal";
 import { ShareFeeModal } from "@/components/fees/ShareFeeModal";
 import type {
   SchoolClass,
@@ -155,6 +157,9 @@ export default function AdminFeeDashboardPage() {
   );
   const [followUpTarget, setFollowUpTarget] =
     useState<StudentFeeAssignment | null>(null);
+  const [isCommModalOpen, setIsCommModalOpen] = useState(false);
+  const [commRecipients, setCommRecipients] = useState<RecipientInfo[]>([]);
+  const [isAutomationModalOpen, setIsAutomationModalOpen] = useState(false);
   const [shareModalTarget, setShareModalTarget] = useState<{
     id: string;
     name: string;
@@ -836,6 +841,16 @@ export default function AdminFeeDashboardPage() {
               <BookOpen className="h-4 w-4 text-purple-600" />
               <span>Accounting & TB</span>
             </Link>
+
+            {/* Fee Automations Button */}
+            <button
+              type="button"
+              onClick={() => setIsAutomationModalOpen(true)}
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50/80 px-3.5 py-2 text-xs font-bold text-amber-800 shadow-xs transition-all hover:bg-amber-100 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-300"
+            >
+              <Clock className="h-4 w-4 text-amber-600" />
+              <span>Fee Automations</span>
+            </button>
 
             {/* + Collect Fee CTA */}
             <Link
@@ -2220,6 +2235,24 @@ export default function AdminFeeDashboardPage() {
             }}
           />
         )}
+
+        {/* Communication Composer Modal */}
+        <CommunicationComposerModal
+          isOpen={isCommModalOpen}
+          onClose={() => setIsCommModalOpen(false)}
+          schoolId={schoolId}
+          schoolName={schoolName}
+          recipients={commRecipients}
+          initialTemplateCategory="fee_reminder"
+        />
+
+        {/* Fee Automation Settings Modal */}
+        <FeeAutomationSettingsModal
+          isOpen={isAutomationModalOpen}
+          onClose={() => setIsAutomationModalOpen(false)}
+          schoolId={schoolId}
+          schoolName={schoolName}
+        />
 
         {/* Share Fee Modal */}
         {shareModalTarget && (

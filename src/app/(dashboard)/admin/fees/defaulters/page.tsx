@@ -36,6 +36,7 @@ import {
 import type { StudentFeeAssignment, SchoolClass } from "@/types";
 import { getDefaultersList } from "@/lib/services/fee.service";
 import { getClassesWithSections } from "@/lib/services/academic.service";
+import { CommunicationComposerModal, type RecipientInfo } from "@/components/communication/CommunicationComposerModal";
 import { ShareFeeModal } from "@/components/fees/ShareFeeModal";
 import { FeeFollowUpModal } from "@/components/fees/FeeFollowUpModal";
 import { toast } from "sonner";
@@ -73,6 +74,8 @@ export default function AdminFeeDefaultersPage() {
 
   // Modals
   const [shareModalTarget, setShareModalTarget] = useState<StudentFeeAssignment | null>(null);
+  const [isCommModalOpen, setIsCommModalOpen] = useState(false);
+  const [commRecipients, setCommRecipients] = useState<RecipientInfo[]>([]);
   const [followUpTarget, setFollowUpTarget] = useState<StudentFeeAssignment | null>(null);
 
   const fetchData = async () => {
@@ -540,6 +543,37 @@ export default function AdminFeeDefaultersPage() {
               </select>
               <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
+
+            {/* Bulk Communication / Send Alert */}
+            <button
+              type="button"
+              onClick={() => {
+                const targetList = selectedRows.length > 0
+                  ? filteredDefaulters.filter((d) => selectedRows.includes(d.id))
+                  : filteredDefaulters;
+                setCommRecipients(
+                  targetList.map((d) => ({
+                    studentId: d.studentId,
+                    studentName: d.studentName,
+                    admissionNumber: d.admissionNumber,
+                    className: d.className,
+                    parentName: d.studentName,
+                    recipientPhone: d.phone,
+                    amount: Math.round(d.totalDuePaise / 100),
+                    dueDate: d.dueMonths?.join(", ") || "Current Session",
+                  }))
+                );
+                setIsCommModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>
+                {selectedRows.length > 0
+                  ? `Send Alert (${selectedRows.length})`
+                  : "Send All Defaulters Alert"}
+              </span>
+            </button>
 
             {/* Export */}
             <button
