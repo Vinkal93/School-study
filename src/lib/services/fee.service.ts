@@ -1689,7 +1689,7 @@ export async function getFeeDashboardOverviewData(
           month: filter?.month,
           className: filter?.className,
           sectionName: filter?.sectionName,
-          academicYearId: filter?.academicYearId || "ay_2026_27",
+          academicYearId: filter?.academicYearId && filter.academicYearId !== "all" ? filter.academicYearId : undefined,
           searchQuery: filter?.searchQuery,
           paymentStatusFilter: filter?.paymentStatusFilter,
         });
@@ -1698,10 +1698,12 @@ export async function getFeeDashboardOverviewData(
           try {
             const params = new URLSearchParams();
             params.set("schoolId", schoolId);
-            if (filter?.academicYearId) params.set("academicYearId", filter.academicYearId);
+            if (filter?.academicYearId && filter.academicYearId !== "all") params.set("academicYearId", filter.academicYearId);
             if (filter?.month) params.set("month", filter.month);
             if (filter?.className) params.set("className", filter.className);
             if (filter?.sectionName) params.set("sectionName", filter.sectionName);
+            if (filter?.searchQuery) params.set("searchQuery", filter.searchQuery);
+            if (filter?.paymentStatusFilter) params.set("paymentStatusFilter", filter.paymentStatusFilter);
             const res = await fetch(`/api/fees/foundation/analytics/dashboard?${params.toString()}`);
             if (res.ok) {
               const resData = await res.json();
@@ -1748,7 +1750,7 @@ export async function getFeeDashboardOverviewData(
           totalNeedAttention: summary.defaultersCount,
         },
         monthlyClassOverview: summary.monthlyClassOverview || [],
-        topDefaulters: summary.topDefaulters.slice(0, 5).map((d) => ({
+        topDefaulters: summary.topDefaulters.slice(0, 10).map((d) => ({
           id: `def_${d.studentId}`,
           studentId: d.studentId,
           studentName: d.studentName,
@@ -1758,45 +1760,48 @@ export async function getFeeDashboardOverviewData(
           dueAmountPaise: d.totalOutstandingPaise,
           daysOverdue: d.daysOverdue,
           lastPaymentDate: d.lastPaymentDate || "—",
-          phone: d.phone || "—",
-          parentPhone: d.phone || "—",
+          phone: d.phone || "",
+          parentPhone: (d as any).parentPhone || d.phone || "",
         })),
-        recentCollections: (summary.recentCollections || []).map((p) => ({
-          id: p.id,
-          schoolId: p.schoolId,
-          receiptNumber: p.receiptNumber,
-          studentId: p.studentId,
-          studentName: p.studentName,
-          admissionNumber: p.admissionNumber,
-          className: p.className,
-          sectionName: p.sectionName,
-          academicYearId: p.academicYearId,
-          feeType: "tuition",
-          periodMonths: p.periodMonths || [],
-          amountPaidPaise: p.amountPaise,
-          discountPaise: 0,
-          lateFeePaise: 0,
-          netAmountPaise: p.amountPaise,
-          paymentMethod: (p.paymentMethod === "CASH"
-            ? "Cash"
-            : p.paymentMethod === "UPI"
-              ? "UPI"
-              : p.paymentMethod === "BANK_TRANSFER"
-                ? "Bank Transfer"
-                : p.paymentMethod === "CHEQUE"
-                  ? "Cheque"
-                  : p.paymentMethod === "CARD"
-                    ? "Card"
-                    : "Other") as any,
-          transactionRef: p.referenceNumber,
-          remarks: p.remarks,
-          paymentDate: p.paymentDate,
-          collectedBy: p.collectedBy,
-          collectedByName: p.collectedByName,
-          status: p.status === "REFUNDED" ? "REFUNDED" : "SUCCESS",
-          remainingDuePaise: p.remainingDuePaise,
-          createdAt: p.createdAt,
-        })),
+        recentCollections: (summary.recentCollections || []).map((p) => {
+          const payAmt = Number(p.amountPaise ?? (p as any).amountPaidPaise ?? 0);
+          return {
+            id: p.id,
+            schoolId: p.schoolId,
+            receiptNumber: p.receiptNumber || `REC-${(p.id || "").slice(-6)}`,
+            studentId: p.studentId,
+            studentName: p.studentName,
+            admissionNumber: p.admissionNumber,
+            className: p.className,
+            sectionName: p.sectionName,
+            academicYearId: p.academicYearId,
+            feeType: "tuition",
+            periodMonths: p.periodMonths || [],
+            amountPaidPaise: payAmt,
+            discountPaise: 0,
+            lateFeePaise: 0,
+            netAmountPaise: payAmt,
+            paymentMethod: (p.paymentMethod === "CASH"
+              ? "Cash"
+              : p.paymentMethod === "UPI"
+                ? "UPI"
+                : p.paymentMethod === "BANK_TRANSFER"
+                  ? "Bank Transfer"
+                  : p.paymentMethod === "CHEQUE"
+                    ? "Cheque"
+                    : p.paymentMethod === "CARD"
+                      ? "Card"
+                      : "Other") as any,
+            transactionRef: p.referenceNumber,
+            remarks: p.remarks,
+            paymentDate: p.paymentDate || p.createdAt,
+            collectedBy: p.collectedBy,
+            collectedByName: p.collectedByName,
+            status: p.status === "REFUNDED" ? "REFUNDED" : "SUCCESS",
+            remainingDuePaise: p.remainingDuePaise,
+            createdAt: p.createdAt,
+          };
+        }),
       };
     },
     { staleTime: 15_000, cacheTime: 120_000 }

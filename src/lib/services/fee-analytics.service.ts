@@ -221,8 +221,8 @@ export async function getFeeDashboardSummary(
   const todayStr = now.toISOString().slice(0, 10);
   const selectedYear =
     filter?.academicYearId && filter.academicYearId !== "all"
-      ? filter.academicYearId
-      : "ay_2026_27";
+      ? filter.academicYearId.trim()
+      : null;
   const selectedClass =
     filter?.className && filter.className !== "all"
       ? filter.className.trim()
@@ -242,7 +242,17 @@ export async function getFeeDashboardSummary(
       ? filter.paymentStatusFilter
       : null;
 
-  // 1. Fetch Demands for school and academic year
+  // Helper to extract paise amount safely across schema variations
+  const getDemandNetPaise = (d: any) =>
+    Number(d.netAmountPaise ?? d.netPayablePaise ?? d.amountPaise ?? d.grossAmountPaise ?? 0);
+  const getDemandBalancePaise = (d: any) =>
+    Number(d.balanceAmountPaise ?? d.dueAmountPaise ?? Math.max(0, getDemandNetPaise(d) - Number(d.paidAmountPaise ?? d.amountPaidPaise ?? 0)));
+  const getDemandPaidPaise = (d: any) =>
+    Number(d.paidAmountPaise ?? d.amountPaidPaise ?? Math.max(0, getDemandNetPaise(d) - getDemandBalancePaise(d)));
+  const getPaymentAmountPaise = (p: any) =>
+    Number(p.amountPaise ?? p.amountPaidPaise ?? (typeof p.amount === "number" ? Math.round(p.amount * 100) : 0));
+
+  // 1. Fetch Demands for school (with resilient fallback matching)
   let demandsQuery = query(
     collection(db, "feeDemands"),
     where("schoolId", "==", schoolId)
@@ -254,10 +264,49 @@ export async function getFeeDashboardSummary(
     );
   }
 
-  const demandsSnap = await getDocs(demandsQuery);
+  let demandsSnap = await getDocs(demandsQuery);
   let allDemands = demandsSnap.docs.map(
     (d) => ({ id: d.id, ...d.data() }) as FeeDemand
   );
+
+  // If specific academicYearId was requested and returned 0 demands, check if demands exist with normalized key or year name
+  if (allDemands.length === 0 && selectedYear) {
+    const fallbackSnap = await getDocs(
+      query(collection(db, "feeDemands"), where("schoolId", "==", schoolId))
+    );
+    if (!fallbackSnap.empty) {
+      const yearNorm = selectedYear.toLowerCase().replace(/[^0-9]/g, "");
+      const matched = fallbackSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() }) as FeeDemand)
+        .filter((d) => {
+          if (!d.academicYearId && !d.academicYearName) return true;
+          const dYearNorm = (d.academicYearId || "").toLowerCase().replace(/[^0-9]/g, "");
+          const dNameNorm = (d.academicYearName || "").toLowerCase().replace(/[^0-9]/g, "");
+          return (
+            d.academicYearId === selectedYear ||
+            d.academicYearName === selectedYear ||
+            (yearNorm.length > 0 && (dYearNorm.includes(yearNorm) || yearNorm.includes(dYearNorm) || dNameNorm.includes(yearNorm)))
+          );
+        });
+      if (matched.length > 0) {
+        allDemands = matched;
+      }
+    }
+  }
+
+  // Fallback: Check subcollection schools/{schoolId}/feeDemands
+  if (allDemands.length === 0) {
+    try {
+      const subSnap = await getDocs(
+        collection(db, "schools", schoolId, "feeDemands")
+      );
+      if (!subSnap.empty) {
+        allDemands = subSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as FeeDemand);
+      }
+    } catch (e) {
+      console.warn("Subcollection feeDemands query notice:", e);
+    }
+  }
 
   // Filter out cancelled demands
   allDemands = allDemands.filter((d) => d.status !== "CANCELLED");
@@ -294,10 +343,36 @@ export async function getFeeDashboardSummary(
       where("academicYearId", "==", selectedYear)
     );
   }
-  const paymentsSnap = await getDocs(paymentsQuery);
+  let paymentsSnap = await getDocs(paymentsQuery);
   let allPayments = paymentsSnap.docs.map(
     (d) => ({ id: d.id, ...d.data() }) as FinancialPayment
   );
+
+  // If specific academicYearId was requested and returned 0 payments, fetch all school payments
+  if (allPayments.length === 0 && selectedYear) {
+    const fallbackPaySnap = await getDocs(
+      query(collection(db, "financialPayments"), where("schoolId", "==", schoolId))
+    );
+    if (!fallbackPaySnap.empty) {
+      allPayments = fallbackPaySnap.docs.map(
+        (d) => ({ id: d.id, ...d.data() }) as FinancialPayment
+      );
+    }
+  }
+
+  // Fallback: Check subcollection schools/{schoolId}/financialPayments
+  if (allPayments.length === 0) {
+    try {
+      const subPaySnap = await getDocs(
+        collection(db, "schools", schoolId, "financialPayments")
+      );
+      if (!subPaySnap.empty) {
+        allPayments = subPaySnap.docs.map((d) => ({ id: d.id, ...d.data() }) as FinancialPayment);
+      }
+    } catch (e) {
+      console.warn("Subcollection financialPayments query notice:", e);
+    }
+  }
 
   // Apply Class and Section filters to Payments
   if (selectedClass) {
@@ -357,9 +432,11 @@ export async function getFeeDashboardSummary(
 
   // 5. Active Target Demands for Selected Month filter
   const activeDemands = selectedMonth
-    ? allDemands.filter((d) =>
-        d.period?.toLowerCase().includes(selectedMonth.toLowerCase())
-      )
+    ? allDemands.filter((d) => {
+        const periodStr = (d.period || "").toLowerCase();
+        const selMonth = selectedMonth.toLowerCase();
+        return periodStr.includes(selMonth) || selMonth.includes(periodStr);
+      })
     : allDemands;
 
   // 6. Aggregate Total Expected, Collected, Outstanding
@@ -370,20 +447,22 @@ export async function getFeeDashboardSummary(
   let overdueDemandsCount = 0;
 
   for (const d of activeDemands) {
-    totalExpectedPaise += d.netAmountPaise || 0;
-    totalOutstandingPaise += d.balanceAmountPaise || 0;
-    if (d.status === "PAID") paidDemandsCount++;
-    else if (d.status === "PARTIAL") partialDemandsCount++;
+    const net = getDemandNetPaise(d);
+    const bal = getDemandBalancePaise(d);
+    totalExpectedPaise += net;
+    totalOutstandingPaise += bal;
+    if (d.status === "PAID" || (net > 0 && bal === 0)) paidDemandsCount++;
+    else if (d.status === "PARTIAL" || (bal > 0 && bal < net)) partialDemandsCount++;
     else if (d.status === "OVERDUE") overdueDemandsCount++;
   }
 
   // Calculate Total Collected accurately:
-  // If a specific month is selected, sum payments allocated to demands of that month
   let totalCollectedPaise = 0;
   let totalRefundedPaise = 0;
-  const validSuccessfulPayments = allPayments.filter(
-    (p) => p.status === "SUCCESS" || p.status === "PARTIALLY_REFUNDED"
-  );
+  const validSuccessfulPayments = allPayments.filter((p) => {
+    const st = (p.status as string) || "";
+    return !st || st === "SUCCESS" || st === "PAID" || st === "COMPLETED" || st === "PARTIALLY_REFUNDED";
+  });
 
   if (selectedMonth) {
     // Filter by demands belonging to this month
@@ -391,14 +470,24 @@ export async function getFeeDashboardSummary(
     const matchingAllocations = allAllocations.filter((a) =>
       activeDemandIdSet.has(a.demandId)
     );
-    totalCollectedPaise = matchingAllocations.reduce(
+    const allocSum = matchingAllocations.reduce(
       (sum, a) => sum + (a.allocatedAmountPaise || 0),
       0
     );
+    if (allocSum > 0) {
+      totalCollectedPaise = allocSum;
+    } else {
+      // Fallback: sum payments made in selected month
+      const monthMatches = validSuccessfulPayments.filter((p) => {
+        const dateStr = p.paymentDate || p.createdAt || "";
+        return dateStr.toLowerCase().includes(selectedMonth.toLowerCase());
+      });
+      totalCollectedPaise = monthMatches.reduce((sum, p) => sum + getPaymentAmountPaise(p), 0);
+    }
   } else {
     // Overall scope: sum valid successful payments
     totalCollectedPaise = validSuccessfulPayments.reduce(
-      (sum, p) => sum + (p.amountPaise || 0),
+      (sum, p) => sum + getPaymentAmountPaise(p),
       0
     );
   }
@@ -425,7 +514,7 @@ export async function getFeeDashboardSummary(
   for (const p of validSuccessfulPayments) {
     const payDate = (p.paymentDate || p.createdAt || "").slice(0, 10);
     if (payDate === todayStr) {
-      todayCollectionPaise += p.amountPaise;
+      todayCollectionPaise += getPaymentAmountPaise(p);
       todayPaymentsCount++;
     }
   }
@@ -436,22 +525,36 @@ export async function getFeeDashboardSummary(
     : "2026-2027";
   const sessionPeriods = getAcademicYearPeriods(sessionName);
   const collectionTrend = sessionPeriods.map((period) => {
-    // Filter demands matching this month name
-    const monthDemands = allDemands.filter((d) =>
-      d.period?.toLowerCase().includes(period.monthName.toLowerCase())
-    );
+    // Filter demands matching this month name or 3-letter abbreviation
+    const monthDemands = allDemands.filter((d) => {
+      const pStr = (d.period || "").toLowerCase();
+      const mName = period.monthName.toLowerCase();
+      const mShort = mName.slice(0, 3);
+      return pStr.includes(mName) || pStr.includes(mShort);
+    });
     const mExpected = monthDemands.reduce(
-      (sum, d) => sum + d.netAmountPaise,
+      (sum, d) => sum + getDemandNetPaise(d),
       0
     );
     const mOutstanding = monthDemands.reduce(
-      (sum, d) => sum + d.balanceAmountPaise,
+      (sum, d) => sum + getDemandBalancePaise(d),
       0
     );
-    const mPaidFromDemands = monthDemands.reduce(
-      (sum, d) => sum + d.paidAmountPaise,
+    let mPaidFromDemands = monthDemands.reduce(
+      (sum, d) => sum + getDemandPaidPaise(d),
       0
     );
+
+    // If demands don't track paid amount directly, check payments in this calendar month
+    if (mPaidFromDemands === 0 && validSuccessfulPayments.length > 0) {
+      const monthPrefix = `${period.year}-${String(period.monthNumber).padStart(2, "0")}`;
+      const periodPayments = validSuccessfulPayments.filter((p) => {
+        const pDate = p.paymentDate || p.createdAt || "";
+        return pDate.startsWith(monthPrefix);
+      });
+      const pSum = periodPayments.reduce((sum, p) => sum + getPaymentAmountPaise(p), 0);
+      if (pSum > 0) mPaidFromDemands = pSum;
+    }
 
     const mRate =
       mExpected > 0
@@ -484,24 +587,25 @@ export async function getFeeDashboardSummary(
 
   for (const p of validSuccessfulPayments) {
     const rawMethod = (p.paymentMethod || "").toUpperCase();
+    const payAmt = getPaymentAmountPaise(p);
     if (rawMethod === "UPI") {
       methodMap.UPI.count++;
-      methodMap.UPI.amountPaise += p.amountPaise;
+      methodMap.UPI.amountPaise += payAmt;
     } else if (rawMethod === "CASH") {
       methodMap.Cash.count++;
-      methodMap.Cash.amountPaise += p.amountPaise;
+      methodMap.Cash.amountPaise += payAmt;
     } else if (rawMethod === "BANK_TRANSFER" || rawMethod === "BANK TRANSFER") {
       methodMap["Bank Transfer"].count++;
-      methodMap["Bank Transfer"].amountPaise += p.amountPaise;
+      methodMap["Bank Transfer"].amountPaise += payAmt;
     } else if (rawMethod === "CHEQUE") {
       methodMap.Cheque.count++;
-      methodMap.Cheque.amountPaise += p.amountPaise;
+      methodMap.Cheque.amountPaise += payAmt;
     } else if (rawMethod === "CARD") {
       methodMap.Card.count++;
-      methodMap.Card.amountPaise += p.amountPaise;
+      methodMap.Card.amountPaise += payAmt;
     } else {
       methodMap.Other.count++;
-      methodMap.Other.amountPaise += p.amountPaise;
+      methodMap.Other.amountPaise += payAmt;
     }
   }
 
@@ -523,6 +627,24 @@ export async function getFeeDashboardSummary(
   );
 
   // 10. Defaulters & Payment Follow-Up Aggregation
+  // Lookup student profiles to attach genuine contact numbers
+  const studentContacts = new Map<string, { phone?: string; parentPhone?: string; fatherName?: string }>();
+  try {
+    const stSnap = await getDocs(
+      collection(db, "schools", schoolId, "students")
+    );
+    stSnap.docs.forEach((docSnap) => {
+      const st = docSnap.data();
+      studentContacts.set(docSnap.id, {
+        phone: st.phone || st.mobile || st.contactNumber,
+        parentPhone: st.parentPhone || st.fatherPhone || st.motherPhone || st.phone,
+        fatherName: st.fatherName || st.guardianName,
+      });
+    });
+  } catch (stErr) {
+    console.warn("Student contacts lookup notice:", stErr);
+  }
+
   // Group allDemands by studentId
   const studentMap = new Map<
     string,
@@ -547,16 +669,18 @@ export async function getFeeDashboardSummary(
         className: d.className,
         sectionName: d.sectionName,
         totalOutstandingPaise: 0,
-        oldestDueDate: d.dueDate,
+        oldestDueDate: d.dueDate || todayStr,
         demands: [],
       });
     }
 
     const sEntry = studentMap.get(d.studentId)!;
-    sEntry.totalOutstandingPaise += d.balanceAmountPaise || 0;
-    if (d.balanceAmountPaise > 0) {
+    const bal = getDemandBalancePaise(d);
+    sEntry.totalOutstandingPaise += bal;
+    if (bal > 0) {
       sEntry.demands.push(d);
       if (
+        d.dueDate &&
         new Date(d.dueDate).getTime() < new Date(sEntry.oldestDueDate).getTime()
       ) {
         sEntry.oldestDueDate = d.dueDate;
@@ -603,12 +727,11 @@ export async function getFeeDashboardSummary(
     }
 
     // Apply payment status filter to defaulters
-    // Map the filter to defaulter statuses
     if (paymentStatusFilter) {
       const defaulterStatusMap: Record<string, DefaulterRecord["status"][]> = {
-        pending: ["DUE_SOON", "OVERDUE", "CRITICAL"], // Has outstanding balance
-        paid: [], // Paid students have 0 outstanding, so they're filtered out above (onTrackCount)
-        overdue: ["OVERDUE", "CRITICAL"], // Overdue specifically
+        pending: ["DUE_SOON", "OVERDUE", "CRITICAL"],
+        paid: [],
+        overdue: ["OVERDUE", "CRITICAL"],
       };
       const allowedDefaulterStatuses =
         defaulterStatusMap[paymentStatusFilter] || [];
@@ -616,20 +739,26 @@ export async function getFeeDashboardSummary(
         allowedDefaulterStatuses.length > 0 &&
         !allowedDefaulterStatuses.includes(status)
       ) {
-        continue; // Skip this defaulter if it doesn't match the filter
+        continue;
       }
     }
 
     // Find student's last payment
-    const studentPayments = allPayments.filter(
-      (p) => p.studentId === entry.studentId && p.status === "SUCCESS"
-    );
+    const studentPayments = allPayments.filter((p) => {
+      const st = (p.status as string) || "";
+      return (
+        p.studentId === entry.studentId &&
+        (!st || st === "SUCCESS" || st === "PAID" || st === "COMPLETED")
+      );
+    });
     studentPayments.sort(
       (a, b) =>
         new Date(b.paymentDate || b.createdAt).getTime() -
         new Date(a.paymentDate || a.createdAt).getTime()
     );
     const lastPay = studentPayments[0];
+    const contactInfo = studentContacts.get(entry.studentId);
+    const lastPayAmt = lastPay ? getPaymentAmountPaise(lastPay) : undefined;
 
     defaulterList.push({
       studentId: entry.studentId,
@@ -637,23 +766,23 @@ export async function getFeeDashboardSummary(
       admissionNumber: entry.admissionNumber,
       className: entry.className,
       sectionName: entry.sectionName,
+      phone: contactInfo?.phone || (entry.demands[0] as any)?.phone || undefined,
+      fatherName: contactInfo?.fatherName || (entry.demands[0] as any)?.fatherName || undefined,
       totalOutstandingPaise: entry.totalOutstandingPaise,
       totalOutstandingRupees: paiseToRupees(entry.totalOutstandingPaise),
       oldestDueDate: entry.oldestDueDate,
       daysOverdue: Math.max(0, diffDays),
-      lastPaymentDate: lastPay?.paymentDate,
-      lastPaymentAmountPaise: lastPay?.amountPaise,
-      lastPaymentAmountRupees: lastPay
-        ? paiseToRupees(lastPay.amountPaise)
-        : undefined,
+      lastPaymentDate: lastPay?.paymentDate || (lastPay?.createdAt ? lastPay.createdAt.slice(0, 10) : undefined),
+      lastPaymentAmountPaise: lastPayAmt,
+      lastPaymentAmountRupees: lastPayAmt !== undefined ? paiseToRupees(lastPayAmt) : undefined,
       status,
       dueDemandsCount: entry.demands.length,
       unpaidDemands: entry.demands.map((d) => ({
         demandId: d.id,
-        feeHeadName: d.feeHeadName,
-        period: d.period,
-        dueDate: d.dueDate,
-        balanceAmountPaise: d.balanceAmountPaise,
+        feeHeadName: d.feeHeadName || "Fee",
+        period: d.period || "Term",
+        dueDate: d.dueDate || "",
+        balanceAmountPaise: getDemandBalancePaise(d),
       })),
     });
   }
@@ -676,22 +805,25 @@ export async function getFeeDashboardSummary(
   const focusPeriod =
     sessionPeriods.find((p) =>
       selectedMonth
-        ? p.monthName.toLowerCase() === selectedMonth.toLowerCase()
+        ? selectedMonth.toLowerCase().includes(p.monthName.toLowerCase()) ||
+          p.monthName.toLowerCase().includes(selectedMonth.toLowerCase())
         : p.monthName === "September"
     ) || sessionPeriods[5];
 
-  const focusDemands = allDemands.filter((d) =>
-    d.period?.toLowerCase().includes(focusPeriod.monthName.toLowerCase())
-  );
+  const focusDemands = allDemands.filter((d) => {
+    const pStr = (d.period || "").toLowerCase();
+    const mName = focusPeriod.monthName.toLowerCase();
+    return pStr.includes(mName) || pStr.includes(mName.slice(0, 3));
+  });
   const focusExpected = focusDemands.reduce(
-    (sum, d) => sum + d.netAmountPaise,
+    (sum, d) => sum + getDemandNetPaise(d),
     0
   );
   const focusDue = focusDemands.reduce(
-    (sum, d) => sum + d.balanceAmountPaise,
+    (sum, d) => sum + getDemandBalancePaise(d),
     0
   );
-  const focusPaid = focusDemands.reduce((sum, d) => sum + d.paidAmountPaise, 0);
+  const focusPaid = focusDemands.reduce((sum, d) => sum + getDemandPaidPaise(d), 0);
   const focusRate =
     focusExpected > 0
       ? Number(((focusPaid / focusExpected) * 100).toFixed(1))
@@ -704,11 +836,13 @@ export async function getFeeDashboardSummary(
   const monthlyClassOverview = distinctClasses.map((cls) => {
     const classDemands = allDemands.filter((d) => d.className === cls);
     const rates = sessionPeriods.map((sp) => {
-      const spDemands = classDemands.filter((d) =>
-        d.period?.toLowerCase().includes(sp.monthName.toLowerCase())
-      );
-      const spExp = spDemands.reduce((sum, d) => sum + d.netAmountPaise, 0);
-      const spPaid = spDemands.reduce((sum, d) => sum + d.paidAmountPaise, 0);
+      const spDemands = classDemands.filter((d) => {
+        const pStr = (d.period || "").toLowerCase();
+        const mName = sp.monthName.toLowerCase();
+        return pStr.includes(mName) || pStr.includes(mName.slice(0, 3));
+      });
+      const spExp = spDemands.reduce((sum, d) => sum + getDemandNetPaise(d), 0);
+      const spPaid = spDemands.reduce((sum, d) => sum + getDemandPaidPaise(d), 0);
       return spExp > 0 ? Math.round((spPaid / spExp) * 100) : null;
     });
     return {

@@ -26,6 +26,8 @@ export async function GET(request: NextRequest) {
     const sectionName = searchParams.get("sectionName") || undefined;
     const startDate = searchParams.get("startDate") || undefined;
     const endDate = searchParams.get("endDate") || undefined;
+    const searchQuery = searchParams.get("searchQuery") || undefined;
+    const paymentStatusFilter = (searchParams.get("paymentStatusFilter") as any) || undefined;
 
     const summary = await getFeeDashboardSummary(targetSchoolId, {
       academicYearId,
@@ -34,6 +36,8 @@ export async function GET(request: NextRequest) {
       sectionName,
       startDate,
       endDate,
+      searchQuery,
+      paymentStatusFilter,
     });
 
     return NextResponse.json({

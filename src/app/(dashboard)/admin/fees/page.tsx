@@ -55,8 +55,13 @@ import type {
 import { toast } from "sonner";
 
 export default function AdminFeeDashboardPage() {
-  const { profile } = useAuth();
-  const schoolId = profile?.schoolId || "";
+  const { profile, loading: authLoading } = useAuth();
+  const effectiveSchoolId =
+    profile?.schoolId ||
+    (typeof window !== "undefined"
+      ? localStorage.getItem("currentSchoolId") || ""
+      : "");
+  const schoolId = effectiveSchoolId;
   const schoolName = profile?.schoolName || "Lord Buddha Public School";
 
   const [loading, setLoading] = useState(true);
@@ -85,17 +90,21 @@ export default function AdminFeeDashboardPage() {
 
   // Dynamic month options based on selected academic year
   const monthOptions = useMemo(() => {
-    if (!selectedYear) return [{ value: "all", label: "All Months" }];
-    const year = academicYears.find((y) => y.id === selectedYear);
-    if (!year) return [{ value: "all", label: "All Months" }];
+    let startYear = new Date().getFullYear();
+    let endYear = startYear + 1;
 
-    // Parse academic year to get start/end year (e.g., "2026-27" -> 2026, 2027)
-    const match = (year.name || year.id).match(/(\d{4})[-_]?(\d{2,4})?/);
-    const startYear = match ? parseInt(match[1]) : new Date().getFullYear();
-    const endYear =
-      match && match[2]
-        ? parseInt(match[2].length === 2 ? "20" + match[2] : match[2])
-        : startYear + 1;
+    if (selectedYear && selectedYear !== "all") {
+      const year = academicYears.find((y) => y.id === selectedYear);
+      if (year) {
+        const match = (year.name || year.id).match(/(\d{4})[-_]?(\d{2,4})?/);
+        if (match) {
+          startYear = parseInt(match[1]);
+          endYear = match[2]
+            ? parseInt(match[2].length === 2 ? "20" + match[2] : match[2])
+            : startYear + 1;
+        }
+      }
+    }
 
     const months = [
       { value: "all", label: "All Months" },
@@ -115,19 +124,24 @@ export default function AdminFeeDashboardPage() {
     return months;
   }, [selectedYear, academicYears]);
 
+  // Selected session display title
+  const selectedYearName = useMemo(() => {
+    if (!selectedYear || selectedYear === "all") return "All Sessions";
+    const found = academicYears.find((y) => y.id === selectedYear);
+    return found?.name || selectedYear;
+  }, [selectedYear, academicYears]);
+
   // Reset all filters
   const resetFilters = () => {
-    setSelectedYear("");
+    const currentYear =
+      academicYears.find((y) => y.isCurrent) || academicYears[0];
+    setSelectedYear(currentYear ? currentYear.id : "all");
     setSelectedMonth("all");
     setSelectedClass("all");
     setSelectedSection("all");
     setSearchQuery("");
     setPaymentStatusFilter("all");
     setFilterError(null);
-    // Trigger data reload with defaults
-    const currentYear =
-      academicYears.find((y) => y.isCurrent) || academicYears[0];
-    if (currentYear) setSelectedYear(currentYear.id);
   };
 
   // Modals
@@ -146,30 +160,41 @@ export default function AdminFeeDashboardPage() {
   } | null>(null);
 
   // Tooltip state for Collection Trend chart
-  const [hoveredTrendIndex, setHoveredTrendIndex] = useState<number | null>(5); // Default Sep
+  const [hoveredTrendIndex, setHoveredTrendIndex] = useState<number | null>(5);
 
   // 1. Load Academic Years & Classes on initial mount
   useEffect(() => {
-    if (!schoolId) return;
+    if (!schoolId) {
+      if (!authLoading) setLoading(false);
+      return;
+    }
     Promise.all([getAcademicYears(schoolId), getClassesWithSections(schoolId)])
       .then(([years, classList]) => {
         setAcademicYears(years);
         setClasses(classList);
-        const currentYear = years.find((y) => y.isCurrent) || years[0];
-        if (currentYear && !selectedYear) {
-          setSelectedYear(currentYear.id);
+        if (years.length > 0) {
+          const currentYear = years.find((y) => y.isCurrent) || years[0];
+          if (currentYear && !selectedYear) {
+            setSelectedYear(currentYear.id);
+            setSelectedMonth("all");
+          }
+        } else if (!selectedYear) {
+          setSelectedYear("all");
           setSelectedMonth("all");
         }
       })
-      .catch((err) =>
-        console.error("Failed to load initial fee metadata:", err)
-      );
-  }, [schoolId]);
+      .catch((err) => {
+        console.error("Failed to load initial fee metadata:", err);
+      });
+  }, [schoolId, authLoading]);
 
   // 2. Load Dashboard Data whenever any filter changes
   useEffect(() => {
     async function loadData() {
-      if (!schoolId) return;
+      if (!schoolId) {
+        if (!authLoading) setLoading(false);
+        return;
+      }
       if (data) {
         setIsUpdating(true);
       } else {
@@ -178,7 +203,7 @@ export default function AdminFeeDashboardPage() {
       setFilterError(null);
       try {
         const dashData = await getFeeDashboardOverviewData(schoolId, {
-          academicYearId: selectedYear || undefined,
+          academicYearId: selectedYear && selectedYear !== "all" ? selectedYear : undefined,
           month: selectedMonth === "all" ? undefined : selectedMonth,
           className: selectedClass === "all" ? undefined : selectedClass,
           sectionName: selectedSection === "all" ? undefined : selectedSection,
@@ -202,6 +227,7 @@ export default function AdminFeeDashboardPage() {
     loadData();
   }, [
     schoolId,
+    authLoading,
     selectedYear,
     selectedMonth,
     selectedClass,
@@ -253,8 +279,24 @@ export default function AdminFeeDashboardPage() {
 
   const handleSendWhatsApp = () => {
     const phone =
-      previewStudent?.phone || previewStudent?.parentPhone || "9876543210";
+      previewStudent?.phone || previewStudent?.parentPhone || "";
     const cleanPhone = phone.replace(/[^0-9]/g, "");
+    if (!cleanPhone || cleanPhone.length < 10) {
+      if (previewStudent) {
+        setShareModalTarget({
+          id: previewStudent.studentId,
+          name: previewStudent.studentName,
+          admissionNumber: previewStudent.admissionNumber,
+          className: previewStudent.className,
+          phone: previewStudent.phone,
+          parentPhone: previewStudent.parentPhone,
+        });
+        toast.info("Please verify or enter the phone number to send WhatsApp message.");
+      } else {
+        toast.info("No pending fee accounts found.");
+      }
+      return;
+    }
     const waPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
     const url = `https://wa.me/${waPhone}?text=${encodeURIComponent(previewMessageText)}`;
     window.open(url, "_blank");
@@ -273,60 +315,162 @@ export default function AdminFeeDashboardPage() {
         parentPhone: first.parentPhone,
       });
     } else {
-      toast.info("No pending fee accounts found.");
+      toast.info("No overdue students found to send reminders.");
     }
   };
 
-  // Quick action: Export Report
+  // Quick action: Comprehensive Export Report
   const handleExportReport = () => {
     if (!data) return;
-    const csvContent =
-      "data:text/csv;charset=utf-8," +
-      [
-        "Metric,Value",
-        `Total Expected Fee,${fmtRupees(data.metrics.totalExpectedPaise)}`,
-        `Total Fee Collected,${fmtRupees(data.metrics.totalCollectedPaise)}`,
-        `Outstanding Dues,${fmtRupees(data.metrics.totalPendingPaise)}`,
-        `Collection Rate,${data.metrics.collectionRate}%`,
-        `Today&apos;s Collection,${fmtRupees(data.metrics.todayCollectionPaise)}`,
-        `Defaulters Count,${data.metrics.defaultersCount}`,
-      ].join("\n");
-    const encodedUri = encodeURI(csvContent);
+    const lines: string[] = [];
+
+    // 1. Executive Summary
+    lines.push("=== FEE MANAGEMENT EXECUTIVE SUMMARY ===");
+    lines.push(`School Name,${schoolName}`);
+    lines.push(`Academic Session,${selectedYearName}`);
+    lines.push(`Selected Month,${selectedMonth}`);
+    lines.push(`Selected Class,${selectedClass}`);
+    lines.push(`Export Date,${new Date().toLocaleString("en-IN")}`);
+    lines.push("");
+    lines.push("Metric,Amount");
+    lines.push(`Total Expected Fee,${fmtRupees(data.metrics.totalExpectedPaise)}`);
+    lines.push(`Total Fee Collected,${fmtRupees(data.metrics.totalCollectedPaise)}`);
+    lines.push(`Outstanding Balance,${fmtRupees(data.metrics.totalPendingPaise)}`);
+    lines.push(`Collection Rate,${data.metrics.collectionRate}%`);
+    lines.push(`Today's Collection,${fmtRupees(data.metrics.todayCollectionPaise)}`);
+    lines.push(`Total Defaulters Count,${data.metrics.defaultersCount}`);
+    lines.push("");
+
+    // 2. Collection Methods Breakdown
+    lines.push("=== FEE COLLECTION BY PAYMENT METHOD ===");
+    lines.push("Method,Transactions Count,Amount,Percentage");
+    data.paymentMethods.forEach((m) => {
+      lines.push(`"${m.method}",${m.count},${fmtRupees(m.amountPaise)},${m.percentage}%`);
+    });
+    lines.push("");
+
+    // 3. Collection Trend
+    lines.push("=== COLLECTION TREND (ACADEMIC YEAR) ===");
+    lines.push("Period,Expected Fee,Collected Fee,Outstanding Balance");
+    (data.collectionTrend || []).forEach((t) => {
+      lines.push(`"${t.month}",${fmtRupees(t.expectedPaise)},${fmtRupees(t.collectedPaise)},${fmtRupees(t.outstandingPaise)}`);
+    });
+    lines.push("");
+
+    // 4. Overdue Defaulters
+    lines.push("=== TOP OVERDUE DEFAULTERS ===");
+    lines.push("Student Name,Admission Number,Class,Due Amount,Days Overdue,Contact Phone,Last Payment Date");
+    (data.topDefaulters || []).forEach((d) => {
+      lines.push(`"${d.studentName}","${d.admissionNumber}","${d.className}",${fmtRupees(d.dueAmountPaise)},${d.daysOverdue},"${d.phone || "—"}","${d.lastPaymentDate || "—"}"`);
+    });
+    lines.push("");
+
+    // 5. Recent Payments
+    lines.push("=== RECENT PAYMENT TRANSACTIONS ===");
+    lines.push("Receipt Number,Student Name,Admission Number,Class,Amount Paid,Payment Mode,Date");
+    (data.recentCollections || []).forEach((tx) => {
+      const pAmt = fmtRupees(tx.amountPaidPaise || (tx as any).amountPaise || 0);
+      lines.push(`"${tx.receiptNumber}","${tx.studentName}","${tx.admissionNumber}","${tx.className}",${pAmt},"${tx.paymentMethod}","${tx.paymentDate || tx.createdAt}"`);
+    });
+
+    const csvContent = "data:text/csv;charset=utf-8," + encodeURIComponent(lines.join("\n"));
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
+    link.setAttribute("href", csvContent);
     link.setAttribute(
       "download",
-      `Fee_Summary_${selectedMonth === "all" ? "All_Months" : selectedMonth.replace(/\s+/g, "_")}.csv`
+      `Fee_Report_${schoolName.replace(/[^a-zA-Z0-9]/g, "_")}_${selectedMonth === "all" ? "All_Months" : selectedMonth.replace(/\s+/g, "_")}.csv`
     );
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    toast.success("Fee summary report exported successfully!");
+    toast.success("Comprehensive fee report exported successfully!");
   };
 
-  // SVG Trend Chart Dimensions
-  const trendData = data?.collectionTrend || [];
+  // SVG Trend Chart Dimensions & View Aggregation
+  const displayTrendData = useMemo(() => {
+    const raw = data?.collectionTrend || [];
+    if (trendView === "monthly") return raw;
+    if (trendView === "quarterly") {
+      const q1 = raw.slice(0, 3);
+      const q2 = raw.slice(3, 6);
+      const q3 = raw.slice(6, 9);
+      const q4 = raw.slice(9, 12);
+      const aggregateQuarter = (name: string, months: typeof raw) => ({
+        month: name,
+        monthKey: name.toLowerCase().replace(/[^a-z0-9]/g, "_"),
+        expectedPaise: months.reduce((s, m) => s + m.expectedPaise, 0),
+        collectedPaise: months.reduce((s, m) => s + m.collectedPaise, 0),
+        outstandingPaise: months.reduce((s, m) => s + m.outstandingPaise, 0),
+      });
+      return [
+        aggregateQuarter("Q1 (Apr-Jun)", q1),
+        aggregateQuarter("Q2 (Jul-Sep)", q2),
+        aggregateQuarter("Q3 (Oct-Dec)", q3),
+        aggregateQuarter("Q4 (Jan-Mar)", q4),
+      ];
+    }
+    // Yearly
+    const totalExp = raw.reduce((s, m) => s + m.expectedPaise, 0);
+    const totalCol = raw.reduce((s, m) => s + m.collectedPaise, 0);
+    const totalOut = raw.reduce((s, m) => s + m.outstandingPaise, 0);
+    return [
+      {
+        month: selectedYearName || "Full Year",
+        monthKey: "year",
+        expectedPaise: totalExp,
+        collectedPaise: totalCol,
+        outstandingPaise: totalOut,
+      },
+    ];
+  }, [data?.collectionTrend, trendView, selectedYearName]);
+
+  const maxVal = useMemo(() => {
+    const vals = displayTrendData.flatMap((d) => [
+      d.expectedPaise,
+      d.collectedPaise,
+      d.outstandingPaise,
+    ]);
+    return Math.max(...vals, 100000);
+  }, [displayTrendData]);
+
+  const maxPaise = useMemo(() => Math.ceil(maxVal * 1.15), [maxVal]);
+
+  const yGrids = useMemo(() => {
+    return [
+      { label: fmtRupees(maxPaise), val: maxPaise },
+      { label: fmtRupees(Math.round(maxPaise * 0.66)), val: Math.round(maxPaise * 0.66) },
+      { label: fmtRupees(Math.round(maxPaise * 0.33)), val: Math.round(maxPaise * 0.33) },
+      { label: "₹0", val: 0 },
+    ];
+  }, [maxPaise]);
+
+  const safeHoverIndex =
+    hoveredTrendIndex !== null && hoveredTrendIndex < displayTrendData.length
+      ? hoveredTrendIndex
+      : displayTrendData.length > 0
+        ? 0
+        : null;
+
   const chartW = 600;
   const chartH = 180;
-  const padL = 45;
+  const padL = 50;
   const padR = 20;
   const padT = 20;
   const padB = 30;
   const innerW = chartW - padL - padR;
   const innerH = chartH - padT - padB;
-  const maxPaise = 60000000; // 6L paise limit
 
   const getX = (idx: number) =>
-    padL + (idx / Math.max(trendData.length - 1, 1)) * innerW;
+    padL + (idx / Math.max(displayTrendData.length - 1, 1)) * innerW;
   const getY = (val: number) =>
     padT + innerH - (Math.min(val, maxPaise) / maxPaise) * innerH;
 
   const buildPath = (
     key: "expectedPaise" | "collectedPaise" | "outstandingPaise"
   ) => {
-    if (trendData.length === 0) return "";
-    const points = trendData.map((d, i) => ({ x: getX(i), y: getY(d[key]) }));
-    if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+    if (displayTrendData.length === 0) return "";
+    const points = displayTrendData.map((d, i) => ({ x: getX(i), y: getY(d[key]) }));
+    if (points.length === 1) return `M ${padL} ${points[0].y} L ${chartW - padR} ${points[0].y}`;
     let d = `M ${points[0].x} ${points[0].y}`;
     for (let i = 0; i < points.length - 1; i++) {
       const p0 = points[i];
@@ -608,6 +752,41 @@ export default function AdminFeeDashboardPage() {
           </div>
         ) : (
           <>
+            {/* Zero-data Guidance Banner */}
+            {data && data.metrics.totalExpectedPaise === 0 && data.metrics.totalCollectedPaise === 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 rounded-2xl border border-blue-200 bg-blue-50/70 p-5 dark:border-blue-900/50 dark:bg-blue-950/20">
+                <div className="flex items-center gap-3.5">
+                  <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-600 dark:bg-blue-900/60 dark:text-blue-400">
+                    <Sparkles className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                      No Fee Demands or Payments Found
+                    </h4>
+                    <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
+                      Configure fee structures and assign fees to students to start tracking fee demands, collections, and overdue metrics.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link
+                    href="/admin/fees/structures"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm transition-colors hover:bg-blue-700"
+                  >
+                    <span>Setup Fee Structures</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
+                  <Link
+                    href="/admin/fees/collect"
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-white px-3.5 py-2 text-xs font-bold text-blue-700 shadow-sm transition-colors hover:bg-blue-50 dark:border-slate-700 dark:bg-slate-900 dark:text-blue-300"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>Collect Fee</span>
+                  </Link>
+                </div>
+              </div>
+            )}
+
             {/* ========================================================
             ROW 1: 4 KEY METRIC CARDS (KPIs)
         ======================================================== */}
@@ -803,12 +982,7 @@ export default function AdminFeeDashboardPage() {
                     className="h-44 w-full select-none"
                   >
                     {/* Y-axis grid lines & labels */}
-                    {[
-                      { label: "₹6L", val: 60000000 },
-                      { label: "₹4L", val: 40000000 },
-                      { label: "₹2L", val: 20000000 },
-                      { label: "0", val: 0 },
-                    ].map((grid, idx) => {
+                    {yGrids.map((grid, idx) => {
                       const y = getY(grid.val);
                       return (
                         <g key={idx}>
@@ -826,7 +1000,7 @@ export default function AdminFeeDashboardPage() {
                             x2={chartW - padR}
                             y2={y}
                             stroke="currentColor"
-                            strokeDasharray={idx === 3 ? "none" : "3,3"}
+                            strokeDasharray={idx === yGrids.length - 1 ? "none" : "3,3"}
                             className="text-slate-100 dark:text-slate-800"
                           />
                         </g>
@@ -834,14 +1008,14 @@ export default function AdminFeeDashboardPage() {
                     })}
 
                     {/* X-axis labels */}
-                    {trendData.map((d, i) => (
+                    {displayTrendData.map((d, i) => (
                       <text
                         key={i}
                         x={getX(i)}
                         y={chartH - 8}
                         textAnchor="middle"
                         className={`text-[10px] ${
-                          hoveredTrendIndex === i
+                          safeHoverIndex === i
                             ? "fill-blue-600 font-bold"
                             : "fill-slate-400"
                         }`}
@@ -874,12 +1048,12 @@ export default function AdminFeeDashboardPage() {
                     />
 
                     {/* Node Points & Hover Touchpoints */}
-                    {trendData.map((d, i) => {
+                    {displayTrendData.map((d, i) => {
                       const expY = getY(d.expectedPaise);
                       const colY = getY(d.collectedPaise);
                       const outY = getY(d.outstandingPaise);
                       const x = getX(i);
-                      const isHovered = hoveredTrendIndex === i;
+                      const isHovered = safeHoverIndex === i;
 
                       return (
                         <g
@@ -929,28 +1103,28 @@ export default function AdminFeeDashboardPage() {
                   </svg>
 
                   {/* Hover Tooltip display */}
-                  {hoveredTrendIndex !== null &&
-                    trendData[hoveredTrendIndex] && (
+                  {safeHoverIndex !== null &&
+                    displayTrendData[safeHoverIndex] && (
                       <div className="mt-1 flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold dark:border-slate-700/60 dark:bg-slate-800/80">
                         <span className="text-slate-600 dark:text-slate-300">
-                          Month: {trendData[hoveredTrendIndex].month}
+                          {trendView === "monthly" ? "Month" : trendView === "quarterly" ? "Quarter" : "Session"}: {displayTrendData[safeHoverIndex].month}
                         </span>
                         <span className="text-blue-600">
                           Exp:{" "}
                           {fmtRupees(
-                            trendData[hoveredTrendIndex].expectedPaise
+                            displayTrendData[safeHoverIndex].expectedPaise
                           )}
                         </span>
                         <span className="text-emerald-600">
                           Col:{" "}
                           {fmtRupees(
-                            trendData[hoveredTrendIndex].collectedPaise
+                            displayTrendData[safeHoverIndex].collectedPaise
                           )}
                         </span>
                         <span className="text-rose-600">
                           Due:{" "}
                           {fmtRupees(
-                            trendData[hoveredTrendIndex].outstandingPaise
+                            displayTrendData[safeHoverIndex].outstandingPaise
                           )}
                         </span>
                       </div>
@@ -1299,10 +1473,9 @@ export default function AdminFeeDashboardPage() {
                     </h3>
                   </div>
 
-                  {/* Year dropdown */}
-                  <div className="flex items-center gap-1 text-xs font-bold text-slate-700 dark:text-slate-300">
-                    <span>2026-27</span>
-                    <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+                  {/* Year display */}
+                  <div className="flex items-center gap-1 rounded-lg bg-slate-50 px-2 py-1 text-xs font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                    <span>{selectedYearName || "All Sessions"}</span>
                   </div>
                 </div>
 
@@ -1336,50 +1509,61 @@ export default function AdminFeeDashboardPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
-                      {(data?.monthlyClassOverview || []).map((row, idx) => (
-                        <tr
-                          key={idx}
-                          className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30"
-                        >
-                          <td className="py-2.5 font-bold whitespace-nowrap text-slate-800 dark:text-slate-200">
-                            {row.className}
+                      {(data?.monthlyClassOverview || []).length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={13}
+                            className="py-8 text-center text-xs text-slate-400"
+                          >
+                            No class-wise fee collections recorded yet.
                           </td>
-                          {row.rates.map((rate, rIdx) => {
-                            if (rate === null) {
+                        </tr>
+                      ) : (
+                        (data?.monthlyClassOverview || []).map((row, idx) => (
+                          <tr
+                            key={idx}
+                            className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30"
+                          >
+                            <td className="py-2.5 font-bold whitespace-nowrap text-slate-800 dark:text-slate-200">
+                              {row.className}
+                            </td>
+                            {row.rates.map((rate, rIdx) => {
+                              if (rate === null) {
+                                return (
+                                  <td
+                                    key={rIdx}
+                                    className="py-2.5 text-center font-medium text-slate-300 dark:text-slate-600"
+                                  >
+                                    -
+                                  </td>
+                                );
+                              }
+                              const isGreen = rate >= 90;
+                              const isYellow = rate >= 80 && rate < 90;
+                              const isOrange = rate < 80;
+
                               return (
                                 <td
                                   key={rIdx}
-                                  className="py-2.5 text-center font-medium text-slate-300 dark:text-slate-600"
+                                  className="px-1 py-2.5 text-center"
                                 >
-                                  -
+                                  <span
+                                    className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                                      isGreen
+                                        ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400"
+                                        : isYellow
+                                          ? "bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400"
+                                          : "bg-rose-50 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400"
+                                    }`}
+                                  >
+                                    {rate}%
+                                  </span>
                                 </td>
                               );
-                            }
-                            const isGreen = rate >= 90;
-                            const isYellow = rate >= 80 && rate < 90;
-                            const isOrange = rate < 80;
-
-                            return (
-                              <td
-                                key={rIdx}
-                                className="px-1 py-2.5 text-center"
-                              >
-                                <span
-                                  className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-bold ${
-                                    isGreen
-                                      ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400"
-                                      : isYellow
-                                        ? "bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400"
-                                        : "bg-rose-50 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400"
-                                  }`}
-                                >
-                                  {rate}%
-                                </span>
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
+                            })}
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -1496,21 +1680,37 @@ export default function AdminFeeDashboardPage() {
                                 </td>
                                 <td className="px-2 py-3 text-right">
                                   <div className="flex items-center justify-end gap-1.5">
+                                    {/* Direct Collect Button */}
+                                    <Link
+                                      href={`/admin/fees/collect?studentId=${def.studentId}`}
+                                      title="Collect Fee Directly"
+                                      className="flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700 transition-colors hover:bg-emerald-100 dark:bg-emerald-950/50 dark:text-emerald-300"
+                                    >
+                                      <CreditCard className="h-3 w-3" />
+                                      <span>Collect</span>
+                                    </Link>
+
                                     {/* WhatsApp Button */}
                                     <button
                                       type="button"
                                       title="Send WhatsApp Alert"
                                       onClick={() => {
-                                        const waMsg = `Dear Parent,\nFee reminder for ${def.studentName} (${def.className}).\nPending fee: ${fmtRupees(def.dueAmountPaise)}.\nKindly clear dues.\n- ${schoolName}`;
-                                        const phone = def.phone || "9876543210";
-                                        const clean = phone.replace(
-                                          /[^0-9]/g,
-                                          ""
-                                        );
-                                        const waPhone =
-                                          clean.length === 10
-                                            ? `91${clean}`
-                                            : clean;
+                                        const phone = def.phone || def.parentPhone || "";
+                                        const clean = phone.replace(/[^0-9]/g, "");
+                                        if (clean.length < 10) {
+                                          setShareModalTarget({
+                                            id: def.studentId,
+                                            name: def.studentName,
+                                            admissionNumber: def.admissionNumber,
+                                            className: def.className,
+                                            phone: def.phone,
+                                            parentPhone: def.parentPhone,
+                                          });
+                                          toast.info("Please verify the parent phone number to send WhatsApp alert");
+                                          return;
+                                        }
+                                        const waMsg = `Dear Parent,\nFee reminder for ${def.studentName} (${def.className}).\nPending fee: ${fmtRupees(def.dueAmountPaise)}.\nKindly clear dues at the earliest.\n- ${schoolName}`;
+                                        const waPhone = clean.length === 10 ? `91${clean}` : clean;
                                         window.open(
                                           `https://wa.me/${waPhone}?text=${encodeURIComponent(waMsg)}`,
                                           "_blank"
@@ -1534,7 +1734,7 @@ export default function AdminFeeDashboardPage() {
                                           admissionNumber: def.admissionNumber,
                                           className: def.className,
                                           sectionName: def.sectionName || "A",
-                                          academicYearId: "2026-27",
+                                          academicYearId: selectedYear || "all",
                                           feeStructureIds: [],
                                           totalAssignedPaise: 0,
                                           totalPaidPaise: 0,
@@ -1654,10 +1854,7 @@ export default function AdminFeeDashboardPage() {
 
                             <div className="flex flex-shrink-0 items-center gap-2">
                               <span className="font-black text-slate-900 dark:text-white">
-                                ₹
-                                {(tx.amountPaidPaise / 100).toLocaleString(
-                                  "en-IN"
-                                )}
+                                {fmtRupees(tx.amountPaidPaise)}
                               </span>
 
                               {/* Mode Badge */}
@@ -1674,10 +1871,40 @@ export default function AdminFeeDashboardPage() {
                               </span>
 
                               <span className="font-mono text-[10px] text-slate-400">
-                                {tx.createdAt && tx.createdAt.includes(":")
-                                  ? tx.createdAt
-                                  : "10:42 AM"}
+                                {tx.createdAt && !isNaN(new Date(tx.createdAt).getTime())
+                                  ? new Date(tx.createdAt).toLocaleTimeString([], {
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })
+                                  : tx.createdAt || "Just now"}
                               </span>
+
+                              {/* Receipt View Button */}
+                              <button
+                                type="button"
+                                title="View / Print Receipt"
+                                onClick={() => {
+                                  setSelectedReceipt({
+                                    id: tx.id,
+                                    schoolId,
+                                    receiptNumber: `REC-${(tx.id || "0").slice(0, 8).toUpperCase()}`,
+                                    studentId: "",
+                                    studentName: tx.studentName,
+                                    admissionNumber: "N/A",
+                                    className: tx.className,
+                                    amountPaise: tx.amountPaidPaise,
+                                    amountPaidPaise: tx.amountPaidPaise,
+                                    paymentMethod: tx.paymentMethod || "CASH",
+                                    status: "COMPLETED",
+                                    academicYearId: selectedYear || "all",
+                                    createdAt: tx.createdAt || new Date().toISOString(),
+                                    paidAt: tx.createdAt || new Date().toISOString(),
+                                  } as any);
+                                }}
+                                className="flex h-6 w-6 cursor-pointer items-center justify-center rounded bg-slate-100 text-slate-600 transition-colors hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                              >
+                                <Printer className="h-3 w-3" />
+                              </button>
                             </div>
                           </div>
                         );

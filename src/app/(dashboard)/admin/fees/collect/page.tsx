@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
 import { FeeReceiptModal } from "@/components/fees/FeeReceiptModal";
@@ -40,6 +41,9 @@ export default function AdminCollectFeePage() {
   const schoolId = profile?.schoolId || "";
   const schoolName = (profile as any)?.schoolName || "Lord Buddha Public School";
 
+  const searchParams = useSearchParams();
+  const studentIdParam = searchParams?.get("studentId") || "";
+
   // Students Search state
   const [studentsList, setStudentsList] = useState<StudentProfile[]>([]);
   const [loadingStudents, setLoadingStudents] = useState(false);
@@ -73,13 +77,24 @@ export default function AdminCollectFeePage() {
     if (!schoolId) return;
     setLoadingStudents(true);
     getStudents(schoolId)
-      .then((data) => setStudentsList(data))
+      .then((data) => {
+        setStudentsList(data);
+        if (studentIdParam && data.length > 0) {
+          const target = data.find(
+            (s) => s.id === studentIdParam || s.studentId === studentIdParam || s.admissionNumber === studentIdParam
+          );
+          if (target) {
+            setSelectedStudent(target);
+            fetchStudentDemands(target);
+          }
+        }
+      })
       .catch((err) => {
         console.error("Error loading students:", err);
         toast.error("Failed to load students list.");
       })
       .finally(() => setLoadingStudents(false));
-  }, [schoolId]);
+  }, [schoolId, studentIdParam]);
 
   // Close student search dropdown on outside click
   useEffect(() => {
@@ -119,7 +134,7 @@ export default function AdminCollectFeePage() {
       const res = await fetch(
         `/api/fees/foundation/student-summary?schoolId=${encodeURIComponent(schoolId)}&studentId=${encodeURIComponent(
           student.id
-        )}&academicYearId=ay_2026_27`
+        )}&academicYearId=all`
       );
       if (!res.ok) throw new Error("Failed to fetch student fee demands");
       const json = await res.json();
