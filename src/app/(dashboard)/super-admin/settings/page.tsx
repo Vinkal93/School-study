@@ -112,6 +112,13 @@ export default function PlatformSettingsPage() {
   const [twilioSmsFromNumber, setTwilioSmsFromNumber] = useState("");
   const [showTwilioToken, setShowTwilioToken] = useState(false);
   const [savingTwilio, setSavingTwilio] = useState(false);
+  const [testingTwilio, setTestingTwilio] = useState(false);
+  const [twilioTestResult, setTwilioTestResult] = useState<{
+    success: boolean;
+    message: string;
+    errorCode?: string | null;
+    details?: any;
+  } | null>(null);
 
   // Load All Initial Data
   useEffect(() => {
@@ -210,6 +217,47 @@ export default function PlatformSettingsPage() {
       toast.error(err.message || "Failed to save Twilio settings");
     } finally {
       setSavingTwilio(false);
+    }
+  };
+
+  // Test Twilio Gateway Connection
+  const handleTestTwilioConnection = async () => {
+    if (!twilioAccountSid.trim()) {
+      toast.error("Please enter a Twilio Account SID before testing.");
+      return;
+    }
+    setTestingTwilio(true);
+    setTwilioTestResult(null);
+    try {
+      const res = await fetch("/api/super-admin/communication", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "test_twilio",
+          credentials: {
+            accountSid: twilioAccountSid.trim(),
+            authToken: twilioAuthToken.trim(),
+            fromNumber: twilioFromNumber.trim(),
+          },
+        }),
+      });
+      const data = await res.json();
+      setTwilioTestResult(data);
+      if (data.success) {
+        toast.success(data.message || "Twilio connected successfully!");
+      } else {
+        toast.error(data.message || "Twilio connection test failed");
+      }
+    } catch (err: any) {
+      const errorRes = {
+        success: false,
+        message: `✕ Network error: ${err.message}`,
+        details: "Could not contact test endpoint",
+      };
+      setTwilioTestResult(errorRes);
+      toast.error(errorRes.message);
+    } finally {
+      setTestingTwilio(false);
     }
   };
 
@@ -1013,6 +1061,39 @@ export default function PlatformSettingsPage() {
                 </div>
               </div>
 
+              {/* Test Result Banner */}
+              {twilioTestResult && (
+                <div
+                  className={`p-3.5 rounded-xl border text-xs space-y-1.5 animate-in fade-in duration-200 ${
+                    twilioTestResult.success
+                      ? "bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200"
+                      : "bg-rose-50/80 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800 text-rose-900 dark:text-rose-200"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 font-bold">
+                    {twilioTestResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    )}
+                    <span>{twilioTestResult.message}</span>
+                  </div>
+                  {twilioTestResult.details && (
+                    <div className="text-[11px] opacity-90 pl-6 space-y-0.5">
+                      {typeof twilioTestResult.details === "string" ? (
+                        <p>{twilioTestResult.details}</p>
+                      ) : (
+                        <>
+                          <p>Account: <span className="font-mono">{twilioTestResult.details.accountName}</span> ({twilioTestResult.details.accountSid})</p>
+                          <p>Sender: <span className="font-mono">{twilioTestResult.details.sender}</span> ({twilioTestResult.details.senderType})</p>
+                          <p>Account Status: <span className="uppercase font-semibold">{twilioTestResult.details.accountStatus}</span> • Mode: {twilioTestResult.details.accountType}</p>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
                 <Link
                   href="/super-admin/communication"
@@ -1021,6 +1102,19 @@ export default function PlatformSettingsPage() {
                   Manage school overrides & view live delivery logs in Communication Hub &rarr;
                 </Link>
                 <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleTestTwilioConnection}
+                    disabled={testingTwilio || !twilioAccountSid.trim()}
+                    className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                  >
+                    {testingTwilio ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Shield className="w-3.5 h-3.5 text-emerald-600" />
+                    )}
+                    <span>{testingTwilio ? "Testing Live..." : "Test Connection"}</span>
+                  </button>
                   <button
                     type="button"
                     onClick={handleSavePlatformSettings}

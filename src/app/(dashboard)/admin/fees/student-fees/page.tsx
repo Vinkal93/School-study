@@ -147,8 +147,8 @@ export default function AdminStudentFeesPage() {
       if (selectedSection !== "all" && s.sectionName !== selectedSection) return false;
       if (searchStudentQuery.trim()) {
         const q = searchStudentQuery.toLowerCase();
-        const matchesName = s.name?.toLowerCase().includes(q);
-        const matchesAdm = (s.admissionNumber || s.studentId || "").toLowerCase().includes(q);
+        const matchesName = String(s.name || "").toLowerCase().includes(q);
+        const matchesAdm = String(s.admissionNumber || s.studentId || "").toLowerCase().includes(q);
         const matchesRoll = String(s.rollNumber ?? "").toLowerCase().includes(q);
         if (!matchesName && !matchesAdm && !matchesRoll) return false;
       }

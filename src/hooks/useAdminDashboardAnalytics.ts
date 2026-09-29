@@ -8,6 +8,15 @@ import { getNoticesForAdmin } from "@/lib/services/notice.service";
 import { getCurrentDayOfWeek } from "@/lib/services/timetable.service";
 import type { Notice, ClassBell, StudentFeeAssignment, FeePayment } from "@/types";
 
+function toTimestampNumber(val: any): number {
+  if (!val) return 0;
+  if (typeof val === "number") return val;
+  if (typeof val === "string") return new Date(val).getTime() || 0;
+  if (typeof val?.toMillis === "function") return val.toMillis();
+  if (typeof val?.seconds === "number") return val.seconds * 1000;
+  return 0;
+}
+
 export interface StudentGrowthMonth {
   month: string;
   count: number;
@@ -236,7 +245,7 @@ export function useAdminDashboardAnalytics(schoolId: string | undefined): AdminD
           } catch {}
         }
 
-        stuList.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+        stuList.sort((a, b) => toTimestampNumber(b.createdAt) - toTimestampNumber(a.createdAt));
 
         recentStudents = stuList.slice(0, 5).map((s) => {
           const name = s.name || s.fullName || "Student";
@@ -252,8 +261,9 @@ export function useAdminDashboardAnalytics(schoolId: string | undefined): AdminD
             ? `Grade ${s.grade}`
             : "Class N/A";
 
-          const dateLabel = s.createdAt
-            ? new Date(s.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+          const createdAtMs = toTimestampNumber(s.createdAt);
+          const dateLabel = createdAtMs
+            ? new Date(createdAtMs).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
             : "Recent";
 
           return {
@@ -337,7 +347,7 @@ export function useAdminDashboardAnalytics(schoolId: string | undefined): AdminD
           } catch {}
         }
 
-        tchList.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+        tchList.sort((a, b) => toTimestampNumber(b.createdAt) - toTimestampNumber(a.createdAt));
 
         recentTeachers = tchList.slice(0, 5).map((t) => {
           const name = t.name || t.fullName || "Teacher";
@@ -347,8 +357,9 @@ export function useAdminDashboardAnalytics(schoolId: string | undefined): AdminD
               ? `${nameParts[0][0]}${nameParts[1][0]}`.toUpperCase()
               : (nameParts[0].slice(0, 2) || "TC").toUpperCase();
 
-          const dateLabel = t.createdAt
-            ? `Joined ${new Date(t.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
+          const createdAtMs = toTimestampNumber(t.createdAt);
+          const dateLabel = createdAtMs
+            ? `Joined ${new Date(createdAtMs).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
             : "Faculty";
 
           return {

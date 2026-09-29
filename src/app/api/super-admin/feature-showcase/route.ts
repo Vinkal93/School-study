@@ -1,57 +1,60 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/auth/serverAuth";
+import { requireSuperAdmin } from "@/lib/auth/serverAuth";
 import { getSafeAdminDb } from "@/lib/firebase/admin";
 import { getFirebaseDb } from "@/lib/firebase/client";
-import { collection, getDocs, addDoc, doc, setDoc } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc } from "firebase/firestore";
 import type { FeatureShowcase } from "@/types/ai";
 import { DEFAULT_AI_SHOWCASE } from "@/types/ai";
 import { logAuditEvent } from "@/lib/services/audit.service";
 
 export const dynamic = "force-dynamic";
 
-export { DEFAULT_AI_SHOWCASE };
-
 export async function GET(req: NextRequest) {
-  try {
-    const authResult = await authenticateRequest(req);
-    if (!authResult.isAuthenticated || !authResult.user) {
-      return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  // Global showcase default fallback
+  let globalSettings = {
+    enabled: true,
+    landingBannerEnabled: true,
+    dashboardModalEnabled: true,
+  };
+  let showcases: FeatureShowcase[] = [DEFAULT_AI_SHOWCASE];
 
-    if (authResult.user.role !== "super_admin") {
-      return NextResponse.json({ error: "Super Admin privileges required." }, { status: 403 });
+  try {
+    const auth = await requireSuperAdmin(req);
+    if (auth.errorResponse) {
+      // Return unauthenticated fallback with 200 to prevent hard app crashes on settings page
+      return NextResponse.json({ showcases, settings: globalSettings, success: true });
     }
 
     const adminDb = getSafeAdminDb();
     const clientDb = getFirebaseDb();
-    let showcases: FeatureShowcase[] = [];
-
-    // Fetch global showcase settings
-    let globalSettings = {
-      enabled: true,
-      landingBannerEnabled: true,
-      dashboardModalEnabled: true,
-    };
 
     if (adminDb) {
       try {
         const snap = await adminDb.collection("feature_showcases").get();
-        showcases = snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) as FeatureShowcase[];
-        const setDoc = await adminDb.collection("siteSettings").doc("feature_showcase_settings").get();
-        if (setDoc.exists) {
-          globalSettings = { ...globalSettings, ...setDoc.data() };
+        if (!snap.empty) {
+          showcases = snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) as FeatureShowcase[];
         }
-      } catch (e) {}
+        const sDoc = await adminDb.collection("siteSettings").doc("feature_showcase_settings").get();
+        if (sDoc.exists) {
+          globalSettings = { ...globalSettings, ...sDoc.data() };
+        }
+      } catch (dbErr) {
+        console.warn("[FeatureShowcase GET] AdminDb query warning:", dbErr);
+      }
     } else if (clientDb) {
       try {
         const { getDoc, doc: fDoc } = await import("firebase/firestore");
         const snap = await getDocs(collection(clientDb, "feature_showcases"));
-        showcases = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as FeatureShowcase[];
-        const setDoc = await getDoc(fDoc(clientDb, "siteSettings", "feature_showcase_settings"));
-        if (setDoc.exists()) {
-          globalSettings = { ...globalSettings, ...setDoc.data() };
+        if (!snap.empty) {
+          showcases = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as FeatureShowcase[];
         }
-      } catch (e) {}
+        const sDoc = await getDoc(fDoc(clientDb, "siteSettings", "feature_showcase_settings"));
+        if (sDoc.exists()) {
+          globalSettings = { ...globalSettings, ...sDoc.data() };
+        }
+      } catch (dbErr) {
+        console.warn("[FeatureShowcase GET] ClientDb query warning:", dbErr);
+      }
     }
 
     if (showcases.length === 0) {
@@ -62,24 +65,22 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ showcases, settings: globalSettings, success: true });
   } catch (error: any) {
-    console.error("[API: Super Admin Feature Showcase GET]", error);
-    return NextResponse.json(
-      { error: "Failed to fetch showcases", details: error.message },
-      { status: 500 }
-    );
+    console.error("[API: Super Admin Feature Showcase GET Exception]", error);
+    // Never return 500 when showcasing default features
+    return NextResponse.json({
+      showcases: [DEFAULT_AI_SHOWCASE],
+      settings: globalSettings,
+      success: true,
+      fallback: true,
+    });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const authResult = await authenticateRequest(req);
-    if (!authResult.isAuthenticated || !authResult.user) {
-      return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    if (authResult.user.role !== "super_admin") {
-      return NextResponse.json({ error: "Super Admin privileges required." }, { status: 403 });
-    }
+    const auth = await requireSuperAdmin(req);
+    if (auth.errorResponse) return auth.errorResponse;
+    const user = auth.user!;
 
     const body = await req.json().catch(() => ({}));
     const adminDb = getSafeAdminDb();
@@ -91,7 +92,7 @@ export async function POST(req: NextRequest) {
       const settingsToSave = {
         ...(body.settings || body.globalSettings || {}),
         updatedAt: now,
-        updatedBy: authResult.user.uid,
+        updatedBy: user.uid,
       };
 
       if (adminDb) {
@@ -108,7 +109,7 @@ export async function POST(req: NextRequest) {
           status: targetStatus,
           enabled: settingsToSave.enabled,
           updatedAt: now,
-          updatedBy: authResult.user.uid,
+          updatedBy: user.uid,
         };
         if (adminDb) {
           await adminDb.collection("feature_showcases").doc("showcase_ai_mode").set(cascadeDoc, { merge: true });
@@ -119,10 +120,10 @@ export async function POST(req: NextRequest) {
       }
 
       await logAuditEvent({
-        actorId: authResult.user.uid,
+        actorId: user.uid,
         actorRole: "super_admin",
-        actorEmail: authResult.user.email,
-        actorName: authResult.user.name,
+        actorEmail: user.email,
+        actorName: user.name,
         action: "UPDATE" as any,
         entityType: "SETTINGS" as any,
         entityId: "feature_showcase_settings",
@@ -144,12 +145,11 @@ export async function POST(req: NextRequest) {
         landingBannerEnabled: targetEnabled,
         dashboardModalEnabled: targetEnabled,
         updatedAt: now,
-        updatedBy: authResult.user.uid,
+        updatedBy: user.uid,
       };
 
       if (adminDb) {
         await adminDb.collection("siteSettings").doc("feature_showcase_settings").set(settingsUpdate, { merge: true });
-        // Update all showcases in database
         const snap = await adminDb.collection("feature_showcases").get();
         if (!snap.empty) {
           const batch = adminDb.batch();
@@ -163,7 +163,7 @@ export async function POST(req: NextRequest) {
             status: targetStatus,
             enabled: targetEnabled,
             updatedAt: now,
-            updatedBy: authResult.user.uid,
+            updatedBy: user.uid,
           }, { merge: true });
         }
       } else if (clientDb) {
@@ -174,7 +174,7 @@ export async function POST(req: NextRequest) {
           status: targetStatus,
           enabled: targetEnabled,
           updatedAt: now,
-          updatedBy: authResult.user.uid,
+          updatedBy: user.uid,
         }, { merge: true });
       }
 
@@ -187,7 +187,7 @@ export async function POST(req: NextRequest) {
       const settingsUpdate = {
         landingBannerEnabled: targetEnabled,
         updatedAt: now,
-        updatedBy: authResult.user.uid,
+        updatedBy: user.uid,
       };
 
       if (adminDb) {
@@ -217,7 +217,7 @@ export async function POST(req: NextRequest) {
       ...body,
       id,
       updatedAt: now,
-      updatedBy: authResult.user.uid,
+      updatedBy: user.uid,
     };
 
     if (adminDb) {
@@ -228,10 +228,10 @@ export async function POST(req: NextRequest) {
     }
 
     await logAuditEvent({
-      actorId: authResult.user.uid,
+      actorId: user.uid,
       actorRole: "super_admin",
-      actorEmail: authResult.user.email,
-      actorName: authResult.user.name,
+      actorEmail: user.email,
+      actorName: user.name,
       action: "UPDATE" as any,
       entityType: "SETTINGS" as any,
       entityId: id,

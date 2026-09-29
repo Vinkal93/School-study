@@ -86,6 +86,53 @@ function SuperAdminCommunicationContent() {
   const [logStatusFilter, setLogStatusFilter] = useState("all");
   const [retryingLogId, setRetryingLogId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [testingTwilio, setTestingTwilio] = useState(false);
+  const [twilioTestResult, setTwilioTestResult] = useState<{
+    success: boolean;
+    message: string;
+    errorCode?: string | null;
+    details?: any;
+  } | null>(null);
+
+  const handleTestTwilioConnection = async () => {
+    if (!twilioSid.trim()) {
+      toast.error("Please enter a Twilio Account SID before testing.");
+      return;
+    }
+    setTestingTwilio(true);
+    setTwilioTestResult(null);
+    try {
+      const res = await fetch("/api/super-admin/communication", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "test_twilio",
+          credentials: {
+            accountSid: twilioSid.trim(),
+            authToken: twilioToken.trim(),
+            fromNumber: twilioFrom.trim(),
+          },
+        }),
+      });
+      const data = await res.json();
+      setTwilioTestResult(data);
+      if (data.success) {
+        toast.success(data.message || "Twilio connected successfully!");
+      } else {
+        toast.error(data.message || "Twilio connection test failed");
+      }
+    } catch (err: any) {
+      const errorRes = {
+        success: false,
+        message: `✕ Network error: ${err.message}`,
+        details: "Could not contact test endpoint",
+      };
+      setTwilioTestResult(errorRes);
+      toast.error(errorRes.message);
+    } finally {
+      setTestingTwilio(false);
+    }
+  };
 
   // Fetch full data
   const fetchData = async () => {
@@ -630,6 +677,60 @@ function SuperAdminCommunicationContent() {
                     />
                     <p className="text-[10px] text-slate-400 mt-1">Standard E.164 phone number for SMS</p>
                   </div>
+                </div>
+
+                {/* Test Connection Button & Result Banner */}
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-slate-500">
+                      Validate credentials with Twilio Cloud API before saving.
+                    </span>
+                    <button
+                      type="button"
+                      disabled={testingTwilio || !twilioSid.trim()}
+                      onClick={handleTestTwilioConnection}
+                      className="px-3.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 text-xs font-bold flex items-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer"
+                    >
+                      {testingTwilio ? (
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+                      )}
+                      <span>{testingTwilio ? "Testing Live..." : "Test Connection"}</span>
+                    </button>
+                  </div>
+
+                  {twilioTestResult && (
+                    <div
+                      className={`p-3 rounded-2xl border text-xs space-y-1.5 animate-in fade-in duration-200 ${
+                        twilioTestResult.success
+                          ? "bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200"
+                          : "bg-rose-50/80 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800 text-rose-900 dark:text-rose-200"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 font-bold">
+                        {twilioTestResult.success ? (
+                          <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-rose-600 flex-shrink-0" />
+                        )}
+                        <span>{twilioTestResult.message}</span>
+                      </div>
+                      {twilioTestResult.details && (
+                        <div className="text-[11px] opacity-90 pl-6 space-y-0.5">
+                          {typeof twilioTestResult.details === "string" ? (
+                            <p>{twilioTestResult.details}</p>
+                          ) : (
+                            <>
+                              <p>Account: <span className="font-mono">{twilioTestResult.details.accountName}</span> ({twilioTestResult.details.accountSid})</p>
+                              <p>Sender: <span className="font-mono">{twilioTestResult.details.sender}</span> ({twilioTestResult.details.senderType})</p>
+                              <p>Account Status: <span className="uppercase font-semibold">{twilioTestResult.details.accountStatus}</span> • Mode: {twilioTestResult.details.accountType}</p>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
