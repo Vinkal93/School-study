@@ -183,22 +183,35 @@ export async function getGlobalCommunicationSettings(clientSafe = true): Promise
     const db = getFirebaseDb();
     if (db) {
       const snap = await getDoc(doc(db, "siteSettings", "communication_controls"));
-      if (snap.exists()) {
-        const data = snap.data();
+      let secrets: any = {};
+      try {
+        const secSnap = await getDoc(doc(db, "siteSettings", "communication_secrets"));
+        if (secSnap.exists()) secrets = secSnap.data();
+      } catch {}
+
+      if (snap.exists() || Object.keys(secrets).length > 0) {
+        const data = snap.exists() ? snap.data() : {};
+        const accountSid = secrets?.twilioAccountSid || data.twilio?.accountSid || DEFAULT_COMMUNICATION_SETTINGS.twilio.accountSid;
+        const hasAuthToken = Boolean(secrets?.twilioAuthToken || data.twilio?.authToken);
         return {
           ...DEFAULT_COMMUNICATION_SETTINGS,
           ...data,
           twilio: {
             ...DEFAULT_COMMUNICATION_SETTINGS.twilio,
             ...(data.twilio || {}),
-            authToken: data.twilio?.authToken ? "••••••••••••••••" : "",
-            isConfigured: Boolean(data.twilio?.accountSid || DEFAULT_COMMUNICATION_SETTINGS.twilio.accountSid),
+            accountSid,
+            authToken: clientSafe
+              ? (hasAuthToken ? "••••••••••••••••" : "")
+              : (secrets?.twilioAuthToken || data.twilio?.authToken || DEFAULT_COMMUNICATION_SETTINGS.twilio.authToken),
+            isConfigured: Boolean(accountSid),
           },
           email: {
             ...DEFAULT_COMMUNICATION_SETTINGS.email,
             ...(data.email || {}),
-            apiKey: data.email?.apiKey ? "••••••••••••••••" : "",
-            isConfigured: Boolean(data.email?.apiKey || DEFAULT_COMMUNICATION_SETTINGS.email.apiKey),
+            apiKey: clientSafe
+              ? (secrets?.emailApiKey || data.email?.apiKey ? "••••••••••••••••" : "")
+              : (secrets?.emailApiKey || data.email?.apiKey || DEFAULT_COMMUNICATION_SETTINGS.email.apiKey),
+            isConfigured: Boolean(secrets?.emailApiKey || data.email?.apiKey || DEFAULT_COMMUNICATION_SETTINGS.email.apiKey),
           },
         };
       }
@@ -274,6 +287,9 @@ export async function updateGlobalCommunicationSettings(
 
   if (db) {
     await setDoc(doc(db, "siteSettings", "communication_controls"), publicData, { merge: true });
+    if (Object.keys(secretsData).length > 1) {
+      await setDoc(doc(db, "siteSettings", "communication_secrets"), secretsData, { merge: true }).catch(() => {});
+    }
   }
 }
 

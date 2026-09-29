@@ -145,9 +145,10 @@ export async function getStudentLedger(
         if (assign.monthLedger && Array.isArray(assign.monthLedger)) {
           assign.monthLedger.forEach((mItem: any, idx: number) => {
             if (mItem.amountPaise > 0) {
+              const admStr = String(admissionNumber || studentId);
               demands.push({
                 id: `${aSnap.docs[0].id}_${idx}`,
-                demandNumber: `DEM-${(admissionNumber || studentId).slice(-4)}-${idx}`,
+                demandNumber: `DEM-${admStr.slice(-4)}-${idx}`,
                 schoolId,
                 studentId,
                 studentName,
@@ -186,6 +187,25 @@ export async function getStudentLedger(
   let payments = paymentsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as FinancialPayment));
   const seenPayIds = new Set(payments.map((p) => p.id));
   const seenReceipts = new Set(payments.map((p) => p.receiptNumber).filter(Boolean));
+
+  // Also check subcollection schools/{schoolId}/financialPayments
+  try {
+    const subFpSnap = await getDocs(
+      query(
+        collection(db, "schools", schoolId, "financialPayments"),
+        where("studentId", "==", studentId)
+      )
+    );
+    for (const d of subFpSnap.docs) {
+      if (seenPayIds.has(d.id)) continue;
+      const data = d.data();
+      const rec = data.receiptNumber || d.id;
+      if (rec && seenReceipts.has(rec)) continue;
+      seenPayIds.add(d.id);
+      if (rec) seenReceipts.add(rec);
+      payments.push({ id: d.id, ...data } as FinancialPayment);
+    }
+  } catch {}
 
   try {
     const feePaySnap = await getDocs(
@@ -231,6 +251,52 @@ export async function getStudentLedger(
         updatedAt: data.updatedAt || data.createdAt || new Date().toISOString(),
       });
     }
+
+    // Also check subcollection schools/{schoolId}/feePayments
+    try {
+      const subFeeSnap = await getDocs(
+        query(
+          collection(db, "schools", schoolId, "feePayments"),
+          where("studentId", "==", studentId)
+        )
+      );
+      for (const d of subFeeSnap.docs) {
+        if (seenPayIds.has(d.id)) continue;
+        const data = d.data();
+        const rec = data.receiptNumber || d.id;
+        if (rec && seenReceipts.has(rec)) continue;
+
+        seenPayIds.add(d.id);
+        if (rec) seenReceipts.add(rec);
+
+        payments.push({
+          id: d.id,
+          receiptNumber: rec,
+          schoolId,
+          studentId,
+          studentName,
+          admissionNumber,
+          className,
+          sectionName: sectionName || "A",
+          academicYearId: data.academicYearId || "",
+          amountPaise: data.amountPaidPaise || data.netAmountPaise || 0,
+          paymentDate: data.paymentDate || data.createdAt || new Date().toISOString(),
+          paymentMethod: (data.paymentMethod || "CASH").toUpperCase() as PaymentMethod,
+          referenceNumber: data.transactionRef || "",
+          collectedBy: data.collectedBy || "",
+          collectedByName: data.collectedByName || "",
+          status: (data.status || "SUCCESS") as FinancialPayment["status"],
+          remarks: data.remarks || "",
+          allocatedTotalPaise: data.amountPaidPaise || 0,
+          unallocatedPaise: 0,
+          allocationCount: 1,
+          periodMonths: Array.isArray(data.periodMonths) ? data.periodMonths : [],
+          remainingDuePaise: data.remainingDuePaise,
+          createdAt: data.createdAt || new Date().toISOString(),
+          updatedAt: data.updatedAt || data.createdAt || new Date().toISOString(),
+        });
+      }
+    } catch {}
   } catch (e) {
     console.warn("feePayments in student ledger notice:", e);
   }
@@ -630,6 +696,22 @@ export async function getAccountLedger(
   );
   const paySnap = await getDocs(payQuery);
   let payments = paySnap.docs.map((d) => ({ id: d.id, ...d.data() } as FinancialPayment));
+  const seenPayIds = new Set(payments.map((p) => p.id));
+  const seenReceipts = new Set(payments.map((p) => p.receiptNumber).filter(Boolean));
+
+  // Also check subcollection schools/{schoolId}/financialPayments
+  try {
+    const subFpSnap = await getDocs(collection(db, "schools", schoolId, "financialPayments"));
+    for (const d of subFpSnap.docs) {
+      if (seenPayIds.has(d.id)) continue;
+      const data = d.data();
+      const rec = data.receiptNumber || d.id;
+      if (rec && seenReceipts.has(rec)) continue;
+      seenPayIds.add(d.id);
+      if (rec) seenReceipts.add(rec);
+      payments.push({ id: d.id, ...data } as FinancialPayment);
+    }
+  } catch {}
 
   // Merge feePayments for legacy/direct payments
   try {
@@ -638,8 +720,6 @@ export async function getAccountLedger(
       where("schoolId", "==", schoolId)
     );
     const feePaySnap = await getDocs(feePayQuery);
-    const seenPayIds = new Set(payments.map((p) => p.id));
-    const seenReceipts = new Set(payments.map((p) => p.receiptNumber).filter(Boolean));
 
     for (const d of feePaySnap.docs) {
       if (seenPayIds.has(d.id)) continue;
@@ -677,6 +757,47 @@ export async function getAccountLedger(
         updatedAt: data.updatedAt || data.createdAt || new Date().toISOString(),
       });
     }
+
+    // Also check subcollection schools/{schoolId}/feePayments
+    try {
+      const subFeeSnap = await getDocs(collection(db, "schools", schoolId, "feePayments"));
+      for (const d of subFeeSnap.docs) {
+        if (seenPayIds.has(d.id)) continue;
+        const data = d.data();
+        const rec = data.receiptNumber || d.id;
+        if (rec && seenReceipts.has(rec)) continue;
+
+        seenPayIds.add(d.id);
+        if (rec) seenReceipts.add(rec);
+
+        payments.push({
+          id: d.id,
+          receiptNumber: rec,
+          schoolId,
+          studentId: data.studentId || "",
+          studentName: data.studentName || "",
+          admissionNumber: data.admissionNumber || "",
+          className: data.className || "",
+          sectionName: data.sectionName || "",
+          academicYearId: data.academicYearId || "",
+          amountPaise: data.amountPaidPaise || data.netAmountPaise || 0,
+          paymentDate: data.paymentDate || data.createdAt || new Date().toISOString(),
+          paymentMethod: (data.paymentMethod || "CASH").toUpperCase() as PaymentMethod,
+          referenceNumber: data.transactionRef || "",
+          collectedBy: data.collectedBy || "",
+          collectedByName: data.collectedByName || "",
+          status: (data.status || "SUCCESS") as FinancialPayment["status"],
+          remarks: data.remarks || "",
+          allocatedTotalPaise: data.amountPaidPaise || 0,
+          unallocatedPaise: 0,
+          allocationCount: 1,
+          periodMonths: Array.isArray(data.periodMonths) ? data.periodMonths : [],
+          remainingDuePaise: data.remainingDuePaise,
+          createdAt: data.createdAt || new Date().toISOString(),
+          updatedAt: data.updatedAt || data.createdAt || new Date().toISOString(),
+        });
+      }
+    } catch {}
   } catch (e) {
     console.warn("feePayments in account ledger notice:", e);
   }

@@ -1497,8 +1497,9 @@ export async function collectFeePayment(
   // Firestore Writes & Financial Ledger Integration
   const db = getFirebaseDb();
   if (db) {
-    // 1. Write to feePayments
+    // 1. Write to feePayments (root & subcollection)
     await setDoc(doc(db, "feePayments", paymentId), payment);
+    await setDoc(doc(db, "schools", schoolId, "feePayments", paymentId), payment).catch(() => {});
 
     // 2. Write to financialPayments (Unified Foundation collection)
     const financialPaymentData = {
@@ -1535,10 +1536,13 @@ export async function collectFeePayment(
     await setDoc(doc(db, "financialPayments", paymentId), financialPaymentData).catch(() => {});
     await setDoc(doc(db, "schools", schoolId, "financialPayments", paymentId), financialPaymentData).catch(() => {});
 
-    // 3. Update student fee assignment
+    // 3. Update student fee assignment (root & subcollection)
     await setDoc(doc(db, "studentFeeAssignments", assignment.id), assignment, {
       merge: true,
     });
+    await setDoc(doc(db, "schools", schoolId, "studentFeeAssignments", assignment.id), assignment, {
+      merge: true,
+    }).catch(() => {});
 
     // 4. Financial Ledger Record
     await setDoc(doc(db, "financeTransactions", paymentId), {
@@ -1669,7 +1673,7 @@ export async function getFeeTransactions(
       console.warn("financialPayments fetch notice in getFeeTransactions:", fpErr);
     }
 
-    // 2. Legacy / Secondary: feePayments
+    // 2. Legacy / Secondary: feePayments (root & subcollection)
     try {
       const legQuery = query(
         collection(db, "feePayments"),
@@ -1686,6 +1690,21 @@ export async function getFeeTransactions(
         if (rec) seenReceipts.add(rec);
         unifiedList.push({ id: d.id, ...data } as FeePayment);
       }
+
+      // Fallback: check schools/{schoolId}/feePayments subcollection
+      try {
+        const subSnap = await getDocs(collection(db, "schools", schoolId, "feePayments"));
+        for (const d of subSnap.docs) {
+          if (seenIds.has(d.id)) continue;
+          const data = d.data();
+          const rec = data.receiptNumber || d.id;
+          if (rec && seenReceipts.has(rec)) continue;
+
+          seenIds.add(d.id);
+          if (rec) seenReceipts.add(rec);
+          unifiedList.push({ id: d.id, ...data } as FeePayment);
+        }
+      } catch {}
     } catch (legErr) {
       console.warn("feePayments fetch notice in getFeeTransactions:", legErr);
     }
@@ -1694,18 +1713,24 @@ export async function getFeeTransactions(
 
     if (filters?.studentId)
       list = list.filter((p) => p.studentId === filters.studentId);
-    if (filters?.className && filters.className !== "all")
-      list = list.filter((p) => p.className === filters.className);
+    if (filters?.className && filters.className !== "all") {
+      const clsTarget = filters.className.toLowerCase().trim();
+      list = list.filter((p) => (p.className || "").toLowerCase().trim() === clsTarget);
+    }
     if (filters?.paymentMethod && filters.paymentMethod !== "all") {
-      const pmLower = filters.paymentMethod.toLowerCase();
-      list = list.filter((p) => (p.paymentMethod || "").toLowerCase().includes(pmLower));
+      const pmLower = filters.paymentMethod.toLowerCase().replace(/[\s-]/g, "_");
+      list = list.filter((p) => (p.paymentMethod || "").toLowerCase().replace(/[\s-]/g, "_").includes(pmLower));
     }
     if (filters?.feeType && filters.feeType !== "all")
       list = list.filter((p) => p.feeType === filters.feeType);
     if (filters?.academicYearId && filters.academicYearId !== "all")
       list = list.filter((p) => p.academicYearId === filters.academicYearId);
 
-    list.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+    list.sort((a, b) => {
+      const tA = new Date(a.paymentDate || a.createdAt || 0).getTime() || 0;
+      const tB = new Date(b.paymentDate || b.createdAt || 0).getTime() || 0;
+      return tB - tA;
+    });
     return list;
   } catch (err) {
     console.warn("getFeeTransactions notice:", err);

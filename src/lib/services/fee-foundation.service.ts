@@ -1408,48 +1408,122 @@ export async function getFinancialPayments(
   if (!db || !schoolId) return [];
 
   try {
-    const q = query(
-      collection(db, "financialPayments"),
-      where("schoolId", "==", schoolId)
-    );
-    const snap = await getDocs(q);
-    let list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as FinancialPayment));
+    const seenIds = new Set<string>();
+    const seenReceipts = new Set<string>();
+    let list: FinancialPayment[] = [];
 
-    // Also include legacy payments if they aren't already represented in financialPayments
+    // 1. Root financialPayments
+    try {
+      const q = query(
+        collection(db, "financialPayments"),
+        where("schoolId", "==", schoolId)
+      );
+      const snap = await getDocs(q);
+      for (const d of snap.docs) {
+        seenIds.add(d.id);
+        const data = d.data();
+        if (data.receiptNumber) seenReceipts.add(data.receiptNumber);
+        list.push({ id: d.id, ...data } as FinancialPayment);
+      }
+    } catch (e) {
+      console.warn("Root financialPayments fetch notice:", e);
+    }
+
+    // 2. Subcollection schools/{schoolId}/financialPayments
+    try {
+      const subSnap = await getDocs(collection(db, "schools", schoolId, "financialPayments"));
+      for (const d of subSnap.docs) {
+        if (seenIds.has(d.id)) continue;
+        const data = d.data();
+        const rec = data.receiptNumber || d.id;
+        if (rec && seenReceipts.has(rec)) continue;
+        seenIds.add(d.id);
+        if (rec) seenReceipts.add(rec);
+        list.push({ id: d.id, ...data } as FinancialPayment);
+      }
+    } catch {}
+
+    // 3. Root feePayments (legacy)
     try {
       const legQuery = query(collection(db, "feePayments"), where("schoolId", "==", schoolId));
       const legSnap = await getDocs(legQuery);
-      const existingIds = new Set(list.map((p) => p.id));
       for (const d of legSnap.docs) {
-        if (!existingIds.has(d.id)) {
-          const data = d.data();
-          list.push({
-            id: d.id,
-            receiptNumber: data.receiptNumber || `REC-${d.id.slice(0, 8)}`,
-            schoolId,
-            studentId: data.studentId || "",
-            studentName: data.studentName || "",
-            admissionNumber: data.admissionNumber || "",
-            className: data.className || "",
-            sectionName: data.sectionName || "",
-            academicYearId: data.academicYearId || "",
-            amountPaise: data.amountPaidPaise || data.netAmountPaise || 0,
-            paymentDate: data.paymentDate || data.createdAt || new Date().toISOString(),
-            paymentMethod: (data.paymentMethod || "CASH") as PaymentMethod,
-            referenceNumber: data.transactionRef || data.referenceNumber || "",
-            collectedBy: data.collectedBy || "",
-            collectedByName: data.collectedByName || "",
-            status: (data.status || "SUCCESS") as FinancialPayment["status"],
-            remarks: data.remarks || "",
-            allocatedTotalPaise: data.amountPaidPaise || 0,
-            unallocatedPaise: 0,
-            allocationCount: 1,
-            periodMonths: Array.isArray(data.periodMonths) ? data.periodMonths : [],
-            remainingDuePaise: data.remainingDuePaise,
-            createdAt: data.createdAt || new Date().toISOString(),
-            updatedAt: data.updatedAt || data.createdAt || new Date().toISOString(),
-          });
-        }
+        if (seenIds.has(d.id)) continue;
+        const data = d.data();
+        const rec = data.receiptNumber || d.id;
+        if (rec && seenReceipts.has(rec)) continue;
+
+        seenIds.add(d.id);
+        if (rec) seenReceipts.add(rec);
+
+        const rawMethod = (data.paymentMethod || "CASH").toUpperCase();
+        list.push({
+          id: d.id,
+          receiptNumber: rec,
+          schoolId: data.schoolId || schoolId,
+          studentId: data.studentId || "",
+          studentName: data.studentName || "",
+          admissionNumber: data.admissionNumber || "",
+          className: data.className || "",
+          sectionName: data.sectionName || "",
+          academicYearId: data.academicYearId || "",
+          amountPaise: data.amountPaidPaise || data.netAmountPaise || 0,
+          paymentDate: data.paymentDate || data.createdAt || new Date().toISOString(),
+          paymentMethod: (rawMethod === "CASH" ? "CASH" : rawMethod === "UPI" ? "UPI" : rawMethod === "CHEQUE" ? "CHEQUE" : "CASH") as PaymentMethod,
+          referenceNumber: data.transactionRef || data.referenceNumber || "",
+          collectedBy: data.collectedBy || "",
+          collectedByName: data.collectedByName || "",
+          status: (data.status || "SUCCESS") as FinancialPayment["status"],
+          remarks: data.remarks || "",
+          allocatedTotalPaise: data.amountPaidPaise || 0,
+          unallocatedPaise: 0,
+          allocationCount: 1,
+          periodMonths: Array.isArray(data.periodMonths) ? data.periodMonths : [],
+          remainingDuePaise: data.remainingDuePaise,
+          createdAt: data.createdAt || new Date().toISOString(),
+          updatedAt: data.updatedAt || data.createdAt || new Date().toISOString(),
+        });
+      }
+    } catch {}
+
+    // 4. Subcollection schools/{schoolId}/feePayments
+    try {
+      const subLegSnap = await getDocs(collection(db, "schools", schoolId, "feePayments"));
+      for (const d of subLegSnap.docs) {
+        if (seenIds.has(d.id)) continue;
+        const data = d.data();
+        const rec = data.receiptNumber || d.id;
+        if (rec && seenReceipts.has(rec)) continue;
+
+        seenIds.add(d.id);
+        if (rec) seenReceipts.add(rec);
+
+        list.push({
+          id: d.id,
+          receiptNumber: rec,
+          schoolId: data.schoolId || schoolId,
+          studentId: data.studentId || "",
+          studentName: data.studentName || "",
+          admissionNumber: data.admissionNumber || "",
+          className: data.className || "",
+          sectionName: data.sectionName || "",
+          academicYearId: data.academicYearId || "",
+          amountPaise: data.amountPaidPaise || data.netAmountPaise || 0,
+          paymentDate: data.paymentDate || data.createdAt || new Date().toISOString(),
+          paymentMethod: (data.paymentMethod || "CASH") as PaymentMethod,
+          referenceNumber: data.transactionRef || data.referenceNumber || "",
+          collectedBy: data.collectedBy || "",
+          collectedByName: data.collectedByName || "",
+          status: (data.status || "SUCCESS") as FinancialPayment["status"],
+          remarks: data.remarks || "",
+          allocatedTotalPaise: data.amountPaidPaise || 0,
+          unallocatedPaise: 0,
+          allocationCount: 1,
+          periodMonths: Array.isArray(data.periodMonths) ? data.periodMonths : [],
+          remainingDuePaise: data.remainingDuePaise,
+          createdAt: data.createdAt || new Date().toISOString(),
+          updatedAt: data.updatedAt || data.createdAt || new Date().toISOString(),
+        });
       }
     } catch {}
 
@@ -1458,41 +1532,60 @@ export async function getFinancialPayments(
       list = list.filter((p) => p.academicYearId === options.academicYearId);
     }
     if (options?.className && options.className !== "all") {
-      list = list.filter((p) => p.className.toLowerCase() === options.className!.toLowerCase());
+      const targetCls = options.className!.toLowerCase().trim();
+      list = list.filter((p) => (p.className || "").toLowerCase().trim() === targetCls);
     }
     if (options?.sectionName && options.sectionName !== "all") {
-      list = list.filter((p) => p.sectionName.toLowerCase() === options.sectionName!.toLowerCase());
+      const targetSec = options.sectionName!.toLowerCase().trim();
+      list = list.filter((p) => (p.sectionName || "").toLowerCase().trim() === targetSec);
     }
     if (options?.studentId) {
       list = list.filter((p) => p.studentId === options.studentId);
     }
     if (options?.paymentMethod && options.paymentMethod !== "all") {
-      list = list.filter((p) => p.paymentMethod.toUpperCase() === options.paymentMethod!.toUpperCase());
+      const targetMethod = options.paymentMethod.toUpperCase().replace(/[\s-]/g, "_");
+      list = list.filter((p) => (p.paymentMethod || "").toUpperCase().replace(/[\s-]/g, "_").includes(targetMethod) || targetMethod.includes((p.paymentMethod || "").toUpperCase().replace(/[\s-]/g, "_")));
     }
     if (options?.status && options.status !== "all") {
-      list = list.filter((p) => p.status.toUpperCase() === options.status!.toUpperCase());
+      const targetStatus = options.status.toUpperCase();
+      list = list.filter((p) => (p.status || "").toUpperCase() === targetStatus);
     }
     if (options?.startDate) {
       const startTime = new Date(options.startDate).getTime();
-      list = list.filter((p) => new Date(p.paymentDate).getTime() >= startTime);
+      if (!isNaN(startTime)) {
+        list = list.filter((p) => {
+          const t = new Date(p.paymentDate || p.createdAt || 0).getTime();
+          return !isNaN(t) && t >= startTime;
+        });
+      }
     }
     if (options?.endDate) {
       const endTime = new Date(options.endDate).getTime();
-      list = list.filter((p) => new Date(p.paymentDate).getTime() <= endTime);
+      if (!isNaN(endTime)) {
+        list = list.filter((p) => {
+          const t = new Date(p.paymentDate || p.createdAt || 0).getTime();
+          return !isNaN(t) && t <= endTime;
+        });
+      }
     }
     if (options?.searchQuery && options.searchQuery.trim() !== "") {
       const qLower = options.searchQuery.toLowerCase().trim();
       list = list.filter(
         (p) =>
-          p.receiptNumber?.toLowerCase().includes(qLower) ||
-          p.studentName?.toLowerCase().includes(qLower) ||
-          p.admissionNumber?.toLowerCase().includes(qLower) ||
-          p.referenceNumber?.toLowerCase().includes(qLower)
+          String(p.receiptNumber || "").toLowerCase().includes(qLower) ||
+          String(p.studentName || "").toLowerCase().includes(qLower) ||
+          String(p.admissionNumber || "").toLowerCase().includes(qLower) ||
+          String(p.referenceNumber || "").toLowerCase().includes(qLower) ||
+          String(p.studentId || "").toLowerCase().includes(qLower)
       );
     }
 
     // Sort newest first
-    list.sort((a, b) => new Date(b.paymentDate || b.createdAt).getTime() - new Date(a.paymentDate || a.createdAt).getTime());
+    list.sort((a, b) => {
+      const tA = new Date(a.paymentDate || a.createdAt || 0).getTime() || 0;
+      const tB = new Date(b.paymentDate || b.createdAt || 0).getTime() || 0;
+      return tB - tA;
+    });
 
     if (options?.limitCount && options.limitCount > 0) {
       list = list.slice(0, options.limitCount);

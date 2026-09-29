@@ -14,6 +14,7 @@ import {
   ArrowUpRight,
   Loader2,
   RefreshCw,
+  MessageSquare,
 } from "lucide-react";
 import {
   getSuperAdminStats,
@@ -245,6 +246,22 @@ export default function SuperAdminPage() {
                     <Users className="h-4 w-4" />
                   </div>
                   <span>Manage Platform Users</span>
+                </div>
+                <ArrowUpRight className="h-4 w-4 text-gray-400" />
+              </Link>
+
+              <Link
+                href="/super-admin/communication"
+                className="flex items-center justify-between rounded-lg border border-gray-200 p-3 text-sm font-medium text-gray-800 hover:border-emerald-500 hover:bg-emerald-50/50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-900 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="rounded bg-emerald-100 p-2 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                    <MessageSquare className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <span className="block font-semibold">Communication & Twilio Gateway</span>
+                    <span className="block text-[11px] text-gray-500 dark:text-gray-400">Twilio WhatsApp, SMS, Plan Overrides</span>
+                  </div>
                 </div>
                 <ArrowUpRight className="h-4 w-4 text-gray-400" />
               </Link>

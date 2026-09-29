@@ -118,22 +118,29 @@ export default function AdminFeeTransactionsPage() {
         if (res.ok) {
           const json = await res.json();
           paymentsList = json.payments || [];
-        } else {
-          throw new Error("API status " + res.status);
         }
       } catch (apiErr) {
-        console.warn("API fallback to direct client getFinancialPayments:", apiErr);
-        paymentsList = await getFinancialPayments(schoolId, {
-          className: selectedClass !== "all" ? selectedClass : undefined,
-          paymentMethod: selectedMethod !== "all" ? selectedMethod : undefined,
-          status: selectedStatus !== "all" ? selectedStatus : undefined,
-          startDate: startDate || undefined,
-          endDate: endDate || undefined,
-          searchQuery: searchQuery.trim() || undefined,
-        });
-        if (!clsList || clsList.length === 0) {
-          clsList = await getClassesWithSections(schoolId).catch(() => []);
+        console.warn("API payments fetch error:", apiErr);
+      }
+
+      // If API returned 0 payments (or failed), load directly from Firestore using authenticated client SDK
+      if (!paymentsList || paymentsList.length === 0) {
+        try {
+          paymentsList = await getFinancialPayments(schoolId, {
+            className: selectedClass !== "all" ? selectedClass : undefined,
+            paymentMethod: selectedMethod !== "all" ? selectedMethod : undefined,
+            status: selectedStatus !== "all" ? selectedStatus : undefined,
+            startDate: startDate || undefined,
+            endDate: endDate || undefined,
+            searchQuery: searchQuery.trim() || undefined,
+          });
+        } catch (clientErr) {
+          console.warn("Client getFinancialPayments error:", clientErr);
         }
+      }
+
+      if (!clsList || clsList.length === 0) {
+        clsList = await getClassesWithSections(schoolId).catch(() => []);
       }
 
       setPayments(paymentsList);

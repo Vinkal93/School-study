@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   MessageSquare,
   Mail,
@@ -18,6 +19,7 @@ import {
   Save,
   Send,
   Eye,
+  EyeOff,
   Key,
   Layers,
   Sparkles,
@@ -35,18 +37,44 @@ import type {
   CommunicationTemplate,
 } from "@/types/communication";
 
-export default function SuperAdminCommunicationPage() {
+function SuperAdminCommunicationContent() {
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
+
   const [settings, setSettings] = useState<GlobalCommunicationSettings | null>(null);
   const [schools, setSchools] = useState<any[]>([]);
   const [logs, setLogs] = useState<CommunicationLogEntry[]>([]);
   const [templates, setTemplates] = useState<CommunicationTemplate[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"overview" | "providers" | "schools" | "plans" | "logs">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "providers" | "schools" | "plans" | "logs">(
+    tabParam === "providers" || tabParam === "twilio" || tabParam === "credentials"
+      ? "providers"
+      : tabParam === "schools"
+      ? "schools"
+      : tabParam === "plans"
+      ? "plans"
+      : tabParam === "logs"
+      ? "logs"
+      : "overview"
+  );
+
+  useEffect(() => {
+    if (tabParam) {
+      if (tabParam === "providers" || tabParam === "twilio" || tabParam === "credentials") {
+        setActiveTab("providers");
+      } else if (tabParam === "schools" || tabParam === "plans" || tabParam === "logs") {
+        setActiveTab(tabParam as any);
+      }
+    }
+  }, [tabParam]);
 
   // Edit states for providers
   const [twilioSid, setTwilioSid] = useState("");
   const [twilioToken, setTwilioToken] = useState("");
   const [twilioFrom, setTwilioFrom] = useState("");
+  const [twilioSmsFrom, setTwilioSmsFrom] = useState("");
+  const [showTwilioToken, setShowTwilioToken] = useState(false);
+  const [showEmailKey, setShowEmailKey] = useState(false);
   const [emailProvider, setEmailProvider] = useState<any>("none");
   const [emailApiKey, setEmailApiKey] = useState("");
   const [emailSender, setEmailSender] = useState("");
@@ -75,6 +103,7 @@ export default function SuperAdminCommunicationPage() {
         setTwilioSid(data.settings.twilio.accountSid || "");
         setTwilioToken(data.settings.twilio.authToken || "");
         setTwilioFrom(data.settings.twilio.fromNumber || "whatsapp:+14155238886");
+        setTwilioSmsFrom(data.settings.twilio.smsFromNumber || "");
         setEmailProvider(data.settings.email.provider || "none");
         setEmailApiKey(data.settings.email.apiKey || "");
         setEmailSender(data.settings.email.senderEmail || "notifications@schoolstudy.in");
@@ -106,6 +135,7 @@ export default function SuperAdminCommunicationPage() {
               accountSid: twilioSid.trim(),
               authToken: twilioToken.trim(),
               fromNumber: twilioFrom.trim(),
+              smsFromNumber: twilioSmsFrom.trim(),
             },
             email: {
               provider: emailProvider,
@@ -543,32 +573,63 @@ export default function SuperAdminCommunicationPage() {
                     placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-mono"
                   />
+                  <p className="text-[10px] text-slate-400 mt-1">Found in your Twilio Console dashboard overview.</p>
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Twilio Auth Token
-                  </label>
-                  <input
-                    type="password"
-                    value={twilioToken}
-                    onChange={(e) => setTwilioToken(e.target.value)}
-                    placeholder="••••••••••••••••"
-                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-mono"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-bold text-slate-700 dark:text-slate-300">
+                      Twilio Auth Token
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowTwilioToken(!showTwilioToken)}
+                      className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold flex items-center gap-1 hover:underline cursor-pointer"
+                    >
+                      {showTwilioToken ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                      {showTwilioToken ? "Hide Secret" : "Reveal Token"}
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={showTwilioToken ? "text" : "password"}
+                      value={twilioToken}
+                      onChange={(e) => setTwilioToken(e.target.value)}
+                      placeholder="••••••••••••••••"
+                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-mono"
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">Stored securely on server database; never exposed to tenant schools.</p>
                 </div>
 
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    From WhatsApp Number (Twilio Sandbox or Approved Number)
-                  </label>
-                  <input
-                    type="text"
-                    value={twilioFrom}
-                    onChange={(e) => setTwilioFrom(e.target.value)}
-                    placeholder="whatsapp:+14155238886"
-                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-mono"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      From WhatsApp Number
+                    </label>
+                    <input
+                      type="text"
+                      value={twilioFrom}
+                      onChange={(e) => setTwilioFrom(e.target.value)}
+                      placeholder="whatsapp:+14155238886"
+                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-mono"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">Format: whatsapp:+14155238886</p>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Twilio SMS Number (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={twilioSmsFrom}
+                      onChange={(e) => setTwilioSmsFrom(e.target.value)}
+                      placeholder="+14155238886"
+                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-mono"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">Standard E.164 phone number for SMS</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -618,11 +679,21 @@ export default function SuperAdminCommunicationPage() {
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    API Key
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-bold text-slate-700 dark:text-slate-300">
+                      API Key
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowEmailKey(!showEmailKey)}
+                      className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold flex items-center gap-1 hover:underline cursor-pointer"
+                    >
+                      {showEmailKey ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                      {showEmailKey ? "Hide Secret" : "Reveal Key"}
+                    </button>
+                  </div>
                   <input
-                    type="password"
+                    type={showEmailKey ? "text" : "password"}
                     value={emailApiKey}
                     onChange={(e) => setEmailApiKey(e.target.value)}
                     placeholder="re_xxxxxxxxxxxxxx"
@@ -966,3 +1037,12 @@ export default function SuperAdminCommunicationPage() {
     </div>
   );
 }
+
+export default function SuperAdminCommunicationPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-sm text-slate-500">Loading Communication Center...</div>}>
+      <SuperAdminCommunicationContent />
+    </Suspense>
+  );
+}
+

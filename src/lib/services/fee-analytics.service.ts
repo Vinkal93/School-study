@@ -320,9 +320,10 @@ export async function getFeeDashboardSummary(
           if (assign.monthLedger && Array.isArray(assign.monthLedger)) {
             assign.monthLedger.forEach((mItem: any, idx: number) => {
               if (mItem.amountPaise > 0) {
+                const admStr = String(assign.admissionNumber || docSnap.id);
                 allDemands.push({
                   id: `${docSnap.id}_${idx}`,
-                  demandNumber: `DEM-${(assign.admissionNumber || docSnap.id).slice(-4)}-${idx}`,
+                  demandNumber: `DEM-${admStr.slice(-4)}-${idx}`,
                   schoolId,
                   studentId: assign.studentId,
                   studentName: assign.studentName,
@@ -384,20 +385,30 @@ export async function getFeeDashboardSummary(
   try {
     let fpQuery = query(collection(db, "financialPayments"), where("schoolId", "==", schoolId));
     let fpSnap = await getDocs(fpQuery);
-    if (fpSnap.empty) {
-      fpSnap = await getDocs(collection(db, "schools", schoolId, "financialPayments")).catch(() => ({ docs: [] } as any));
-    }
     for (const d of fpSnap.docs) {
       seenPayIds.add(d.id);
       const data = d.data();
       if (data.receiptNumber) seenReceipts.add(data.receiptNumber);
       allPayments.push({ id: d.id, ...data } as FinancialPayment);
     }
+    // Also check subcollection
+    try {
+      const subFps = await getDocs(collection(db, "schools", schoolId, "financialPayments"));
+      for (const d of subFps.docs) {
+        if (seenPayIds.has(d.id)) continue;
+        const data = d.data();
+        const rec = data.receiptNumber || d.id;
+        if (rec && seenReceipts.has(rec)) continue;
+        seenPayIds.add(d.id);
+        if (rec) seenReceipts.add(rec);
+        allPayments.push({ id: d.id, ...data } as FinancialPayment);
+      }
+    } catch {}
   } catch (e) {
     console.warn("financialPayments fetch in feeDashboardSummary:", e);
   }
 
-  // B. feePayments
+  // B. feePayments (root & subcollection)
   try {
     const feePayQuery = query(collection(db, "feePayments"), where("schoolId", "==", schoolId));
     const feePaySnap = await getDocs(feePayQuery);
@@ -441,6 +452,51 @@ export async function getFeeDashboardSummary(
         updatedAt: data.updatedAt || data.createdAt || now.toISOString(),
       });
     }
+
+    // Also check subcollection for feePayments
+    try {
+      const subFeeSnap = await getDocs(collection(db, "schools", schoolId, "feePayments"));
+      for (const d of subFeeSnap.docs) {
+        if (seenPayIds.has(d.id)) continue;
+        const data = d.data();
+        const rec = data.receiptNumber || d.id;
+        if (rec && seenReceipts.has(rec)) continue;
+
+        seenPayIds.add(d.id);
+        if (rec) seenReceipts.add(rec);
+
+        const rawMethod = (data.paymentMethod || "CASH").toUpperCase();
+        const methodDisplay =
+          rawMethod === "CASH" ? "CASH" : rawMethod === "UPI" ? "UPI" : rawMethod === "CHEQUE" ? "CHEQUE" : "CASH";
+
+        allPayments.push({
+          id: d.id,
+          receiptNumber: rec,
+          schoolId,
+          studentId: data.studentId || "",
+          studentName: data.studentName || "",
+          admissionNumber: data.admissionNumber || "",
+          className: data.className || "",
+          sectionName: data.sectionName || "",
+          academicYearId: data.academicYearId || "",
+          amountPaise: data.amountPaidPaise || data.netAmountPaise || 0,
+          paymentDate: data.paymentDate || data.createdAt || now.toISOString(),
+          paymentMethod: methodDisplay as any,
+          referenceNumber: data.transactionRef || "",
+          collectedBy: data.collectedBy || "",
+          collectedByName: data.collectedByName || "",
+          status: (data.status || "SUCCESS") as FinancialPayment["status"],
+          remarks: data.remarks || "",
+          allocatedTotalPaise: data.amountPaidPaise || 0,
+          unallocatedPaise: 0,
+          allocationCount: 1,
+          periodMonths: Array.isArray(data.periodMonths) ? data.periodMonths : [],
+          remainingDuePaise: data.remainingDuePaise,
+          createdAt: data.createdAt || now.toISOString(),
+          updatedAt: data.updatedAt || data.createdAt || now.toISOString(),
+        });
+      }
+    } catch {}
   } catch (e) {
     console.warn("feePayments fetch in feeDashboardSummary:", e);
   }
@@ -1085,9 +1141,10 @@ export async function getClassCollectionSummary(
           if (assign.monthLedger && Array.isArray(assign.monthLedger)) {
             assign.monthLedger.forEach((mItem: any, idx: number) => {
               if (mItem.amountPaise > 0) {
+                const admStr = String(assign.admissionNumber || docSnap.id);
                 demands.push({
                   id: `${docSnap.id}_${idx}`,
-                  demandNumber: `DEM-${(assign.admissionNumber || docSnap.id).slice(-4)}-${idx}`,
+                  demandNumber: `DEM-${admStr.slice(-4)}-${idx}`,
                   schoolId,
                   studentId: assign.studentId,
                   studentName: assign.studentName,

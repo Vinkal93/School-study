@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   Settings,
   Shield,
@@ -103,16 +104,26 @@ export default function PlatformSettingsPage() {
   const [testingRzp, setTestingRzp] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; mode?: string; status?: string } | null>(null);
 
+  // Twilio / WhatsApp Gateway State
+  const [commSettings, setCommSettings] = useState<any>(null);
+  const [twilioAccountSid, setTwilioAccountSid] = useState("");
+  const [twilioAuthToken, setTwilioAuthToken] = useState("");
+  const [twilioFromNumber, setTwilioFromNumber] = useState("");
+  const [twilioSmsFromNumber, setTwilioSmsFromNumber] = useState("");
+  const [showTwilioToken, setShowTwilioToken] = useState(false);
+  const [savingTwilio, setSavingTwilio] = useState(false);
+
   // Load All Initial Data
   useEffect(() => {
     async function loadAllSettings() {
       try {
-        const [settingsRes, policyRes, rzpRes, aiRes, scRes] = await Promise.all([
+        const [settingsRes, policyRes, rzpRes, aiRes, scRes, commRes] = await Promise.all([
           fetch("/api/super-admin/settings").then((r) => (r.ok ? r.json() : null)),
           getGlobalAccessPolicy().catch(() => null),
           fetch("/api/super-admin/payment-settings").then((r) => (r.ok ? r.json() : null)),
           fetch("/api/super-admin/ai/settings").then((r) => (r.ok ? r.json() : null)),
           fetch("/api/super-admin/feature-showcase").then((r) => (r.ok ? r.json() : null)),
+          fetch("/api/super-admin/communication").then((r) => (r.ok ? r.json() : null)),
         ]);
 
         if (settingsRes && settingsRes.settings) {
@@ -145,6 +156,18 @@ export default function PlatformSettingsPage() {
           setIsSecretSet(Boolean(rzpRes.isSecretSet));
           setIsLiveMode(rzpRes.isLiveMode ?? rzpRes.keyId?.startsWith("rzp_live_"));
         }
+
+        if (commRes && commRes.settings) {
+          setCommSettings(commRes.settings);
+          if (commRes.settings.twilio) {
+            setTwilioAccountSid(commRes.settings.twilio.accountSid || "");
+            setTwilioFromNumber(commRes.settings.twilio.fromNumber || "whatsapp:+14155238886");
+            setTwilioSmsFromNumber(commRes.settings.twilio.smsFromNumber || "");
+            if (commRes.settings.twilio.authToken) {
+              setTwilioAuthToken(commRes.settings.twilio.authToken);
+            }
+          }
+        }
       } catch (err) {
         console.error("Failed to load settings:", err);
       } finally {
@@ -156,6 +179,39 @@ export default function PlatformSettingsPage() {
 
     loadAllSettings();
   }, []);
+
+  // Save Twilio Gateway Settings
+  const handleSaveTwilio = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setSavingTwilio(true);
+    try {
+      const res = await fetch("/api/super-admin/communication", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settingsUpdate: {
+            twilio: {
+              accountSid: twilioAccountSid.trim(),
+              ...(twilioAuthToken ? { authToken: twilioAuthToken.trim() } : {}),
+              fromNumber: twilioFromNumber.trim(),
+              smsFromNumber: twilioSmsFromNumber.trim(),
+            },
+          },
+          adminUser: { email: profile?.email || firebaseUser?.email || "Super Admin" },
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Twilio & WhatsApp gateway credentials saved successfully!");
+      } else {
+        toast.error(data.error || "Failed to save Twilio settings");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save Twilio settings");
+    } finally {
+      setSavingTwilio(false);
+    }
+  };
 
   // Save Platform Settings Handler
   const handleSavePlatformSettings = async () => {
@@ -850,6 +906,140 @@ export default function PlatformSettingsPage() {
                 className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
             </div>
+          </div>
+
+          {/* Twilio & WhatsApp Gateway Credentials Card */}
+          <div className="pt-6 border-t border-gray-200 dark:border-gray-800 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-emerald-500" />
+                  Twilio & WhatsApp Business Gateway
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Platform-wide gateway credentials used to dispatch WhatsApp and SMS messages for schools.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                    commSettings?.twilio?.isConfigured || twilioAccountSid
+                      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                      : "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                  }`}
+                >
+                  {commSettings?.twilio?.isConfigured || twilioAccountSid ? "Gateway Configured" : "Not Configured"}
+                </span>
+                <Link
+                  href="/super-admin/communication?tab=providers"
+                  className="inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:text-indigo-300 transition-colors"
+                >
+                  Full Hub
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200/50 dark:border-emerald-800/40 text-xs text-emerald-800 dark:text-emerald-300">
+              🔒 <strong>Credential Isolation:</strong> Tenants never see your Twilio Account SID or Auth Token. They send WhatsApp alerts through the platform gateway governed by their plan limits.
+            </div>
+
+            <form onSubmit={handleSaveTwilio} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-muted-foreground mb-1.5">
+                    Twilio Account SID
+                  </label>
+                  <input
+                    type="text"
+                    value={twilioAccountSid}
+                    onChange={(e) => setTwilioAccountSid(e.target.value)}
+                    placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-background text-foreground font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-1">Found on Twilio Console dashboard overview.</p>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-semibold text-muted-foreground">
+                      Twilio Auth Token
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowTwilioToken(!showTwilioToken)}
+                      className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      {showTwilioToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      {showTwilioToken ? "Hide Secret" : "Reveal Token"}
+                    </button>
+                  </div>
+                  <input
+                    type={showTwilioToken ? "text" : "password"}
+                    value={twilioAuthToken}
+                    onChange={(e) => setTwilioAuthToken(e.target.value)}
+                    placeholder={commSettings?.twilio?.isConfigured ? "•••••••••••••••• (Leave blank to keep existing)" : "Enter Twilio Auth Token"}
+                    className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-background text-foreground font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-1">Encrypted on database server; hidden from school admins.</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-muted-foreground mb-1.5">
+                    From WhatsApp Number
+                  </label>
+                  <input
+                    type="text"
+                    value={twilioFromNumber}
+                    onChange={(e) => setTwilioFromNumber(e.target.value)}
+                    placeholder="whatsapp:+14155238886"
+                    className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-background text-foreground font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-1">Include prefix &quot;whatsapp:&quot; e.g. whatsapp:+14155238886</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-muted-foreground mb-1.5">
+                    Twilio SMS Number (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={twilioSmsFromNumber}
+                    onChange={(e) => setTwilioSmsFromNumber(e.target.value)}
+                    placeholder="+14155238886"
+                    className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-background text-foreground font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-1">Standard E.164 phone number for direct SMS.</p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                <Link
+                  href="/super-admin/communication"
+                  className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                >
+                  Manage school overrides & view live delivery logs in Communication Hub &rarr;
+                </Link>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleSavePlatformSettings}
+                    disabled={savingSettings}
+                    className="px-4 py-2 text-xs font-semibold rounded-lg border border-border bg-background hover:bg-muted text-foreground transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    {savingSettings ? "Saving Email..." : "Save Email Settings"}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingTwilio}
+                    className="px-4 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+                  >
+                    {savingTwilio ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                    {savingTwilio ? "Saving Gateway..." : "Save Twilio Gateway"}
+                  </button>
+                </div>
+              </div>
+            </form>
           </div>
         </div>
       )}

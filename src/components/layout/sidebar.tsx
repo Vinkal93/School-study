@@ -143,6 +143,13 @@ const roleNavItems: Record<string, NavItem[]> = {
       label: "Communication Hub",
       href: "/super-admin/communication",
       icon: <Send className="h-5 w-5 text-indigo-500" />,
+      subItems: [
+        { label: "Overview & Metrics", href: "/super-admin/communication" },
+        { label: "Twilio & WhatsApp Setup", href: "/super-admin/communication?tab=providers" },
+        { label: "School Overrides", href: "/super-admin/communication?tab=schools" },
+        { label: "Plan Access Matrix", href: "/super-admin/communication?tab=plans" },
+        { label: "Live Delivery Logs", href: "/super-admin/communication?tab=logs" },
+      ],
     },
     {
       label: "Users",
@@ -424,6 +431,8 @@ export function Sidebar({ variant = "classic" }: SidebarProps) {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     Users: true,
     Activity: true,
+    "Communication Hub": true,
+    Communication: true,
   });
 
   const toggleSection = (label: string, defaultOpen = false) => {
