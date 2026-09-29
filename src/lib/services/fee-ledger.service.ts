@@ -45,6 +45,7 @@ import {
   paiseToRupees,
   rupeesToPaise,
   formatINR,
+  matchAcademicYear,
 } from "@/lib/services/fee-foundation.service";
 import type { StudentProfile } from "@/types";
 
@@ -331,10 +332,10 @@ export async function getStudentLedger(
   // Filter by Academic Year if provided
   const targetYear = options.academicYearId || "ay_2026_27";
   if (options.academicYearId && options.academicYearId !== "all") {
-    demands = demands.filter((d) => !d.academicYearId || d.academicYearId === options.academicYearId);
-    payments = payments.filter((p) => !p.academicYearId || p.academicYearId === options.academicYearId);
-    refunds = refunds.filter((r) => !r.academicYearId || r.academicYearId === options.academicYearId);
-    adjustments = adjustments.filter((a) => !a.academicYearId || a.academicYearId === options.academicYearId);
+    demands = demands.filter((d) => matchAcademicYear(d.academicYearId, options.academicYearId));
+    payments = payments.filter((p) => matchAcademicYear(p.academicYearId, options.academicYearId));
+    refunds = refunds.filter((r) => matchAcademicYear(r.academicYearId, options.academicYearId));
+    adjustments = adjustments.filter((a) => matchAcademicYear(a.academicYearId, options.academicYearId));
   }
 
   // Filter by Fee Head if specified
@@ -812,14 +813,15 @@ export async function getAccountLedger(
 
   // Filter by Academic Year if provided
   if (options.academicYearId && options.academicYearId !== "all") {
-    payments = payments.filter((p) => !p.academicYearId || p.academicYearId === options.academicYearId);
-    refunds = refunds.filter((r) => !r.academicYearId || r.academicYearId === options.academicYearId);
+    payments = payments.filter((p) => matchAcademicYear(p.academicYearId, options.academicYearId));
+    refunds = refunds.filter((r) => matchAcademicYear(r.academicYearId, options.academicYearId));
   }
 
   // Filter by Account Type
   if (accountType !== "ALL") {
-    payments = payments.filter((p) => (p.paymentMethod || "CASH").toUpperCase() === accountType);
-    refunds = refunds.filter((r) => (r.refundMethod || "CASH").toUpperCase() === accountType);
+    const normAcct = accountType.toUpperCase().replace(/[\s-]/g, "_");
+    payments = payments.filter((p) => (p.paymentMethod || "CASH").toUpperCase().replace(/[\s-]/g, "_") === normAcct);
+    refunds = refunds.filter((r) => (r.refundMethod || "CASH").toUpperCase().replace(/[\s-]/g, "_") === normAcct);
   }
 
   // Raw Event Assembly

@@ -63,6 +63,24 @@ export function formatINR(amount: number, isPaise: boolean = true): string {
   }).format(rupees);
 }
 
+/**
+ * Normalizes and matches academic session identifiers across format variations:
+ * e.g. "2026-2027", "2026-27", "ay_2026_27", "ay_current"
+ */
+export function matchAcademicYear(docYear?: string, filterYear?: string): boolean {
+  if (!filterYear || filterYear === "all") return true;
+  if (!docYear || docYear === "all" || docYear === "ay_current" || docYear === "current") return true;
+  if (docYear === filterYear) return true;
+  const fNorm = filterYear.toLowerCase().replace(/[^0-9]/g, "");
+  const dNorm = docYear.toLowerCase().replace(/[^0-9]/g, "");
+  if (fNorm && dNorm) {
+    if (fNorm === dNorm) return true;
+    if (fNorm.slice(0, 4) === dNorm.slice(0, 4)) return true;
+    if (fNorm.includes(dNorm) || dNorm.includes(fNorm)) return true;
+  }
+  return false;
+}
+
 // ==========================================
 // 2. FINANCIAL FORMULA INVARIANTS
 // ==========================================
@@ -1529,7 +1547,7 @@ export async function getFinancialPayments(
 
     // Apply filters
     if (options?.academicYearId && options.academicYearId !== "all") {
-      list = list.filter((p) => p.academicYearId === options.academicYearId);
+      list = list.filter((p) => matchAcademicYear(p.academicYearId, options.academicYearId));
     }
     if (options?.className && options.className !== "all") {
       const targetCls = options.className!.toLowerCase().trim();
@@ -1880,17 +1898,167 @@ export async function getStudentFinancialSummary(
       sectionName = sData.sectionName || sectionName;
     }
 
-    // 2. Fetch demands
-    const qDemands = query(
-      collection(db, "feeDemands"),
-      where("schoolId", "==", schoolId),
-      where("studentId", "==", studentId),
-      where("academicYearId", "==", academicYearId)
-    );
-    const demandsSnap = await getDocs(qDemands);
-    let demands = demandsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as FeeDemand));
+    // 2. Fetch demands (Root & Subcollection, flexible academic year)
+    const seenDemandIds = new Set<string>();
+    let demands: FeeDemand[] = [];
 
-    // If no demands exist, lazily generate them
+    try {
+      const qDemands = query(
+        collection(db, "feeDemands"),
+        where("schoolId", "==", schoolId),
+        where("studentId", "==", studentId)
+      );
+      const demandsSnap = await getDocs(qDemands);
+      for (const d of demandsSnap.docs) {
+        seenDemandIds.add(d.id);
+        demands.push({ id: d.id, ...d.data() } as FeeDemand);
+      }
+    } catch {}
+
+    try {
+      const subDemSnap = await getDocs(
+        query(collection(db, "schools", schoolId, "feeDemands"), where("studentId", "==", studentId))
+      );
+      for (const d of subDemSnap.docs) {
+        if (!seenDemandIds.has(d.id)) {
+          seenDemandIds.add(d.id);
+          demands.push({ id: d.id, ...d.data() } as FeeDemand);
+        }
+      }
+    } catch {}
+
+    // Filter demands by academic year using flexible matcher
+    demands = demands.filter((d) => matchAcademicYear(d.academicYearId, academicYearId));
+
+    // 3. Fetch payments (financialPayments AND feePayments, root & subcollection)
+    const seenPayIds = new Set<string>();
+    const seenRecs = new Set<string>();
+    let payments: FinancialPayment[] = [];
+
+    // 3A. Root financialPayments
+    try {
+      const qFp = query(
+        collection(db, "financialPayments"),
+        where("schoolId", "==", schoolId),
+        where("studentId", "==", studentId)
+      );
+      const fpSnap = await getDocs(qFp);
+      for (const d of fpSnap.docs) {
+        const data = d.data();
+        seenPayIds.add(d.id);
+        if (data.receiptNumber) seenRecs.add(data.receiptNumber);
+        payments.push({ id: d.id, ...data } as FinancialPayment);
+      }
+    } catch {}
+
+    // 3B. Subcollection financialPayments
+    try {
+      const subFpSnap = await getDocs(
+        query(collection(db, "schools", schoolId, "financialPayments"), where("studentId", "==", studentId))
+      );
+      for (const d of subFpSnap.docs) {
+        if (seenPayIds.has(d.id)) continue;
+        const data = d.data();
+        const rec = data.receiptNumber || d.id;
+        if (rec && seenRecs.has(rec)) continue;
+        seenPayIds.add(d.id);
+        if (rec) seenRecs.add(rec);
+        payments.push({ id: d.id, ...data } as FinancialPayment);
+      }
+    } catch {}
+
+    // 3C. Root feePayments (legacy)
+    try {
+      const qLegacy = query(
+        collection(db, "feePayments"),
+        where("schoolId", "==", schoolId),
+        where("studentId", "==", studentId)
+      );
+      const legSnap = await getDocs(qLegacy);
+      for (const d of legSnap.docs) {
+        if (seenPayIds.has(d.id)) continue;
+        const data = d.data();
+        const rec = data.receiptNumber || d.id;
+        if (rec && seenRecs.has(rec)) continue;
+        seenPayIds.add(d.id);
+        if (rec) seenRecs.add(rec);
+
+        const amtPaise = data.amountPaidPaise || data.netAmountPaise || data.amountPaise || 0;
+        payments.push({
+          id: d.id,
+          receiptNumber: rec,
+          schoolId: data.schoolId || schoolId,
+          studentId: data.studentId || studentId,
+          studentName: data.studentName || studentName,
+          admissionNumber: data.admissionNumber || admissionNumber,
+          className: data.className || className,
+          sectionName: data.sectionName || sectionName,
+          academicYearId: data.academicYearId || academicYearId,
+          amountPaise: amtPaise,
+          paymentDate: data.paymentDate || data.createdAt || new Date().toISOString(),
+          paymentMethod: (data.paymentMethod || "CASH") as PaymentMethod,
+          referenceNumber: data.transactionRef || data.referenceNumber || "",
+          collectedBy: data.collectedBy || "",
+          collectedByName: data.collectedByName || data.collectedBy || "Staff",
+          status: (data.status || "SUCCESS") as FinancialPayment["status"],
+          remarks: data.remarks || "",
+          allocatedTotalPaise: amtPaise,
+          unallocatedPaise: 0,
+          allocationCount: 1,
+          periodMonths: Array.isArray(data.periodMonths) ? data.periodMonths : [],
+          createdAt: data.createdAt || new Date().toISOString(),
+          updatedAt: data.updatedAt || data.createdAt || new Date().toISOString(),
+        });
+      }
+    } catch {}
+
+    // 3D. Subcollection feePayments
+    try {
+      const subLegSnap = await getDocs(
+        query(collection(db, "schools", schoolId, "feePayments"), where("studentId", "==", studentId))
+      );
+      for (const d of subLegSnap.docs) {
+        if (seenPayIds.has(d.id)) continue;
+        const data = d.data();
+        const rec = data.receiptNumber || d.id;
+        if (rec && seenRecs.has(rec)) continue;
+        seenPayIds.add(d.id);
+        if (rec) seenRecs.add(rec);
+
+        const amtPaise = data.amountPaidPaise || data.netAmountPaise || data.amountPaise || 0;
+        payments.push({
+          id: d.id,
+          receiptNumber: rec,
+          schoolId: data.schoolId || schoolId,
+          studentId: data.studentId || studentId,
+          studentName: data.studentName || studentName,
+          admissionNumber: data.admissionNumber || admissionNumber,
+          className: data.className || className,
+          sectionName: data.sectionName || sectionName,
+          academicYearId: data.academicYearId || academicYearId,
+          amountPaise: amtPaise,
+          paymentDate: data.paymentDate || data.createdAt || new Date().toISOString(),
+          paymentMethod: (data.paymentMethod || "CASH") as PaymentMethod,
+          referenceNumber: data.transactionRef || data.referenceNumber || "",
+          collectedBy: data.collectedBy || "",
+          collectedByName: data.collectedByName || data.collectedBy || "Staff",
+          status: (data.status || "SUCCESS") as FinancialPayment["status"],
+          remarks: data.remarks || "",
+          allocatedTotalPaise: amtPaise,
+          unallocatedPaise: 0,
+          allocationCount: 1,
+          periodMonths: Array.isArray(data.periodMonths) ? data.periodMonths : [],
+          createdAt: data.createdAt || new Date().toISOString(),
+          updatedAt: data.updatedAt || data.createdAt || new Date().toISOString(),
+        });
+      }
+    } catch {}
+
+    // Filter payments by academic year
+    payments = payments.filter((p) => matchAcademicYear(p.academicYearId, academicYearId));
+    payments.sort((a, b) => (b.paymentDate || "").localeCompare(a.paymentDate || ""));
+
+    // If no demands exist at all, lazily generate them
     if (demands.length === 0) {
       demands = await generateStudentFeeDemands(
         schoolId,
@@ -1899,54 +2067,67 @@ export async function getStudentFinancialSummary(
       );
     }
 
-    // 3. Fetch payments
-    const qPayments = query(
-      collection(db, "financialPayments"),
-      where("schoolId", "==", schoolId),
-      where("studentId", "==", studentId),
-      where("academicYearId", "==", academicYearId)
-    );
-    const paymentsSnap = await getDocs(qPayments);
-    const payments = paymentsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as FinancialPayment));
-    payments.sort((a, b) => b.paymentDate.localeCompare(a.paymentDate));
-
     // 4. Fetch adjustments
-    const qAdj = query(
-      collection(db, "feeAdjustments"),
-      where("schoolId", "==", schoolId),
-      where("studentId", "==", studentId),
-      where("academicYearId", "==", academicYearId)
-    );
-    const adjSnap = await getDocs(qAdj);
-    const adjustments = adjSnap.docs.map((d) => ({ id: d.id, ...d.data() } as FeeAdjustment));
+    let adjustments: FeeAdjustment[] = [];
+    try {
+      const qAdj = query(
+        collection(db, "feeAdjustments"),
+        where("schoolId", "==", schoolId),
+        where("studentId", "==", studentId)
+      );
+      const adjSnap = await getDocs(qAdj);
+      adjustments = adjSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as FeeAdjustment))
+        .filter((a) => matchAcademicYear(a.academicYearId, academicYearId));
+    } catch {}
 
-    // 5. Aggregate metrics
+    // 5. Reconcile demands with actual payments to avoid stale/out-of-sync figures
+    const validPayments = payments.filter((p) => p.status === "SUCCESS" || !p.status || (p.status as any) === "PAID");
+    const totalPaidFromPayments = validPayments.reduce((sum, p) => sum + (p.amountPaise || 0), 0);
+
+    // If total payments > 0, ensure demands reflect the paid status
+    let remainingPaidToApply = totalPaidFromPayments;
+    for (const d of demands) {
+      if (d.paidAmountPaise > 0) {
+        remainingPaidToApply = Math.max(0, remainingPaidToApply - d.paidAmountPaise);
+      } else if (remainingPaidToApply > 0) {
+        const alloc = Math.min(d.netAmountPaise, remainingPaidToApply);
+        d.paidAmountPaise = alloc;
+        d.balanceAmountPaise = Math.max(0, d.netAmountPaise - alloc);
+        d.status = d.balanceAmountPaise === 0 ? "PAID" : "PARTIAL";
+        remainingPaidToApply -= alloc;
+      }
+    }
+
+    // 6. Aggregate metrics
     let totalGrossPaise = 0;
     let totalDiscountPaise = 0;
     let totalConcessionPaise = 0;
     let totalLateFeePaise = 0;
     let totalFinePaise = 0;
     let totalNetPaise = 0;
-    let totalPaidPaise = 0;
+    let totalPaidFromDemands = 0;
     let paidDemandsCount = 0;
     let pendingDemandsCount = 0;
     let overdueDemandsCount = 0;
 
     for (const d of demands) {
-      totalGrossPaise += d.grossAmountPaise;
-      totalDiscountPaise += d.discountAmountPaise;
-      totalConcessionPaise += d.concessionAmountPaise;
-      totalLateFeePaise += d.lateFeePaise;
-      totalFinePaise += d.finePaise;
-      totalNetPaise += d.netAmountPaise;
-      totalPaidPaise += d.paidAmountPaise;
+      totalGrossPaise += d.grossAmountPaise || 0;
+      totalDiscountPaise += d.discountAmountPaise || 0;
+      totalConcessionPaise += d.concessionAmountPaise || 0;
+      totalLateFeePaise += d.lateFeePaise || 0;
+      totalFinePaise += d.finePaise || 0;
+      totalNetPaise += d.netAmountPaise || 0;
+      totalPaidFromDemands += d.paidAmountPaise || 0;
 
-      if (d.status === "PAID") paidDemandsCount++;
+      if (d.status === "PAID" || d.balanceAmountPaise === 0) paidDemandsCount++;
       else if (d.status === "OVERDUE") overdueDemandsCount++;
       else pendingDemandsCount++;
     }
 
+    const totalPaidPaise = Math.max(totalPaidFromDemands, totalPaidFromPayments);
     const totalOutstandingPaise = Math.max(0, totalNetPaise - totalPaidPaise);
+
     let overallStatus: StudentFinancialSummary["status"] = "PAID";
     if (totalOutstandingPaise > 0) {
       if (overdueDemandsCount > 0) overallStatus = "OVERDUE";

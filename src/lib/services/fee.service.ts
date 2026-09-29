@@ -32,6 +32,7 @@ import {
   type FeeDashboardSummary,
 } from "@/lib/services/fee-analytics.service";
 import { appQueryClient } from "@/lib/cache";
+import { matchAcademicYear } from "@/lib/services/fee-foundation.service";
 
 const MONTH_NAMES = [
   "April",
@@ -1560,9 +1561,134 @@ export async function collectFeePayment(
       createdAt: nowIso,
     }).catch(() => {});
 
-    // 5. Invalidate dashboard query cache so metrics update live
+    // 5. Update or Create matching feeDemands & paymentAllocations
     try {
-      appQueryClient.invalidateCache("feeDashboardOverview*");
+      const demandsQ = query(
+        collection(db, "feeDemands"),
+        where("schoolId", "==", schoolId),
+        where("studentId", "==", input.studentId)
+      );
+      const demandsSnap = await getDocs(demandsQ);
+      const existingDemands = demandsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
+
+      let unallocatedPaise = amountPaidPaise;
+      const countMonths = Math.max(1, input.periodMonths.length);
+      const perMonthPaise = Math.round(amountPaidPaise / countMonths);
+
+      for (let i = 0; i < input.periodMonths.length; i++) {
+        const pMonth = input.periodMonths[i];
+        const allocPaise = (i === input.periodMonths.length - 1) ? unallocatedPaise : Math.min(perMonthPaise, unallocatedPaise);
+        unallocatedPaise = Math.max(0, unallocatedPaise - allocPaise);
+
+        // Find existing demand matching this period
+        const matched = existingDemands.find((d: any) => {
+          const dPeriod = (d.period || "").toLowerCase();
+          const pLower = pMonth.toLowerCase();
+          return dPeriod === pLower || dPeriod.includes(pLower) || pLower.includes(dPeriod);
+        });
+
+        const allocId = `alloc_${paymentId}_${i}`;
+        const allocationData = {
+          id: allocId,
+          paymentId,
+          demandId: matched ? matched.id : `dem_${input.studentId}_${Date.now()}_${i}`,
+          schoolId,
+          studentId: input.studentId,
+          academicYearId: input.academicYearId,
+          period: pMonth,
+          feeHeadName: input.feeType === "admission" ? "Admission Fee" : "Tuition Fee",
+          allocatedAmountPaise: allocPaise,
+          allocatedAt: nowIso,
+          createdAt: nowIso,
+        };
+        await setDoc(doc(db, "paymentAllocations", allocId), allocationData).catch(() => {});
+        await setDoc(doc(db, "schools", schoolId, "paymentAllocations", allocId), allocationData).catch(() => {});
+
+        if (matched) {
+          const newPaid = (matched.paidAmountPaise || 0) + allocPaise;
+          const newNet = matched.netAmountPaise || allocPaise;
+          const newBal = Math.max(0, newNet - newPaid);
+          const newStatus = newBal === 0 ? "PAID" : "PARTIAL";
+
+          const updatedDemand = {
+            ...matched,
+            paidAmountPaise: newPaid,
+            balanceAmountPaise: newBal,
+            status: newStatus,
+            paymentAllocationIds: [...(matched.paymentAllocationIds || []), allocId],
+            updatedAt: nowIso,
+          };
+          await setDoc(doc(db, "feeDemands", matched.id), updatedDemand, { merge: true }).catch(() => {});
+          await setDoc(doc(db, "schools", schoolId, "feeDemands", matched.id), updatedDemand, { merge: true }).catch(() => {});
+        } else {
+          // Synthesize demand record marked as PAID
+          const newDemandId = allocationData.demandId;
+          const admStr = String(input.admissionNumber || input.studentId);
+          const newDemand = {
+            id: newDemandId,
+            demandNumber: `DEM-${admStr.slice(-4)}-${Date.now().toString().slice(-4)}`,
+            invoiceNumber: `INV-${receiptNumber}-${i + 1}`,
+            schoolId,
+            studentId: input.studentId,
+            studentName: input.studentName,
+            admissionNumber: input.admissionNumber,
+            className: input.className,
+            sectionName: input.sectionName,
+            academicYearId: input.academicYearId,
+            academicYearName: assignment.academicYearName,
+            feeHeadId: input.feeType === "admission" ? "fh_admission" : "fh_tuition",
+            feeHeadName: input.feeType === "admission" ? "Admission Fee" : "Tuition Fee",
+            period: pMonth,
+            dueDate: nowIso,
+            grossAmountPaise: allocPaise,
+            discountAmountPaise: 0,
+            concessionAmountPaise: 0,
+            lateFeePaise: 0,
+            finePaise: 0,
+            netAmountPaise: allocPaise,
+            paidAmountPaise: allocPaise,
+            balanceAmountPaise: 0,
+            status: "PAID",
+            paymentAllocationIds: [allocId],
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            createdBy: actorId,
+          };
+          await setDoc(doc(db, "feeDemands", newDemandId), newDemand, { merge: true }).catch(() => {});
+          await setDoc(doc(db, "schools", schoolId, "feeDemands", newDemandId), newDemand, { merge: true }).catch(() => {});
+        }
+      }
+    } catch (demSyncErr) {
+      console.warn("Demand & allocation sync notice during collectFeePayment:", demSyncErr);
+    }
+
+    // 6. Post double-entry journal entry to accounting service
+    try {
+      const { postJournalForPayment } = await import("./accounting.service");
+      await postJournalForPayment(
+        schoolId,
+        {
+          id: paymentId,
+          receiptNumber,
+          studentId: input.studentId,
+          studentName: input.studentName,
+          amountPaise: amountPaidPaise,
+          allocatedTotalPaise: amountPaidPaise,
+          unallocatedPaise: 0,
+          paymentMethod: (input.paymentMethod || "CASH").toUpperCase(),
+          paymentDate: nowIso,
+          transactionReference: input.transactionRef || "",
+          academicYearId: input.academicYearId,
+        },
+        { id: actorId, name: actorId }
+      ).catch(() => {});
+    } catch (jErr) {
+      console.warn("Accounting journal posting notice:", jErr);
+    }
+
+    // 7. Invalidate all fee cache keys so all sub-tabs update live
+    try {
+      appQueryClient.invalidateCache("fee*");
     } catch {}
   }
 
@@ -1724,7 +1850,7 @@ export async function getFeeTransactions(
     if (filters?.feeType && filters.feeType !== "all")
       list = list.filter((p) => p.feeType === filters.feeType);
     if (filters?.academicYearId && filters.academicYearId !== "all")
-      list = list.filter((p) => p.academicYearId === filters.academicYearId);
+      list = list.filter((p) => matchAcademicYear(p.academicYearId, filters.academicYearId));
 
     list.sort((a, b) => {
       const tA = new Date(a.paymentDate || a.createdAt || 0).getTime() || 0;

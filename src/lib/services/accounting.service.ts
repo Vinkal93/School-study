@@ -48,7 +48,7 @@ import type {
   FinancialStatementComparison,
 } from "@/types/accounting";
 import type { PaymentMethod } from "@/types/fee-foundation";
-import { getFinancialPayments } from "./fee-foundation.service";
+import { getFinancialPayments, matchAcademicYear } from "./fee-foundation.service";
 
 // -------------------------------------------------------------
 // Helper: Paise to Rupees & Rupees to Paise
@@ -991,7 +991,7 @@ export async function getJournalEntries(
 
     snap.forEach((d) => {
       const data = d.data() as JournalEntry;
-      if (options.academicYearId && data.academicYearId !== options.academicYearId) return;
+      if (options.academicYearId && options.academicYearId !== "all" && !matchAcademicYear(data.academicYearId, options.academicYearId)) return;
       if (options.startDate && data.date < options.startDate) return;
       if (options.endDate && data.date > options.endDate) return;
       if (options.voucherType && data.voucherType !== options.voucherType) return;
@@ -1241,7 +1241,7 @@ export async function getSchoolExpenses(
 
     snap.forEach((d) => {
       const data = d.data() as SchoolExpense;
-      if (options.academicYearId && data.academicYearId !== options.academicYearId) return;
+      if (options.academicYearId && options.academicYearId !== "all" && !matchAcademicYear(data.academicYearId, options.academicYearId)) return;
       if (options.startDate && data.expenseDate < options.startDate) return;
       if (options.endDate && data.expenseDate > options.endDate) return;
       list.push(data);

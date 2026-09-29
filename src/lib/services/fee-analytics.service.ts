@@ -38,6 +38,7 @@ import {
   calculateInvoiceBalance,
   deriveInvoiceStatus,
   getAcademicYearPeriods,
+  matchAcademicYear,
 } from "@/lib/services/fee-foundation.service";
 
 // ==========================================
@@ -120,6 +121,7 @@ export interface FeeDashboardSummary {
 
   // Top Defaulters (real students with outstanding balance)
   topDefaulters: Array<DefaulterRecord>;
+  allDefaulters?: Array<DefaulterRecord>;
 
   // Recent Collections
   recentCollections: Array<FinancialPayment>;
@@ -253,58 +255,40 @@ export async function getFeeDashboardSummary(
     Number(p.amountPaise ?? p.amountPaidPaise ?? (typeof p.amount === "number" ? Math.round(p.amount * 100) : 0));
 
   // 1. Fetch Demands for school (with resilient fallback matching)
-  let demandsQuery = query(
-    collection(db, "feeDemands"),
-    where("schoolId", "==", schoolId)
-  );
-  if (selectedYear) {
-    demandsQuery = query(
-      demandsQuery,
-      where("academicYearId", "==", selectedYear)
-    );
-  }
+  const seenDemandIds = new Set<string>();
+  let allDemands: FeeDemand[] = [];
 
-  let demandsSnap = await getDocs(demandsQuery);
-  let allDemands = demandsSnap.docs.map(
-    (d) => ({ id: d.id, ...d.data() }) as FeeDemand
-  );
-
-  // If specific academicYearId was requested and returned 0 demands, check if demands exist with normalized key or year name
-  if (allDemands.length === 0 && selectedYear) {
-    const fallbackSnap = await getDocs(
+  try {
+    const rootSnap = await getDocs(
       query(collection(db, "feeDemands"), where("schoolId", "==", schoolId))
     );
-    if (!fallbackSnap.empty) {
-      const yearNorm = selectedYear.toLowerCase().replace(/[^0-9]/g, "");
-      const matched = fallbackSnap.docs
-        .map((d) => ({ id: d.id, ...d.data() }) as FeeDemand)
-        .filter((d) => {
-          if (!d.academicYearId && !d.academicYearName) return true;
-          const dYearNorm = (d.academicYearId || "").toLowerCase().replace(/[^0-9]/g, "");
-          const dNameNorm = (d.academicYearName || "").toLowerCase().replace(/[^0-9]/g, "");
-          return (
-            d.academicYearId === selectedYear ||
-            d.academicYearName === selectedYear ||
-            (yearNorm.length > 0 && (dYearNorm.includes(yearNorm) || yearNorm.includes(dYearNorm) || dNameNorm.includes(yearNorm)))
-          );
-        });
-      if (matched.length > 0) {
-        allDemands = matched;
+    for (const d of rootSnap.docs) {
+      seenDemandIds.add(d.id);
+      allDemands.push({ id: d.id, ...d.data() } as FeeDemand);
+    }
+  } catch {}
+
+  try {
+    const subSnap = await getDocs(
+      collection(db, "schools", schoolId, "feeDemands")
+    );
+    for (const d of subSnap.docs) {
+      if (!seenDemandIds.has(d.id)) {
+        seenDemandIds.add(d.id);
+        allDemands.push({ id: d.id, ...d.data() } as FeeDemand);
       }
     }
+  } catch (e) {
+    console.warn("Subcollection feeDemands query notice:", e);
   }
 
-  // Fallback: Check subcollection schools/{schoolId}/feeDemands
-  if (allDemands.length === 0) {
-    try {
-      const subSnap = await getDocs(
-        collection(db, "schools", schoolId, "feeDemands")
-      );
-      if (!subSnap.empty) {
-        allDemands = subSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as FeeDemand);
-      }
-    } catch (e) {
-      console.warn("Subcollection feeDemands query notice:", e);
+  // Filter demands by academic year if specified
+  if (selectedYear) {
+    const matched = allDemands.filter((d) =>
+      matchAcademicYear(d.academicYearId || d.academicYearName, selectedYear)
+    );
+    if (matched.length > 0) {
+      allDemands = matched;
     }
   }
 
@@ -501,6 +485,11 @@ export async function getFeeDashboardSummary(
     console.warn("feePayments fetch in feeDashboardSummary:", e);
   }
 
+  // Apply Academic Year filter to Payments
+  if (selectedYear) {
+    allPayments = allPayments.filter((p) => matchAcademicYear(p.academicYearId, selectedYear));
+  }
+
   // Apply Class and Section filters to Payments
   if (selectedClass) {
     allPayments = allPayments.filter(
@@ -617,6 +606,16 @@ export async function getFeeDashboardSummary(
       (sum, p) => sum + getPaymentAmountPaise(p),
       0
     );
+  }
+
+  // Reconcile totalOutstandingPaise with actual collections
+  if (totalCollectedPaise > 0) {
+    totalOutstandingPaise = Math.max(0, totalExpectedPaise - totalCollectedPaise);
+  }
+  if (totalOutstandingPaise === 0 && totalCollectedPaise >= totalExpectedPaise && activeDemands.length > 0) {
+    paidDemandsCount = activeDemands.length;
+    partialDemandsCount = 0;
+    overdueDemandsCount = 0;
   }
 
   // Refunds calculation
@@ -828,6 +827,15 @@ export async function getFeeDashboardSummary(
   const nowMs = Date.now();
 
   for (const entry of studentMap.values()) {
+    // Reconcile student's demands against their actual payments
+    const matchedPayments = validSuccessfulPayments.filter((p) => p.studentId === entry.studentId);
+    const studentTotalPaid = matchedPayments.reduce((sum, p) => sum + getPaymentAmountPaise(p), 0);
+    const totalDemandsNet = entry.demands.reduce((sum, d) => sum + getDemandNetPaise(d), 0);
+
+    if (studentTotalPaid > 0 && totalDemandsNet > 0) {
+      entry.totalOutstandingPaise = Math.max(0, totalDemandsNet - studentTotalPaid);
+    }
+
     if (entry.totalOutstandingPaise <= 0) {
       onTrackCount++;
       continue;
@@ -1017,6 +1025,7 @@ export async function getFeeDashboardSummary(
     },
 
     topDefaulters: defaulterList.slice(0, 10),
+    allDefaulters: defaulterList,
     recentCollections,
 
     selectedMonthSummary: {
@@ -1056,7 +1065,7 @@ export async function getFeeDefaulters(
     sectionName: filter?.sectionName,
   });
 
-  let list = summary.topDefaulters;
+  let list = summary.allDefaulters || summary.topDefaulters;
 
   // Status tab filter
   if (filter?.status && filter.status !== "all") {

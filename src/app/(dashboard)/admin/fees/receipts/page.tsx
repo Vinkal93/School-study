@@ -70,8 +70,9 @@ export default function AdminFeeReceiptsPage() {
     return receipts.filter((r) => {
       if (selectedClass !== "all" && r.className !== selectedClass) return false;
       if (selectedMethod !== "all") {
-        const methodStr = (r.paymentMethod || "").toLowerCase();
-        if (!methodStr.includes(selectedMethod.toLowerCase())) return false;
+        const methodStr = (r.paymentMethod || "").toLowerCase().replace(/[\s_-]/g, "");
+        const targetStr = selectedMethod.toLowerCase().replace(/[\s_-]/g, "");
+        if (!methodStr.includes(targetStr) && !targetStr.includes(methodStr)) return false;
       }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
