@@ -1,6 +1,13 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
 import { getAuth, setPersistence, browserLocalPersistence, inMemoryPersistence, type Auth } from "firebase/auth";
-import { initializeFirestore, getFirestore, type Firestore } from "firebase/firestore";
+import {
+  initializeFirestore,
+  getFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  memoryLocalCache,
+  type Firestore,
+} from "firebase/firestore";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
 import { firebaseClientConfig } from "./config";
 
@@ -38,18 +45,37 @@ export function getFirebaseAuth(): Auth {
 export function getFirebaseDb(): Firestore {
   if (!dbInstance) {
     const app = getFirebaseApp();
-    try {
-      if (typeof window !== "undefined") {
+    if (typeof window !== "undefined") {
+      try {
+        // High-speed persistent local cache with multi-tab coordination and long polling
+        // Prevents WebChannel 400 stream disconnects and bfcache drops while loading instantly from IndexedDB
         dbInstance = initializeFirestore(app, {
           ignoreUndefinedProperties: true,
+          experimentalForceLongPolling: true,
+          localCache: persistentLocalCache({
+            tabManager: persistentMultipleTabManager(),
+          }),
         });
-      } else {
-        dbInstance = initializeFirestore(app, {
-          ignoreUndefinedProperties: true,
-        });
+      } catch (cacheErr) {
+        try {
+          // Fallback to memory cache if IndexedDB is restricted (e.g. private mode)
+          dbInstance = initializeFirestore(app, {
+            ignoreUndefinedProperties: true,
+            experimentalForceLongPolling: true,
+            localCache: memoryLocalCache(),
+          });
+        } catch {
+          dbInstance = getFirestore(app);
+        }
       }
-    } catch {
-      dbInstance = getFirestore(app);
+    } else {
+      try {
+        dbInstance = initializeFirestore(app, {
+          ignoreUndefinedProperties: true,
+        });
+      } catch {
+        dbInstance = getFirestore(app);
+      }
     }
   }
   return dbInstance;

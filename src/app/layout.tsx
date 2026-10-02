@@ -13,6 +13,7 @@ import { SiteSettingsProvider } from "@/context/SiteSettingsContext";
 import { PortalUIProvider } from "@/context/portal-ui-context";
 import { constructMetadata } from "@/lib/seo";
 import { CapacitorInitializer } from "@/components/common/CapacitorInitializer";
+import { CookieConsentBanner } from "@/components/common/CookieConsentBanner";
 import "./globals.css";
 
 const jakartaSans = Plus_Jakarta_Sans({
@@ -66,6 +67,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 <EmergencyBanner />
                 <AnnouncementBanner />
                 <GlobalEmergencyGate>{children}</GlobalEmergencyGate>
+                <CookieConsentBanner />
                 <ToastProvider />
               </PortalUIProvider>
             </SiteSettingsProvider>

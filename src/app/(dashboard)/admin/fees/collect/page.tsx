@@ -25,6 +25,7 @@ import {
 import { getStudents } from "@/lib/services/student.service";
 import { getAcademicYears } from "@/lib/services/academic.service";
 import { getFeeSettings } from "@/lib/services/fee.service";
+import { getFastCache, setFastCache } from "@/lib/utils/fast-data-cache";
 import {
   generateProfessionalFeeReceiptPDF,
   type FeeReceiptPDFData,
@@ -121,10 +122,28 @@ export default function AdminCollectFeePage() {
     items: FeeParticularItem[];
   } | null>(null);
 
-  // Fetch initial data
+  // Fetch initial data with instant zero-flicker cache
   useEffect(() => {
     if (!schoolId) return;
-    setLoading(true);
+    const cacheKey = `admin_fees_collect_${schoolId}`;
+    const cached = getFastCache<{
+      students: StudentProfile[];
+      years: AcademicYear[];
+      settings: FeeSettings | null;
+    }>(cacheKey);
+
+    if (cached) {
+      setStudents(cached.students);
+      setYears(cached.years);
+      setSettings(cached.settings);
+      if (cached.students.length > 0) {
+        setSelectedStudentId((prev) => prev || cached.students[0].id);
+      }
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     Promise.all([
       getStudents(schoolId),
       getAcademicYears(schoolId),
@@ -134,15 +153,16 @@ export default function AdminCollectFeePage() {
         setStudents(stuList);
         setYears(yrList);
         setSettings(feeSett);
+        setFastCache(cacheKey, { students: stuList, years: yrList, settings: feeSett }, 10 * 60 * 1000);
 
-        // Pre-select first student if available
+        // Pre-select first student if available and none selected yet
         if (stuList.length > 0) {
-          setSelectedStudentId(stuList[0].id);
+          setSelectedStudentId((prev) => prev || stuList[0].id);
         }
       })
       .catch((err) => {
         console.error("Failed to load collect fee dependencies:", err);
-        toast.error("Failed to load students data.");
+        if (!cached) toast.error("Failed to load students data.");
       })
       .finally(() => setLoading(false));
   }, [schoolId]);

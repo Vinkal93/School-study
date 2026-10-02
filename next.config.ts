@@ -24,6 +24,9 @@ const nextConfig: NextConfig = {
 
   // Disable React strict mode double renders in development for faster interaction
   reactStrictMode: false,
+
+  // Allow both localhost and 127.0.0.1 during local development
+  allowedDevOrigins: ["localhost", "127.0.0.1"],
   // Production Security Headers
   async headers() {
     return [
