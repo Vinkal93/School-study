@@ -13,7 +13,15 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
-import type { AttendanceRecord, AttendanceStatus, StudentAttendanceStats } from "@/types";
+import type {
+  AttendanceRecord,
+  AttendanceStatus,
+  StudentAttendanceStats,
+  EmployeeAttendanceRecord,
+  EmployeeAttendanceStats,
+  ClassAttendanceSummary,
+  SchoolClass,
+} from "@/types";
 
 /**
  * Saves or updates student attendance for a class on a given date using deterministic IDs.
@@ -36,6 +44,7 @@ export async function saveBatchAttendance(
       admissionNumber: string;
       rollNumber?: number;
       status: AttendanceStatus;
+      remarks?: string;
     }>;
   }
 ): Promise<void> {
@@ -69,6 +78,9 @@ export async function saveBatchAttendance(
 
     if (rec.rollNumber !== undefined) {
       recordData.rollNumber = rec.rollNumber;
+    }
+    if (rec.remarks !== undefined) {
+      recordData.remarks = rec.remarks;
     }
 
     // set with merge to preserve createdAt or update status
@@ -264,3 +276,235 @@ export async function getSchoolAttendanceForDate(
 
   return records.sort((a, b) => a.studentName.localeCompare(b.studentName));
 }
+
+/**
+ * Saves or updates employee/staff attendance for a specific date using deterministic IDs.
+ * ID format: `${schoolId}_emp_${employeeId}_${date}`
+ */
+export async function saveBatchEmployeeAttendance(
+  schoolId: string,
+  payload: {
+    date: string; // "YYYY-MM-DD"
+    markedBy?: string;
+    records: Array<{
+      employeeId: string;
+      employeeName: string;
+      employeeEmail?: string;
+      employeePhone?: string;
+      department?: string;
+      designation?: string;
+      role?: string;
+      status: AttendanceStatus;
+      checkInTime?: string;
+      checkOutTime?: string;
+      remarks?: string;
+      leaveType?: "CASUAL" | "SICK" | "DUTY" | "UNPAID" | "MATERNITY" | "OTHER";
+    }>;
+  }
+): Promise<void> {
+  if (!schoolId || schoolId === "system") {
+    throw new Error("Cannot save employee attendance: No valid school assigned.");
+  }
+  const db = getFirebaseDb();
+  const batch = writeBatch(db);
+
+  payload.records.forEach((rec) => {
+    const docId = `${schoolId}_emp_${rec.employeeId}_${payload.date}`;
+    const docRef = doc(db, "employee_attendance", docId);
+
+    const recordData: any = {
+      id: docId,
+      schoolId,
+      employeeId: rec.employeeId,
+      employeeName: rec.employeeName,
+      employeeEmail: rec.employeeEmail || "",
+      employeePhone: rec.employeePhone || "",
+      department: rec.department || "Teaching Staff",
+      designation: rec.designation || rec.role || "Teacher",
+      role: rec.role || "teacher",
+      date: payload.date,
+      status: rec.status,
+      checkInTime: rec.checkInTime || "",
+      checkOutTime: rec.checkOutTime || "",
+      remarks: rec.remarks || "",
+      leaveType: rec.leaveType || (rec.status === "ON_LEAVE" ? "CASUAL" : undefined),
+      markedBy: payload.markedBy || "School Admin",
+      updatedAt: serverTimestamp(),
+    };
+
+    batch.set(
+      docRef,
+      {
+        ...recordData,
+        createdAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  });
+
+  await batch.commit();
+}
+
+/**
+ * Fetches employee attendance records for a specific date.
+ */
+export async function getEmployeeAttendanceForDate(
+  schoolId: string,
+  date: string
+): Promise<EmployeeAttendanceRecord[]> {
+  if (!schoolId || schoolId === "system") return [];
+  const db = getFirebaseDb();
+  try {
+    const q = query(
+      collection(db, "employee_attendance"),
+      where("schoolId", "==", schoolId),
+      where("date", "==", date)
+    );
+    const snap = await getDocs(q);
+    const records = snap.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+    })) as EmployeeAttendanceRecord[];
+
+    return records.sort((a, b) => a.employeeName.localeCompare(b.employeeName));
+  } catch (err) {
+    console.error("Failed to load employee attendance for date:", err);
+    return [];
+  }
+}
+
+/**
+ * Fetches employee monthly attendance records for a given month prefix (e.g. "2026-10").
+ */
+export async function getEmployeeMonthlyAttendance(
+  schoolId: string,
+  yearMonth: string
+): Promise<EmployeeAttendanceRecord[]> {
+  if (!schoolId || schoolId === "system") return [];
+  const db = getFirebaseDb();
+  try {
+    const q = query(
+      collection(db, "employee_attendance"),
+      where("schoolId", "==", schoolId)
+    );
+    const snap = await getDocs(q);
+    const records = snap.docs
+      .map((d) => ({
+        id: d.id,
+        ...d.data(),
+      })) as EmployeeAttendanceRecord[];
+
+    return records
+      .filter((r) => r.date && r.date.startsWith(yearMonth))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  } catch (err) {
+    console.error("Failed to load monthly employee attendance:", err);
+    return [];
+  }
+}
+
+/**
+ * Fetches student monthly attendance records for a given month prefix (e.g. "2026-10").
+ */
+export async function getStudentMonthlyAttendance(
+  schoolId: string,
+  yearMonth: string,
+  classId?: string,
+  sectionId?: string
+): Promise<AttendanceRecord[]> {
+  if (!schoolId || schoolId === "system") return [];
+  const db = getFirebaseDb();
+  try {
+    let q = query(
+      collection(db, "attendance"),
+      where("schoolId", "==", schoolId)
+    );
+    const snap = await getDocs(q);
+    let records = snap.docs
+      .map((d) => ({
+        id: d.id,
+        ...d.data(),
+      })) as AttendanceRecord[];
+
+    // Filter by yearMonth
+    records = records.filter((r) => r.date && r.date.startsWith(yearMonth));
+
+    if (classId && classId !== "all") {
+      records = records.filter((r) => r.classId === classId);
+    }
+    if (sectionId && sectionId !== "all") {
+      records = records.filter((r) => r.sectionId === sectionId);
+    }
+
+    return records.sort((a, b) => a.date.localeCompare(b.date));
+  } catch (err) {
+    console.error("Failed to load student monthly attendance:", err);
+    return [];
+  }
+}
+
+/**
+ * Computes class-wise attendance summary for a specific date across all classes & sections.
+ */
+export async function getClassWiseAttendanceSummary(
+  schoolId: string,
+  date: string,
+  classesWithSections: SchoolClass[]
+): Promise<ClassAttendanceSummary[]> {
+  if (!schoolId || schoolId === "system" || !classesWithSections.length) return [];
+
+  // Fetch all attendance records for date
+  const records = await getSchoolAttendanceForDate(schoolId, date);
+  const recordsByClassSection = new Map<string, AttendanceRecord[]>();
+
+  records.forEach((r) => {
+    const key = `${r.classId}_${r.sectionId}`;
+    if (!recordsByClassSection.has(key)) {
+      recordsByClassSection.set(key, []);
+    }
+    recordsByClassSection.get(key)!.push(r);
+  });
+
+  const summaries: ClassAttendanceSummary[] = [];
+
+  classesWithSections.forEach((c) => {
+    (c.sections || [{ id: "default", name: "Section A" }]).forEach((sec) => {
+      const key = `${c.id}_${sec.id}`;
+      const recs = recordsByClassSection.get(key) || [];
+
+      let presentCount = 0;
+      let absentCount = 0;
+      let lateCount = 0;
+      let halfDayCount = 0;
+
+      recs.forEach((r) => {
+        const s = (r.status || "").toUpperCase();
+        if (s === "PRESENT") presentCount++;
+        else if (s === "ABSENT") absentCount++;
+        else if (s === "LATE") lateCount++;
+        else if (s === "HALF_DAY") halfDayCount++;
+      });
+
+      const totalMarked = recs.length;
+      const effectivePresent = presentCount + lateCount + halfDayCount * 0.5;
+      const percentage = totalMarked > 0 ? Math.round((effectivePresent / totalMarked) * 100) : 0;
+
+      summaries.push({
+        classId: c.id,
+        className: c.name,
+        sectionId: sec.id,
+        sectionName: sec.name,
+        totalStudents: totalMarked,
+        presentCount,
+        absentCount,
+        lateCount,
+        halfDayCount,
+        attendancePercentage: percentage,
+        isMarked: totalMarked > 0,
+      });
+    });
+  });
+
+  return summaries;
+}
+

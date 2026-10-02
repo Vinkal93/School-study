@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useMobileNav } from "@/context/mobile-nav-context";
 import { useEntitlement } from "@/context/EntitlementContext";
@@ -39,6 +39,9 @@ import {
   Database,
   Megaphone,
   Send,
+  Hand,
+  FolderOpen,
+  Folder,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { getAdminFeatureTree } from "@/lib/features/adminFeatureRegistry";
@@ -47,6 +50,8 @@ interface SubNavItem {
   label: string;
   href: string;
   featureKey?: string;
+  isLocked?: boolean;
+  badge?: string;
 }
 
 interface NavItem {
@@ -91,6 +96,11 @@ function getSidebarIcon(iconName: string, category?: string) {
       return <Database className="h-5 w-5 text-emerald-500" />;
     case "ShieldCheck":
       return <ShieldCheck className="h-5 w-5 text-indigo-500" />;
+    case "Hand":
+      return <Hand className="h-5 w-5 text-amber-500" />;
+    case "FolderOpen":
+    case "Folder":
+      return <FolderOpen className="h-5 w-5 text-blue-500" />;
     default:
       return <LayoutDashboard className="h-5 w-5" />;
   }
@@ -110,6 +120,8 @@ function buildSchoolAdminNavItems(): NavItem[] {
           label: child.label,
           href: child.route!,
           featureKey: child.planControlled ? child.key : undefined,
+          isLocked: child.isLocked,
+          badge: child.badge,
         }));
 
       return {
@@ -445,7 +457,13 @@ export function Sidebar({ variant = "classic" }: SidebarProps) {
     });
   };
 
-  const currentNavItems = profile?.role ? roleNavItems[profile.role] || [] : [];
+  const currentNavItems: NavItem[] = useMemo(() => {
+    if (!profile?.role) return [];
+    if (profile.role === "school_admin" || (profile.role as string) === "admin") {
+      return buildSchoolAdminNavItems();
+    }
+    return roleNavItems[profile.role] || [];
+  }, [profile?.role]);
 
   const navContent = (
     <div className="flex flex-col h-full">
@@ -591,6 +609,7 @@ export function Sidebar({ variant = "classic" }: SidebarProps) {
                   >
                     {item.subItems!.map((sub) => {
                       if (
+                        !sub.isLocked &&
                         sub.featureKey &&
                         !canAccess(sub.featureKey) &&
                         getFeatureAccessMode(sub.featureKey) !== "SHOWCASE"
@@ -605,7 +624,7 @@ export function Sidebar({ variant = "classic" }: SidebarProps) {
                           prefetch={true}
                           onClick={closeMobileNav}
                           className={cn(
-                            "block rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
+                            "flex items-center justify-between rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
                             isSubActive
                               ? variant === "liquid"
                                 ? "bg-cyan-500/20 text-cyan-800 dark:text-cyan-200 font-bold"
@@ -613,7 +632,12 @@ export function Sidebar({ variant = "classic" }: SidebarProps) {
                               : "text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
                           )}
                         >
-                          {sub.label}
+                          <span className="truncate">{sub.label}</span>
+                          {sub.isLocked && (
+                            <span className="inline-flex items-center justify-center p-0.5 rounded-full bg-pink-100 dark:bg-pink-950/60 text-pink-500 dark:text-pink-400 shrink-0 ml-1.5" title="Locked feature">
+                              <Lock className="h-3 w-3" />
+                            </span>
+                          )}
                         </Link>
                       );
                     })}

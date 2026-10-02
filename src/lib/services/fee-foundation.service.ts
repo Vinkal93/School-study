@@ -1,3 +1,4 @@
+import { moneyPaise, sameAcademicYear, normalizePaymentMethod, allocatePayment } from "@/lib/fees/finance-core";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import {
   collection,
@@ -12,6 +13,7 @@ import {
   limit,
   serverTimestamp,
   writeBatch,
+  runTransaction,
 } from "firebase/firestore";
 import type {
   FeeHead,
@@ -46,7 +48,7 @@ export function paiseToRupees(paise: number): number {
 }
 
 export function rupeesToPaise(rupees: number): number {
-  return Math.round(rupees * 100);
+  return moneyPaise(rupees);
 }
 
 /**
@@ -68,17 +70,7 @@ export function formatINR(amount: number, isPaise: boolean = true): string {
  * e.g. "2026-2027", "2026-27", "ay_2026_27", "ay_current"
  */
 export function matchAcademicYear(docYear?: string, filterYear?: string): boolean {
-  if (!filterYear || filterYear === "all") return true;
-  if (!docYear || docYear === "all" || docYear === "ay_current" || docYear === "current") return true;
-  if (docYear === filterYear) return true;
-  const fNorm = filterYear.toLowerCase().replace(/[^0-9]/g, "");
-  const dNorm = docYear.toLowerCase().replace(/[^0-9]/g, "");
-  if (fNorm && dNorm) {
-    if (fNorm === dNorm) return true;
-    if (fNorm.slice(0, 4) === dNorm.slice(0, 4)) return true;
-    if (fNorm.includes(dNorm) || dNorm.includes(fNorm)) return true;
-  }
-  return false;
+  return sameAcademicYear(docYear, filterYear);
 }
 
 // ==========================================
@@ -449,201 +441,14 @@ export async function generateStudentFeeDemands(
     sectionName: string;
   },
   academicYearId: string,
-  academicYearName: string = "2026-27",
+  academicYearName?: string,
   actorId: string = "system"
 ): Promise<FeeDemand[]> {
-  const db = getFirebaseDb();
-  if (!db) return [];
+  if (!academicYearId || ["all", "ay_current", "current"].includes(academicYearId)) throw new Error("Select a specific academic session before generating fees.");
+  const result = await generateBulkFeeDemands(schoolId, { academicYearId, academicYearName, studentIds: [student.id], actorId });
+  if (result.errors.length) throw new Error(result.errors.join("; "));
+  return getFeeDemands(schoolId, student.id, academicYearId);
 
-  let structures = await getStudentApplicableFeeStructures(schoolId, student.id, academicYearId);
-  if (structures.length === 0) {
-    try {
-      const qAllActive = query(
-        collection(db, "feeStructures"),
-        where("schoolId", "==", schoolId),
-        where("status", "==", "ACTIVE")
-      );
-      const snap = await getDocs(qAllActive);
-      const normClass = normalizeClassKey(student.className);
-      for (const d of snap.docs) {
-        const s = d.data() as any;
-        const sClass = normalizeClassKey(s.className);
-        if (sClass === "all" || sClass === "any" || sClass === normClass) {
-          structures.push({ id: d.id, ...s } as FeeStructureDefinition);
-        }
-      }
-    } catch (e) {
-      console.warn("Fee structure fallback search error:", e);
-    }
-  }
-
-  // If no structures are configured yet for this school/class, provide standard defaults
-  if (structures.length === 0) {
-    const normClass = normalizeClassKey(student.className || "Class");
-    structures = [
-      {
-        id: `fs_${schoolId}_${normClass}_tuition`,
-        schoolId,
-        academicYearId,
-        academicYearName,
-        feeHeadId: "fh_tuition",
-        feeHeadName: "Tuition Fee",
-        className: student.className || "All Classes",
-        sectionName: "all",
-        title: "Tuition Fee",
-        amountPaise: 50000, // ₹500/month default
-        frequency: "monthly",
-        dueDayOfMonth: 10,
-        applicableMonths: SESSION_MONTHS,
-        gracePeriodDays: 5,
-        lateFeeRule: { enabled: false, gracePeriodDays: 5, type: "FIXED", amountPaise: 0, maxLimitPaise: 50000 },
-        version: 1,
-        status: "ACTIVE",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        createdBy: actorId,
-      },
-      {
-        id: `fs_${schoolId}_${normClass}_admission`,
-        schoolId,
-        academicYearId,
-        academicYearName,
-        feeHeadId: "fh_admission",
-        feeHeadName: "Admission Fee",
-        className: student.className || "All Classes",
-        sectionName: "all",
-        title: "Admission Fee",
-        amountPaise: 100000, // ₹1,000 one-time admission fee
-        frequency: "one_time",
-        dueDayOfMonth: 10,
-        applicableMonths: [`Admission ${academicYearName}`],
-        gracePeriodDays: 5,
-        lateFeeRule: { enabled: false, gracePeriodDays: 5, type: "FIXED", amountPaise: 0, maxLimitPaise: 50000 },
-        version: 1,
-        status: "ACTIVE",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        createdBy: actorId,
-      },
-    ];
-  }
-
-  const generatedDemands: FeeDemand[] = [];
-  const startSessionYear = parseInt(academicYearName.slice(0, 4)) || new Date().getFullYear();
-  const now = new Date().toISOString();
-
-  for (const struct of structures) {
-    const periodsToGenerate = struct.frequency === "one_time"
-      ? ["Admission 2026-27"]
-      : struct.frequency === "annually"
-      ? [`Annual ${academicYearName}`]
-      : struct.applicableMonths || SESSION_MONTHS;
-
-    for (let idx = 0; idx < periodsToGenerate.length; idx++) {
-      const periodName = periodsToGenerate[idx];
-      const demandId = buildDeterministicDemandId(
-        schoolId,
-        student.id,
-        academicYearId,
-        struct.feeHeadId,
-        periodName
-      );
-
-      const demandRef = doc(db, "feeDemands", demandId);
-      const existingSnap = await getDoc(demandRef);
-
-      if (existingSnap.exists()) {
-        // Idempotency: Already generated, never overwrite or duplicate!
-        generatedDemands.push({ id: existingSnap.id, ...existingSnap.data() } as FeeDemand);
-        continue;
-      }
-
-      // Compute due date
-      const monthIdx = SESSION_MONTHS.indexOf(periodName);
-      const year = (monthIdx >= 9) ? startSessionYear + 1 : startSessionYear;
-      const monthNum = (monthIdx >= 9) ? monthIdx - 8 : (monthIdx >= 0 ? monthIdx + 4 : 4);
-      const dueDay = struct.dueDayOfMonth || 10;
-      const dueDate = `${year}-${String(monthNum).padStart(2, "0")}-${String(dueDay).padStart(2, "0")}T00:00:00.000Z`;
-
-      const grossPaise = struct.amountPaise;
-      const netPaise = calculateInvoiceTotal(grossPaise, 0, 0, 0, 0);
-      const balancePaise = calculateInvoiceBalance(netPaise, 0);
-
-      const invoiceNumber = `INV-${startSessionYear}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
-
-      const demand: FeeDemand = {
-        id: demandId,
-        invoiceNumber,
-        schoolId,
-        studentId: student.id,
-        studentName: student.name,
-        admissionNumber: student.admissionNumber,
-        className: student.className,
-        sectionName: student.sectionName,
-        academicYearId,
-        academicYearName,
-        feeHeadId: struct.feeHeadId,
-        feeHeadName: struct.feeHeadName,
-        feeStructureId: struct.id,
-        period: periodName,
-        dueDate,
-        grossAmountPaise: grossPaise,
-        discountAmountPaise: 0,
-        concessionAmountPaise: 0,
-        lateFeePaise: 0,
-        finePaise: 0,
-        netAmountPaise: netPaise,
-        paidAmountPaise: 0,
-        balanceAmountPaise: balancePaise,
-        status: deriveInvoiceStatus(netPaise, 0, dueDate),
-        paymentAllocationIds: [],
-        adjustmentIds: [],
-        createdAt: now,
-        updatedAt: now,
-        createdBy: actorId,
-      };
-
-      await setDoc(demandRef, demand);
-      await logFinancialAudit(
-        schoolId,
-        { id: actorId, role: "system" },
-        "CREATE",
-        "FeeDemand",
-        demandId,
-        null,
-        demand,
-        `Generated demand invoice for ${periodName}`,
-        { studentId: student.id, academicYearId }
-      );
-
-      // Auto-post balanced double-entry journal voucher
-      try {
-        const { postJournalForDemand } = await import("./accounting.service");
-        await postJournalForDemand(
-          schoolId,
-          {
-            id: demand.id,
-            invoiceNumber: demand.invoiceNumber,
-            studentId: demand.studentId,
-            studentName: demand.studentName,
-            feeHeadName: demand.feeHeadName,
-            grossAmountPaise: demand.grossAmountPaise,
-            concessionAmountPaise: demand.concessionAmountPaise,
-            netAmountPaise: demand.netAmountPaise,
-            dueDate: demand.dueDate,
-            academicYearId: demand.academicYearId,
-          },
-          { id: actorId, name: "System" }
-        );
-      } catch (jErr) {
-        console.warn("[fee-foundation] Auto journal posting for demand warning:", jErr);
-      }
-
-      generatedDemands.push(demand);
-    }
-  }
-
-  return generatedDemands;
 }
 
 // ==========================================
@@ -657,30 +462,8 @@ export function calculatePaymentAllocationPlan(
   paymentAmountPaise: number,
   demands: FeeDemand[]
 ): Array<{ demandId: string; period: string; feeHeadName: string; allocatedAmountPaise: number; remainingDemandBalancePaise: number }> {
-  let unallocated = Math.round(paymentAmountPaise);
-  const plan: Array<{ demandId: string; period: string; feeHeadName: string; allocatedAmountPaise: number; remainingDemandBalancePaise: number }> = [];
+  return allocatePayment(paymentAmountPaise, demands);
 
-  // Sort demands: oldest due date first (FIFO)
-  const sorted = [...demands].sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
-
-  for (const d of sorted) {
-    if (unallocated <= 0) break;
-    const needed = d.balanceAmountPaise;
-    if (needed <= 0) continue;
-
-    const allocated = Math.min(needed, unallocated);
-    unallocated -= allocated;
-
-    plan.push({
-      demandId: d.id,
-      period: d.period,
-      feeHeadName: d.feeHeadName,
-      allocatedAmountPaise: allocated,
-      remainingDemandBalancePaise: Math.max(0, needed - allocated),
-    });
-  }
-
-  return plan;
 }
 
 /**
@@ -697,6 +480,8 @@ export async function processFeePaymentWithAllocations(
     sectionName: string;
     academicYearId: string;
     amountPaidRupees: number;
+    discountRupees?: number;
+    feeType?: import("@/types").FeeType;
     paymentMethod: PaymentMethod;
     targetDemandIds?: string[]; // Optional specific demands; if omitted, FIFO applies
     referenceNumber?: string;
@@ -707,287 +492,9 @@ export async function processFeePaymentWithAllocations(
     actorName?: string;
   }
 ): Promise<{ payment: FinancialPayment; allocations: PaymentAllocation[]; updatedDemands: FeeDemand[] }> {
-  const db = getFirebaseDb();
-  if (!db) throw new Error("Database not connected");
+  const { collectPayment } = await import("./fee-mutations.service");
+  return collectPayment(schoolId, input);
 
-  if (!schoolId) {
-    throw new Error("schoolId is required to process payment.");
-  }
-
-  if (input.amountPaidRupees <= 0) {
-    throw new Error("Payment amount must be greater than zero.");
-  }
-
-  // 1. Idempotency Guard (Double-Click & Retry Protection)
-  if (input.idempotencyKey && input.idempotencyKey.trim() !== "") {
-    try {
-      const existingPayQuery = query(
-        collection(db, "financialPayments"),
-        where("schoolId", "==", schoolId),
-        where("idempotencyKey", "==", input.idempotencyKey.trim())
-      );
-      const existingSnap = await getDocs(existingPayQuery);
-      if (!existingSnap.empty) {
-        const existingDoc = existingSnap.docs[0];
-        const existingPayment = { id: existingDoc.id, ...existingDoc.data() } as FinancialPayment;
-
-        // Fetch existing allocations
-        const allocSnap = await getDocs(
-          query(
-            collection(db, "paymentAllocations"),
-            where("schoolId", "==", schoolId),
-            where("paymentId", "==", existingPayment.id)
-          )
-        );
-        const existingAllocs = allocSnap.docs.map((d) => ({ id: d.id, ...d.data() } as PaymentAllocation));
-
-        return {
-          payment: existingPayment,
-          allocations: existingAllocs,
-          updatedDemands: [],
-        };
-      }
-    } catch (idemErr) {
-      console.warn("[fee-foundation] Idempotency lookup note:", idemErr);
-    }
-  }
-
-  const amountPaidPaise = rupeesToPaise(input.amountPaidRupees);
-  const now = new Date();
-  const nowIso = input.paymentDate || now.toISOString();
-  const dateStr = now.toISOString().slice(0, 10).replace(/-/g, "");
-  const actorId = input.actorId || "admin";
-  const actorName = input.actorName || "Staff Accountant";
-
-  // 2. Fetch student's unpaid demands
-  const demandsQuery = query(
-    collection(db, "feeDemands"),
-    where("schoolId", "==", schoolId),
-    where("studentId", "==", input.studentId),
-    where("academicYearId", "==", input.academicYearId)
-  );
-  const demandsSnap = await getDocs(demandsQuery);
-  let activeDemands = demandsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as FeeDemand));
-
-  if (activeDemands.length === 0) {
-    // Attempt lazy demand generation if none exist yet
-    activeDemands = await generateStudentFeeDemands(
-      schoolId,
-      {
-        id: input.studentId,
-        name: input.studentName,
-        admissionNumber: input.admissionNumber,
-        className: input.className,
-        sectionName: input.sectionName,
-      },
-      input.academicYearId
-    );
-  }
-
-  // Filter to targeted demands if specified, otherwise take all with balance > 0
-  const candidateDemands = input.targetDemandIds && input.targetDemandIds.length > 0
-    ? activeDemands.filter((d) => input.targetDemandIds!.includes(d.id))
-    : activeDemands.filter((d) => d.balanceAmountPaise > 0);
-
-  if (candidateDemands.length === 0) {
-    throw new Error("No outstanding fee demands found for allocation or all selected demands are already fully paid.");
-  }
-
-  const totalPayablePaise = candidateDemands.reduce((sum, d) => sum + d.balanceAmountPaise, 0);
-  if (totalPayablePaise <= 0) {
-    throw new Error("All candidate fee demands are already fully paid (₹0 balance remaining).");
-  }
-
-  // 3. Compute allocation plan
-  const plan = calculatePaymentAllocationPlan(amountPaidPaise, candidateDemands);
-  if (plan.length === 0) {
-    throw new Error("No outstanding dues eligible for payment allocation.");
-  }
-
-  // 4. Generate receipt number sequentially
-  let receiptCount = 1;
-  try {
-    const countPaymentsSnap = await getDocs(
-      query(collection(db, "financialPayments"), where("schoolId", "==", schoolId))
-    );
-    receiptCount = countPaymentsSnap.size + 1;
-  } catch {
-    receiptCount = Math.floor(1000 + Math.random() * 9000);
-  }
-  const receiptNumber = `REC-${dateStr}-${String(receiptCount).padStart(4, "0")}`;
-  const paymentId = `pay_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-
-  let totalAllocatedPaise = 0;
-  const allocations: PaymentAllocation[] = [];
-  const updatedDemands: FeeDemand[] = [];
-  const feeBreakdown: Array<{ feeHeadName: string; period: string; amountPaise: number }> = [];
-  const periodMonthsSet = new Set<string>();
-  const batch = writeBatch(db);
-
-  // 5. Commit Allocations and update Demands
-  for (const item of plan) {
-    const allocId = `alloc_${paymentId}_${item.demandId}`;
-    const allocRef = doc(db, "paymentAllocations", allocId);
-    const allocation: PaymentAllocation = {
-      id: allocId,
-      paymentId,
-      demandId: item.demandId,
-      schoolId,
-      studentId: input.studentId,
-      academicYearId: input.academicYearId,
-      period: item.period,
-      feeHeadName: item.feeHeadName,
-      allocatedAmountPaise: item.allocatedAmountPaise,
-      allocatedAt: nowIso,
-      createdAt: nowIso,
-    };
-    batch.set(allocRef, allocation);
-    allocations.push(allocation);
-    totalAllocatedPaise += item.allocatedAmountPaise;
-
-    feeBreakdown.push({
-      feeHeadName: item.feeHeadName,
-      period: item.period,
-      amountPaise: item.allocatedAmountPaise,
-    });
-    if (item.period) periodMonthsSet.add(item.period);
-
-    // Update target demand
-    const targetDemand = activeDemands.find((d) => d.id === item.demandId)!;
-    const newPaid = targetDemand.paidAmountPaise + item.allocatedAmountPaise;
-    const newBalance = calculateInvoiceBalance(targetDemand.netAmountPaise, newPaid);
-    const newStatus = deriveInvoiceStatus(targetDemand.netAmountPaise, newPaid, targetDemand.dueDate);
-
-    const updatedDemand: FeeDemand = {
-      ...targetDemand,
-      paidAmountPaise: newPaid,
-      balanceAmountPaise: newBalance,
-      status: newStatus,
-      paymentAllocationIds: [...(targetDemand.paymentAllocationIds || []), allocId],
-      updatedAt: nowIso,
-    };
-
-    const demandDocRef = doc(db, "feeDemands", targetDemand.id);
-    batch.set(demandDocRef, updatedDemand, { merge: true });
-    updatedDemands.push(updatedDemand);
-  }
-
-  // Calculate remaining due paise after this payment across all active demands
-  const remainingDuePaise = activeDemands.reduce((sum, d) => {
-    const updated = updatedDemands.find((u) => u.id === d.id);
-    return sum + (updated ? updated.balanceAmountPaise : d.balanceAmountPaise);
-  }, 0);
-
-  // 6. Create Payment record
-  const unallocatedPaise = Math.max(0, amountPaidPaise - totalAllocatedPaise);
-  const payment: FinancialPayment = {
-    id: paymentId,
-    receiptNumber,
-    schoolId,
-    studentId: input.studentId,
-    studentName: input.studentName,
-    admissionNumber: input.admissionNumber,
-    className: input.className,
-    sectionName: input.sectionName,
-    academicYearId: input.academicYearId,
-    amountPaise: amountPaidPaise,
-    paymentDate: nowIso,
-    paymentMethod: input.paymentMethod,
-    referenceNumber: input.referenceNumber || "",
-    collectedBy: actorId,
-    collectedByName: actorName,
-    status: "SUCCESS",
-    remarks: input.remarks || "",
-    idempotencyKey: input.idempotencyKey || "",
-    refundedAmountPaise: 0,
-    refundIds: [],
-    periodMonths: Array.from(periodMonthsSet),
-    feeBreakdown,
-    remainingDuePaise,
-    allocatedTotalPaise: totalAllocatedPaise,
-    unallocatedPaise,
-    allocationCount: allocations.length,
-    createdAt: nowIso,
-    updatedAt: nowIso,
-  };
-
-  const paymentDocRef = doc(db, "financialPayments", paymentId);
-  batch.set(paymentDocRef, payment);
-
-  // Dual-sync to legacy feePayments for backward compatibility
-  try {
-    const legacyPaymentRef = doc(db, "feePayments", paymentId);
-    batch.set(legacyPaymentRef, {
-      id: paymentId,
-      schoolId,
-      receiptNumber,
-      studentId: input.studentId,
-      studentName: input.studentName,
-      admissionNumber: input.admissionNumber,
-      className: input.className,
-      sectionName: input.sectionName,
-      academicYearId: input.academicYearId,
-      feeType: "tuition",
-      periodMonths: Array.from(periodMonthsSet),
-      amountPaidPaise,
-      discountPaise: 0,
-      lateFeePaise: 0,
-      netAmountPaise: amountPaidPaise,
-      paymentMethod: input.paymentMethod,
-      transactionRef: input.referenceNumber || "",
-      remarks: input.remarks || "",
-      paymentDate: nowIso,
-      collectedBy: actorId,
-      collectedByName: actorName,
-      status: "SUCCESS",
-      remainingDuePaise,
-      createdAt: nowIso,
-    });
-  } catch (legErr) {
-    console.warn("[fee-foundation] Dual-sync notice:", legErr);
-  }
-
-  // Commit atomic batch
-  await batch.commit();
-
-  // 7. Log Financial Audit
-  await logFinancialAudit(
-    schoolId,
-    { id: actorId, role: "accountant", name: actorName },
-    "PAYMENT",
-    "Payment",
-    paymentId,
-    null,
-    { payment, allocationCount: allocations.length },
-    `Collected ${formatINR(amountPaidPaise)} via ${input.paymentMethod}. Receipt: ${receiptNumber}`,
-    { studentId: input.studentId, academicYearId: input.academicYearId }
-  );
-
-  // Auto-post double-entry journal entry for fee collection
-  try {
-    const { postJournalForPayment } = await import("./accounting.service");
-    await postJournalForPayment(
-      schoolId,
-      {
-        id: payment.id,
-        receiptNumber: payment.receiptNumber,
-        studentId: payment.studentId,
-        studentName: payment.studentName,
-        amountPaise: payment.amountPaise,
-        allocatedTotalPaise: payment.allocatedTotalPaise,
-        unallocatedPaise: payment.unallocatedPaise,
-        paymentMethod: payment.paymentMethod,
-        paymentDate: payment.paymentDate,
-        transactionReference: payment.referenceNumber,
-        academicYearId: payment.academicYearId,
-      },
-      { id: actorId, name: actorName }
-    );
-  } catch (journalErr) {
-    console.warn("[fee-foundation] Auto journal posting for payment warning:", journalErr);
-  }
-
-  return { payment, allocations, updatedDemands };
 }
 
 /**
@@ -1007,227 +514,9 @@ export async function processFeeRefund(
     actorName?: string;
   }
 ): Promise<{ refund: FinancialRefund; updatedPayment: FinancialPayment; updatedDemands: FeeDemand[] }> {
-  const db = getFirebaseDb();
-  if (!db) throw new Error("Database not connected");
+  const { returnPayment } = await import("./fee-mutations.service");
+  return returnPayment(schoolId, input, false);
 
-  if (!schoolId) throw new Error("schoolId is required.");
-  if (!input.reason || input.reason.trim() === "") {
-    throw new Error("Refund reason is mandatory for financial audit and compliance.");
-  }
-  if (input.amountRupees <= 0) {
-    throw new Error("Refund amount must be greater than zero.");
-  }
-
-  const refundAmountPaise = rupeesToPaise(input.amountRupees);
-  const now = new Date();
-  const nowIso = now.toISOString();
-  const dateStr = now.toISOString().slice(0, 10).replace(/-/g, "");
-  const actorId = input.actorId || "admin";
-  const actorName = input.actorName || "Staff Accountant";
-
-  // 1. Fetch original payment
-  const paymentDocRef = doc(db, "financialPayments", input.paymentId);
-  const paymentSnap = await getDoc(paymentDocRef);
-  if (!paymentSnap.exists()) {
-    throw new Error("Payment record not found.");
-  }
-  const payment = { id: paymentSnap.id, ...paymentSnap.data() } as FinancialPayment;
-
-  // Multi-tenant check
-  if (payment.schoolId !== schoolId) {
-    throw new Error("Unauthorized: School ID mismatch.");
-  }
-
-  // Status check
-  if (payment.status === "REVERSED") {
-    throw new Error("Cannot refund an already reversed transaction.");
-  }
-  if (payment.status === "REFUNDED") {
-    throw new Error("This payment has already been fully refunded.");
-  }
-
-  const currentRefundedPaise = payment.refundedAmountPaise || 0;
-  const availableToRefundPaise = payment.amountPaise - currentRefundedPaise;
-
-  if (refundAmountPaise > availableToRefundPaise) {
-    throw new Error(
-      `Refund amount (${formatINR(refundAmountPaise)}) exceeds available refundable balance (${formatINR(availableToRefundPaise)}).`
-    );
-  }
-
-  // 2. Fetch payment allocations
-  const allocQuery = query(
-    collection(db, "paymentAllocations"),
-    where("schoolId", "==", schoolId),
-    where("paymentId", "==", input.paymentId)
-  );
-  const allocSnap = await getDocs(allocQuery);
-  const allocations = allocSnap.docs.map((d) => ({ id: d.id, ...d.data() } as PaymentAllocation));
-
-  // 3. Fetch affected demands
-  const demandIds = Array.from(new Set(allocations.map((a) => a.demandId)));
-  const demandDocsMap = new Map<string, FeeDemand>();
-  for (const dId of demandIds) {
-    const dSnap = await getDoc(doc(db, "feeDemands", dId));
-    if (dSnap.exists()) {
-      demandDocsMap.set(dId, { id: dSnap.id, ...dSnap.data() } as FeeDemand);
-    }
-  }
-
-  // 4. Distribute refund across allocations (LIFO reverse order)
-  let unallocatedRefundPaise = refundAmountPaise;
-  const allocatedRefunds: Array<{
-    demandId: string;
-    allocationId: string;
-    feeHeadName: string;
-    period: string;
-    refundedAmountPaise: number;
-  }> = [];
-
-  const updatedDemands: FeeDemand[] = [];
-  const batch = writeBatch(db);
-
-  // Reverse allocations: newest allocation first
-  const reversedAllocs = [...allocations].reverse();
-
-  for (const alloc of reversedAllocs) {
-    if (unallocatedRefundPaise <= 0) break;
-
-    const demand = demandDocsMap.get(alloc.demandId);
-    if (!demand) continue;
-
-    // Refund up to this allocation's amount or remaining refund needed
-    const refundFromThisAlloc = Math.min(alloc.allocatedAmountPaise, unallocatedRefundPaise);
-    unallocatedRefundPaise -= refundFromThisAlloc;
-
-    allocatedRefunds.push({
-      demandId: alloc.demandId,
-      allocationId: alloc.id,
-      feeHeadName: alloc.feeHeadName,
-      period: alloc.period,
-      refundedAmountPaise: refundFromThisAlloc,
-    });
-
-    // Restore demand paid amount and recalculate balance
-    const newPaidPaise = Math.max(0, demand.paidAmountPaise - refundFromThisAlloc);
-    const newBalancePaise = calculateInvoiceBalance(demand.netAmountPaise, newPaidPaise);
-    const newStatus = deriveInvoiceStatus(demand.netAmountPaise, newPaidPaise, demand.dueDate);
-
-    const updatedDemand: FeeDemand = {
-      ...demand,
-      paidAmountPaise: newPaidPaise,
-      balanceAmountPaise: newBalancePaise,
-      status: newStatus,
-      updatedAt: nowIso,
-    };
-
-    demandDocsMap.set(alloc.demandId, updatedDemand);
-    const demandDocRef = doc(db, "feeDemands", demand.id);
-    batch.set(demandDocRef, updatedDemand, { merge: true });
-    updatedDemands.push(updatedDemand);
-  }
-
-  // 5. Generate Refund ID & Receipt Number
-  let refundCount = 1;
-  try {
-    const countRefundsSnap = await getDocs(
-      query(collection(db, "financialRefunds"), where("schoolId", "==", schoolId))
-    );
-    refundCount = countRefundsSnap.size + 1;
-  } catch {
-    refundCount = Math.floor(1000 + Math.random() * 9000);
-  }
-  const refundReceiptNumber = `REF-${dateStr}-${String(refundCount).padStart(4, "0")}`;
-  const refundId = `ref_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-
-  const refundRecord: FinancialRefund = {
-    id: refundId,
-    schoolId,
-    paymentId: input.paymentId,
-    receiptNumber: payment.receiptNumber,
-    refundReceiptNumber,
-    studentId: payment.studentId,
-    studentName: payment.studentName,
-    admissionNumber: payment.admissionNumber,
-    className: payment.className,
-    sectionName: payment.sectionName,
-    academicYearId: payment.academicYearId,
-    amountPaise: refundAmountPaise,
-    reason: input.reason.trim(),
-    refundMethod: input.refundMethod || payment.paymentMethod || "CASH",
-    referenceNumber: input.referenceNumber || "",
-    processedBy: actorId,
-    processedByName: actorName,
-    refundDate: nowIso,
-    allocatedRefunds,
-    createdAt: nowIso,
-  };
-
-  const refundDocRef = doc(db, "financialRefunds", refundId);
-  batch.set(refundDocRef, refundRecord);
-
-  // 6. Update Original Payment Status
-  const newTotalRefundedPaise = currentRefundedPaise + refundAmountPaise;
-  const newPaymentStatus: FinancialPayment["status"] =
-    newTotalRefundedPaise >= payment.amountPaise ? "REFUNDED" : "PARTIALLY_REFUNDED";
-
-  const updatedPayment: FinancialPayment = {
-    ...payment,
-    refundedAmountPaise: newTotalRefundedPaise,
-    refundIds: [...(payment.refundIds || []), refundId],
-    status: newPaymentStatus,
-    updatedAt: nowIso,
-  };
-  batch.set(paymentDocRef, updatedPayment, { merge: true });
-
-  // Update legacy record if exists
-  try {
-    const legacyPaymentRef = doc(db, "feePayments", input.paymentId);
-    batch.update(legacyPaymentRef, {
-      status: newPaymentStatus,
-      refundedAmountPaise: newTotalRefundedPaise,
-    });
-  } catch {}
-
-  // Commit atomic batch
-  await batch.commit();
-
-  // 7. Log Financial Audit
-  await logFinancialAudit(
-    schoolId,
-    { id: actorId, role: "accountant", name: actorName },
-    "REFUND",
-    "Refund",
-    refundId,
-    { status: payment.status, refundedAmountPaise: currentRefundedPaise },
-    { status: newPaymentStatus, refundedAmountPaise: newTotalRefundedPaise, refundRecord },
-    `Refunded ${formatINR(refundAmountPaise)} for Payment ${payment.receiptNumber}. Reason: ${input.reason}`,
-    { studentId: payment.studentId, academicYearId: payment.academicYearId }
-  );
-
-  // Auto-post double-entry journal entry for refund
-  try {
-    const { postJournalForRefund } = await import("./accounting.service");
-    await postJournalForRefund(
-      schoolId,
-      {
-        id: refundRecord.id,
-        refundReceiptNumber: refundRecord.refundReceiptNumber,
-        studentId: refundRecord.studentId,
-        studentName: refundRecord.studentName,
-        amountPaise: refundRecord.amountPaise,
-        refundMethod: refundRecord.refundMethod,
-        refundDate: refundRecord.refundDate,
-        reason: refundRecord.reason,
-        academicYearId: refundRecord.academicYearId,
-      },
-      { id: actorId, name: actorName }
-    );
-  } catch (journalErr) {
-    console.warn("[fee-foundation] Auto journal posting for refund warning:", journalErr);
-  }
-
-  return { refund: refundRecord, updatedPayment, updatedDemands };
 }
 
 /**
@@ -1244,164 +533,9 @@ export async function processPaymentReversal(
     actorName?: string;
   }
 ): Promise<{ reversal: PaymentReversal; updatedPayment: FinancialPayment; updatedDemands: FeeDemand[] }> {
-  const db = getFirebaseDb();
-  if (!db) throw new Error("Database not connected");
+  const { returnPayment } = await import("./fee-mutations.service");
+  return returnPayment(schoolId, input, true);
 
-  if (!schoolId) throw new Error("schoolId is required.");
-  if (!input.reason || input.reason.trim() === "") {
-    throw new Error("Reversal reason is mandatory for financial audit.");
-  }
-
-  const now = new Date();
-  const nowIso = now.toISOString();
-  const actorId = input.actorId || "admin";
-  const actorName = input.actorName || "Staff Accountant";
-
-  // 1. Fetch original payment
-  const paymentDocRef = doc(db, "financialPayments", input.paymentId);
-  const paymentSnap = await getDoc(paymentDocRef);
-  if (!paymentSnap.exists()) {
-    throw new Error("Payment record not found.");
-  }
-  const payment = { id: paymentSnap.id, ...paymentSnap.data() } as FinancialPayment;
-
-  if (payment.schoolId !== schoolId) {
-    throw new Error("Unauthorized: School ID mismatch.");
-  }
-  if (payment.status === "REVERSED") {
-    throw new Error("This payment has already been reversed.");
-  }
-  if ((payment.refundedAmountPaise || 0) > 0) {
-    throw new Error("Payment already has refunds applied. Full reversal is not permitted on partially refunded records.");
-  }
-
-  // 2. Fetch allocations
-  const allocQuery = query(
-    collection(db, "paymentAllocations"),
-    where("schoolId", "==", schoolId),
-    where("paymentId", "==", input.paymentId)
-  );
-  const allocSnap = await getDocs(allocQuery);
-  const allocations = allocSnap.docs.map((d) => ({ id: d.id, ...d.data() } as PaymentAllocation));
-
-  // 3. Reverse allocations on Demands
-  const updatedDemands: FeeDemand[] = [];
-  const reversedAllocations: Array<{
-    demandId: string;
-    allocationId: string;
-    feeHeadName: string;
-    period: string;
-    reversedAmountPaise: number;
-  }> = [];
-
-  const batch = writeBatch(db);
-
-  for (const alloc of allocations) {
-    const demandSnap = await getDoc(doc(db, "feeDemands", alloc.demandId));
-    if (demandSnap.exists()) {
-      const demand = { id: demandSnap.id, ...demandSnap.data() } as FeeDemand;
-      const newPaidPaise = Math.max(0, demand.paidAmountPaise - alloc.allocatedAmountPaise);
-      const newBalancePaise = calculateInvoiceBalance(demand.netAmountPaise, newPaidPaise);
-      const newStatus = deriveInvoiceStatus(demand.netAmountPaise, newPaidPaise, demand.dueDate);
-
-      const updatedDemand: FeeDemand = {
-        ...demand,
-        paidAmountPaise: newPaidPaise,
-        balanceAmountPaise: newBalancePaise,
-        status: newStatus,
-        paymentAllocationIds: (demand.paymentAllocationIds || []).filter((id) => id !== alloc.id),
-        updatedAt: nowIso,
-      };
-
-      const demandDocRef = doc(db, "feeDemands", demand.id);
-      batch.set(demandDocRef, updatedDemand, { merge: true });
-      updatedDemands.push(updatedDemand);
-
-      reversedAllocations.push({
-        demandId: alloc.demandId,
-        allocationId: alloc.id,
-        feeHeadName: alloc.feeHeadName,
-        period: alloc.period,
-        reversedAmountPaise: alloc.allocatedAmountPaise,
-      });
-    }
-  }
-
-  // 4. Create Reversal Record
-  const reversalId = `rev_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-  const reversalRecord: PaymentReversal = {
-    id: reversalId,
-    schoolId,
-    paymentId: input.paymentId,
-    receiptNumber: payment.receiptNumber,
-    studentId: payment.studentId,
-    reversedAmountPaise: payment.amountPaise,
-    reason: input.reason.trim(),
-    reversedBy: actorId,
-    reversedByName: actorName,
-    reversedAt: nowIso,
-    reversedAllocations,
-    createdAt: nowIso,
-  };
-
-  const reversalDocRef = doc(db, "financialReversals", reversalId);
-  batch.set(reversalDocRef, reversalRecord);
-
-  // 5. Update Payment Status to REVERSED
-  const updatedPayment: FinancialPayment = {
-    ...payment,
-    status: "REVERSED",
-    reversalId,
-    updatedAt: nowIso,
-  };
-  batch.set(paymentDocRef, updatedPayment, { merge: true });
-
-  // Update legacy record if exists
-  try {
-    const legacyPaymentRef = doc(db, "feePayments", input.paymentId);
-    batch.update(legacyPaymentRef, {
-      status: "REVERSED",
-    });
-  } catch {}
-
-  // Commit atomic batch
-  await batch.commit();
-
-  // 6. Log Financial Audit
-  await logFinancialAudit(
-    schoolId,
-    { id: actorId, role: "accountant", name: actorName },
-    "REVERSAL",
-    "Reversal",
-    reversalId,
-    { status: payment.status },
-    { status: "REVERSED", reversalRecord },
-    `Reversed payment ${payment.receiptNumber} (${formatINR(payment.amountPaise)}). Reason: ${input.reason}`,
-    { studentId: payment.studentId, academicYearId: payment.academicYearId }
-  );
-
-  // Auto-post double-entry journal entry for reversal
-  try {
-    const { postJournalForReversal } = await import("./accounting.service");
-    await postJournalForReversal(
-      schoolId,
-      {
-        id: reversalRecord.id,
-        receiptNumber: reversalRecord.receiptNumber,
-        studentId: reversalRecord.studentId,
-        reversedAmountPaise: reversalRecord.reversedAmountPaise,
-        reason: reversalRecord.reason,
-        paymentMethod: payment.paymentMethod,
-        reversedAt: reversalRecord.reversedAt,
-        academicYearId: payment.academicYearId,
-      },
-      { id: actorId, name: actorName }
-    );
-  } catch (journalErr) {
-    console.warn("[fee-foundation] Auto journal posting for reversal warning:", journalErr);
-  }
-
-  return { reversal: reversalRecord, updatedPayment, updatedDemands };
 }
 
 /**
@@ -1487,7 +621,7 @@ export async function getFinancialPayments(
           academicYearId: data.academicYearId || "",
           amountPaise: data.amountPaidPaise || data.netAmountPaise || 0,
           paymentDate: data.paymentDate || data.createdAt || new Date().toISOString(),
-          paymentMethod: (rawMethod === "CASH" ? "CASH" : rawMethod === "UPI" ? "UPI" : rawMethod === "CHEQUE" ? "CHEQUE" : "CASH") as PaymentMethod,
+          paymentMethod: normalizePaymentMethod(rawMethod),
           referenceNumber: data.transactionRef || data.referenceNumber || "",
           collectedBy: data.collectedBy || "",
           collectedByName: data.collectedByName || "",
@@ -1578,7 +712,7 @@ export async function getFinancialPayments(
       }
     }
     if (options?.endDate) {
-      const endTime = new Date(options.endDate).getTime();
+      const endTime = new Date(options.endDate.length === 10 ? `${options.endDate}T23:59:59.999Z` : options.endDate).getTime();
       if (!isNaN(endTime)) {
         list = list.filter((p) => {
           const t = new Date(p.paymentDate || p.createdAt || 0).getTime();
@@ -1704,7 +838,7 @@ export async function getPaymentDetailWithAllocations(
     // Reversal
     let reversal: PaymentReversal | null = null;
     if (payment.reversalId) {
-      const revSnap = await getDoc(doc(db, "financialReversals", payment.reversalId));
+      const revSnap = await getDoc(doc(db, "paymentReversals", payment.reversalId));
       if (revSnap.exists()) {
         reversal = { id: revSnap.id, ...revSnap.data() } as PaymentReversal;
       }
@@ -1735,109 +869,9 @@ export async function applyFeeAdjustment(
     actorId?: string;
   }
 ): Promise<{ adjustment: FeeAdjustment; updatedDemand: FeeDemand }> {
-  const db = getFirebaseDb();
-  if (!db) throw new Error("Database not connected");
+  const { adjustInvoice } = await import("./fee-mutations.service");
+  return adjustInvoice(schoolId, input);
 
-  if (input.amountRupees <= 0) {
-    throw new Error("Adjustment amount must be positive.");
-  }
-
-  const demandRef = doc(db, "feeDemands", input.demandId);
-  const snap = await getDoc(demandRef);
-  if (!snap.exists()) throw new Error("Fee demand not found");
-
-  const demand = snap.data() as FeeDemand;
-  if (demand.schoolId !== schoolId) throw new Error("Tenant boundary violation");
-
-  const adjPaise = rupeesToPaise(input.amountRupees);
-  if (adjPaise > demand.balanceAmountPaise) {
-    throw new Error(`Adjustment of ${formatINR(adjPaise)} exceeds demand balance of ${formatINR(demand.balanceAmountPaise)}.`);
-  }
-
-  const now = new Date().toISOString();
-  const adjId = `adj_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-
-  const adjustment: FeeAdjustment = {
-    id: adjId,
-    schoolId,
-    studentId: input.studentId,
-    studentName: input.studentName,
-    academicYearId: input.academicYearId,
-    demandId: input.demandId,
-    period: demand.period,
-    type: input.type,
-    amountPaise: adjPaise,
-    reason: input.reason,
-    approvedBy: input.approvedBy,
-    createdBy: input.actorId || "admin",
-    date: now,
-    status: "APPLIED",
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  // Recalculate demand net & balance
-  let newDiscount = demand.discountAmountPaise;
-  let newConcession = demand.concessionAmountPaise;
-
-  if (input.type === "CONCESSION" || input.type === "SCHOLARSHIP") {
-    newConcession += adjPaise;
-  } else {
-    newDiscount += adjPaise;
-  }
-
-  const newNet = calculateInvoiceTotal(demand.grossAmountPaise, newDiscount, newConcession, demand.lateFeePaise, demand.finePaise);
-  const newBalance = calculateInvoiceBalance(newNet, demand.paidAmountPaise);
-  const newStatus = deriveInvoiceStatus(newNet, demand.paidAmountPaise, demand.dueDate);
-
-  const updatedDemand: FeeDemand = {
-    ...demand,
-    discountAmountPaise: newDiscount,
-    concessionAmountPaise: newConcession,
-    netAmountPaise: newNet,
-    balanceAmountPaise: newBalance,
-    status: newStatus,
-    adjustmentIds: [...(demand.adjustmentIds || []), adjId],
-    updatedAt: now,
-  };
-
-  await setDoc(doc(db, "feeAdjustments", adjId), adjustment);
-  await setDoc(demandRef, updatedDemand, { merge: true });
-
-  await logFinancialAudit(
-    schoolId,
-    { id: input.actorId || "admin", role: "admin" },
-    "ADJUST",
-    "Adjustment",
-    adjId,
-    { oldBalance: demand.balanceAmountPaise },
-    { newBalance, adjustment },
-    `Applied ${input.type} of ${formatINR(adjPaise)}. Reason: ${input.reason}`,
-    { studentId: input.studentId, academicYearId: input.academicYearId }
-  );
-
-  // Auto-post double-entry journal entry for adjustment
-  try {
-    const { postJournalForAdjustment } = await import("./accounting.service");
-    await postJournalForAdjustment(
-      schoolId,
-      {
-        id: adjustment.id,
-        type: adjustment.type,
-        studentId: adjustment.studentId,
-        studentName: adjustment.studentName,
-        amountPaise: adjustment.amountPaise,
-        reason: adjustment.reason,
-        date: adjustment.date,
-        academicYearId: adjustment.academicYearId,
-      },
-      { id: input.actorId || "admin", name: input.approvedBy || "Admin" }
-    );
-  } catch (journalErr) {
-    console.warn("[fee-foundation] Auto journal posting for adjustment warning:", journalErr);
-  }
-
-  return { adjustment, updatedDemand };
 }
 
 // ==========================================
@@ -2058,15 +1092,6 @@ export async function getStudentFinancialSummary(
     payments = payments.filter((p) => matchAcademicYear(p.academicYearId, academicYearId));
     payments.sort((a, b) => (b.paymentDate || "").localeCompare(a.paymentDate || ""));
 
-    // If no demands exist at all, lazily generate them
-    if (demands.length === 0) {
-      demands = await generateStudentFeeDemands(
-        schoolId,
-        { id: studentId, name: studentName, admissionNumber, className, sectionName },
-        academicYearId
-      );
-    }
-
     // 4. Fetch adjustments
     let adjustments: FeeAdjustment[] = [];
     try {
@@ -2081,24 +1106,7 @@ export async function getStudentFinancialSummary(
         .filter((a) => matchAcademicYear(a.academicYearId, academicYearId));
     } catch {}
 
-    // 5. Reconcile demands with actual payments to avoid stale/out-of-sync figures
-    const validPayments = payments.filter((p) => p.status === "SUCCESS" || !p.status || (p.status as any) === "PAID");
-    const totalPaidFromPayments = validPayments.reduce((sum, p) => sum + (p.amountPaise || 0), 0);
-
-    // If total payments > 0, ensure demands reflect the paid status
-    let remainingPaidToApply = totalPaidFromPayments;
-    for (const d of demands) {
-      if (d.paidAmountPaise > 0) {
-        remainingPaidToApply = Math.max(0, remainingPaidToApply - d.paidAmountPaise);
-      } else if (remainingPaidToApply > 0) {
-        const alloc = Math.min(d.netAmountPaise, remainingPaidToApply);
-        d.paidAmountPaise = alloc;
-        d.balanceAmountPaise = Math.max(0, d.netAmountPaise - alloc);
-        d.status = d.balanceAmountPaise === 0 ? "PAID" : "PARTIAL";
-        remainingPaidToApply -= alloc;
-      }
-    }
-
+    demands = demands.filter(d => d.status !== "CANCELLED");
     // 6. Aggregate metrics
     let totalGrossPaise = 0;
     let totalDiscountPaise = 0;
@@ -2121,12 +1129,12 @@ export async function getStudentFinancialSummary(
       totalPaidFromDemands += d.paidAmountPaise || 0;
 
       if (d.status === "PAID" || d.balanceAmountPaise === 0) paidDemandsCount++;
-      else if (d.status === "OVERDUE") overdueDemandsCount++;
+      else if (d.balanceAmountPaise > 0 && Date.parse(d.dueDate) < Date.now()) overdueDemandsCount++;
       else pendingDemandsCount++;
     }
 
-    const totalPaidPaise = Math.max(totalPaidFromDemands, totalPaidFromPayments);
-    const totalOutstandingPaise = Math.max(0, totalNetPaise - totalPaidPaise);
+    const totalPaidPaise = totalPaidFromDemands;
+    const totalOutstandingPaise = demands.reduce((sum, d) => sum + d.balanceAmountPaise, 0);
 
     let overallStatus: StudentFinancialSummary["status"] = "PAID";
     if (totalOutstandingPaise > 0) {
@@ -2160,7 +1168,7 @@ export async function getStudentFinancialSummary(
       paidDemandsCount,
       pendingDemandsCount,
       overdueDemandsCount,
-      recentDemands: demands.slice(0, 12),
+      recentDemands: demands,
       recentPayments: payments.slice(0, 5),
       recentAdjustments: adjustments.slice(0, 5),
     };
@@ -2614,20 +1622,22 @@ export async function previewBulkDemandGeneration(
     const qStructs = query(
       collection(db, "feeStructures"),
       where("schoolId", "==", schoolId),
-      where("academicYearId", "==", options.academicYearId),
       where("status", "==", "ACTIVE")
     );
     const structSnap = await getDocs(qStructs);
-    const allStructures = structSnap.docs.map((d) => ({ id: d.id, ...d.data() } as FeeStructureDefinition));
+    const allStructures = structSnap.docs.map(d => {
+      const data = d.data();
+      return { ...data, id: d.id, feeHeadId: data.feeHeadId || `fh_${data.feeType || "tuition"}`, feeHeadName: data.feeHeadName || data.title || "Fee" } as FeeStructureDefinition;
+    }).filter(s => matchAcademicYear(s.academicYearId, options.academicYearId));
 
     // 3. Fetch all existing demands for this academic year to determine already generated
     const qDemands = query(
       collection(db, "feeDemands"),
-      where("schoolId", "==", schoolId),
-      where("academicYearId", "==", options.academicYearId)
+      where("schoolId", "==", schoolId)
     );
     const demandSnap = await getDocs(qDemands);
-    const existingDemandIds = new Set(demandSnap.docs.map((d) => d.id));
+    const existingDemands = demandSnap.docs.map(d => ({ ...d.data(), id: d.id } as FeeDemand)).filter(d => matchAcademicYear(d.academicYearId, options.academicYearId));
+    const existingDemandIds = new Set(existingDemands.map(d => d.id));
 
     let alreadyGeneratedCount = 0;
     let newlyGeneratedCount = 0;
@@ -2636,7 +1646,8 @@ export async function previewBulkDemandGeneration(
     let totalNetPaise = 0;
     const previewDemands: FeeDemand[] = [];
 
-    const academicName = options.academicYearName || "2026-27";
+    const academicName = options.academicYearName || allStructures[0]?.academicYearName || options.academicYearId;
+    if (!academicName.match(/20\d{2}/)) throw new Error("Academic session dates are not configured.");
     const startYear = parseAcademicStartYear(academicName);
 
     for (const student of students) {
@@ -2657,7 +1668,9 @@ export async function previewBulkDemandGeneration(
       }
 
       for (const struct of studentStructures) {
-        const freqPeriods = getFrequencyPeriods(struct.frequency, academicName);
+        const freqPeriods = getFrequencyPeriods(struct.frequency, academicName).filter(p =>
+          !["monthly", "custom"].includes(struct.frequency) || !struct.applicableMonths?.length || struct.applicableMonths.some(m => p.displayName.toLowerCase().startsWith(m.toLowerCase()))
+        );
         const periods = options.periodName && options.periodName !== "all"
           ? freqPeriods.filter((p) => p.displayName.toLowerCase().includes(options.periodName!.toLowerCase()) || p.periodKey.toLowerCase().includes(options.periodName!.toLowerCase()))
           : freqPeriods;
@@ -2680,11 +1693,14 @@ export async function previewBulkDemandGeneration(
             p.displayName
           );
 
-          if (existingDemandIds.has(demandId)) {
+          const dueDate = resolveSafeDueDate(p.dueYear, p.dueMonthIndex, struct.dueDayOfMonth || 10);
+          const existingPeriod = existingDemands.some(d => d.studentId === student.id && d.feeHeadId === struct.feeHeadId && (d.period === p.displayName || d.dueDate?.slice(0, 7) === dueDate.slice(0, 7)));
+          if (existingDemandIds.has(demandId) || existingPeriod) {
             alreadyGeneratedCount++;
           } else {
+            existingDemandIds.add(demandId);
             newlyGeneratedCount++;
-            const grossPaise = struct.amountPaise;
+            const grossPaise = moneyPaise(struct.amountPaise / 100, true);
             const netPaise = grossPaise;
             totalGrossPaise += grossPaise;
             totalNetPaise += netPaise;
@@ -2776,16 +1792,15 @@ export async function generateBulkFeeDemands(
 
   for (let i = 0; i < demands.length; i += BATCH_SIZE) {
     const chunk = demands.slice(i, i + BATCH_SIZE);
-    const batch = writeBatch(db);
-
-    for (const demand of chunk) {
-      const demandRef = doc(db, "feeDemands", demand.id);
-      batch.set(demandRef, demand, { merge: true });
-    }
-
     try {
-      await batch.commit();
-      committedDemands.push(...chunk);
+      const created = await runTransaction(db, async tx => {
+        const refs = chunk.map(d => doc(db, "feeDemands", d.id));
+        const snapshots = await Promise.all(refs.map(ref => tx.get(ref)));
+        const fresh = chunk.filter((_, index) => !snapshots[index].exists());
+        for (const demand of fresh) tx.set(doc(db, "feeDemands", demand.id), demand);
+        return fresh;
+      });
+      committedDemands.push(...created);
     } catch (chunkErr: any) {
       console.error("Batch demand commit error:", chunkErr);
       errors.push(`Chunk ${i / BATCH_SIZE + 1} failed: ${chunkErr.message}`);
@@ -3053,105 +2068,21 @@ export async function applyFeeWaiver(
   actorId: string = "admin"
 ): Promise<{ adjustment: FeeAdjustment; updatedDemand: FeeDemand }> {
   const db = getFirebaseDb();
-  if (!db) throw new Error("Database not connected");
-
-  if (amountRupees <= 0) {
-    throw new Error("Waiver amount must be greater than zero.");
-  }
-
-  const demandRef = doc(db, "feeDemands", demandId);
-  const snap = await getDoc(demandRef);
-  if (!snap.exists()) throw new Error("Fee demand invoice not found");
-
+  const snap = await getDoc(doc(db, "feeDemands", demandId));
+  if (!snap.exists()) throw new Error("Fee invoice not found.");
   const demand = snap.data() as FeeDemand;
-  if (demand.schoolId !== schoolId) throw new Error("Tenant isolation violation");
-  if (demand.studentId !== studentId) throw new Error("Demand does not belong to specified student");
+  return applyFeeAdjustment(schoolId, { studentId, studentName: demand.studentName, academicYearId: demand.academicYearId, demandId, amountRupees, type: "WAIVER", reason, approvedBy, actorId });
 
-  const waiverPaise = rupeesToPaise(amountRupees);
-  if (waiverPaise > demand.balanceAmountPaise) {
-    throw new Error(`Waiver amount of ${formatINR(waiverPaise)} exceeds pending balance of ${formatINR(demand.balanceAmountPaise)}.`);
-  }
-
-  const now = new Date().toISOString();
-  const adjId = `adj_waiver_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-
-  const adjustment: FeeAdjustment = {
-    id: adjId,
-    schoolId,
-    studentId,
-    studentName: demand.studentName,
-    academicYearId: demand.academicYearId,
-    demandId,
-    period: demand.period,
-    type: "WAIVER",
-    amountPaise: waiverPaise,
-    reason,
-    approvedBy,
-    createdBy: actorId,
-    date: now,
-    status: "APPLIED",
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  // Safe waiver calculation: decreases net amount and pending balance without fake payments
-  const newConcession = demand.concessionAmountPaise + waiverPaise;
-  const newNet = calculateInvoiceTotal(demand.grossAmountPaise, demand.discountAmountPaise, newConcession, demand.lateFeePaise, demand.finePaise);
-  const newBalance = calculateInvoiceBalance(newNet, demand.paidAmountPaise);
-
-  let newStatus: FeeDemandStatus = demand.status;
-  if (newBalance === 0) {
-    newStatus = demand.paidAmountPaise > 0 ? "PAID" : "WAIVED";
-  } else {
-    newStatus = deriveInvoiceStatus(newNet, demand.paidAmountPaise, demand.dueDate);
-  }
-
-  const updatedDemand: FeeDemand = {
-    ...demand,
-    concessionAmountPaise: newConcession,
-    netAmountPaise: newNet,
-    balanceAmountPaise: newBalance,
-    status: newStatus,
-    adjustmentIds: [...(demand.adjustmentIds || []), adjId],
-    updatedAt: now,
-  };
-
-  await setDoc(doc(db, "feeAdjustments", adjId), adjustment);
-  await setDoc(demandRef, updatedDemand, { merge: true });
-
-  await logFinancialAudit(
-    schoolId,
-    { id: actorId, role: "admin" },
-    "ADJUST",
-    "Adjustment",
-    adjId,
-    { oldBalance: demand.balanceAmountPaise, oldStatus: demand.status },
-    { newBalance, newStatus, waiverPaise },
-    `Applied fee waiver of ${formatINR(waiverPaise)}. Reason: ${reason}. Approved by: ${approvedBy}`,
-    { studentId, academicYearId: demand.academicYearId }
-  );
-
-  // Auto-post double-entry journal entry for fee waiver
-  try {
-    const { postJournalForAdjustment } = await import("./accounting.service");
-    await postJournalForAdjustment(
-      schoolId,
-      {
-        id: adjustment.id,
-        type: adjustment.type,
-        studentId: adjustment.studentId,
-        studentName: adjustment.studentName,
-        amountPaise: adjustment.amountPaise,
-        reason: adjustment.reason,
-        date: adjustment.date,
-        academicYearId: adjustment.academicYearId,
-      },
-      { id: actorId, name: approvedBy }
-    );
-  } catch (journalErr) {
-    console.warn("[fee-foundation] Auto journal posting for waiver warning:", journalErr);
-  }
-
-  return { adjustment, updatedDemand };
 }
 
+
+/** Authoritative read shared by collection, discounts, and student fees. */
+export async function getFeeDemands(schoolId: string, studentId?: string, academicYearId?: string): Promise<FeeDemand[]> {
+  const db = getFirebaseDb();
+  const constraints = [where("schoolId", "==", schoolId)];
+  if (studentId) constraints.push(where("studentId", "==", studentId));
+  const snap = await getDocs(query(collection(db, "feeDemands"), ...constraints));
+  return snap.docs.map(d => ({ ...d.data(), id: d.id } as FeeDemand))
+    .filter(d => matchAcademicYear(d.academicYearId, academicYearId))
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.id.localeCompare(b.id));
+}

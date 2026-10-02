@@ -1,0 +1,22 @@
+{
+  "name": "School Study — Modern School Management Platform",
+  "short_name": "School Study",
+  "description": "All-in-one cloud school management software & ERP created by Vinkal Prajapati.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563EB",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48 32x32 16x16",
+      "type": "image/x-icon"
+    }
+  ]
+}

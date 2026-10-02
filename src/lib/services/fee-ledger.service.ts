@@ -1,3 +1,4 @@
+import { postedPayment, normalizePaymentMethod } from "@/lib/fees/finance-core";
 /**
  * PHASE 5 — PROFESSIONAL FEE LEDGER + CASH/BANK LEDGER SERVICE
  * Single Source of Truth for Student Ledgers, Statements, Cashbook, and Bank Accounts.
@@ -330,7 +331,7 @@ export async function getStudentLedger(
   let adjustments = adjustmentsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as FeeAdjustment));
 
   // Filter by Academic Year if provided
-  const targetYear = options.academicYearId || "ay_2026_27";
+  const targetYear = options.academicYearId || "all";
   if (options.academicYearId && options.academicYearId !== "all") {
     demands = demands.filter((d) => matchAcademicYear(d.academicYearId, options.academicYearId));
     payments = payments.filter((p) => matchAcademicYear(p.academicYearId, options.academicYearId));
@@ -387,8 +388,11 @@ export async function getStudentLedger(
       notes: d.dueDate ? `Due: ${formatDateStr(d.dueDate)}` : undefined,
     });
 
+    const recorded = adjustments.filter(a => a.status === "APPLIED" && a.demandId === d.id);
+    const embeddedDiscount = Math.max(0, (d.discountAmountPaise || 0) - recorded.filter(a => !["CONCESSION", "SCHOLARSHIP"].includes(a.type)).reduce((sum, a) => sum + a.amountPaise, 0));
+    const embeddedConcession = Math.max(0, (d.concessionAmountPaise || 0) - recorded.filter(a => ["CONCESSION", "SCHOLARSHIP"].includes(a.type)).reduce((sum, a) => sum + a.amountPaise, 0));
     // Structure Discount if embedded on demand
-    if (d.discountAmountPaise && d.discountAmountPaise > 0) {
+    if (embeddedDiscount > 0) {
       rawEvents.push({
         id: `disc_${d.id}`,
         timestamp: ts + 1, // Immediately after charge
@@ -399,13 +403,13 @@ export async function getStudentLedger(
         feeHeadName: d.feeHeadName,
         period: d.period,
         debitPaise: 0,
-        creditPaise: d.discountAmountPaise,
+        creditPaise: embeddedDiscount,
         invoiceNumber: d.invoiceNumber,
       });
     }
 
     // Structure Concession if embedded on demand
-    if (d.concessionAmountPaise && d.concessionAmountPaise > 0) {
+    if (embeddedConcession > 0) {
       rawEvents.push({
         id: `conc_${d.id}`,
         timestamp: ts + 2,
@@ -416,13 +420,13 @@ export async function getStudentLedger(
         feeHeadName: d.feeHeadName,
         period: d.period,
         debitPaise: 0,
-        creditPaise: d.concessionAmountPaise,
+        creditPaise: embeddedConcession,
         invoiceNumber: d.invoiceNumber,
       });
     }
 
     // Late Fee / Fine if applied
-    if (d.lateFeePaise && d.lateFeePaise > 0) {
+    if ((d.lateFeePaise || 0) + (d.finePaise || 0) > 0) {
       rawEvents.push({
         id: `fine_${d.id}`,
         timestamp: ts + 3,
@@ -432,7 +436,7 @@ export async function getStudentLedger(
         description: `Late Payment Penalty: ${d.feeHeadName}`,
         feeHeadName: d.feeHeadName,
         period: d.period,
-        debitPaise: d.lateFeePaise,
+        debitPaise: (d.lateFeePaise || 0) + (d.finePaise || 0),
         creditPaise: 0,
         invoiceNumber: d.invoiceNumber,
       });
@@ -467,7 +471,7 @@ export async function getStudentLedger(
 
   // C. Payments -> Credits to Student
   for (const p of payments) {
-    if (p.status === "FAILED" || p.status === "CANCELLED") continue;
+    if (!postedPayment(p.status)) continue;
 
     const dateStr = p.paymentDate || p.createdAt || new Date().toISOString();
     const ts = new Date(dateStr).getTime() || 0;
@@ -492,7 +496,7 @@ export async function getStudentLedger(
     if (p.status === "REVERSED") {
       rawEvents.push({
         id: `rev_${p.id}`,
-        timestamp: ts + 5000,
+        timestamp: Date.parse(p.updatedAt || dateStr),
         date: p.updatedAt || dateStr,
         reference: `REV-${p.receiptNumber || p.id.slice(-6)}`,
         type: "REVERSAL",
@@ -538,6 +542,7 @@ export async function getStudentLedger(
   });
 
   // 9. Compute Running Balance
+  let openingBalancePaise = 0;
   let runningBalancePaise = 0; // Default opening balance is ₹0 unless specified
   const entries: StudentLedgerEntry[] = [];
 
@@ -548,18 +553,22 @@ export async function getStudentLedger(
 
   for (const ev of rawEvents) {
     // Check date range filter if specified
-    if (options.startDate && ev.date.slice(0, 10) < options.startDate) continue;
+    if (options.startDate && ev.date.slice(0, 10) < options.startDate) {
+      openingBalancePaise += ev.debitPaise - ev.creditPaise;
+      runningBalancePaise = openingBalancePaise;
+      continue;
+    }
     if (options.endDate && ev.date.slice(0, 10) > options.endDate) continue;
 
     runningBalancePaise += ev.debitPaise - ev.creditPaise;
 
     if (ev.type === "CHARGE" || ev.type === "FINE") {
       totalChargesPaise += ev.debitPaise;
-    } else if (ev.type === "DISCOUNT" || ev.type === "CONCESSION" || ev.type === "WAIVER") {
+    } else if (ev.type === "DISCOUNT" || ev.type === "CONCESSION" || ev.type === "WAIVER" || ev.type === "ADJUSTMENT") {
       totalDiscountsPaise += ev.creditPaise;
     } else if (ev.type === "PAYMENT") {
       totalPaidPaise += ev.creditPaise;
-    } else if (ev.type === "REFUND") {
+    } else if (ev.type === "REFUND" || ev.type === "REVERSAL") {
       totalRefundsPaise += ev.debitPaise;
     }
 
@@ -594,7 +603,7 @@ export async function getStudentLedger(
   );
 
   const isReconciled =
-    Math.abs(runningBalancePaise - demandTotalBalancePaise) < 100; // within 1 rupee tolerance for rounding
+    !options.endDate && !options.feeHeadId && runningBalancePaise === demandTotalBalancePaise - payments.filter(p => postedPayment(p.status) && p.status !== "REVERSED").reduce((sum, p) => sum + (p.unallocatedPaise || 0), 0); // within 1 rupee tolerance for rounding
 
   const summary: StudentLedgerSummary = {
     studentId,
@@ -606,9 +615,9 @@ export async function getStudentLedger(
     fatherName,
     guardianPhone,
     academicYearId: targetYear,
-    academicYearName: "2026-2027",
-    openingBalancePaise: 0,
-    openingBalanceRupees: 0,
+    academicYearName: demands[0]?.academicYearName || targetYear,
+    openingBalancePaise,
+    openingBalanceRupees: paiseToRupees(openingBalancePaise),
     totalChargesPaise,
     totalChargesRupees: paiseToRupees(totalChargesPaise),
     totalDiscountsPaise,
@@ -847,11 +856,11 @@ export async function getAccountLedger(
   const rawEvents: RawAccountEvent[] = [];
 
   for (const p of payments) {
-    if (p.status === "FAILED" || p.status === "CANCELLED") continue;
+    if (!postedPayment(p.status)) continue;
 
     const dateStr = p.paymentDate || p.createdAt || new Date().toISOString();
     const ts = new Date(dateStr).getTime() || 0;
-    const method = (p.paymentMethod || "CASH").toUpperCase() as PaymentMethod;
+    const method = normalizePaymentMethod(p.paymentMethod || "CASH");
 
     // Normal payment inflow (Debit to cash/bank asset)
     rawEvents.push({
@@ -877,7 +886,7 @@ export async function getAccountLedger(
     if (p.status === "REVERSED") {
       rawEvents.push({
         id: `rev_out_${p.id}`,
-        timestamp: ts + 5000,
+        timestamp: Date.parse(p.updatedAt || dateStr),
         date: p.updatedAt || dateStr,
         reference: `REV-${p.receiptNumber || p.id.slice(-6)}`,
         accountType: method,
@@ -898,7 +907,7 @@ export async function getAccountLedger(
   for (const r of refunds) {
     const dateStr = r.refundDate || r.createdAt || new Date().toISOString();
     const ts = new Date(dateStr).getTime() || 0;
-    const method = (r.refundMethod || "CASH").toUpperCase() as PaymentMethod;
+    const method = normalizePaymentMethod(r.refundMethod || "CASH");
 
     // Refund outflow (Credit to cash/bank asset)
     rawEvents.push({
@@ -925,13 +934,18 @@ export async function getAccountLedger(
   rawEvents.sort((a, b) => a.timestamp - b.timestamp);
 
   // Compute Running Account Balance
+  let openingBalancePaise = 0;
   let runningBalancePaise = 0;
   let totalReceiptsPaise = 0;
   let totalRefundsPaise = 0;
   const entries: AccountLedgerEntry[] = [];
 
   for (const ev of rawEvents) {
-    if (options.startDate && ev.date.slice(0, 10) < options.startDate) continue;
+    if (options.startDate && ev.date.slice(0, 10) < options.startDate) {
+      openingBalancePaise += ev.inflowDebitPaise - ev.outflowCreditPaise;
+      runningBalancePaise = openingBalancePaise;
+      continue;
+    }
     if (options.endDate && ev.date.slice(0, 10) > options.endDate) continue;
 
     runningBalancePaise += ev.inflowDebitPaise - ev.outflowCreditPaise;
@@ -974,8 +988,8 @@ export async function getAccountLedger(
   const summary: AccountSummary = {
     accountType: accountType as PaymentMethod,
     accountLabel: accountLabels[accountType] || accountType,
-    openingBalancePaise: 0,
-    openingBalanceRupees: 0,
+    openingBalancePaise,
+    openingBalanceRupees: paiseToRupees(openingBalancePaise),
     totalReceiptsPaise,
     totalReceiptsRupees: paiseToRupees(totalReceiptsPaise),
     totalRefundsPaise,

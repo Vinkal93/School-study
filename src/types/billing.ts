@@ -658,14 +658,15 @@ export interface FeePayment {
   amountPaidPaise: number; // Integer PAISE
   discountPaise: number; // Integer PAISE
   lateFeePaise: number; // Integer PAISE
-  netAmountPaise: number; // amountPaid + lateFee - discount
+  netAmountPaise: number; // Actual cash received; discounts reduce invoices separately.
   paymentMethod: "Cash" | "UPI" | "Bank Transfer" | "Card" | "Cheque" | "Online Payment" | "Other";
   transactionRef?: string;
   remarks?: string;
   paymentDate: string; // ISO
   collectedBy: string; // actorId
   collectedByName?: string;
-  status: "SUCCESS" | "FAILED" | "REFUNDED";
+  status: "SUCCESS" | "PENDING" | "FAILED" | "CANCELLED" | "PARTIALLY_REFUNDED" | "REFUNDED" | "REVERSED";
+  refundedAmountPaise?: number;
   remainingDuePaise?: number; // Integer PAISE remaining after this transaction
   createdAt: string;
 }
@@ -693,6 +694,9 @@ export interface FeeSettings {
   feeStartMonth?: string; // e.g. "April"
   billingFrequency?: "monthly" | "quarterly" | "annual";
   schoolName?: string;
+  schoolAddress?: string;
+  schoolPhone?: string;
+  schoolEmail?: string;
   upiId?: string; // e.g. "school@upi"
   upiNumber?: string; // e.g. "9876543210"
   reminderSettings?: {

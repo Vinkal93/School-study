@@ -1,0 +1,48 @@
+# School Study — Modern School Management Platform & Cloud ERP
+> The intelligent, all-in-one cloud platform for schools to administer students, teachers, classes, real-time attendance, fee collections, and notices from one unified system.
+
+- **Website**: https://school.sbci.online
+- **Creator & Lead Architect**: Vinkal Prajapati (Er. Vinkal Prajapati)
+- **Creator Portfolio**: https://vinkal.sbci.online
+- **GitHub Repository**: https://github.com/Vinkal93/School-study
+- **GitHub Profile**: https://github.com/Vinkal93
+- **Primary Support**: sbci224234@gmail.com | +91 9118245636
+- **Architecture**: Next.js 16 (App Router & Turbopack), React 19, TypeScript, Tailwind CSS, Firebase Multi-Tenant Firestore & Cloud Storage, Sentry 10.
+
+---
+
+## Creator & Founder Profile
+School Study is architected and built by **Vinkal Prajapati**, an Indian full-stack software engineer and EdTech technologist specializing in multi-tenant cloud architecture, modern web technologies, and scalable school ERP solutions.
+
+- **Developer Profile Page**: https://school.sbci.online/about-developer
+- **Creator Portfolio**: https://vinkal.sbci.online
+- **GitHub**: https://github.com/Vinkal93
+
+---
+
+## Core Capabilities & Modules
+
+1. **School Management ERP**: Multi-tenant infrastructure enabling schools to operate in isolated, zero-leak environments with dedicated data partitions.
+2. **Student Management**: End-to-end student lifecycle tracking, enrollment directories, class assignments, and gradebook histories.
+3. **Teacher & Faculty Workspace**: Streamlined roster management, subject assignments, schedule allocations, and teacher portal.
+4. **Attendance Automation**: Real-time daily attendance recording with automated summaries, exportable CSV/PDF reports, and SMS/push notification alerts.
+5. **Fee Ledger & Billing**: Transparent fee structures, payment tracking, automated receipt generation, and Razorpay payment integration.
+6. **Communication & Notice Board**: School-wide broadcasts, emergency alerts, circulars, and instant parent-teacher messaging.
+7. **Mobile Applications**: Fully responsive web PWA and native Android application (APK).
+
+---
+
+## Public URLs & Quick Links
+
+- [Home](https://school.sbci.online/)
+- [About Developer (Vinkal Prajapati)](https://school.sbci.online/about-developer)
+- [Features](https://school.sbci.online/features)
+- [Pricing](https://school.sbci.online/pricing)
+- [School Management](https://school.sbci.online/school-management)
+- [School ERP](https://school.sbci.online/school-erp)
+- [Student Management](https://school.sbci.online/student-management)
+- [Teacher Management](https://school.sbci.online/teacher-management)
+- [Attendance Management](https://school.sbci.online/attendance-management)
+- [Download App](https://school.sbci.online/download)
+- [Contact Support](https://school.sbci.online/contact)
+- [Full LLM Specification](https://school.sbci.online/llms-full.txt)

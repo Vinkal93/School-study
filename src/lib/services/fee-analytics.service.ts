@@ -1,3 +1,4 @@
+import { postedPayment, normalizePaymentMethod } from "@/lib/fees/finance-core";
 /**
  * PHASE 4 — CENTRAL FEE ANALYTICS & REPORTING SERVICE
  * Single Source of Truth for Fee Dashboard, Defaulters, Analytics, and Reports.
@@ -287,9 +288,7 @@ export async function getFeeDashboardSummary(
     const matched = allDemands.filter((d) =>
       matchAcademicYear(d.academicYearId || d.academicYearName, selectedYear)
     );
-    if (matched.length > 0) {
-      allDemands = matched;
-    }
+    allDemands = matched;
   }
 
   // Resilient fallback: If no explicit feeDemands exist, synthesize demands from studentFeeAssignments
@@ -301,6 +300,7 @@ export async function getFeeDashboardSummary(
       if (!assignSnap.empty) {
         assignSnap.docs.forEach((docSnap) => {
           const assign = docSnap.data() as any;
+          if (selectedYear && !matchAcademicYear(assign.academicYearId, selectedYear)) return;
           if (assign.monthLedger && Array.isArray(assign.monthLedger)) {
             assign.monthLedger.forEach((mItem: any, idx: number) => {
               if (mItem.amountPaise > 0) {
@@ -407,7 +407,7 @@ export async function getFeeDashboardSummary(
 
       const rawMethod = (data.paymentMethod || "CASH").toUpperCase();
       const methodDisplay =
-        rawMethod === "CASH" ? "CASH" : rawMethod === "UPI" ? "UPI" : rawMethod === "CHEQUE" ? "CHEQUE" : "CASH";
+        normalizePaymentMethod(rawMethod);
 
       allPayments.push({
         id: d.id,
@@ -451,7 +451,7 @@ export async function getFeeDashboardSummary(
 
         const rawMethod = (data.paymentMethod || "CASH").toUpperCase();
         const methodDisplay =
-          rawMethod === "CASH" ? "CASH" : rawMethod === "UPI" ? "UPI" : rawMethod === "CHEQUE" ? "CHEQUE" : "CASH";
+          normalizePaymentMethod(rawMethod);
 
         allPayments.push({
           id: d.id,
@@ -577,52 +577,19 @@ export async function getFeeDashboardSummary(
   let totalRefundedPaise = 0;
   const validSuccessfulPayments = allPayments.filter((p) => {
     const st = (p.status as string) || "";
-    return !st || st === "SUCCESS" || st === "PAID" || st === "COMPLETED" || st === "PARTIALLY_REFUNDED";
+    return postedPayment(st) && st !== "REVERSED";
   });
 
+  const validPaymentIds = new Set(validSuccessfulPayments.map(p => p.id));
+  const activeDemandIds = new Set(activeDemands.map(d => d.id));
   if (selectedMonth) {
-    // Filter by demands belonging to this month
-    const activeDemandIdSet = new Set(activeDemands.map((d) => d.id));
-    const matchingAllocations = allAllocations.filter((a) =>
-      activeDemandIdSet.has(a.demandId)
-    );
-    const allocSum = matchingAllocations.reduce(
-      (sum, a) => sum + (a.allocatedAmountPaise || 0),
-      0
-    );
-    if (allocSum > 0) {
-      totalCollectedPaise = allocSum;
-    } else {
-      // Fallback: sum payments made in selected month
-      const monthMatches = validSuccessfulPayments.filter((p) => {
-        const dateStr = p.paymentDate || p.createdAt || "";
-        return dateStr.toLowerCase().includes(selectedMonth.toLowerCase());
-      });
-      totalCollectedPaise = monthMatches.reduce((sum, p) => sum + getPaymentAmountPaise(p), 0);
-    }
+    totalCollectedPaise = allAllocations.filter(a => activeDemandIds.has(a.demandId) && validPaymentIds.has(a.paymentId)).reduce((sum, a) => sum + a.allocatedAmountPaise, 0);
   } else {
-    // Overall scope: sum valid successful payments
-    totalCollectedPaise = validSuccessfulPayments.reduce(
-      (sum, p) => sum + getPaymentAmountPaise(p),
-      0
-    );
-  }
-
-  // Reconcile totalOutstandingPaise with actual collections
-  if (totalCollectedPaise > 0) {
-    totalOutstandingPaise = Math.max(0, totalExpectedPaise - totalCollectedPaise);
-  }
-  if (totalOutstandingPaise === 0 && totalCollectedPaise >= totalExpectedPaise && activeDemands.length > 0) {
-    paidDemandsCount = activeDemands.length;
-    partialDemandsCount = 0;
-    overdueDemandsCount = 0;
+    totalCollectedPaise = validSuccessfulPayments.reduce((sum, p) => sum + getPaymentAmountPaise(p), 0);
   }
 
   // Refunds calculation
-  totalRefundedPaise = allRefunds.reduce(
-    (sum, r) => sum + (r.amountPaise || 0),
-    0
-  );
+  totalRefundedPaise = allRefunds.filter(r => validPaymentIds.has(r.paymentId)).reduce((sum, r) => sum + (selectedMonth ? (r.allocatedRefunds || []).filter(a => activeDemandIds.has(a.demandId)).reduce((n, a) => n + a.refundedAmountPaise, 0) : r.amountPaise || 0), 0);
   const netCollectedPaise = Math.max(
     0,
     totalCollectedPaise - totalRefundedPaise
@@ -631,7 +598,7 @@ export async function getFeeDashboardSummary(
   // Collection Rate = (Collected / Expected) * 100
   const collectionRate =
     totalExpectedPaise > 0
-      ? Number(((totalCollectedPaise / totalExpectedPaise) * 100).toFixed(1))
+      ? Number((((totalExpectedPaise - totalOutstandingPaise) / totalExpectedPaise) * 100).toFixed(1))
       : 0;
 
   // 7. Today's Performance
@@ -670,17 +637,6 @@ export async function getFeeDashboardSummary(
       (sum, d) => sum + getDemandPaidPaise(d),
       0
     );
-
-    // If demands don't track paid amount directly, check payments in this calendar month
-    if (mPaidFromDemands === 0 && validSuccessfulPayments.length > 0) {
-      const monthPrefix = `${period.year}-${String(period.monthNumber).padStart(2, "0")}`;
-      const periodPayments = validSuccessfulPayments.filter((p) => {
-        const pDate = p.paymentDate || p.createdAt || "";
-        return pDate.startsWith(monthPrefix);
-      });
-      const pSum = periodPayments.reduce((sum, p) => sum + getPaymentAmountPaise(p), 0);
-      if (pSum > 0) mPaidFromDemands = pSum;
-    }
 
     const mRate =
       mExpected > 0
@@ -827,15 +783,6 @@ export async function getFeeDashboardSummary(
   const nowMs = Date.now();
 
   for (const entry of studentMap.values()) {
-    // Reconcile student's demands against their actual payments
-    const matchedPayments = validSuccessfulPayments.filter((p) => p.studentId === entry.studentId);
-    const studentTotalPaid = matchedPayments.reduce((sum, p) => sum + getPaymentAmountPaise(p), 0);
-    const totalDemandsNet = entry.demands.reduce((sum, d) => sum + getDemandNetPaise(d), 0);
-
-    if (studentTotalPaid > 0 && totalDemandsNet > 0) {
-      entry.totalOutstandingPaise = Math.max(0, totalDemandsNet - studentTotalPaid);
-    }
-
     if (entry.totalOutstandingPaise <= 0) {
       onTrackCount++;
       continue;
@@ -1431,7 +1378,7 @@ export async function getPaymentMethodReport(
 
   if (filter?.academicYearId && filter.academicYearId !== "all") {
     payments = payments.filter(
-      (p) => p.academicYearId === filter.academicYearId
+      (p) => matchAcademicYear(p.academicYearId, filter.academicYearId)
     );
   }
   if (filter?.startDate) {
@@ -1441,7 +1388,7 @@ export async function getPaymentMethodReport(
     );
   }
   if (filter?.endDate) {
-    const eTime = new Date(filter.endDate).getTime();
+    const eTime = new Date(`${filter.endDate.slice(0, 10)}T23:59:59.999Z`).getTime();
     payments = payments.filter(
       (p) => new Date(p.paymentDate || p.createdAt).getTime() <= eTime
     );
@@ -1460,7 +1407,7 @@ export async function getPaymentMethodReport(
   };
 
   for (const p of payments) {
-    if (p.status === "FAILED" || p.status === "CANCELLED") continue;
+    if (!postedPayment(p.status)) continue;
 
     const raw = (p.paymentMethod || "").toUpperCase();
     let mKey = "Other";
@@ -1472,7 +1419,7 @@ export async function getPaymentMethodReport(
 
     methodMap[mKey].count++;
     methodMap[mKey].collected += p.amountPaise;
-    methodMap[mKey].refunded += p.refundedAmountPaise || 0;
+    methodMap[mKey].refunded += p.status === "REVERSED" ? p.amountPaise : p.refundedAmountPaise || 0;
   }
 
   return Object.entries(methodMap).map(([method, data]) => {

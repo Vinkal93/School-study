@@ -1,3 +1,4 @@
+import { assignmentFromDemands, normalizePaymentMethod } from "@/lib/fees/finance-core";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import {
   collection,
@@ -176,18 +177,8 @@ export async function getFeeStructures(
       (d) => ({ id: d.id, ...d.data() }) as FeeStructure
     );
 
-    if (academicYearId) {
-      const filtered = list.filter((f) => {
-        if (!f.academicYearId || f.academicYearId === "all") return true;
-        if (f.academicYearId === academicYearId) return true;
-        const aNum = academicYearId.replace(/[^0-9]/g, "");
-        const fNum = f.academicYearId.replace(/[^0-9]/g, "");
-        if (aNum && fNum && aNum === fNum) return true;
-        return false;
-      });
-      if (filtered.length > 0) {
-        list = filtered;
-      }
+    if (academicYearId && academicYearId !== "all") {
+      list = list.filter(f => f.academicYearId === "all" || matchAcademicYear(f.academicYearId, academicYearId));
     }
     list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return list;
@@ -424,6 +415,11 @@ export async function getStudentFeeAssignment(
   if (!db || !schoolId || !studentId) return null;
 
   try {
+    const demands = await getDocs(query(collection(db, "feeDemands"), where("schoolId", "==", schoolId), where("studentId", "==", studentId)));
+    const matching = demands.docs.map(d => ({ ...d.data(), id: d.id } as import("@/types/fee-foundation").FeeDemand)).filter(d => matchAcademicYear(d.academicYearId, academicYearId));
+    const projected = assignmentFromDemands(matching);
+    if (projected) return projected;
+
     // 1. Try exact docId if academicYearId provided
     if (academicYearId && academicYearId !== "all") {
       const docId = `${schoolId}_${studentId}_${academicYearId}`;
@@ -443,13 +439,7 @@ export async function getStudentFeeAssignment(
     if (!snap.empty) {
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as StudentFeeAssignment);
       if (academicYearId && academicYearId !== "all") {
-        const cleanA = academicYearId.toLowerCase().replace(/[^0-9]/g, "");
-        const matched = docs.find((d) => {
-          if (d.academicYearId === academicYearId) return true;
-          const cleanD = (d.academicYearId || "").toLowerCase().replace(/[^0-9]/g, "");
-          return cleanA && cleanD && cleanA === cleanD;
-        });
-        if (matched) return matched;
+        return docs.find(d => matchAcademicYear(d.academicYearId, academicYearId)) || null;
       }
       // Return the most recently updated assignment
       docs.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
@@ -1340,373 +1330,22 @@ export async function collectFeePayment(
     transactionRef?: string;
     remarks?: string;
     paymentDate?: string;
+    idempotencyKey?: string;
+    targetDemandIds?: string[];
   },
   actorId: string = "admin"
 ): Promise<{ success: boolean; payment: FeePayment; receiptNumber: string }> {
-  if (input.amountPaidRupees <= 0) {
-    throw new Error("Payment amount must be greater than zero.");
-  }
-
-  const settings = await getFeeSettings(schoolId);
-  const receiptNumber = await generateReceiptNumber(
-    schoolId,
-    settings.receiptPrefix || "REC"
-  );
-
-  const amountPaidPaise = Math.round(input.amountPaidRupees * 100);
-  const discountPaise = Math.round((input.discountRupees || 0) * 100);
-
-  // Authoritative server-side student fee assignment lookup & update
-  let assignment = await getStudentFeeAssignment(
-    schoolId,
-    input.studentId,
-    input.academicYearId
-  );
-  if (!assignment) {
-    assignment = await provisionStudentFeeAssignment(
-      schoolId,
-      {
-        id: input.studentId,
-        name: input.studentName,
-        admissionNumber: input.admissionNumber,
-        className: input.className,
-        sectionName: input.sectionName,
-      },
-      input.academicYearId
-    );
-  }
-
-  // Calculate late fee for selected period months
-  let lateFeePaise = 0;
-  const now = new Date();
-  const nowMs = now.getTime();
-
-  assignment.monthLedger.forEach((item) => {
-    if (input.periodMonths.includes(item.month) && item.status !== "PAID") {
-      lateFeePaise += calculateLateFee(
-        item.amountPaise,
-        item.dueDate,
-        settings,
-        nowMs
-      );
-    }
-  });
-
-  const netAmountPaise = amountPaidPaise + lateFeePaise - discountPaise;
-  const nowIso = input.paymentDate || now.toISOString();
-  const paymentId = `pay_fee_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-
-  const payment: FeePayment = {
-    id: paymentId,
-    schoolId,
-    receiptNumber,
-    studentId: input.studentId,
-    studentName: input.studentName,
-    admissionNumber: input.admissionNumber,
-    className: input.className,
-    sectionName: input.sectionName,
-    academicYearId: input.academicYearId,
-    feeType: input.feeType,
-    periodMonths: input.periodMonths,
-    amountPaidPaise,
-    discountPaise,
-    lateFeePaise,
-    netAmountPaise,
-    paymentMethod: input.paymentMethod,
-    transactionRef: input.transactionRef || "",
-    remarks: input.remarks || "",
-    paymentDate: nowIso,
-    collectedBy: actorId,
-    collectedByName: actorId,
-    status: "SUCCESS",
-    createdAt: nowIso,
-  };
-
-  // Update Month Ledger
-  let remainingPaidPaise = amountPaidPaise;
-  let remainingDiscountPaise = discountPaise;
-
-  assignment.monthLedger = assignment.monthLedger.map((item) => {
-    if (input.periodMonths.includes(item.month)) {
-      // If item.amountPaise is 0 or less than payment, ensure it reflects at least the fee being collected
-      const allocatedAmount = Math.max(
-        item.amountPaise,
-        Math.round(amountPaidPaise / Math.max(1, input.periodMonths.length))
-      );
-      if (item.amountPaise < allocatedAmount) {
-        item.amountPaise = allocatedAmount;
-        item.pendingAmountPaise = Math.max(
-          0,
-          item.amountPaise - item.paidAmountPaise - item.discountPaise
-        );
-      }
-
-      const needed =
-        item.pendingAmountPaise > 0
-          ? item.pendingAmountPaise
-          : item.amountPaise;
-      const curDiscount = Math.min(needed, remainingDiscountPaise);
-      remainingDiscountPaise -= curDiscount;
-
-      const curPaid = Math.min(needed - curDiscount, remainingPaidPaise);
-      remainingPaidPaise -= curPaid;
-
-      const newPaid = item.paidAmountPaise + curPaid;
-      const newDiscount = item.discountPaise + curDiscount;
-      const newPending = Math.max(
-        0,
-        item.amountPaise - (newPaid + newDiscount)
-      );
-
-      let newStatus: MonthLedgerItem["status"] = "PENDING";
-      if (newPending === 0) newStatus = "PAID";
-      else if (newPaid > 0 || newDiscount > 0) newStatus = "PARTIAL";
-
-      return {
-        ...item,
-        paidAmountPaise: newPaid,
-        discountPaise: newDiscount,
-        lateFeePaise: item.lateFeePaise + lateFeePaise,
-        pendingAmountPaise: newPending,
-        status: newStatus,
-        paymentIds: [...(item.paymentIds || []), paymentId],
-        receiptNumbers: [...(item.receiptNumbers || []), receiptNumber],
-      };
-    }
-    return item;
-  });
-
-  assignment.totalAssignedPaise = assignment.monthLedger.reduce(
-    (sum, item) => sum + item.amountPaise,
-    0
-  );
-  assignment.totalPaidPaise += amountPaidPaise;
-  assignment.totalDiscountPaise += discountPaise;
-  assignment.totalLateFeePaise += lateFeePaise;
-  assignment.totalPendingPaise = Math.max(
-    0,
-    assignment.totalAssignedPaise -
-      (assignment.totalPaidPaise + assignment.totalDiscountPaise)
-  );
-  assignment.lastPaymentDate = nowIso;
-
-  payment.remainingDuePaise = assignment.totalPendingPaise;
-
-  if (assignment.totalPendingPaise === 0) assignment.status = "PAID";
-  else if (assignment.totalPaidPaise > 0) assignment.status = "PARTIAL";
-
-  // Firestore Writes & Financial Ledger Integration
+  const { processFeePaymentWithAllocations } = await import("./fee-foundation.service");
   const db = getFirebaseDb();
-  if (db) {
-    // 1. Write to feePayments (root & subcollection)
-    await setDoc(doc(db, "feePayments", paymentId), payment);
-    await setDoc(doc(db, "schools", schoolId, "feePayments", paymentId), payment).catch(() => {});
+  const snap = await getDocs(query(collection(db, "feeDemands"), where("schoolId", "==", schoolId), where("studentId", "==", input.studentId)));
+  const demands = snap.docs.map(d => ({ ...d.data(), id: d.id } as import("@/types/fee-foundation").FeeDemand)).filter(d => matchAcademicYear(d.academicYearId, input.academicYearId));
+  const targetDemandIds = input.targetDemandIds || demands.filter(d => input.periodMonths.includes(d.period) && (d.feeHeadId.endsWith(input.feeType) || d.feeHeadName.toLowerCase().includes(input.feeType))).map(d => d.id);
+  if (!targetDemandIds.length) throw new Error("No matching fee invoices. Generate the fee schedule first.");
+  const result = await processFeePaymentWithAllocations(schoolId, { ...input, targetDemandIds, paymentMethod: normalizePaymentMethod(input.paymentMethod), referenceNumber: input.transactionRef, actorId, actorName: actorId });
+  const payment: FeePayment = { ...result.payment, feeType: input.feeType, periodMonths: result.payment.periodMonths || [], paymentMethod: input.paymentMethod, amountPaidPaise: result.payment.amountPaise, netAmountPaise: result.payment.amountPaise, discountPaise: Math.round((input.discountRupees || 0) * 100), lateFeePaise: 0, transactionRef: result.payment.referenceNumber };
+  appQueryClient.invalidateCache("fee*");
+  return { success: true, payment, receiptNumber: payment.receiptNumber };
 
-    // 2. Write to financialPayments (Unified Foundation collection)
-    const financialPaymentData = {
-      id: paymentId,
-      receiptNumber,
-      schoolId,
-      studentId: input.studentId,
-      studentName: input.studentName,
-      admissionNumber: input.admissionNumber,
-      className: input.className,
-      sectionName: input.sectionName,
-      academicYearId: input.academicYearId,
-      amountPaise: amountPaidPaise,
-      amountPaidPaise: amountPaidPaise,
-      netAmountPaise: amountPaidPaise,
-      discountPaise,
-      lateFeePaise,
-      paymentDate: nowIso,
-      paymentMethod: (input.paymentMethod || "CASH").toUpperCase(),
-      referenceNumber: input.transactionRef || "",
-      transactionRef: input.transactionRef || "",
-      collectedBy: actorId,
-      collectedByName: actorId,
-      status: "SUCCESS",
-      remarks: input.remarks || "",
-      allocatedTotalPaise: amountPaidPaise,
-      unallocatedPaise: 0,
-      allocationCount: input.periodMonths.length,
-      periodMonths: input.periodMonths,
-      remainingDuePaise: assignment.totalPendingPaise,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    };
-    await setDoc(doc(db, "financialPayments", paymentId), financialPaymentData).catch(() => {});
-    await setDoc(doc(db, "schools", schoolId, "financialPayments", paymentId), financialPaymentData).catch(() => {});
-
-    // 3. Update student fee assignment (root & subcollection)
-    await setDoc(doc(db, "studentFeeAssignments", assignment.id), assignment, {
-      merge: true,
-    });
-    await setDoc(doc(db, "schools", schoolId, "studentFeeAssignments", assignment.id), assignment, {
-      merge: true,
-    }).catch(() => {});
-
-    // 4. Financial Ledger Record
-    await setDoc(doc(db, "financeTransactions", paymentId), {
-      id: paymentId,
-      schoolId,
-      type: "FEE_COLLECTION",
-      amountPaise: amountPaidPaise,
-      currency: "INR",
-      receiptNumber,
-      studentId: input.studentId,
-      studentName: input.studentName,
-      feeType: input.feeType,
-      paymentMethod: input.paymentMethod,
-      actorId,
-      createdAt: nowIso,
-    }).catch(() => {});
-
-    // 5. Update or Create matching feeDemands & paymentAllocations
-    try {
-      const demandsQ = query(
-        collection(db, "feeDemands"),
-        where("schoolId", "==", schoolId),
-        where("studentId", "==", input.studentId)
-      );
-      const demandsSnap = await getDocs(demandsQ);
-      const existingDemands = demandsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
-
-      let unallocatedPaise = amountPaidPaise;
-      const countMonths = Math.max(1, input.periodMonths.length);
-      const perMonthPaise = Math.round(amountPaidPaise / countMonths);
-
-      for (let i = 0; i < input.periodMonths.length; i++) {
-        const pMonth = input.periodMonths[i];
-        const allocPaise = (i === input.periodMonths.length - 1) ? unallocatedPaise : Math.min(perMonthPaise, unallocatedPaise);
-        unallocatedPaise = Math.max(0, unallocatedPaise - allocPaise);
-
-        // Find existing demand matching this period
-        const matched = existingDemands.find((d: any) => {
-          const dPeriod = (d.period || "").toLowerCase();
-          const pLower = pMonth.toLowerCase();
-          return dPeriod === pLower || dPeriod.includes(pLower) || pLower.includes(dPeriod);
-        });
-
-        const allocId = `alloc_${paymentId}_${i}`;
-        const allocationData = {
-          id: allocId,
-          paymentId,
-          demandId: matched ? matched.id : `dem_${input.studentId}_${Date.now()}_${i}`,
-          schoolId,
-          studentId: input.studentId,
-          academicYearId: input.academicYearId,
-          period: pMonth,
-          feeHeadName: input.feeType === "admission" ? "Admission Fee" : "Tuition Fee",
-          allocatedAmountPaise: allocPaise,
-          allocatedAt: nowIso,
-          createdAt: nowIso,
-        };
-        await setDoc(doc(db, "paymentAllocations", allocId), allocationData).catch(() => {});
-        await setDoc(doc(db, "schools", schoolId, "paymentAllocations", allocId), allocationData).catch(() => {});
-
-        if (matched) {
-          const newPaid = (matched.paidAmountPaise || 0) + allocPaise;
-          const newNet = matched.netAmountPaise || allocPaise;
-          const newBal = Math.max(0, newNet - newPaid);
-          const newStatus = newBal === 0 ? "PAID" : "PARTIAL";
-
-          const updatedDemand = {
-            ...matched,
-            paidAmountPaise: newPaid,
-            balanceAmountPaise: newBal,
-            status: newStatus,
-            paymentAllocationIds: [...(matched.paymentAllocationIds || []), allocId],
-            updatedAt: nowIso,
-          };
-          await setDoc(doc(db, "feeDemands", matched.id), updatedDemand, { merge: true }).catch(() => {});
-          await setDoc(doc(db, "schools", schoolId, "feeDemands", matched.id), updatedDemand, { merge: true }).catch(() => {});
-        } else {
-          // Synthesize demand record marked as PAID
-          const newDemandId = allocationData.demandId;
-          const admStr = String(input.admissionNumber || input.studentId);
-          const newDemand = {
-            id: newDemandId,
-            demandNumber: `DEM-${admStr.slice(-4)}-${Date.now().toString().slice(-4)}`,
-            invoiceNumber: `INV-${receiptNumber}-${i + 1}`,
-            schoolId,
-            studentId: input.studentId,
-            studentName: input.studentName,
-            admissionNumber: input.admissionNumber,
-            className: input.className,
-            sectionName: input.sectionName,
-            academicYearId: input.academicYearId,
-            academicYearName: assignment.academicYearName,
-            feeHeadId: input.feeType === "admission" ? "fh_admission" : "fh_tuition",
-            feeHeadName: input.feeType === "admission" ? "Admission Fee" : "Tuition Fee",
-            period: pMonth,
-            dueDate: nowIso,
-            grossAmountPaise: allocPaise,
-            discountAmountPaise: 0,
-            concessionAmountPaise: 0,
-            lateFeePaise: 0,
-            finePaise: 0,
-            netAmountPaise: allocPaise,
-            paidAmountPaise: allocPaise,
-            balanceAmountPaise: 0,
-            status: "PAID",
-            paymentAllocationIds: [allocId],
-            createdAt: nowIso,
-            updatedAt: nowIso,
-            createdBy: actorId,
-          };
-          await setDoc(doc(db, "feeDemands", newDemandId), newDemand, { merge: true }).catch(() => {});
-          await setDoc(doc(db, "schools", schoolId, "feeDemands", newDemandId), newDemand, { merge: true }).catch(() => {});
-        }
-      }
-    } catch (demSyncErr) {
-      console.warn("Demand & allocation sync notice during collectFeePayment:", demSyncErr);
-    }
-
-    // 6. Post double-entry journal entry to accounting service
-    try {
-      const { postJournalForPayment } = await import("./accounting.service");
-      await postJournalForPayment(
-        schoolId,
-        {
-          id: paymentId,
-          receiptNumber,
-          studentId: input.studentId,
-          studentName: input.studentName,
-          amountPaise: amountPaidPaise,
-          allocatedTotalPaise: amountPaidPaise,
-          unallocatedPaise: 0,
-          paymentMethod: (input.paymentMethod || "CASH").toUpperCase(),
-          paymentDate: nowIso,
-          transactionReference: input.transactionRef || "",
-          academicYearId: input.academicYearId,
-        },
-        { id: actorId, name: actorId }
-      ).catch(() => {});
-    } catch (jErr) {
-      console.warn("Accounting journal posting notice:", jErr);
-    }
-
-    // 7. Invalidate all fee cache keys so all sub-tabs update live
-    try {
-      appQueryClient.invalidateCache("fee*");
-    } catch {}
-  }
-
-  await createBillingAuditLog({
-    actorId,
-    actorRole: "admin",
-    action: "SUBSCRIPTION_ACTIVATED",
-    targetType: "invoice",
-    targetId: paymentId,
-    metadata: {
-      schoolId,
-      studentId: input.studentId,
-      amountPaidPaise,
-      receiptNumber,
-    },
-  }).catch(() => {});
-
-  return { success: true, payment, receiptNumber };
 }
 
 // ==========================================
@@ -1783,6 +1422,9 @@ export async function getFeeTransactions(
           feeType: data.feeType || "tuition",
           periodMonths: data.periodMonths || [],
           amountPaidPaise: amtPaise,
+          refundedAmountPaise: data.refundedAmountPaise || 0,
+          remainingDuePaise: data.remainingDuePaise,
+          collectedByName: data.collectedByName || data.collectedBy || "Staff",
           discountPaise: data.discountPaise || 0,
           lateFeePaise: data.lateFeePaise || 0,
           netAmountPaise: amtPaise,

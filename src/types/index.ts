@@ -15,11 +15,15 @@ export type {
   StudyMaterial,
   TeacherTest,
   TestScore,
+  StudentStatus,
 } from "./academic";
 export type {
   AttendanceStatus,
   AttendanceRecord,
   StudentAttendanceStats,
+  EmployeeAttendanceRecord,
+  EmployeeAttendanceStats,
+  ClassAttendanceSummary,
 } from "./attendance";
 export type {
   NoticeAudience,

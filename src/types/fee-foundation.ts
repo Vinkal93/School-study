@@ -215,6 +215,7 @@ export interface FinancialPayment {
  * Controlled Financial Refund Record
  */
 export interface FinancialRefund {
+  advanceRefundPaise?: number;
   id: string; // ref_${timestamp}_${random}
   schoolId: string; // instituteId
   paymentId: string; // Linked original FinancialPayment ID
@@ -251,6 +252,9 @@ export interface FinancialRefund {
  * Payment Reversal Record (Mistaken Entry / Full Cancellation)
  */
 export interface PaymentReversal {
+  academicYearId?: string;
+  paymentMethod?: PaymentMethod;
+  advanceReversedPaise?: number;
   id: string; // rev_${timestamp}_${random}
   schoolId: string; // instituteId
   paymentId: string; // Linked original FinancialPayment ID
@@ -278,6 +282,8 @@ export interface PaymentReversal {
  * Explicit link distributing a payment to one or more Fee Demands (Invoices).
  */
 export interface PaymentAllocation {
+  refundedAmountPaise?: number;
+  reversedAmountPaise?: number;
   id: string; // alloc_${paymentId}_${demandId}
   paymentId: string;
   demandId: string; // Invoice ID

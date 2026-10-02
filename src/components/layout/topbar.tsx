@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Menu, Search, Copy, Check, Sparkles } from "lucide-react";
+import { Menu, Search, Copy, Check, Sparkles, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { useMobileNav } from "@/context/mobile-nav-context";
@@ -107,7 +107,7 @@ export function Topbar({ variant = "classic" }: TopbarProps) {
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        if (profile?.role === "super_admin") {
+        if (profile?.role === "super_admin" || profile?.role === "school_admin") {
           e.preventDefault();
           setSearchModalOpen((prev) => !prev);
         }
@@ -144,6 +144,8 @@ export function Topbar({ variant = "classic" }: TopbarProps) {
   };
 
   const isSuperAdmin = profile?.role === "super_admin";
+  const isSchoolAdmin = profile?.role === "school_admin";
+  const canUseGlobalSearch = isSuperAdmin || isSchoolAdmin;
   const isSchoolPortal = profile?.schoolId || school;
 
   return (
@@ -216,20 +218,31 @@ export function Topbar({ variant = "classic" }: TopbarProps) {
           </div>
         </div>
 
-        {/* Center: Global Search Bar for Super Admin */}
-        {isSuperAdmin && (
+        {/* Center: Global Search Bar with Filter Icon for Super Admin & School Admin */}
+        {canUseGlobalSearch && (
           <div className="flex-1 max-w-md mx-4 hidden md:block">
             <button
+              type="button"
               onClick={() => setSearchModalOpen(true)}
-              className="w-full flex items-center justify-between gap-2 rounded-xl border border-gray-200 bg-gray-50/70 px-3.5 py-1.5 text-xs text-gray-500 hover:border-gray-300 hover:bg-gray-100/80 dark:border-gray-800 dark:bg-gray-900/50 dark:text-gray-400 dark:hover:border-gray-700 transition-colors"
+              className="w-full flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/80 px-3.5 py-1.5 text-xs text-slate-500 hover:border-slate-300 hover:bg-slate-100/90 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400 dark:hover:border-slate-700 transition-all shadow-2xs group cursor-pointer"
             >
-              <div className="flex items-center gap-2">
-                <Search className="h-3.5 w-3.5 text-gray-400" />
-                <span>Search phone, ID, name, email...</span>
+              <div className="flex items-center gap-2 truncate">
+                <Search className="h-3.5 w-3.5 text-slate-400 group-hover:text-blue-500 transition-colors" />
+                <span className="truncate">
+                  {isSuperAdmin
+                    ? "Search whole database (schools, users, staff)..."
+                    : "Search students, staff, fee receipts, accounts..."}
+                </span>
               </div>
-              <kbd className="font-mono text-[10px] bg-white dark:bg-gray-800 px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-700 font-semibold text-gray-400">
-                ⌘K
-              </kbd>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                  <SlidersHorizontal className="h-2.5 w-2.5 text-blue-500" />
+                  Filter
+                </span>
+                <kbd className="font-mono text-[10px] bg-white dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 font-semibold text-slate-400">
+                  ⌘K
+                </kbd>
+              </div>
             </button>
           </div>
         )}
@@ -250,12 +263,13 @@ export function Topbar({ variant = "classic" }: TopbarProps) {
             </Link>
           )}
 
-          {/* Mobile Search Icon for Super Admin */}
-          {isSuperAdmin && (
+          {/* Mobile Search Icon for Super Admin & School Admin */}
+          {canUseGlobalSearch && (
             <button
+              type="button"
               onClick={() => setSearchModalOpen(true)}
-              className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 md:hidden dark:hover:bg-gray-800"
-              title="Search"
+              className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 md:hidden dark:hover:bg-slate-800 cursor-pointer"
+              title="Global Search"
             >
               <Search className="h-4 w-4" />
             </button>

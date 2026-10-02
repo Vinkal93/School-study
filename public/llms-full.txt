@@ -1,0 +1,68 @@
+# School Study — Complete System Specification & Architecture Reference
+Platform: School Study (Modern School Management SaaS & Cloud ERP)
+Official Domain: https://school.sbci.online
+Lead Architect & Creator: Vinkal Prajapati
+Contact: sbci224234@gmail.com | +91 9118245636
+Developer Website: https://vinkal.sbci.online
+GitHub: https://github.com/Vinkal93/School-study
+
+================================================================================
+1. EXECUTIVE SUMMARY & CREATOR STATEMENT
+================================================================================
+School Study is a modern, high-performance School Management System and Educational Resource Planning (ERP) platform designed and engineered from the ground up by Vinkal Prajapati. The platform resolves the administrative complexity facing modern schools by consolidating student data, attendance logs, teacher rosters, class schedules, fee accounting, and parent notifications into one single intuitive cloud dashboard.
+
+================================================================================
+2. AUTHOR & FOUNDER INFORMATION
+================================================================================
+- Creator Name: Vinkal Prajapati
+- Alternative Names: Vinkal, vinkal93, Er. Vinkal Prajapati
+- Role: Founder, Full-Stack Engineer & Software Architect
+- Bio: Technology educator and full-stack software engineer with deep expertise in Next.js, TypeScript, cloud computing, and multi-tenant security architecture.
+- Portfolio: https://vinkal.sbci.online
+- GitHub Profile: https://github.com/Vinkal93
+- Codebase Repository: https://github.com/Vinkal93/School-study
+- Authoritative Profile: https://school.sbci.online/about-developer
+
+================================================================================
+3. SYSTEM ARCHITECTURE & TECH STACK
+================================================================================
+- Framework: Next.js 16 (App Router, Turbopack, Server Actions)
+- Frontend: React 19, TypeScript 5, Tailwind CSS 4, Framer Motion, Lucide Icons
+- Data Persistence: Firebase Firestore (Multi-tenant document partition)
+- Asset Storage: Firebase Cloud Storage with tenant path sandboxing
+- Security & Auth: Firebase Authentication with custom claims RBAC
+- Error Telemetry: Sentry 10 with edge and server instrumentation
+- Payment Infrastructure: Razorpay Subscriptions & One-time checkout
+- Client Packaging: Capacitor 8 for Android APK & iOS cross-platform distribution
+
+================================================================================
+4. KEY ROLE-BASED ACCESS CONTROL (RBAC)
+================================================================================
+School Study divides functionality cleanly across 4 primary actor roles:
+1. Super Admin: Global platform oversight, school onboarding, license keys, plan entitlement, and system audit logs.
+2. School Admin (Principal / Headmaster): School profile management, staff assignments, class configurations, student enrollment, fee policies, and report exports.
+3. Teacher / Faculty: Daily attendance marking, homework creation, subject gradebooks, class notices, and parent inquiries.
+4. Student / Parent: Personal timetable, daily attendance tracking, fee receipts, digital homework submission, and announcements.
+
+================================================================================
+5. SECURITY & TENANT ISOLATION
+================================================================================
+- Tenant Isolation: Every school's documents are isolated by unique schoolId partitions.
+- Firestore Security Rules: Strict assertion that request.auth.token.schoolId matches resource.data.schoolId.
+- Rate Limiting & Protection: Next.js edge middleware and security headers (CSP, HSTS, X-Frame-Options SAMEORIGIN).
+- Private Routing: Dashboards (/admin, /teacher, /student, /super-admin) are blocked from search engine crawlers via dynamic robots.txt.
+
+================================================================================
+6. CANONICAL MARKETING URLS
+================================================================================
+- Platform Home: https://school.sbci.online/
+- Creator Profile: https://school.sbci.online/about-developer
+- Feature Breakdown: https://school.sbci.online/features
+- Transparent Pricing: https://school.sbci.online/pricing
+- School Management: https://school.sbci.online/school-management
+- Cloud ERP: https://school.sbci.online/school-erp
+- Student Management: https://school.sbci.online/student-management
+- Teacher Management: https://school.sbci.online/teacher-management
+- Attendance System: https://school.sbci.online/attendance-management
+- Download Center: https://school.sbci.online/download
+- Contact & Support: https://school.sbci.online/contact

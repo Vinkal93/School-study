@@ -44,8 +44,10 @@ export interface TeacherProfile {
   userId: string; // UID in Firebase Auth & users/{uid}
   teacherCode: string; // e.g. "TCH-001" (Employee ID)
   name: string; // "Rahul Sharma"
+  fullName?: string;
   email: string;
   phone?: string;
+  department?: string;
   photoUrl?: string;
   joiningDate?: string;
   assignedClassId?: string;
@@ -293,6 +295,8 @@ export interface CreateStudentInput {
   phone?: string;
   photoUrl?: string;
   address?: string;
+  fatherName?: string;
+  motherName?: string;
   guardianName?: string;
   guardianPhone?: string;
   guardianEmail?: string;

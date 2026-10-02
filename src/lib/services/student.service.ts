@@ -137,21 +137,37 @@ export async function getStudents(
   schoolId: string,
   options?: { classId?: string; sectionId?: string; status?: string }
 ): Promise<StudentProfile[]> {
+  if (!schoolId || schoolId === "system") return [];
   try {
     const db = getFirebaseDb();
-    if (!db || !schoolId) return [];
+    if (!db) return [];
 
-    let snapshot = await getDocs(collection(db, "schools", schoolId, "students"));
-    if (snapshot.empty) {
-      snapshot = await getDocs(query(collection(db, "students"), where("schoolId", "==", schoolId)));
+    let snapshot: any = await getDocs(collection(db, "schools", schoolId, "students")).catch((err) => {
+      if (err?.code !== "permission-denied") {
+        console.warn("Could not read schools students subcollection:", err);
+      }
+      return null;
+    });
+
+    if (!snapshot || snapshot.empty) {
+      snapshot = await getDocs(query(collection(db, "students"), where("schoolId", "==", schoolId))).catch((err) => {
+        if (err?.code !== "permission-denied") {
+          console.warn("Could not read root students collection:", err);
+        }
+        return null;
+      });
     }
 
-    let students = snapshot.docs.map((d) => {
+    if (!snapshot) return [];
+
+    let students = snapshot.docs.map((d: any) => {
       const data = d.data();
       return {
         id: d.id,
         ...data,
         name: data.name || data.fullName || "Student",
+        studentId: data.studentId !== undefined && data.studentId !== null ? String(data.studentId) : undefined,
+        admissionNumber: data.admissionNumber !== undefined && data.admissionNumber !== null ? String(data.admissionNumber) : undefined,
         className: data.className ? normalizeClassName(data.className) : (data.class || ""),
         sectionName: data.sectionName ? normalizeSectionName(data.sectionName) : (data.section ? normalizeSectionName(data.section) : ""),
         gender: normalizeGender(data.gender),
@@ -165,7 +181,7 @@ export async function getStudents(
       students = students.filter((s) => s.sectionId === options.sectionId);
     }
     if (options?.status && options.status !== "all") {
-      students = students.filter((s) => (s.status || "active").toLowerCase() === options.status?.toLowerCase());
+      students = students.filter((s) => (s.status ? String(s.status).toLowerCase() : "active") === options.status?.toLowerCase());
     }
 
     // Sort active students first by class order / roll number
@@ -177,8 +193,10 @@ export async function getStudents(
     });
 
     return students;
-  } catch (error) {
-    console.error("Failed to fetch students:", error);
+  } catch (error: any) {
+    if (error?.code !== "permission-denied") {
+      console.error("Failed to fetch students:", error);
+    }
     return [];
   }
 }
@@ -303,6 +321,13 @@ export async function createStudentWithAuth(
     phone: input.phone?.trim() || "",
     photoUrl: input.photoUrl || "",
     address: input.address?.trim() || "",
+    fatherName: input.fatherName?.trim() || "",
+    motherName: input.motherName?.trim() || "",
+    guardianName: input.guardianName?.trim() || "",
+    guardianPhone: input.guardianPhone?.trim() || "",
+    guardianEmail: input.guardianEmail?.trim() || "",
+    guardianRelation: input.guardianRelation || "",
+    bloodGroup: input.bloodGroup || "",
     classId: input.classId,
     className: normalizeClassName(input.className),
     sectionId: input.sectionId,

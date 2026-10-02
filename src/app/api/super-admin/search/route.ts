@@ -14,7 +14,8 @@ import type { AppUser, School, UserRole } from "@/types";
 
 export interface GlobalSearchResultItem {
   id: string;
-  type: "school" | UserRole;
+  type: "school" | "navigation" | UserRole;
+  category?: "schools" | "users" | "navigation";
   name: string;
   subtitle: string;
   schoolName?: string;
@@ -23,11 +24,77 @@ export interface GlobalSearchResultItem {
   url: string;
 }
 
+const SUPER_ADMIN_NAV_ITEMS: Array<{
+  id: string;
+  name: string;
+  subtitle: string;
+  keywords: string[];
+  url: string;
+}> = [
+  {
+    id: "nav_schools",
+    name: "Schools Directory",
+    subtitle: "Manage all onboarded institutions & licenses",
+    keywords: ["school", "schools", "institutions", "directory", "license"],
+    url: "/super-admin/schools",
+  },
+  {
+    id: "nav_users",
+    name: "Platform Users",
+    subtitle: "All school admins, teachers, and system accounts",
+    keywords: ["users", "accounts", "admin", "teacher", "student", "roles"],
+    url: "/super-admin/users",
+  },
+  {
+    id: "nav_finance",
+    name: "Finance Center",
+    subtitle: "Platform billing, plan subscriptions & revenue overview",
+    keywords: ["finance", "billing", "revenue", "plans", "subscriptions"],
+    url: "/super-admin/finance",
+  },
+  {
+    id: "nav_inquiries",
+    name: "School Inquiries",
+    subtitle: "Leads, demo inquiries & registration requests",
+    keywords: ["inquiry", "inquiries", "leads", "contact", "demos"],
+    url: "/super-admin/inquiries",
+  },
+  {
+    id: "nav_communication",
+    name: "Communication Hub",
+    subtitle: "Global SMS, WhatsApp gateway, Twilio & dispatch logs",
+    keywords: ["communication", "sms", "whatsapp", "twilio", "messaging"],
+    url: "/super-admin/communication",
+  },
+  {
+    id: "nav_analytics",
+    name: "Platform Analytics",
+    subtitle: "Real-time ecosystem metrics & usage trends",
+    keywords: ["analytics", "metrics", "reports", "stats", "growth"],
+    url: "/super-admin/analytics",
+  },
+  {
+    id: "nav_activity",
+    name: "Security & Audit Logs",
+    subtitle: "Global login activity & platform audit trails",
+    keywords: ["activity", "audit", "security", "logins", "compliance"],
+    url: "/super-admin/activity/logins",
+  },
+  {
+    id: "nav_offers",
+    name: "Offers & Promotions",
+    subtitle: "Coupon codes, discounts & promotional campaigns",
+    keywords: ["offers", "promotions", "coupon", "discount", "campaign"],
+    url: "/super-admin/offers",
+  },
+];
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const performerUid = searchParams.get("performerUid");
     const q = searchParams.get("q")?.toLowerCase().trim() || "";
+    const category = searchParams.get("category")?.toLowerCase() || "all";
 
     if (!performerUid) {
       return NextResponse.json(
@@ -41,6 +108,9 @@ export async function GET(req: NextRequest) {
     }
 
     const db = getFirebaseDb();
+    if (!db) {
+      return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+    }
 
     // 1. Verify Super Admin authorization
     const performerSnap = await getDoc(doc(db, COLLECTIONS.USERS, performerUid));
@@ -56,78 +126,115 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // 2. Fetch Schools and Users in parallel
-    const [schoolsSnap, usersSnap] = await Promise.all([
-      getDocs(collection(db, COLLECTIONS.SCHOOLS)),
-      getDocs(collection(db, COLLECTIONS.USERS)),
-    ]);
-
-    const schools = schoolsSnap.docs.map((d) => ({
-      id: d.id,
-      ...d.data(),
-    })) as School[];
-
-    const schoolsMap = new Map<string, School>();
-    schools.forEach((s) => schoolsMap.set(s.id, s));
-
-    const users = usersSnap.docs.map((d) => ({
-      uid: d.id,
-      ...d.data(),
-    })) as AppUser[];
-
     const results: GlobalSearchResultItem[] = [];
 
-    // 3. Search Matching Schools
-    schools.forEach((school) => {
-      const matchName = school.name?.toLowerCase().includes(q);
-      const matchCode = school.code?.toLowerCase().includes(q);
-      const matchCity = school.city?.toLowerCase().includes(q);
-      const matchEmail = school.email?.toLowerCase().includes(q);
-      const matchAdminEmail = school.adminEmail?.toLowerCase().includes(q);
+    // 2. Navigation Shortcuts
+    if (category === "all" || category === "navigation") {
+      SUPER_ADMIN_NAV_ITEMS.forEach((nav) => {
+        const matchName = nav.name.toLowerCase().includes(q);
+        const matchSub = nav.subtitle.toLowerCase().includes(q);
+        const matchKey = nav.keywords.some((k) => k.includes(q) || q.includes(k));
 
-      if (matchName || matchCode || matchCity || matchEmail || matchAdminEmail) {
-        results.push({
-          id: school.id,
-          type: "school",
-          name: school.name,
-          subtitle: `Code: ${school.code} · ${school.city || school.email || "School"}`,
-          schoolName: school.name,
-          schoolCode: school.code,
-          status: school.status,
-          url: `/super-admin/schools/${school.id}`,
-        });
-      }
-    });
+        if (matchName || matchSub || matchKey) {
+          results.push({
+            id: nav.id,
+            type: "navigation",
+            category: "navigation",
+            name: nav.name,
+            subtitle: nav.subtitle,
+            status: "active",
+            url: nav.url,
+          });
+        }
+      });
+    }
 
-    // 4. Search Matching Users (Admins, Teachers, Students, Super Admins)
-    users.forEach((user) => {
-      const userAny = user as any;
-      const matchName = user.name?.toLowerCase().includes(q);
-      const matchEmail = user.email?.toLowerCase().includes(q);
-      const matchUid = user.uid?.toLowerCase().includes(q);
-      const phoneVal = userAny.phone || userAny.phoneNumber || "";
-      const matchPhone = phoneVal ? String(phoneVal).toLowerCase().includes(q) : false;
+    // 3. Fetch Schools and Users in parallel
+    const [schoolsSnap, usersSnap] = await Promise.all([
+      category === "all" || category === "schools"
+        ? getDocs(collection(db, COLLECTIONS.SCHOOLS))
+        : Promise.resolve(null),
+      category === "all" || category === "users" || category === "school_admins" || category === "teachers" || category === "students"
+        ? getDocs(collection(db, COLLECTIONS.USERS))
+        : Promise.resolve(null),
+    ]);
 
-      if (matchName || matchEmail || matchUid || matchPhone) {
-        const associatedSchool = user.schoolId ? schoolsMap.get(user.schoolId) : null;
+    const schoolsMap = new Map<string, School>();
+    if (schoolsSnap) {
+      const schools = schoolsSnap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      })) as School[];
 
-        results.push({
-          id: user.uid,
-          type: user.role,
-          name: user.name,
-          subtitle: user.email,
-          schoolName: associatedSchool ? associatedSchool.name : "Platform Global",
-          schoolCode: associatedSchool ? associatedSchool.code : undefined,
-          status: user.status,
-          url: `/super-admin/users/${user.uid}`,
-        });
-      }
-    });
+      schools.forEach((s) => schoolsMap.set(s.id, s));
+
+      // Search Matching Schools
+      schools.forEach((school) => {
+        const matchName = school.name?.toLowerCase().includes(q);
+        const matchCode = school.code?.toLowerCase().includes(q);
+        const matchCity = school.city?.toLowerCase().includes(q);
+        const matchEmail = school.email?.toLowerCase().includes(q);
+        const matchAdminEmail = school.adminEmail?.toLowerCase().includes(q);
+
+        if (matchName || matchCode || matchCity || matchEmail || matchAdminEmail) {
+          results.push({
+            id: school.id,
+            type: "school",
+            category: "schools",
+            name: school.name,
+            subtitle: `Code: ${school.code} · ${school.city || school.email || "School"} · ${school.status}`,
+            schoolName: school.name,
+            schoolCode: school.code,
+            status: school.status,
+            url: `/super-admin/schools/${school.id}`,
+          });
+        }
+      });
+    }
+
+    // Search Matching Users
+    if (usersSnap) {
+      const users = usersSnap.docs.map((d) => ({
+        uid: d.id,
+        ...d.data(),
+      })) as AppUser[];
+
+      users.forEach((user) => {
+        if (category === "school_admins" && user.role !== "school_admin") return;
+        if (category === "teachers" && user.role !== "teacher") return;
+        if (category === "students" && user.role !== "student") return;
+
+        const userAny = user as any;
+        const matchName = user.name?.toLowerCase().includes(q);
+        const matchEmail = user.email?.toLowerCase().includes(q);
+        const matchUid = user.uid?.toLowerCase().includes(q);
+        const phoneVal = userAny.phone || userAny.phoneNumber || "";
+        const matchPhone = phoneVal ? String(phoneVal).toLowerCase().includes(q) : false;
+
+        if (matchName || matchEmail || matchUid || matchPhone) {
+          const associatedSchool = user.schoolId ? schoolsMap.get(user.schoolId) : null;
+
+          results.push({
+            id: user.uid,
+            type: user.role,
+            category: "users",
+            name: user.name,
+            subtitle: `${user.email} · Role: ${user.role}${
+              phoneVal ? ` · 📞 ${phoneVal}` : ""
+            }`,
+            schoolName: associatedSchool ? associatedSchool.name : "Platform Global",
+            schoolCode: associatedSchool ? associatedSchool.code : undefined,
+            status: user.status,
+            url: `/super-admin/users/${user.uid}`,
+          });
+        }
+      });
+    }
 
     return NextResponse.json({
       success: true,
       count: results.length,
-      results: results.slice(0, 30), // Limit top 30 matches for speed
+      results: results.slice(0, 35),
     });
   } catch (error: any) {
     console.error("Global search failed:", error);

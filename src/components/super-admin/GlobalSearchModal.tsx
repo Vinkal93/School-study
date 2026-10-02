@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Search,
@@ -9,31 +9,88 @@ import {
   GraduationCap,
   BookOpen,
   Shield,
-  CheckCircle2,
-  XCircle,
-  ShieldAlert,
+  CreditCard,
+  Banknote,
+  Receipt,
+  FileText,
+  SlidersHorizontal,
   Loader2,
   X,
   ArrowRight,
   CornerDownLeft,
+  CheckCircle2,
+  Sparkles,
+  Layers,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
-import type { GlobalSearchResultItem } from "@/app/api/super-admin/search/route";
 
 interface GlobalSearchModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialCategory?: string;
 }
 
-export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
+interface UnifiedSearchResultItem {
+  id: string;
+  type: string;
+  category?: string;
+  name: string;
+  subtitle: string;
+  schoolName?: string;
+  schoolCode?: string;
+  badge?: string;
+  badgeColor?: string;
+  status?: string;
+  url: string;
+  metadata?: Record<string, any>;
+}
+
+export function GlobalSearchModal({
+  isOpen,
+  onClose,
+  initialCategory = "all",
+}: GlobalSearchModalProps) {
   const router = useRouter();
   const { profile: currentUser } = useAuth();
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<GlobalSearchResultItem[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState(initialCategory);
+  const [results, setResults] = useState<UnifiedSearchResultItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const isSuperAdmin = currentUser?.role === "super_admin";
+
+  // Category Options based on Role
+  const superAdminCategories = useMemo(
+    () => [
+      { id: "all", label: "All Items", icon: Layers },
+      { id: "schools", label: "Schools", icon: Building2 },
+      { id: "users", label: "All Users", icon: Users },
+      { id: "school_admins", label: "School Admins", icon: Shield },
+      { id: "teachers", label: "Teachers", icon: Users },
+      { id: "students", label: "Students", icon: GraduationCap },
+      { id: "navigation", label: "Navigation", icon: ArrowRight },
+    ],
+    []
+  );
+
+  const schoolAdminCategories = useMemo(
+    () => [
+      { id: "all", label: "All School Data", icon: Layers },
+      { id: "students", label: "Students", icon: GraduationCap },
+      { id: "teachers", label: "Teachers & Staff", icon: Users },
+      { id: "fees", label: "Fee Receipts", icon: Receipt },
+      { id: "accounts", label: "Accounts & Vouchers", icon: Banknote },
+      { id: "navigation", label: "Shortcuts & Pages", icon: ArrowRight },
+    ],
+    []
+  );
+
+  const activeCategories = isSuperAdmin ? superAdminCategories : schoolAdminCategories;
+
+  // Reset or focus on open
   useEffect(() => {
     if (isOpen) {
       setTimeout(() => inputRef.current?.focus(), 50);
@@ -41,12 +98,14 @@ export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
       setQuery("");
       setResults([]);
       setSelectedIndex(0);
+      setSelectedCategory("all");
+      setShowFilterDropdown(false);
     }
   }, [isOpen]);
 
-  // Debounced search query
+  // Debounced Search
   useEffect(() => {
-    if (!query.trim() || !currentUser) {
+    if (!query.trim() || !currentUser?.uid) {
       setResults([]);
       setLoading(false);
       return;
@@ -55,27 +114,48 @@ export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
-        const res = await fetch(
-          `/api/super-admin/search?performerUid=${currentUser.uid}&q=${encodeURIComponent(
-            query
-          )}`
-        );
+        const endpoint = isSuperAdmin
+          ? `/api/super-admin/search?performerUid=${currentUser.uid}&q=${encodeURIComponent(
+              query
+            )}&category=${selectedCategory}`
+          : `/api/admin/search?performerUid=${currentUser.uid}&q=${encodeURIComponent(
+              query
+            )}&category=${selectedCategory}`;
+
+        const res = await fetch(endpoint);
         const data = await res.json();
         if (res.ok) {
-          setResults(data.results || []);
+          const rawResults = data.results || [];
+          // Normalize results
+          const normalized: UnifiedSearchResultItem[] = rawResults.map((item: any) => ({
+            id: item.id,
+            type: item.type || "item",
+            category: item.category,
+            name: item.name || item.title,
+            subtitle: item.subtitle,
+            schoolName: item.schoolName,
+            schoolCode: item.schoolCode,
+            badge: item.badge,
+            badgeColor: item.badgeColor,
+            status: item.status,
+            url: item.url,
+            metadata: item.metadata,
+          }));
+
+          setResults(normalized);
           setSelectedIndex(0);
         }
       } catch (err) {
-        console.warn("Search query error:", err);
+        console.warn("Global search error:", err);
       } finally {
         setLoading(false);
       }
-    }, 200);
+    }, 180);
 
     return () => clearTimeout(timer);
-  }, [query, currentUser?.uid]);
+  }, [query, selectedCategory, currentUser?.uid, isSuperAdmin]);
 
-  // Keyboard navigation listener (Escape, Up, Down, Enter)
+  // Keyboard navigation
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
       onClose();
@@ -93,198 +173,239 @@ export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
     }
   };
 
-  const handleSelect = (item: GlobalSearchResultItem) => {
+  const handleSelect = (item: UnifiedSearchResultItem) => {
     onClose();
-    if (item.type === "school") {
-      router.push(`/super-admin/schools/${item.id}`);
-    } else {
-      router.push(`/super-admin/users/${item.id}`);
+    router.push(item.url);
+  };
+
+  const getItemIcon = (item: UnifiedSearchResultItem) => {
+    switch (item.type) {
+      case "student":
+        return <GraduationCap className="h-4 w-4 text-blue-500" />;
+      case "teacher":
+        return <Users className="h-4 w-4 text-purple-500" />;
+      case "school":
+        return <Building2 className="h-4 w-4 text-indigo-500" />;
+      case "receipt":
+        return <Receipt className="h-4 w-4 text-emerald-500" />;
+      case "account":
+        return <Banknote className="h-4 w-4 text-amber-500" />;
+      case "navigation":
+        return <ArrowRight className="h-4 w-4 text-slate-400" />;
+      case "school_admin":
+        return <Shield className="h-4 w-4 text-rose-500" />;
+      default:
+        return <Search className="h-4 w-4 text-slate-400" />;
     }
   };
 
   if (!isOpen) return null;
 
-  const getTypeBadge = (type: string) => {
-    switch (type) {
-      case "school":
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/20 dark:text-blue-400">
-            <Building2 className="h-3 w-3" />
-            School
-          </span>
-        );
-      case "teacher":
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-900/20 dark:text-purple-400">
-            <BookOpen className="h-3 w-3" />
-            Teacher
-          </span>
-        );
-      case "student":
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400">
-            <GraduationCap className="h-3 w-3" />
-            Student
-          </span>
-        );
-      case "school_admin":
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
-            <Users className="h-3 w-3" />
-            Admin
-          </span>
-        );
-      case "super_admin":
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400">
-            <Shield className="h-3 w-3" />
-            Super Admin
-          </span>
-        );
-      default:
-        return null;
-    }
-  };
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "active":
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-semibold text-green-700 dark:bg-green-900/20 dark:text-green-400">
-            <CheckCircle2 className="h-2.5 w-2.5" />
-            Active
-          </span>
-        );
-      case "restricted":
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
-            <ShieldAlert className="h-2.5 w-2.5" />
-            Restricted
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-900/20 dark:text-red-400">
-            <XCircle className="h-2.5 w-2.5" />
-            {status}
-          </span>
-        );
-    }
-  };
-
   return (
     <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm flex items-start justify-center pt-4 sm:pt-20 p-3 sm:p-4 animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 backdrop-blur-xs p-4 sm:pt-20"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-2xl rounded-2xl bg-white dark:bg-gray-950 shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden my-auto sm:my-0"
+        className="w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl transition-all dark:border-slate-800 dark:bg-slate-900"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
-        {/* Search Input Bar */}
-        <div className="flex items-center px-4 border-b border-gray-200 dark:border-gray-800">
-          <Search className="h-5 w-5 text-gray-400 shrink-0" />
+        {/* Top Scope Header Banner */}
+        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/80 px-4 py-2 text-xs font-semibold dark:border-slate-800 dark:bg-slate-800/50">
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                isSuperAdmin
+                  ? "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300"
+                  : "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300"
+              }`}
+            >
+              <Sparkles className="h-3 w-3" />
+              {isSuperAdmin ? "Super Admin Full Database" : "School Admin Portal"}
+            </span>
+            <span className="text-slate-500 dark:text-slate-400 text-[11px]">
+              {isSuperAdmin
+                ? "Full platform access: schools, users, roles & system"
+                : "Strictly scoped: your school's students, staff, fees & accounts"}
+            </span>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Input Bar with Filter Button */}
+        <div className="relative flex items-center border-b border-slate-100 px-4 dark:border-slate-800">
+          <Search className="h-5 w-5 text-slate-400 shrink-0" />
           <input
             ref={inputRef}
             type="text"
-            placeholder="Search by Phone number, User ID, Name, Email, or School..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="w-full bg-transparent px-3 py-3.5 sm:py-4 text-xs sm:text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none"
+            placeholder={
+              isSuperAdmin
+                ? "Search across schools, users, teachers, students, emails, codes..."
+                : "Search students, roll no, reg no, staff, fee receipts, vouchers..."
+            }
+            className="w-full bg-transparent px-3 py-4 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-white"
           />
-          {loading && <Loader2 className="h-4 w-4 animate-spin text-blue-600 shrink-0" />}
-          {query && !loading && (
-            <button
-              onClick={() => setQuery("")}
-              className="p-1 text-gray-400 hover:text-gray-600 rounded min-h-[36px] min-w-[36px] flex items-center justify-center"
-              aria-label="Clear search"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
+
+          {loading && <Loader2 className="h-4 w-4 animate-spin text-blue-600 shrink-0 mr-2" />}
+
+          {/* Filter Icon Button */}
+          <button
+            type="button"
+            onClick={() => setShowFilterDropdown((prev) => !prev)}
+            title="Filter search category"
+            className={`flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition ${
+              selectedCategory !== "all" || showFilterDropdown
+                ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/60 dark:text-blue-300"
+                : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+            }`}
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">
+              {activeCategories.find((c) => c.id === selectedCategory)?.label || "Filter"}
+            </span>
+          </button>
         </div>
 
-        {/* Results List */}
-        <div className="max-h-[60vh] sm:max-h-96 overflow-y-auto p-2">
-          {query.trim() === "" ? (
-            <div className="py-10 sm:py-12 text-center text-xs text-gray-400">
-              <Search className="mx-auto h-7 w-7 sm:h-8 sm:w-8 text-gray-300 dark:text-gray-700 mb-2" />
-              Type a name, email, school code, or ID to search platform-wide.
+        {/* Category Pills Bar (Toggled or Always visible for convenience) */}
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-100 bg-slate-50/50 px-4 py-2 dark:border-slate-800 dark:bg-slate-800/30">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1">
+            Filter:
+          </span>
+          {activeCategories.map((cat) => {
+            const Icon = cat.icon;
+            const isSelected = selectedCategory === cat.id;
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                  isSelected
+                    ? "bg-blue-600 text-white shadow-xs"
+                    : "bg-white text-slate-600 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700"
+                }`}
+              >
+                <Icon className="h-3 w-3" />
+                {cat.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Results Body */}
+        <div className="max-h-[380px] overflow-y-auto p-2">
+          {query.trim().length === 0 ? (
+            <div className="py-12 text-center text-xs text-slate-400 dark:text-slate-500">
+              <p className="font-semibold text-slate-700 dark:text-slate-300">
+                {isSuperAdmin
+                  ? "Universal Platform Database Search"
+                  : "School Management Global Search"}
+              </p>
+              <p className="mt-1">
+                {isSuperAdmin
+                  ? "Type any school code, institution name, admin email, student or teacher phone..."
+                  : "Type student name, admission number, roll no, teacher name, receipt number, or accounts head..."}
+              </p>
             </div>
           ) : loading && results.length === 0 ? (
-            <div className="py-10 sm:py-12 text-center text-xs text-gray-400">
-              <Loader2 className="mx-auto h-6 w-6 animate-spin text-blue-600 mb-2" />
-              Searching platform records...
+            <div className="py-12 text-center text-xs text-slate-400">
+              Searching database records...
             </div>
           ) : results.length === 0 ? (
-            <div className="py-10 sm:py-12 text-center text-xs text-gray-400">
-              No matching Schools, Users, Teachers, or Students found for &quot;
-              <strong className="text-gray-700 dark:text-gray-300">{query}</strong>&quot;.
+            <div className="py-12 text-center text-xs text-slate-400">
+              No matching records found for &quot;<strong className="text-slate-700 dark:text-slate-200">{query}</strong>&quot;
+              {selectedCategory !== "all" ? ` in ${selectedCategory}` : ""}.
             </div>
           ) : (
             <div className="space-y-1">
-              {results.map((item, idx) => (
-                <div
-                  key={item.id + idx}
-                  onClick={() => handleSelect(item)}
-                  onMouseEnter={() => setSelectedIndex(idx)}
-                  className={`flex items-center justify-between p-2.5 sm:p-3 rounded-xl cursor-pointer transition-colors min-h-[44px] ${
-                    selectedIndex === idx
-                      ? "bg-blue-50/80 dark:bg-blue-900/30 text-blue-950 dark:text-blue-100"
-                      : "hover:bg-gray-50 dark:hover:bg-gray-900/50"
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-                    <div className="p-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 shrink-0">
-                      {item.type === "school" ? (
-                        <Building2 className="h-4 w-4" />
-                      ) : item.type === "teacher" ? (
-                        <BookOpen className="h-4 w-4" />
-                      ) : item.type === "student" ? (
-                        <GraduationCap className="h-4 w-4" />
-                      ) : (
-                        <Shield className="h-4 w-4" />
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                        <p className="font-semibold text-xs sm:text-sm text-gray-900 dark:text-white truncate">
-                          {item.name}
-                        </p>
-                        {getTypeBadge(item.type)}
-                        {getStatusBadge(item.status)}
+              {results.map((item, idx) => {
+                const isSelected = selectedIndex === idx;
+                return (
+                  <div
+                    key={`${item.id}_${idx}`}
+                    onClick={() => handleSelect(item)}
+                    onMouseEnter={() => setSelectedIndex(idx)}
+                    className={`flex items-center justify-between gap-3 rounded-xl p-3 cursor-pointer transition ${
+                      isSelected
+                        ? "bg-blue-50/90 text-blue-900 dark:bg-blue-950/60 dark:text-blue-100"
+                        : "hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-800 dark:text-slate-200"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800">
+                        {getItemIcon(item)}
                       </div>
-                      <p className="text-[11px] sm:text-xs text-gray-500 truncate mt-0.5">
-                        {item.subtitle}
-                        {item.schoolName && (
-                          <span className="text-gray-400"> · {item.schoolName}</span>
-                        )}
-                      </p>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-bold truncate text-slate-900 dark:text-white">
+                            {item.name}
+                          </p>
+                          {item.badge && (
+                            <span
+                              className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
+                                item.badgeColor ||
+                                "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                              }`}
+                            >
+                              {item.badge}
+                            </span>
+                          )}
+                          {item.schoolName && (
+                            <span className="rounded-md bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 truncate max-w-[120px]">
+                              {item.schoolName}
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                          {item.subtitle}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 text-slate-400">
+                      <CornerDownLeft className="h-3.5 w-3.5" />
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-1 text-xs text-gray-400 shrink-0 ml-2">
-                    {selectedIndex === idx && (
-                      <span className="hidden sm:inline-flex items-center gap-1 font-mono text-[10px] text-blue-600 dark:text-blue-400 bg-blue-100/60 dark:bg-blue-900/40 px-1.5 py-0.5 rounded">
-                        Select <CornerDownLeft className="h-3 w-3" />
-                      </span>
-                    )}
-                    <ArrowRight className="h-4 w-4" />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
 
-        {/* Footer Shortcut Bar */}
-        <div className="flex items-center justify-between px-3 sm:px-4 py-2 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30 text-[10px] sm:text-[11px] text-gray-400">
-          <span>
-            Press <kbd className="font-mono bg-white dark:bg-gray-800 px-1 py-0.5 rounded border border-gray-200 dark:border-gray-700">ESC</kbd> to exit
-          </span>
-          <span className="hidden sm:flex items-center gap-2">
-            <span>Navigate <kbd className="font-mono bg-white dark:bg-gray-800 px-1 py-0.5 rounded border border-gray-200 dark:border-gray-700">↑</kbd><kbd className="font-mono bg-white dark:bg-gray-800 px-1 py-0.5 rounded border border-gray-200 dark:border-gray-700">↓</kbd></span>
+        {/* Modal Footer with Keyboard Shortcuts */}
+        <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/70 px-4 py-2.5 text-[11px] text-slate-500 dark:border-slate-800 dark:bg-slate-800/50">
+          <div className="flex items-center gap-4">
+            <span>
+              <kbd className="rounded border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[10px] shadow-2xs dark:border-slate-700 dark:bg-slate-800">
+                ↑↓
+              </kbd>{" "}
+              navigate
+            </span>
+            <span>
+              <kbd className="rounded border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[10px] shadow-2xs dark:border-slate-700 dark:bg-slate-800">
+                ↵
+              </kbd>{" "}
+              open
+            </span>
+            <span>
+              <kbd className="rounded border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[10px] shadow-2xs dark:border-slate-700 dark:bg-slate-800">
+                esc
+              </kbd>{" "}
+              close
+            </span>
+          </div>
+
+          <span className="font-semibold text-slate-400">
+            {results.length > 0 ? `${results.length} matches` : ""}
           </span>
         </div>
       </div>

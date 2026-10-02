@@ -88,10 +88,11 @@ import { StudentFeeDetailsSheet } from "@/components/admin/mobile/StudentFeeDeta
 import { usePortalUI } from "@/context/portal-ui-context";
 
 export default function AdminStudentsPage() {
-  const { profile } = useAuth();
-  const schoolId = profile?.schoolId || "";
+  const { profile, firebaseUser, loading: authLoading } = useAuth();
+  const schoolId = profile?.schoolId && profile.schoolId !== "system" ? profile.schoolId : "";
   const { canAccess } = useEntitlement();
   const isAllowed = profile?.role === "super_admin" || canAccess("student_management");
+  const isQueryEnabled = !authLoading && !!firebaseUser && !!schoolId && isAllowed;
   const { adminPortalUiMode } = usePortalUI();
 
   // Mobile Admin Portal UI States
@@ -153,21 +154,21 @@ export default function AdminStudentsPage() {
     refetch: refetchStudents,
     setData: setStudentsCache,
   } = useAppQuery<StudentProfile[]>(
-    schoolId && isAllowed ? `students:${schoolId}` : null,
+    isQueryEnabled ? `students:${schoolId}` : null,
     () => getStudents(schoolId),
-    { enabled: !!schoolId && isAllowed, staleTime: 30_000 }
+    { enabled: isQueryEnabled, staleTime: 30_000 }
   );
 
   const { data: cachedClasses, isLoading: isClassesLoading } = useAppQuery<SchoolClass[]>(
-    schoolId && isAllowed ? `classes:${schoolId}` : null,
+    isQueryEnabled ? `classes:${schoolId}` : null,
     () => getClassesWithSections(schoolId),
-    { enabled: !!schoolId && isAllowed, staleTime: 60_000 }
+    { enabled: isQueryEnabled, staleTime: 60_000 }
   );
 
   const { data: cachedLimit, refetch: refetchLimit } = useAppQuery<PlanLimitCheckResult>(
-    schoolId ? `planLimit:${schoolId}:students` : null,
+    !authLoading && !!firebaseUser && !!schoolId ? `planLimit:${schoolId}:students` : null,
     () => checkPlanLimit(schoolId, "students"),
-    { enabled: !!schoolId, staleTime: 30_000 }
+    { enabled: !authLoading && !!firebaseUser && !!schoolId, staleTime: 30_000 }
   );
 
   const students = useMemo(() => cachedStudents || [], [cachedStudents]);
@@ -626,12 +627,12 @@ export default function AdminStudentsPage() {
       const q = debouncedSearch.toLowerCase().trim();
       const matchesSearch =
         !q ||
-        s.name?.toLowerCase().includes(q) ||
-        (s.studentId && s.studentId.toLowerCase().includes(q)) ||
-        s.admissionNumber?.toLowerCase().includes(q) ||
-        s.email?.toLowerCase().includes(q) ||
-        (s.rollNumber !== undefined && s.rollNumber.toString() === q) ||
-        (s.phone && s.phone.toLowerCase().includes(q));
+        (s.name ? String(s.name).toLowerCase().includes(q) : false) ||
+        (s.studentId !== undefined && s.studentId !== null && String(s.studentId).toLowerCase().includes(q)) ||
+        (s.admissionNumber ? String(s.admissionNumber).toLowerCase().includes(q) : false) ||
+        (s.email ? String(s.email).toLowerCase().includes(q) : false) ||
+        (s.rollNumber !== undefined && s.rollNumber !== null && String(s.rollNumber) === q) ||
+        (s.phone ? String(s.phone).toLowerCase().includes(q) : false);
 
       const matchesClass =
         selectedClassFilter === "all"
@@ -647,13 +648,13 @@ export default function AdminStudentsPage() {
               (sec) => sec.id === selectedSectionFilter && isMatchingSection(s.sectionName, sec.name)
             );
 
-      const sStatus = (s.status || "active").toLowerCase();
+      const sStatus = (s.status ? String(s.status) : "active").toLowerCase();
       const matchesStatus =
         statusFilter === "all"
           ? sStatus !== "deleted" && sStatus !== "archived"
           : statusFilter === "deleted" || statusFilter === "archived"
           ? sStatus === "deleted" || sStatus === "archived"
-          : sStatus === statusFilter.toLowerCase();
+          : sStatus === String(statusFilter).toLowerCase();
 
       return matchesSearch && matchesClass && matchesSection && matchesStatus;
     });

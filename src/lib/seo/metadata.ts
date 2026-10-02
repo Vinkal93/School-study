@@ -6,6 +6,7 @@ export interface ConstructMetadataOptions {
   description?: string;
   image?: string;
   canonicalUrl?: string;
+  keywords?: string[];
   noIndex?: boolean;
 }
 
@@ -52,23 +53,35 @@ export function normalizeTitle(rawTitle?: string): string {
 
 /**
  * Constructs robust, consistent Next.js Metadata objects.
+ * Built for 100% technical SEO, author entity linking, and AI bot discovery.
  */
 export function constructMetadata({
   title,
   description = siteConfig.defaultDescription,
   image = siteConfig.defaultOgImage,
   canonicalUrl,
+  keywords = [],
   noIndex = false,
 }: ConstructMetadataOptions = {}): Metadata {
   const pageTitle = normalizeTitle(title);
+  
+  // Merge page-specific keywords with global brand & creator keywords (deduped)
+  const combinedKeywords = Array.from(new Set([...keywords, ...siteConfig.keywords]));
 
   return {
     title: pageTitle,
     description,
-    keywords: siteConfig.keywords,
-    authors: [{ name: "Vinkal Prajapati", url: `${siteConfig.url}/about-developer` }],
-    creator: "Vinkal Prajapati",
+    keywords: combinedKeywords,
+    authors: [
+      { name: siteConfig.developer.name, url: `${siteConfig.url}/about-developer` },
+      { name: "Vinkal", url: siteConfig.developer.portfolioUrl },
+    ],
+    creator: siteConfig.developer.name,
     publisher: siteConfig.name,
+    applicationName: siteConfig.name,
+    generator: "Next.js",
+    category: "Education Technology & School ERP",
+    classification: "Multi-Tenant School Management Software & ERP",
     metadataBase: new URL(siteConfig.url),
     alternates: {
       canonical: canonicalUrl || "/",
@@ -83,7 +96,7 @@ export function constructMetadata({
           url: image,
           width: 1200,
           height: 630,
-          alt: `${siteConfig.name} — Modern School Management Platform`,
+          alt: `${siteConfig.name} — Modern School Management Platform by ${siteConfig.developer.name}`,
           type: "image/png",
         },
       ],
@@ -96,6 +109,7 @@ export function constructMetadata({
       description,
       images: [image],
       creator: "@schoolstudy",
+      site: "@schoolstudy",
     },
     verification: {
       google: siteConfig.googleSiteVerification,
@@ -103,9 +117,11 @@ export function constructMetadata({
     robots: {
       index: !noIndex,
       follow: !noIndex,
+      nocache: false,
       googleBot: {
         index: !noIndex,
         follow: !noIndex,
+        noimageindex: false,
         "max-video-preview": -1,
         "max-image-preview": "large",
         "max-snippet": -1,
@@ -114,11 +130,27 @@ export function constructMetadata({
     icons: {
       icon: [
         { url: "/icon.svg", type: "image/svg+xml" },
+        { url: "/favicon.ico", sizes: "any" },
       ],
       shortcut: "/icon.svg",
       apple: [
         { url: "/icon.svg", type: "image/svg+xml" },
       ],
+    },
+    manifest: "/manifest.json",
+    other: {
+      "author": siteConfig.developer.name,
+      "designer": siteConfig.developer.name,
+      "developer": siteConfig.developer.name,
+      "owner": siteConfig.developer.name,
+      "creator": siteConfig.developer.name,
+      "rating": "General",
+      "distribution": "Global",
+      "revisit-after": "3 days",
+      "ai-content-declaration": "educational-saas",
+      "llms": siteConfig.links.llmsTxt,
+      "apple-mobile-web-app-title": siteConfig.name,
+      "application-name": siteConfig.name,
     },
   };
 }

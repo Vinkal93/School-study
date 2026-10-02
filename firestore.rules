@@ -169,6 +169,22 @@ service cloud.firestore {
     }
 
     // ==========================================
+    // 2b-2. TOP-LEVEL EMPLOYEE ATTENDANCE COLLECTION
+    // ==========================================
+    match /employee_attendance/{recordId} {
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+      );
+      allow create, update: if isAuthenticated() && (
+        isSuperAdmin() ||
+        isSchoolAdmin(request.resource.data.get('schoolId', ''))
+      );
+      allow delete: if isSuperAdmin();
+    }
+
+
+    // ==========================================
     // 2c. TOP-LEVEL NOTICES COLLECTION
     // ==========================================
     match /notices/{noticeId} {
