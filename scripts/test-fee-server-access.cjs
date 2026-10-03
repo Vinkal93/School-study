@@ -1,10 +1,11 @@
 const fs = require('node:fs'), vm = require('node:vm'), assert = require('node:assert/strict'), ts = require('typescript');
-let configured = false, tokenValid = true, role = 'school_admin', configuredDb = null, lookups = 0;
+let configured = false, tokenValid = true, role = 'school_admin', configuredDb = null, lookups = 0, planAllowed = true;
 const database = {};
 const mocks = {
   'next/server': { NextResponse: { json: (body, options) => ({ body, status: options?.status || 200 }) } },
   '@/lib/firebase/admin': { getSafeAdminAuth: () => configured ? { verifyIdToken: async token => { if (!tokenValid || token !== 'signed-token') throw Error('Invalid'); } } : null, getSafeAdminDb: () => configured ? database : null },
   '@/lib/auth/serverAuth': { authenticateRequest: async () => { lookups++; return { isAuthenticated: true, user: { role, schoolId: 'own-school' } }; } },
+  '@/lib/billing/featureAccess': {requireFeatureAccess:async()=>{if(!planAllowed)throw Error('Plan expired');}},
   './firestore': { configureFeeServerDatabase: db => { configuredDb = db; } },
 };
 const exportsObject = {};
@@ -25,5 +26,7 @@ const request = token => ({ headers: new Headers(token ? { authorization: 'Beare
   const result = await exportsObject.requireFeeAccess(request('signed-token'));
   assert.equal(result.user.schoolId,'own-school');
   assert.equal(configuredDb,database);
-  console.log('PASS 5 fee-server configuration/authentication scenarios (isolated mocks).');
+  planAllowed=false;
+  assert.equal((await exportsObject.requireFeeAccess(request('signed-token'))).errorResponse.status,403);
+  console.log('PASS 6 fee-server configuration/authentication scenarios (isolated mocks).');
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -206,7 +206,8 @@ service cloud.firestore {
     // 3. SUBSCRIPTIONS, ORDERS & INVOICES
     // ==========================================
     match /schoolSubscriptions/{schoolId} {
-      allow read, write: if true;
+      allow read: if isSuperAdmin() || isSchoolMember(schoolId);
+      allow write: if isSuperAdmin();
 
       match /history/{historyId} {
         allow read, write: if true;
@@ -495,7 +496,8 @@ service cloud.firestore {
     }
 
     match /schoolSubscriptions/{schoolId} {
-      allow read, write: if true;
+      allow read: if isSuperAdmin() || isSchoolMember(schoolId);
+      allow write: if isSuperAdmin();
     }
 
     match /schoolUsage/{schoolId} {
@@ -503,15 +505,18 @@ service cloud.firestore {
     }
 
     match /payments/{paymentId} {
-      allow read, write: if true;
+      allow read: if isSuperAdmin() || isSchoolMember(resource.data.get('schoolId', ''));
+      allow write: if isSuperAdmin();
     }
 
     match /invoices/{invoiceId} {
-      allow read, write: if true;
+      allow read: if isSuperAdmin() || isSchoolMember(resource.data.get('schoolId', ''));
+      allow write: if isSuperAdmin();
     }
 
     match /orders/{orderId} {
-      allow read, write: if true;
+      allow read: if isSuperAdmin() || isSchoolMember(resource.data.get('schoolId', ''));
+      allow write: if isSuperAdmin();
     }
 
     match /subscriptionNotifications/{id} {

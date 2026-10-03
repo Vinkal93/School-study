@@ -14,8 +14,10 @@ import { BILLING_COLLECTIONS, getActivePlanVersion } from "./plans";
 import { createBillingAuditLog } from "./audit";
 import type { Plan, PlanVersion } from "@/types";
 
-function getAdminDbServerOnly(): any {
-  return null;
+async function getAdminDbServerOnly(): Promise<any> {
+  if (typeof window !== "undefined") return null;
+  const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+  return getSafeAdminDb();
 }
 
 export interface BillingGstSettings {
@@ -53,6 +55,7 @@ export interface CouponValidationResult {
 }
 
 export interface PricingCalculationResult {
+  planVersionId: string;
   planId: string;
   planName: string;
   billingCycle: "monthly" | "annual";
@@ -82,9 +85,9 @@ export const COUPONS_COLLECTION = "coupons";
  * Default GST configuration fallback if not set in DB.
  */
 export const DEFAULT_GST_SETTINGS: BillingGstSettings = {
-  gstEnabled: true,
-  gstPercentage: 18,
-  gstin: "29AAAAA0000A1Z5",
+  gstEnabled: false,
+  gstPercentage: 0,
+  gstin: "",
   updatedAt: new Date().toISOString(),
 };
 
@@ -230,41 +233,6 @@ export async function getCouponByCode(code: string): Promise<Coupon | null> {
     }
   } catch (err) {
     console.warn("getCouponByCode notice:", err);
-  }
-
-  // Built-in default fallback coupons if Firestore coupons not yet seeded
-  if (cleanCode === "SAVE20" || cleanCode === "WELCOME20") {
-    return {
-      id: `cpn_${cleanCode}`,
-      code: cleanCode,
-      description: "20% off promotional coupon",
-      discountType: "percentage",
-      discountValue: 20,
-      validFrom: "2026-01-01T00:00:00.000Z",
-      validUntil: "2030-12-31T23:59:59.000Z",
-      usageLimit: -1,
-      usedCount: 0,
-      minOrderAmountPaise: 0,
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-  } else if (cleanCode === "FLAT500") {
-    return {
-      id: "cpn_FLAT500",
-      code: "FLAT500",
-      description: "₹500 flat discount",
-      discountType: "fixed",
-      discountValue: 50000,
-      validFrom: "2026-01-01T00:00:00.000Z",
-      validUntil: "2030-12-31T23:59:59.000Z",
-      usageLimit: -1,
-      usedCount: 0,
-      minOrderAmountPaise: 0,
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
   }
 
   return null;
@@ -468,6 +436,8 @@ export async function validateCouponForOrder(
   const validFromTime = new Date(coupon.validFrom).getTime();
   const validUntilTime = new Date(coupon.validUntil).getTime();
 
+  if (!Number.isFinite(validFromTime) || !Number.isFinite(validUntilTime) || !Number.isFinite(coupon.discountValue) || coupon.discountValue < 0 || (coupon.discountType === "percentage" && coupon.discountValue > 100) || (coupon.discountType === "fixed" && !Number.isSafeInteger(coupon.discountValue))) return {isValid:false,code:cleanCode,error:"Invalid coupon configuration.",discountPaise:0};
+
   if (now < validFromTime) {
     return { isValid: false, code: cleanCode, error: `Coupon code "${cleanCode}" is not active yet.`, discountPaise: 0 };
   }
@@ -492,7 +462,7 @@ export async function validateCouponForOrder(
 
   if (Array.isArray(coupon.applicablePlanIds) && coupon.applicablePlanIds.length > 0) {
     const cleanPlan = planId.toLowerCase();
-    const isApplicable = coupon.applicablePlanIds.some((p) => p.toLowerCase() === cleanPlan || cleanPlan.includes(p.toLowerCase()));
+    const isApplicable = coupon.applicablePlanIds.some((p) => p.toLowerCase() === cleanPlan);
     if (!isApplicable) {
       return { isValid: false, code: cleanCode, error: `Coupon code "${cleanCode}" is not applicable to the selected plan.`, discountPaise: 0 };
     }
@@ -570,66 +540,24 @@ export async function calculateServerBillingPrice({
     } catch (err) {}
   }
 
-  // Fallback defaults for standard plans if catalog not yet seeded
-  const cleanId = planId.toLowerCase();
-  if (!planData || !planVersion) {
-    if (cleanId.includes("base")) {
-      planData = { id: "plan_base", name: "Base Plan", slug: "base", description: "", status: "ACTIVE", displayOrder: 0, isPopular: false, features: [], limits: { maxStudents: 500, maxTeachers: 20, maxClasses: 15, maxStaffAccounts: 2 }, createdAt: "", updatedAt: "" };
-      planVersion = { id: "plan_base_v1", planId: "plan_base", version: 1, monthlyPrice: 39900, annualPrice: 29900, currency: "INR", features: [], limits: planData.limits, effectiveFrom: "", effectiveUntil: null, status: "ACTIVE", createdAt: "" };
-    } else if (cleanId.includes("starter")) {
-      planData = { id: "plan_starter", name: "Starter Plan", slug: "starter", description: "", status: "ACTIVE", displayOrder: 1, isPopular: false, features: [], limits: { maxStudents: 500, maxTeachers: 20, maxClasses: 15, maxStaffAccounts: 2 }, createdAt: "", updatedAt: "" };
-      planVersion = { id: "plan_starter_v1", planId: "plan_starter", version: 1, monthlyPrice: 99900, annualPrice: 79900, currency: "INR", features: [], limits: planData.limits, effectiveFrom: "", effectiveUntil: null, status: "ACTIVE", createdAt: "" };
-    } else if (cleanId.includes("growth")) {
-      planData = { id: "plan_growth", name: "Growth Plan", slug: "growth", description: "", status: "ACTIVE", displayOrder: 2, isPopular: false, features: [], limits: { maxStudents: 1500, maxTeachers: 60, maxClasses: 40, maxStaffAccounts: 6 }, createdAt: "", updatedAt: "" };
-      planVersion = { id: "plan_growth_v1", planId: "plan_growth", version: 1, monthlyPrice: 149900, annualPrice: 119900, currency: "INR", features: [], limits: planData.limits, effectiveFrom: "", effectiveUntil: null, status: "ACTIVE", createdAt: "" };
-    } else if (cleanId.includes("professional")) {
-      planData = { id: "plan_professional", name: "Professional Plan", slug: "professional", description: "", status: "ACTIVE", displayOrder: 3, isPopular: true, features: [], limits: { maxStudents: 2000, maxTeachers: 100, maxClasses: 60, maxStaffAccounts: 10 }, createdAt: "", updatedAt: "" };
-      planVersion = { id: "plan_professional_v1", planId: "plan_professional", version: 1, monthlyPrice: 199900, annualPrice: 159900, currency: "INR", features: [], limits: planData.limits, effectiveFrom: "", effectiveUntil: null, status: "ACTIVE", createdAt: "" };
-    } else {
-      planData = { id: "plan_enterprise", name: "Enterprise Plan", slug: "enterprise", description: "", status: "ACTIVE", displayOrder: 4, isPopular: false, features: [], limits: { maxStudents: -1, maxTeachers: -1, maxClasses: -1, maxStaffAccounts: -1 }, createdAt: "", updatedAt: "" };
-      planVersion = { id: "plan_enterprise_v1", planId: "plan_enterprise", version: 1, monthlyPrice: 499900, annualPrice: 399900, currency: "INR", features: [], limits: planData.limits, effectiveFrom: "", effectiveUntil: null, status: "ACTIVE", createdAt: "" };
-    }
-  }
-
-  // Ensure positive price fallback for any paid plan if monthlyPrice / annualPrice in DB is 0 or null
-  const isFreePlan = cleanId.includes("free") || (planData?.slug === "free");
-  if (!isFreePlan && planVersion) {
-    const defaultPricing: Record<string, { monthly: number; annual: number }> = {
-      base: { monthly: 39900, annual: 29900 },
-      starter: { monthly: 99900, annual: 79900 },
-      growth: { monthly: 149900, annual: 119900 },
-      professional: { monthly: 199900, annual: 159900 },
-      enterprise: { monthly: 499900, annual: 399900 },
-    };
-    let tierPrices = defaultPricing.starter;
-    for (const [tier, p] of Object.entries(defaultPricing)) {
-      if (cleanId.includes(tier)) {
-        tierPrices = p;
-        break;
-      }
-    }
-
-    if (!planVersion.monthlyPrice || planVersion.monthlyPrice <= 0) {
-      planVersion.monthlyPrice = tierPrices.monthly;
-    }
-    if (!planVersion.annualPrice || planVersion.annualPrice <= 0) {
-      planVersion.annualPrice = tierPrices.annual;
-    }
-  }
+  if (!planData || !planVersion || planData.status !== "ACTIVE") throw new Error("Selected plan is unavailable.");
+  const isFreePlan = planVersion.monthlyPrice === 0 && planVersion.annualPrice === 0;
+  if (![planVersion.monthlyPrice, planVersion.annualPrice].every(value => Number.isSafeInteger(value) && value >= 0)) throw new Error("Plan prices must be non-negative integer paise.");
 
   // 1. Calculate Base Amount in Integer Paise
   let baseAmountPaise = isFreePlan
     ? 0
     : normalizedCycle === "annual"
-    ? (planVersion.annualPrice || 79900) * 12
-    : (planVersion.monthlyPrice || 99900);
+    ? planVersion.annualPrice * 12
+    : planVersion.monthlyPrice;
 
-  if (typeof customOfferPricePaise === "number" && customOfferPricePaise > 0) {
+  if (typeof customOfferPricePaise === "number" && customOfferPricePaise >= 0) {
     baseAmountPaise = customOfferPricePaise;
   }
 
   // 2. Coupon Validation & Discount
   const couponRes = await validateCouponForOrder(couponCode, planData.id, normalizedCycle, baseAmountPaise);
+  if (couponCode && !couponRes.isValid) throw new Error(couponRes.error || "Coupon is not valid.");
   const couponDiscountPaise = couponRes.isValid ? couponRes.discountPaise : 0;
   const discountAmountPaise = couponDiscountPaise;
 
@@ -645,6 +573,7 @@ export async function calculateServerBillingPrice({
   const finalAmountPaise = taxableAmountPaise + gstAmountPaise;
 
   return {
+    planVersionId: planVersion.id,
     planId: planData.id,
     planName: planData.name,
     billingCycle: normalizedCycle,

@@ -17,7 +17,7 @@ import {
   type Timestamp,
 } from "firebase/firestore";
 import { initializeApp, getApps, deleteApp } from "firebase/app";
-import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
+import { getAuth, createUserWithEmailAndPassword, signOut, deleteUser } from "firebase/auth";
 import { getFirebaseDb, getFirebaseAuth } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/utils/constants";
 import { firebaseClientConfig } from "@/lib/firebase/config";
@@ -240,12 +240,23 @@ export async function getStudentsByClassAndSection(
 export async function createStudentWithAuth(
   schoolId: string,
   input: CreateStudentInput
-): Promise<{ studentId: string; userId: string; admissionNumber: string; rollNumber: number }> {
+): Promise<{ studentId: string; userId: string; admissionNumber: string; rollNumber: number; feeSetupPending?: boolean }> {
   const db = getFirebaseDb();
+  if (!db || !schoolId || schoolId === "system") throw new Error("A school database is required.");
+  let academicYearId = input.academicYearId;
+  if (!academicYearId || ["all", "ay_current", "current"].includes(academicYearId)) {
+    const years = await getDocs(collection(db, "schools", schoolId, "academicYears"));
+    const current = years.docs.filter(d => d.data().isCurrent === true);
+    if (current.length !== 1) throw new Error("Select one current academic session before admission.");
+    academicYearId = current[0].id;
+  }
+  const [year, classroom] = await Promise.all([getDoc(doc(db,"schools",schoolId,"academicYears",academicYearId)), getDoc(doc(db,"schools",schoolId,"classes",input.classId))]);
+  if (!year.exists() || !classroom.exists()) throw new Error("Admission class and academic session must belong to this school.");
+  if (!input.name?.trim() || !input.email?.trim() || input.password?.length < 6) throw new Error("Student name, email and a password of at least six characters are required.");
 
   // 1. Authoritative Backend Check: Feature Access & Plan Limit
   await requireFeatureAccess(schoolId, "student_management");
-  await requirePlanLimit(schoolId, "students");
+  const admissionLimit = await requirePlanLimit(schoolId, "students");
 
   // 2. Authoritative Unique User ID (e.g. STU564534)
   const { generateAuthoritativeId, reserveUserIdentity } = await import("./identity.service");
@@ -255,7 +266,7 @@ export async function createStudentWithAuth(
     : autoStudentId;
 
   // 3. Class-wise Sequential Roll Number (1, 2, 3...)
-  const assignedRoll = (typeof input.rollNumber === "number" && input.rollNumber > 0)
+  let assignedRoll = (typeof input.rollNumber === "number" && input.rollNumber > 0)
     ? input.rollNumber
     : await generateNextRollNumber(schoolId, input.classId);
 
@@ -278,6 +289,8 @@ export async function createStudentWithAuth(
   const secondaryAuth = getAuth(secondaryApp);
 
   let userId = "";
+  let createdAuthUser: import("firebase/auth").User | undefined;
+  let admissionCommitted = false;
   try {
     const userCredential = await createUserWithEmailAndPassword(
       secondaryAuth,
@@ -285,24 +298,7 @@ export async function createStudentWithAuth(
       input.password
     );
     userId = userCredential.user.uid;
-    await signOut(secondaryAuth);
-  } catch (authError: any) {
-    if (getApps().some((app) => app.name === secondaryAppName)) {
-      await deleteApp(secondaryApp);
-    }
-    if (authError.code === "auth/email-already-in-use") {
-      throw new Error(`Email "${input.email}" is already registered. Please use another email.`);
-    }
-    if (authError.code === "auth/weak-password") {
-      throw new Error("Password must be at least 6 characters.");
-    }
-    throw new Error(authError.message || "Failed to create student user account.");
-  } finally {
-    if (getApps().some((app) => app.name === secondaryAppName)) {
-      await deleteApp(secondaryApp);
-    }
-  }
-
+    createdAuthUser = userCredential.user;
   // 6. Create Student Document in schools/{schoolId}/students/{studentDocId}
   const studentDocRef = doc(collection(db, "schools", schoolId, "students"));
   const studentDocId = studentDocRef.id;
@@ -330,42 +326,36 @@ export async function createStudentWithAuth(
     bloodGroup: input.bloodGroup || "",
     classId: input.classId,
     className: normalizeClassName(input.className),
-    sectionId: input.sectionId,
+    sectionId: input.sectionId || "",
     sectionName: normalizeSectionName(input.sectionName),
-    academicYearId: input.academicYearId || "ay_current",
+    academicYearId,
     admissionDate: input.admissionDate || new Date().toISOString().split("T")[0],
     status: "active",
     deletedAt: null,
   };
 
-  await setDoc(studentDocRef, {
-    ...studentData,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+  const schoolRef = doc(db,"schools",schoolId);
+  const usageRef = doc(db,"schoolUsage",schoolId);
+  const userDocRef = doc(db,COLLECTIONS.USERS,userId);
+  await runTransaction(db, async tx => {
+    const [school, usage] = await Promise.all([tx.get(schoolRef),tx.get(usageRef)]);
+    if (!school.exists()) throw new Error("School not found.");
+    const current = Math.max(Number(usage.data()?.students || 0), admissionLimit.current);
+    if (admissionLimit.limit !== -1 && current >= admissionLimit.limit) throw new Error("Student capacity reached. Upgrade the plan before admission.");
+    const group = encodeURIComponent(`${academicYearId}_${input.classId}_${input.sectionId || ""}`);
+    const rollReservations = { ...(school.data()?.admissionRollReservations || {}) };
+    const reserved = { ...(rollReservations[group] || {}) };
+    if (input.rollNumber && reserved[String(assignedRoll)]) throw new Error("Roll number was assigned by another admission.");
+    while (reserved[String(assignedRoll)]) assignedRoll++;
+    reserved[String(assignedRoll)] = studentDocId;
+    rollReservations[group] = reserved;
+    tx.update(schoolRef,{admissionRollReservations:rollReservations});
+    tx.set(usageRef,{schoolId,students:current+1,updatedAt:new Date().toISOString()},{merge:true});
+    tx.set(studentDocRef,{...studentData,rollNumber:assignedRoll,createdAt:serverTimestamp(),updatedAt:serverTimestamp()});
+    tx.set(userDocRef,{uid:userId,name:input.name.trim(),email:input.email.trim().toLowerCase(),role:"student",schoolId,userId:cleanAdmNo,studentId:autoStudentId,studentProfileId:studentDocId,admissionNumber:cleanAdmNo,status:"active",createdAt:serverTimestamp(),updatedAt:serverTimestamp()});
   });
-
-  // Dual-write to top-level students collection
-  await setDoc(doc(db, "students", studentDocId), {
-    ...studentData,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  }).catch(() => {});
-
-  // 7. Create User document in users/{userId}
-  const userDocRef = doc(db, COLLECTIONS.USERS, userId);
-  await setDoc(userDocRef, {
-    uid: userId,
-    name: input.name.trim(),
-    email: input.email.trim().toLowerCase(),
-    role: "student",
-    schoolId: schoolId,
-    userId: cleanAdmNo,
-    studentId: autoStudentId,
-    admissionNumber: cleanAdmNo,
-    status: "active",
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  admissionCommitted = true;
+  await setDoc(doc(db,"students",studentDocId),{...studentData,rollNumber:assignedRoll,createdAt:serverTimestamp(),updatedAt:serverTimestamp()}).catch(() => {});
 
   // Register in authoritative unique identity registry
   await reserveUserIdentity(cleanAdmNo, {
@@ -378,25 +368,15 @@ export async function createStudentWithAuth(
     createdAt: new Date().toISOString(),
   }).catch((e) => console.warn("Identity reservation notice:", e?.message));
 
-  // 8. Atomically increment school usage counter
-  await incrementSchoolUsage(schoolId, "students", 1);
-
-  // 9. Automatically provision Student Fee Assignment based on class fee structure & admission date
+  let feeSetupPending = false;
   try {
-    await provisionStudentFeeAssignment(
-      schoolId,
-      {
-        id: studentDocId,
-        name: input.name.trim(),
-        admissionNumber: cleanAdmNo,
-        className: input.className,
-        sectionName: input.sectionName,
-        admissionDate: input.admissionDate || new Date().toISOString().split("T")[0],
-      },
-      input.academicYearId || "ay_current"
-    );
-  } catch (feeErr) {
-    console.warn("Automatic fee assignment notice (non-fatal):", feeErr);
+    const { feeFetch } = await import("@/lib/fees/client-request");
+    const response = await feeFetch("/api/fees/foundation/demands", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({schoolId,studentId:studentDocId,academicYearId}) });
+    const result = await response.json();
+    if (!response.ok || !result.success) throw new Error(result.error || "Invoice setup failed.");
+  } catch (error) {
+    feeSetupPending = true;
+    console.warn("Admission saved; invoice generation must be retried from Generate Invoice:",error);
   }
 
   return {
@@ -404,7 +384,16 @@ export async function createStudentWithAuth(
     userId,
     admissionNumber: cleanAdmNo,
     rollNumber: assignedRoll,
+    feeSetupPending,
   };
+  } catch (error) {
+    if (createdAuthUser && !admissionCommitted) await deleteUser(createdAuthUser).catch(() => console.error("Student Auth rollback failed; administrator review is required."));
+    throw error;
+  } finally {
+    await signOut(secondaryAuth).catch(() => {});
+    if (getApps().some(app => app.name === secondaryAppName)) await deleteApp(secondaryApp).catch(() => {});
+  }
+
 }
 
 /**

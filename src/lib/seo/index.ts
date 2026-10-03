@@ -10,4 +10,5 @@ export {
   getDeveloperProfilePageSchema,
   getFaqSchema,
   getHomepageFaqSchema,
+  getSchoolErpCarouselSchema,
 } from "./schema";

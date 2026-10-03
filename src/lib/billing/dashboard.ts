@@ -1,8 +1,9 @@
+import type { PlanVersion } from "@/types";
 import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { getSchoolSubscription } from "./subscriptions";
 import { getEffectiveEntitlement } from "./entitlement";
-import { getActivePlan, getActivePlanVersion, getAllPlans, DEFAULT_STATIC_PLANS, DEFAULT_STATIC_PLAN_VERSIONS } from "./plans";
+import { getActivePlan, getActivePlanVersion, getAllPlans } from "./plans";
 import { getGlobalAccessPolicy } from "./accessPolicy";
 import { calculateSubscriptionState } from "./accessEngine";
 import type { BillingProfileData } from "@/components/billing/BillingInfoCard";
@@ -18,21 +19,11 @@ export async function getSchoolBillingDashboard(schoolId: string) {
     getActivePlanVersion(subscription.planId), getAllPlans(), getGlobalAccessPolicy(),
   ]);
 
-  const resolvedPlan =
-    plan ||
-    DEFAULT_STATIC_PLANS.find(p => p.id === subscription.planId) ||
-    DEFAULT_STATIC_PLANS.find(p => p.id === "plan_starter") ||
-    DEFAULT_STATIC_PLANS[0];
-
-  const resolvedVersion =
-    planVersion ||
-    DEFAULT_STATIC_PLAN_VERSIONS[subscription.planId] ||
-    (resolvedPlan ? DEFAULT_STATIC_PLAN_VERSIONS[resolvedPlan.id] : null) ||
-    DEFAULT_STATIC_PLAN_VERSIONS["plan_starter"];
-
-  if (!resolvedPlan || !resolvedVersion) throw new Error("Assigned plan or pricing version is unavailable. Contact the school administrator.");
-
-  const effectivePlans = allPlans && allPlans.length > 0 ? allPlans : DEFAULT_STATIC_PLANS;
+  const resolvedPlan = plan;
+  const versionSnap = await getDoc(doc(db, "planVersions", subscription.planVersionId));
+  const resolvedVersion = versionSnap.exists() ? { ...versionSnap.data(), id: versionSnap.id } as PlanVersion : planVersion;
+  if (!resolvedPlan || !resolvedVersion || resolvedVersion.planId !== subscription.planId) throw new Error("Assigned plan or pricing version is unavailable. Contact the school administrator.");
+  const effectivePlans = allPlans;
   const versions = await Promise.all(effectivePlans.map(p => getActivePlanVersion(p.id)));
   const planPrices = Object.fromEntries(versions.filter(v => v !== null).map(v => [v.planId, { monthlyPrice: v.monthlyPrice, annualPrice: v.annualPrice, currency: v.currency || "INR" }]));
   const readDocument = async (name: string) => {

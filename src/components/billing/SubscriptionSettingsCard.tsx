@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Sliders,
   RotateCcw,
@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import type { SchoolSubscription } from "@/types";
 import { toast } from "sonner";
+import { safeFetchJson } from "@/lib/utils/safeFetch";
 
 export interface SubscriptionSettingsCardProps {
   schoolId: string;
@@ -33,18 +34,20 @@ export interface SubscriptionSettingsCardProps {
 export function SubscriptionSettingsCard({
   schoolId,
   subscription,
-  planName = "Professional Plan",
-  nextBillingAmountRupees = 2999,
-  paymentMethodText = "Razorpay Autopay (UPI / Card)",
+  planName = "Assigned plan",
+  nextBillingAmountRupees = 0,
+  paymentMethodText = "Manual renewal",
   onCancel,
   onResume,
   onRefresh,
 }: SubscriptionSettingsCardProps) {
-  const [autoRenew, setAutoRenew] = useState(subscription?.autoRenew ?? true);
+  const [autoRenew, setAutoRenew] = useState(subscription?.autoRenew ?? false);
   const [showAutoRenewModal, setShowAutoRenewModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [togglingAutoRenew, setTogglingAutoRenew] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+
+  useEffect(() => { setAutoRenew(subscription?.autoRenew ?? false); }, [subscription?.autoRenew]);
 
   if (!subscription) return null;
 
@@ -66,15 +69,15 @@ export function SubscriptionSettingsCard({
     const targetState = !autoRenew;
     setTogglingAutoRenew(true);
     try {
-      const res = await fetch("/api/billing/auto-renew", {
+      const res = await safeFetchJson("/api/billing/auto-renew", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ schoolId, autoRenew: targetState }),
       });
-      const json = await res.json();
+      const json = res.data || {};
       if (!res.ok) throw new Error(json.error || "Failed to update auto-renewal.");
 
-      setAutoRenew(targetState);
+      setAutoRenew(Boolean(json.autoRenew));
       toast.success(json.message || "Auto-renewal preference saved.");
       setShowAutoRenewModal(false);
       onRefresh();

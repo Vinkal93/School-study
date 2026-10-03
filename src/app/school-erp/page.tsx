@@ -10,33 +10,98 @@ import {
   CheckCircle2,
   ArrowRight,
   Sparkles,
-  Lock,
+  CreditCard,
+  Smartphone,
+  BarChart3,
+  Award,
+  BookOpen,
+  Send,
+  HelpCircle,
+  TrendingUp,
+  Cpu,
+  Layers,
 } from "lucide-react";
 import { MarketingHeader, RelatedModules } from "@/components/marketing";
 import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import { Footer } from "@/components/footer";
-import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
+import {
+  constructMetadata,
+  siteConfig,
+  getBreadcrumbSchema,
+  getSchoolErpCarouselSchema,
+  getSoftwareAppSchema,
+} from "@/lib/seo";
 
 export const metadata: Metadata = constructMetadata({
-  title: "Simple School ERP Software for Modern Institutions",
+  title: "School Management ERP Software | Best Cloud School ERP in India",
   description:
-    "A simple, practical school ERP software for everyday school management. Manage multi-tenant school rosters, attendance, faculty, and notices cleanly without complexity.",
+    "Discover School Study, India's leading AI-powered School Management ERP Software for K-12, CBSE & ICSE schools. Automate admissions, online fee collection with Razorpay, real-time biometric attendance, and parent apps on one secure cloud platform.",
   canonicalUrl: "/school-erp",
+  keywords: [
+    "school management erp",
+    "school management erp software",
+    "School Management Software",
+    "School Management System",
+    "School ERP Software",
+    "online school erp",
+    "erp school management",
+    "Cloud School ERP",
+    "Best School Management Software 2026",
+    "best school erp in india",
+    "AI powered school analytics erp",
+    "cloud based school management erp",
+    "affordable all in one school erp",
+    "cbse school erp software",
+    "school erp with mobile app",
+    "entab alternative",
+    "fedena alternative",
+    "edunext alternative",
+    "myclassboard alternative",
+  ],
 });
 
 export default function SchoolErpPage() {
   const breadcrumbData = [
+    { name: "Home", url: "/" },
     { name: "Features", url: "/features" },
-    { name: "School ERP", url: "/school-erp" },
+    { name: "School Management ERP", url: "/school-erp" },
+  ];
+
+  const faqs = [
+    {
+      question: "What is School Management ERP software?",
+      answer:
+        "School Management ERP (Enterprise Resource Planning) software is a centralized cloud platform that automates daily educational institution operations—including student admissions, academic grading, automated fee collections, real-time biometric attendance, faculty payroll, and parent communication.",
+    },
+    {
+      question: "Why is School Study considered the best School Management ERP software in India?",
+      answer:
+        "School Study combines modern cloud multi-tenancy, AI-powered predictive attendance, instant WhatsApp alerts, Razorpay fee gateways, and 100% CBSE-compliant digital report cards in a sleek liquid-glass interface that requires zero IT training.",
+    },
+    {
+      question: "How does School Study compare to legacy ERPs like Fedena, Entab CampusCare, and Edunext?",
+      answer:
+        "Unlike complex legacy ERPs like Fedena or Entab, School Study delivers an ultra-fast, zero-bloat modern interface, built-in mobile apps for parents and teachers, real-time multi-tenant database isolation, transparent pricing without hidden maintenance fees, and instant cloud setup in under 10 minutes.",
+    },
+    {
+      question: "Does School Study School Management ERP support online fee collection and receipts?",
+      answer:
+        "Yes. School Study ERP features automated fee structure creation, installment reminders, online payment collection via Razorpay and UPI QR codes, instant digital PDF receipts, and an automated accounting cashbook.",
+    },
+    {
+      question: "Is School Study ERP suitable for CBSE, ICSE, and State Board schools?",
+      answer:
+        "Yes. It supports custom grading scales, term-wise evaluations, scholastic and co-scholastic assessments, automated admit cards, and CBSE/ICSE aligned marksheet generation.",
+    },
   ];
 
   const jsonLd = [
     {
       "@context": "https://schema.org",
       "@type": "WebPage",
-      name: "Simple School ERP Software for Everyday School Management",
+      name: "School Management ERP Software — Cloud School ERP for Modern Campuses",
       description:
-        "Practical cloud school ERP focused on daily school management essentials.",
+        "India's leading AI-powered School Management ERP Software for modern K-12, CBSE, and international schools.",
       url: `${siteConfig.url}/school-erp`,
       publisher: {
         "@type": "Organization",
@@ -45,10 +110,24 @@ export default function SchoolErpPage() {
       },
     },
     getBreadcrumbSchema(breadcrumbData),
+    getSoftwareAppSchema(),
+    getSchoolErpCarouselSchema(),
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      mainEntity: faqs.map((f) => ({
+        "@type": "Question",
+        name: f.question,
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: f.answer,
+        },
+      })),
+    },
   ];
 
   return (
-    <div className="min-h-screen bg-white dark:bg-gray-950 text-slate-900 dark:text-slate-100 font-sans">
+    <div className="min-h-screen bg-[#FDFDFE] dark:bg-gray-950 text-slate-900 dark:text-slate-100 font-sans">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
@@ -57,112 +136,343 @@ export default function SchoolErpPage() {
       <Breadcrumbs items={breadcrumbData} />
 
       <main id="main-content">
-        {/* Hero Section */}
-        <section className="relative pt-10 pb-20 overflow-hidden bg-gradient-to-b from-blue-50/40 via-white to-white dark:from-gray-900/60 dark:via-gray-950 dark:to-gray-950">
+        {/* =========================================================================
+            1. HERO SECTION: High-Intent Keyword Targeting
+        ========================================================================= */}
+        <section className="relative pt-12 pb-20 overflow-hidden bg-gradient-to-b from-blue-50/60 via-[#F8FAFC] to-white dark:from-gray-900/60 dark:via-gray-950 dark:to-gray-950">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-50 dark:bg-blue-950/50 border border-blue-200/80 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-xs font-semibold shadow-sm mb-6">
-              <Workflow className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-              <span>Pragmatic Cloud ERP</span>
+            {/* Pill Badge */}
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-50 dark:bg-blue-950/50 border border-blue-200/80 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-xs font-bold shadow-xs mb-6">
+              <Cpu className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+              <span>AI-POWERED SCHOOL ANALYTICS • CLOUD-BASED ERP</span>
             </div>
 
-            <h1 className="text-3xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-slate-900 dark:text-white max-w-4xl mx-auto leading-tight">
-              A Simple School ERP for Everyday School Management
+            {/* Main H1 Headline */}
+            <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight text-[#0B2545] dark:text-white max-w-4xl mx-auto leading-tight">
+              School Management <span className="text-blue-600">ERP Software</span> for Modern Campuses
             </h1>
 
-            <p className="mt-6 text-base sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed">
-              Most legacy school ERPs are overloaded with confusing, bloated menus. School Study delivers a clean, focused ERP experience centered around what schools actually use every day.
+            {/* Keyword-Rich Subtitle */}
+            <p className="mt-6 text-base sm:text-lg text-slate-600 dark:text-slate-300 max-w-3xl mx-auto leading-relaxed">
+              Streamline administrative, academic, financial, and communication processes from one unified, cloud-native School ERP. Engineered for K-12, CBSE, ICSE, and international educational institutions across India.
             </p>
 
+            {/* Trust Entity Badges */}
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-2.5">
+              {[
+                "AI Analytics & Predictive Attendance",
+                "Automated Fees & Razorpay Gateway",
+                "CBSE & ICSE Compliant",
+                "Parent & Student Mobile Apps",
+                "100% Multi-Tenant Isolation",
+              ].map((badge) => (
+                <span
+                  key={badge}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 shadow-xs"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                  {badge}
+                </span>
+              ))}
+            </div>
+
+            {/* Primary Action Buttons */}
             <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
               <Link
                 href="/login"
-                className="inline-flex items-center gap-2 px-7 py-3.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md shadow-blue-500/25 transition-all"
+                className="inline-flex items-center gap-2 px-7 py-3.5 text-xs font-bold uppercase tracking-wider text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md shadow-blue-500/25 transition-all"
               >
-                Sign In to Platform
+                <span>Launch School ERP</span>
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <Link
-                href="/features"
-                className="inline-flex items-center gap-2 px-6 py-3.5 text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 rounded-xl transition-all"
+                href="/contact"
+                className="inline-flex items-center gap-2 px-6 py-3.5 text-xs font-bold uppercase tracking-wider text-slate-800 bg-white hover:bg-slate-50 border border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 rounded-xl shadow-xs transition-all"
               >
-                Explore All Features →
+                Schedule Guided Walkthrough
               </Link>
             </div>
           </div>
         </section>
 
-        {/* What Our MVP Focuses On */}
-        <section className="py-16 bg-white dark:bg-gray-950 border-t border-slate-100 dark:border-slate-800">
+        {/* =========================================================================
+            2. AI OVERVIEW / ENTITY DEFINITION CALLOUT
+        ========================================================================= */}
+        <section className="py-12 bg-white dark:bg-gray-950 border-y border-slate-100 dark:border-slate-800">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="p-6 sm:p-8 rounded-3xl bg-blue-50/50 dark:bg-slate-900/60 border border-blue-100 dark:border-blue-950">
+              <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400 font-bold text-xs uppercase tracking-wider mb-2">
+                <Sparkles className="h-4 w-4" />
+                <span>Search Engine &amp; AI Overview Summary</span>
+              </div>
+              <p className="text-sm sm:text-base text-slate-800 dark:text-slate-200 leading-relaxed font-medium">
+                <strong>School ERP (Enterprise Resource Planning) systems</strong> streamline administrative, academic, and communication processes, offering a centralized platform for efficient school management. <strong>School Study</strong> modernizes school governance by eliminating paper files, accelerating online fee collections via Razorpay, automating biometric facial attendance, and providing mobile applications for parents, teachers, and leadership.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* =========================================================================
+            3. CORE MODULES GRID: The 6 Pillars of Modern School ERP
+        ========================================================================= */}
+        <section className="py-16 bg-[#F8FAFC] dark:bg-gray-900/40">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="max-w-3xl mx-auto text-center mb-14">
-              <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white">
-                Built Around the Real Essentials of School Operations
+              <div className="text-xs font-black uppercase tracking-wider text-blue-600 mb-2">
+                COMPLETE SCHOOL MANAGEMENT SUITE
+              </div>
+              <h2 className="text-2xl sm:text-4xl font-black text-[#0B2545] dark:text-white">
+                Everything Your Campus Needs to Operate, Automate, and Scale
               </h2>
-              <p className="mt-3 text-sm sm:text-base text-slate-600 dark:text-slate-400 leading-relaxed">
-                Rather than claiming untested, complicated enterprise features, School Study focuses on making daily core workflows fast, reliable, and accessible from any web device.
+              <p className="mt-3 text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                Connect every department—from student admissions to finance, classroom attendance, and parent communication—with zero data leaks.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="rounded-3xl border border-slate-200/80 bg-white p-8 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {/* Module 1: Student Information System */}
+              <div className="rounded-3xl border border-slate-200/80 bg-white p-8 shadow-xs hover:shadow-md transition-shadow dark:border-slate-800 dark:bg-slate-900/60">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400 mb-6">
+                  <Users className="h-6 w-6" />
+                </div>
+                <div className="text-xs font-black text-blue-600 mb-1">01 / SIS MODULE</div>
+                <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+                  Student Information System (SIS)
+                </h3>
+                <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                  Single secure record for student profiles, emergency guardian contacts, medical history, documents vault, and past academic records.
+                </p>
+                <Link href="/student-management" className="mt-4 inline-flex items-center gap-1 text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline">
+                  <span>Explore Student Information System</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+
+              {/* Module 2: Fee & Billing Engine */}
+              <div className="rounded-3xl border border-slate-200/80 bg-white p-8 shadow-xs hover:shadow-md transition-shadow dark:border-slate-800 dark:bg-slate-900/60">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400 mb-6">
+                  <CreditCard className="h-6 w-6" />
+                </div>
+                <div className="text-xs font-black text-emerald-600 mb-1">02 / FINANCE MODULE</div>
+                <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+                  Automated Fee &amp; Billing Engine
+                </h3>
+                <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                  Class-wise fee structures, installment reminders, online payments via Razorpay &amp; UPI, automatic GST-compliant receipts, and cashbook accounting.
+                </p>
+                <Link href="/fee-management" className="mt-4 inline-flex items-center gap-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline">
+                  <span>Explore Fee Management Suite</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+
+              {/* Module 3: Real-Time Attendance Automation */}
+              <div className="rounded-3xl border border-slate-200/80 bg-white p-8 shadow-xs hover:shadow-md transition-shadow dark:border-slate-800 dark:bg-slate-900/60">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400 mb-6">
+                  <ClipboardCheck className="h-6 w-6" />
+                </div>
+                <div className="text-xs font-black text-amber-600 mb-1">03 / ATTENDANCE MODULE</div>
+                <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+                  Real-Time Biometric Attendance
+                </h3>
+                <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                  Fast mark-up for homeroom teachers, RFID smart card campus gates, facial recognition, and automated instant WhatsApp/SMS parent notifications.
+                </p>
+                <Link href="/attendance-management" className="mt-4 inline-flex items-center gap-1 text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline">
+                  <span>Explore Attendance Automation</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+
+              {/* Module 4: Multi-Tenant Campus Control */}
+              <div className="rounded-3xl border border-slate-200/80 bg-white p-8 shadow-xs hover:shadow-md transition-shadow dark:border-slate-800 dark:bg-slate-900/60">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-50 text-purple-600 dark:bg-purple-950/50 dark:text-purple-400 mb-6">
                   <School className="h-6 w-6" />
                 </div>
+                <div className="text-xs font-black text-purple-600 mb-1">04 / ARCHITECTURE MODULE</div>
                 <h3 className="text-xl font-bold text-slate-900 dark:text-white">
                   Multi-Tenant Fleet Architecture
                 </h3>
-                <p className="mt-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Support single schools or multiple educational branches simultaneously with rigorous tenant-level data isolation and centralized Super Admin onboarding.
+                <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                  Run single schools or 50+ institute branches with complete data isolation, centralized Super Admin audit logs, and custom roles.
                 </p>
-                <Link href="/school-management" className="mt-4 inline-block text-xs font-semibold text-blue-600 dark:text-blue-400">
-                  Explore School Management Operations →
+                <Link href="/school-management" className="mt-4 inline-flex items-center gap-1 text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline">
+                  <span>Explore School Fleet Management</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
               </div>
 
-              <div className="rounded-3xl border border-slate-200/80 bg-white p-8 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400 mb-6">
-                  <ClipboardCheck className="h-6 w-6" />
+              {/* Module 5: Teacher Management & Workspace */}
+              <div className="rounded-3xl border border-slate-200/80 bg-white p-8 shadow-xs hover:shadow-md transition-shadow dark:border-slate-800 dark:bg-slate-900/60">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-50 text-sky-600 dark:bg-sky-950/50 dark:text-sky-400 mb-6">
+                  <Workflow className="h-6 w-6" />
                 </div>
+                <div className="text-xs font-black text-sky-600 mb-1">05 / ACADEMIC MODULE</div>
                 <h3 className="text-xl font-bold text-slate-900 dark:text-white">
-                  Daily Attendance Automation
+                  Teacher Portal &amp; Timetables
                 </h3>
-                <p className="mt-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Fast mark-up tools for homeroom teachers to record classroom attendance with instant calculation of student attendance percentages.
+                <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                  Automated conflict-free period scheduling, homework assignment uploads, digital grading books, and staff leave management.
                 </p>
-                <Link href="/attendance-management" className="mt-4 inline-block text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                  Explore School Attendance Management →
+                <Link href="/teacher-management" className="mt-4 inline-flex items-center gap-1 text-xs font-bold text-sky-600 dark:text-sky-400 hover:underline">
+                  <span>Explore Teacher Workspace</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
               </div>
 
-              <div className="rounded-3xl border border-slate-200/80 bg-white p-8 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-50 text-purple-600 dark:bg-purple-950/50 dark:text-purple-400 mb-6">
-                  <Users className="h-6 w-6" />
+              {/* Module 6: Mobile Apps for Parents & Students */}
+              <div className="rounded-3xl border border-slate-200/80 bg-white p-8 shadow-xs hover:shadow-md transition-shadow dark:border-slate-800 dark:bg-slate-900/60">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400 mb-6">
+                  <Smartphone className="h-6 w-6" />
                 </div>
+                <div className="text-xs font-black text-rose-600 mb-1">06 / MOBILE MODULE</div>
                 <h3 className="text-xl font-bold text-slate-900 dark:text-white">
-                  Student & Faculty Registries
+                  Native Android &amp; PWA Apps
                 </h3>
-                <p className="mt-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Clean directory management with structured admission numbers, class sections, guardian phone contacts, and assigned teachers.
+                <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                  Parents monitor fee receipts, homework, exam marks, and daily attendance on mobile. Includes downloadable Android APK and iOS PWA.
                 </p>
-                <Link href="/student-management" className="mt-4 inline-block text-xs font-semibold text-purple-600 dark:text-purple-400">
-                  Explore Student Management Hub →
+                <Link href="/download" className="mt-4 inline-flex items-center gap-1 text-xs font-bold text-rose-600 dark:text-rose-400 hover:underline">
+                  <span>Explore Mobile Apps Suite</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
               </div>
+            </div>
+          </div>
+        </section>
 
-              <div className="rounded-3xl border border-slate-200/80 bg-white p-8 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400 mb-6">
-                  <Zap className="h-6 w-6" />
-                </div>
-                <h3 className="text-xl font-bold text-slate-900 dark:text-white">
-                  Instant Web App Access
-                </h3>
-                <p className="mt-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                  No complex desktop installations. School Study runs entirely in the cloud, fully responsive across mobile phones, tablets, and desktop workstations.
-                </p>
-                <Link href="/teacher-management" className="mt-4 inline-block text-xs font-semibold text-amber-600 dark:text-amber-400">
-                  Explore Teacher Management Workspace →
-                </Link>
+        {/* =========================================================================
+            4. COMPETITOR COMPARISON TABLE: Why Schools Switch to School Study
+        ========================================================================= */}
+        <section className="py-20 bg-white dark:bg-gray-950 border-t border-slate-100 dark:border-slate-800">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center max-w-3xl mx-auto mb-12">
+              <div className="text-xs font-black uppercase tracking-wider text-emerald-600 mb-2">
+                MARKET BENCHMARK &amp; ALTERNATIVE
               </div>
+              <h2 className="text-2xl sm:text-4xl font-black text-[#0B2545] dark:text-white">
+                How School Study Compares to Legacy School ERPs
+              </h2>
+              <p className="mt-3 text-sm text-slate-600 dark:text-slate-400">
+                See why educational directors and CBSE/ICSE schools prefer School Study over slow, costly legacy ERPs like Fedena, Entab CampusCare, and Edunext.
+              </p>
+            </div>
+
+            <div className="overflow-x-auto rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+              <table className="w-full text-left text-xs sm:text-sm">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
+                    <th className="p-4 sm:p-5 font-bold text-slate-900 dark:text-white">Feature / Capability</th>
+                    <th className="p-4 sm:p-5 font-black text-blue-600 bg-blue-50/50 dark:bg-blue-950/30">
+                      School Study ERP
+                    </th>
+                    <th className="p-4 sm:p-5 font-semibold text-slate-600 dark:text-slate-400">
+                      Entab CampusCare
+                    </th>
+                    <th className="p-4 sm:p-5 font-semibold text-slate-600 dark:text-slate-400">
+                      Fedena ERP
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  <tr>
+                    <td className="p-4 sm:p-5 font-semibold text-slate-800 dark:text-slate-200">
+                      User Interface &amp; Speed
+                    </td>
+                    <td className="p-4 sm:p-5 font-bold text-blue-600 bg-blue-50/20 dark:bg-blue-950/10">
+                      ✨ Modern Liquid Glass 60FPS UI
+                    </td>
+                    <td className="p-4 sm:p-5 text-slate-500">Traditional dense menus</td>
+                    <td className="p-4 sm:p-5 text-slate-500">Complex legacy navigation</td>
+                  </tr>
+                  <tr>
+                    <td className="p-4 sm:p-5 font-semibold text-slate-800 dark:text-slate-200">
+                      Campus Setup &amp; Deployment
+                    </td>
+                    <td className="p-4 sm:p-5 font-bold text-emerald-600 bg-blue-50/20 dark:bg-blue-950/10">
+                      ⚡ Instant Cloud (Under 10 mins)
+                    </td>
+                    <td className="p-4 sm:p-5 text-slate-500">2 to 4 weeks setup</td>
+                    <td className="p-4 sm:p-5 text-slate-500">Requires server configuration</td>
+                  </tr>
+                  <tr>
+                    <td className="p-4 sm:p-5 font-semibold text-slate-800 dark:text-slate-200">
+                      Online Fees &amp; Razorpay Gateway
+                    </td>
+                    <td className="p-4 sm:p-5 font-bold text-emerald-600 bg-blue-50/20 dark:bg-blue-950/10">
+                      ✓ Instant Receipts &amp; Ledger Sync
+                    </td>
+                    <td className="p-4 sm:p-5 text-slate-500">Manual reconciliation</td>
+                    <td className="p-4 sm:p-5 text-slate-500">Third-party plugin needed</td>
+                  </tr>
+                  <tr>
+                    <td className="p-4 sm:p-5 font-semibold text-slate-800 dark:text-slate-200">
+                      Mobile Apps (Android &amp; PWA)
+                    </td>
+                    <td className="p-4 sm:p-5 font-bold text-emerald-600 bg-blue-50/20 dark:bg-blue-950/10">
+                      ✓ Included in all plans
+                    </td>
+                    <td className="p-4 sm:p-5 text-slate-500">Extra per-student charge</td>
+                    <td className="p-4 sm:p-5 text-slate-500">Separate module fee</td>
+                  </tr>
+                  <tr>
+                    <td className="p-4 sm:p-5 font-semibold text-slate-800 dark:text-slate-200">
+                      Pricing &amp; Free Starter Tier
+                    </td>
+                    <td className="p-4 sm:p-5 font-bold text-emerald-600 bg-blue-50/20 dark:bg-blue-950/10">
+                      ✓ Free Starter Tier available
+                    </td>
+                    <td className="p-4 sm:p-5 text-slate-500">No free tier; high quote</td>
+                    <td className="p-4 sm:p-5 text-slate-500">Annual recurring licensing</td>
+                  </tr>
+                  <tr>
+                    <td className="p-4 sm:p-5 font-semibold text-slate-800 dark:text-slate-200">
+                      Multi-Tenant Security
+                    </td>
+                    <td className="p-4 sm:p-5 font-bold text-emerald-600 bg-blue-50/20 dark:bg-blue-950/10">
+                      🔒 Zero-leak database isolation
+                    </td>
+                    <td className="p-4 sm:p-5 text-slate-500">Shared database instances</td>
+                    <td className="p-4 sm:p-5 text-slate-500">Self-hosted risk</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        {/* =========================================================================
+            5. FREQUENTLY ASKED QUESTIONS (Exact Search Matches for AI Overviews)
+        ========================================================================= */}
+        <section className="py-20 bg-slate-50 dark:bg-gray-900/50">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-12">
+              <div className="text-xs font-black uppercase tracking-wider text-blue-600 mb-2">
+                FREQUENTLY ASKED QUESTIONS
+              </div>
+              <h2 className="text-2xl sm:text-4xl font-black text-[#0B2545] dark:text-white">
+                Everything About School Management ERP
+              </h2>
+              <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-400">
+                Clear answers for school trustees, principals, and administrative IT directors.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              {faqs.map((faq, idx) => (
+                <div
+                  key={idx}
+                  className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-xs"
+                >
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white mb-2 flex items-start gap-2">
+                    <HelpCircle className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
+                    <span>{faq.question}</span>
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed pl-7">
+                    {faq.answer}
+                  </p>
+                </div>
+              ))}
             </div>
           </div>
         </section>
@@ -170,8 +480,8 @@ export default function SchoolErpPage() {
         {/* Related Interconnected Modules */}
         <RelatedModules
           currentPath="/school-erp"
-          title="Modular School ERP Architecture"
-          subtitle="Explore how all essential school operations connect in one unified system."
+          title="Explore Related School ERP Modules"
+          subtitle="Discover how all essential school operations connect seamlessly in School Study."
         />
       </main>
 

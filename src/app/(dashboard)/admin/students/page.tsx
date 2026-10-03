@@ -456,6 +456,7 @@ export default function AdminStudentsPage() {
         `Student "${name}" enrolled! ID: ${created.studentId}, Roll No: ${created.rollNumber}`
       );
       setIsAddModalOpen(false);
+      if (created.feeSetupPending) toast.warning("Admission saved. Invoice setup is pending; open Fee Management → Generate Invoice to retry.");
 
       // Prompt to dispatch welcome notification & credentials
       setCommRecipients([

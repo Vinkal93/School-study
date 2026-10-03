@@ -20,7 +20,7 @@ export function getRedirectByRole(role: UserRole): string {
  */
 export function getRoleFromPath(pathname: string): UserRole | null {
   for (const [role, route] of Object.entries(ROLE_ROUTES)) {
-    if (pathname.startsWith(route)) {
+    if (pathname === route || pathname.startsWith(`${route}/`)) {
       return role as UserRole;
     }
   }

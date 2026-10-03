@@ -1,13 +1,7 @@
-import { doc, getDoc, setDoc, collection, getDocs, query, where } from "firebase/firestore";
-import { getFirebaseDb } from "@/lib/firebase/client";
 import type {
   SchoolSubscription,
-  Plan,
-  PlanVersion,
-  GlobalAccessPolicy,
 } from "@/types";
-import { BILLING_COLLECTIONS, createBillingAuditLog, getGlobalAccessPolicy } from "@/lib/billing";
-import { recordSubscriptionHistory } from "@/lib/billing/subscriptionEngine";
+import { BILLING_COLLECTIONS } from "@/lib/billing/plans";
 
 export interface InternalOrder {
   id: string;
@@ -27,6 +21,10 @@ export interface InternalOrder {
   createdAt: string;
   expiresAt: string;
   updatedAt?: string;
+  durationDays?: number;
+  customOfferId?: string;
+  subscriptionPeriodEnd?: string;
+  razorpaySubscriptionId?: string;
 }
 
 export interface PaymentRecord {
@@ -100,369 +98,63 @@ export interface FulfillmentResult {
   alreadyFulfilled?: boolean;
 }
 
-async function getAdminDbServerOnly() {
-  if (typeof window !== "undefined") return null;
-  try {
-    const adminModule = await import("@/lib/firebase/admin");
-    return typeof adminModule.getSafeAdminDb === "function" ? adminModule.getSafeAdminDb() : (adminModule.adminDb || null);
-  } catch (e) {
-    return null;
-  }
-}
-
-// In-memory fallback stores for tests or serverless offline resilience
-const g = globalThis as any;
-if (!g.__BILLING_ORDERS_MAP__) g.__BILLING_ORDERS_MAP__ = new Map<string, InternalOrder>();
-if (!g.__BILLING_PAYMENTS_MAP__) g.__BILLING_PAYMENTS_MAP__ = new Map<string, PaymentRecord>();
-if (!g.__BILLING_SUBSCRIPTIONS_MAP__) g.__BILLING_SUBSCRIPTIONS_MAP__ = new Map<string, SchoolSubscription>();
-if (!g.__BILLING_INVOICES_MAP__) g.__BILLING_INVOICES_MAP__ = new Map<string, InvoiceRecord>();
-if (!g.__BILLING_TRANSACTIONS_MAP__) g.__BILLING_TRANSACTIONS_MAP__ = new Map<string, FinanceTransactionRecord>();
-
-const memoryOrders: Map<string, InternalOrder> = g.__BILLING_ORDERS_MAP__;
-const memoryPayments: Map<string, PaymentRecord> = g.__BILLING_PAYMENTS_MAP__;
-const memorySubscriptions: Map<string, SchoolSubscription> = g.__BILLING_SUBSCRIPTIONS_MAP__;
-const memoryInvoices: Map<string, InvoiceRecord> = g.__BILLING_INVOICES_MAP__;
-const memoryTransactions: Map<string, FinanceTransactionRecord> = g.__BILLING_TRANSACTIONS_MAP__;
-
-/**
- * Section 25 & 26: Central Idempotent Payment Fulfillment Service.
- * Single source of truth for payment verification, status updates, subscription extensions,
- * invoice generation, finance entries, and audit logging.
- */
-export async function fulfillSuccessfulPayment(
-  orderId: string,
-  razorpayPaymentId: string,
-  source: "callback" | "webhook" = "callback",
-  nowMs: number = Date.now()
-): Promise<FulfillmentResult> {
-  const adminDb = await getAdminDbServerOnly();
-  const db = getFirebaseDb();
+/** Callback and webhook share one atomic, idempotent financial commit. */
+export async function fulfillSuccessfulPayment(orderId: string, razorpayPaymentId: string, source: "callback" | "webhook" = "callback", nowMs = Date.now()): Promise<FulfillmentResult> {
+  const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+  const { getRazorpayClientAsync } = await import("@/lib/payments/razorpay/razorpayClient");
+  const db = getSafeAdminDb();
+  if (!db) throw new Error("Private Firebase Admin configuration is required.");
+  const gateway = await getRazorpayClientAsync();
+  const captured = await gateway.payments.fetch(razorpayPaymentId);
   const nowIso = new Date(nowMs).toISOString();
-
-  let order: InternalOrder | null = null;
-
-  // Retrieve Order from Admin DB, Client DB or In-Memory Store
-  if (adminDb) {
-    try {
-      const snap = await adminDb.collection(BILLING_COLLECTIONS.ORDERS || "orders").doc(orderId).get();
-      if (snap.exists) {
-        order = { id: snap.id, ...snap.data() } as InternalOrder;
-      }
-    } catch (err) {}
-  }
-
-  if (!order && db) {
-    try {
-      const orderRef = doc(db, BILLING_COLLECTIONS.ORDERS || "orders", orderId);
-      const orderSnap = await getDoc(orderRef);
-      if (orderSnap.exists()) {
-        order = { id: orderSnap.id, ...orderSnap.data() } as InternalOrder;
-      }
-    } catch (err) {}
-  }
-
-  if (!order) {
-    order = memoryOrders.get(orderId) || null;
-  }
-
-  if (!order) {
-    throw new Error(`Order ${orderId} not found.`);
-  }
-
-  const paymentId = `pay_${razorpayPaymentId}`;
-  const invoiceId = `inv_${order.id}`;
-  const txId = `tx_${order.id}`;
-
-  // Section 24 & 25: Idempotency Check — If order is already PAID, return existing fulfillment safely
-  if (order.status === "PAID") {
-    let existingPayment = memoryPayments.get(paymentId);
-    let existingSub = memorySubscriptions.get(order.schoolId);
-    let existingInv = memoryInvoices.get(invoiceId);
-    let existingTx = memoryTransactions.get(txId);
-
-    if (adminDb) {
-      try {
-        const [paySnap, subSnap, invSnap, txSnap] = await Promise.all([
-          adminDb.collection(BILLING_COLLECTIONS.PAYMENTS || "payments").doc(paymentId).get(),
-          adminDb.collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS).doc(order.schoolId).get(),
-          adminDb.collection(BILLING_COLLECTIONS.INVOICES || "invoices").doc(invoiceId).get(),
-          adminDb.collection(BILLING_COLLECTIONS.FINANCE_TRANSACTIONS || "financeTransactions").doc(txId).get(),
-        ]);
-        if (paySnap.exists) existingPayment = { id: paySnap.id, ...paySnap.data() } as PaymentRecord;
-        if (subSnap.exists) existingSub = { id: subSnap.id, ...subSnap.data() } as SchoolSubscription;
-        if (invSnap.exists) existingInv = { id: invSnap.id, ...invSnap.data() } as InvoiceRecord;
-        if (txSnap.exists) existingTx = { id: txSnap.id, ...txSnap.data() } as FinanceTransactionRecord;
-      } catch (e) {}
+  const result = await db.runTransaction(async tx => {
+    const orderRef = db.collection(BILLING_COLLECTIONS.ORDERS).doc(orderId);
+    const orderSnap = await tx.get(orderRef);
+    if (!orderSnap.exists) throw new Error("Stored order not found.");
+    const order = { ...orderSnap.data(), id: orderSnap.id } as InternalOrder;
+    if (captured.id !== razorpayPaymentId || captured.order_id !== order.razorpayOrderId || captured.status !== "captured" || Number(captured.amount) !== order.finalAmount || captured.currency !== order.currency) throw new Error("Captured payment does not match the stored order.");
+    const paymentId = `pay_${razorpayPaymentId}`, invoiceId = `inv_${order.id}`, txId = `tx_${order.id}`;
+    const payRef = db.collection(BILLING_COLLECTIONS.PAYMENTS).doc(paymentId);
+    const subRef = db.collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS).doc(order.schoolId);
+    const invRef = db.collection(BILLING_COLLECTIONS.INVOICES).doc(invoiceId);
+    const financeRef = db.collection(BILLING_COLLECTIONS.FINANCE_TRANSACTIONS).doc(txId);
+    const schoolRef = db.collection("schools").doc(order.schoolId);
+    const [paySnap, subSnap, invSnap, financeSnap, schoolSnap, policySnap] = await Promise.all([tx.get(payRef), tx.get(subRef), tx.get(invRef), tx.get(financeRef), tx.get(schoolRef), tx.get(db.collection(BILLING_COLLECTIONS.ACCESS_POLICIES).doc("global"))]);
+    const offerRef = order.customOfferId ? db.collection("customOffers").doc(order.customOfferId) : null;
+    const offerSnap = offerRef ? await tx.get(offerRef) : null;
+    const couponQuery = order.couponId ? db.collection("coupons").where("code","==",order.couponId) : null;
+    const couponSnap = couponQuery ? await tx.get(couponQuery) : null;
+    if (order.status === "PAID") {
+      if (!paySnap.exists || !invSnap.exists || !financeSnap.exists || !subSnap.exists || paySnap.data()?.orderId !== order.id) throw new Error("Paid order has inconsistent financial records.");
+      return { success: true, order, payment: paySnap.data() as PaymentRecord, subscription: subSnap.data() as SchoolSubscription, invoice: invSnap.data() as InvoiceRecord, financeTransaction: financeSnap.data() as FinanceTransactionRecord, alreadyFulfilled: true };
     }
-
-    return {
-      success: true,
-      order,
-      payment: existingPayment || ({} as any),
-      subscription: existingSub || ({} as any),
-      invoice: existingInv || ({} as any),
-      financeTransaction: existingTx || ({} as any),
-      alreadyFulfilled: true,
-    };
-  }
-
-  // 1. Mark Order as PAID
-  order.status = "PAID";
-  order.updatedAt = nowIso;
-  memoryOrders.set(order.id, order);
-
-  if (adminDb) {
-    try {
-      await adminDb.collection(BILLING_COLLECTIONS.ORDERS || "orders").doc(order.id).set({ status: "PAID", updatedAt: nowIso }, { merge: true });
-    } catch (e) {}
-  } else if (db) {
-    try {
-      await setDoc(doc(db, BILLING_COLLECTIONS.ORDERS || "orders", order.id), { status: "PAID", updatedAt: nowIso }, { merge: true });
-    } catch (e) {}
-  }
-
-  // 2. Create Payment Record
-  const paymentRecord: PaymentRecord = {
-    id: paymentId,
-    schoolId: order.schoolId,
-    userId: order.userId,
-    orderId: order.id,
-    razorpayOrderId: order.razorpayOrderId,
-    razorpayPaymentId,
-    amount: order.finalAmount,
-    currency: order.currency || "INR",
-    status: "CAPTURED",
-    method: "razorpay",
-    planId: order.planId,
-    planVersionId: order.planVersionId,
-    billingCycle: order.billingCycle,
-    couponId: order.couponId,
-    discountAmount: order.discountAmount,
-    createdAt: nowIso,
-    capturedAt: nowIso,
-  };
-  memoryPayments.set(paymentId, paymentRecord);
-
-  if (adminDb) {
-    try {
-      await adminDb.collection(BILLING_COLLECTIONS.PAYMENTS || "payments").doc(paymentId).set(paymentRecord, { merge: true });
-    } catch (e) {}
-  } else if (db) {
-    try {
-      await setDoc(doc(db, BILLING_COLLECTIONS.PAYMENTS || "payments", paymentId), paymentRecord, { merge: true });
-    } catch (e) {}
-  }
-
-  // 3. Subscription Activation / Renewal Extension (Section 17)
-  let policy: Partial<GlobalAccessPolicy> = {};
-  try {
-    policy = await getGlobalAccessPolicy();
-  } catch (e) {
-    policy = { gracePeriodDays: 7 };
-  }
-
-  let existingSub: SchoolSubscription | null = memorySubscriptions.get(order.schoolId) || null;
-  if (adminDb) {
-    try {
-      const snap = await adminDb.collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS).doc(order.schoolId).get();
-      if (snap.exists) existingSub = { id: snap.id, ...snap.data() } as SchoolSubscription;
-    } catch (e) {}
-  } else if (db) {
-    try {
-      const snap = await getDoc(doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, order.schoolId));
-      if (snap.exists()) existingSub = { id: snap.id, ...snap.data() } as SchoolSubscription;
-    } catch (e) {}
-  }
-
-  let currentExpiresAtMs = 0;
-  if (existingSub && existingSub.status === "ACTIVE") {
-    const expMs = new Date(existingSub.expiresAt).getTime();
-    if (expMs > nowMs) currentExpiresAtMs = expMs;
-  }
-
-  const durationDays = order.billingCycle === "annual" ? 365 : 30;
-  const durationMs = durationDays * 24 * 60 * 60 * 1000;
-  const startBasisMs = currentExpiresAtMs > nowMs ? currentExpiresAtMs : nowMs;
-
-  const newStartsAtMs = currentExpiresAtMs > nowMs ? new Date(existingSub?.startsAt || nowIso).getTime() : nowMs;
-  const newExpiresAtMs = startBasisMs + durationMs;
-  const gracePeriodMs = ((policy as any)?.gracePeriodDays || 7) * 24 * 60 * 60 * 1000;
-  const newGraceEndsAtMs = newExpiresAtMs + gracePeriodMs;
-
-  const updatedSubscription: SchoolSubscription = {
-    id: order.schoolId,
-    schoolId: order.schoolId,
-    planId: order.planId,
-    planVersionId: order.planVersionId,
-    status: "ACTIVE",
-    billingCycle: order.billingCycle,
-    startsAt: new Date(newStartsAtMs).toISOString(),
-    expiresAt: new Date(newExpiresAtMs).toISOString(),
-    graceEndsAt: new Date(newGraceEndsAtMs).toISOString(),
-    source: "self_onboarding",
-    lastPaymentId: paymentId,
-    lastOrderId: order.id,
-    createdAt: existingSub ? existingSub.createdAt : nowIso,
-    updatedAt: nowIso,
-  };
-  memorySubscriptions.set(order.schoolId, updatedSubscription);
-
-  if (adminDb) {
-    try {
-      await adminDb.collection(BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS).doc(order.schoolId).set(updatedSubscription, { merge: true });
-      await adminDb.collection("schools").doc(order.schoolId).set({
-        planId: order.planId,
-        plan: order.planId,
-        billingCycle: order.billingCycle,
-        subscriptionStatus: "ACTIVE",
-        subscriptionExpiresAt: new Date(newExpiresAtMs).toISOString(),
-        updatedAt: nowIso,
-      }, { merge: true }).catch(() => {});
-    } catch (e) {}
-  } else if (db) {
-    try {
-      await setDoc(doc(db, BILLING_COLLECTIONS.SCHOOL_SUBSCRIPTIONS, order.schoolId), updatedSubscription, { merge: true });
-      await setDoc(doc(db, "schools", order.schoolId), {
-        planId: order.planId,
-        plan: order.planId,
-        billingCycle: order.billingCycle,
-        subscriptionStatus: "ACTIVE",
-        subscriptionExpiresAt: new Date(newExpiresAtMs).toISOString(),
-        updatedAt: nowIso,
-      }, { merge: true }).catch(() => {});
-    } catch (e) {}
-  }
-
-  // Record Subscription History
-  try {
-    await recordSubscriptionHistory(order.schoolId, {
-      subscriptionId: order.schoolId,
-      schoolId: order.schoolId,
-      action: existingSub ? "RENEWED" : "CREATED",
-      newPlanId: order.planId,
-      newPlanVersionId: order.planVersionId,
-      oldStatus: existingSub ? existingSub.status : "NONE",
-      newStatus: "ACTIVE",
-      orderId: order.id,
-      paymentId,
-      actorId: order.userId || "system",
-      actorRole: "user",
-      reason: `Fulfilling payment for ${order.planId} (${order.billingCycle})`,
-      timestamp: nowIso,
-    });
-  } catch (e) {}
-
-  // 4. Generate Invoice (Section 19)
-  const yearStr = new Date(nowMs).getFullYear();
-  const invoiceNumber = `INV-${yearStr}-${order.id.slice(-6).toUpperCase()}`;
-
-  const invoiceRecord: InvoiceRecord = {
-    id: invoiceId,
-    invoiceNumber,
-    schoolId: order.schoolId,
-    orderId: order.id,
-    paymentId,
-    planId: order.planId,
-    planVersionId: order.planVersionId,
-    billingCycle: order.billingCycle,
-    subtotal: order.baseAmount,
-    discount: order.discountAmount,
-    tax: order.taxAmount,
-    total: order.finalAmount,
-    currency: order.currency || "INR",
-    issuedAt: nowIso,
-    status: "PAID",
-  };
-  memoryInvoices.set(invoiceId, invoiceRecord);
-
-  if (adminDb) {
-    try {
-      await adminDb.collection(BILLING_COLLECTIONS.INVOICES || "invoices").doc(invoiceId).set(invoiceRecord, { merge: true });
-    } catch (e) {}
-  } else if (db) {
-    try {
-      await setDoc(doc(db, BILLING_COLLECTIONS.INVOICES || "invoices", invoiceId), invoiceRecord, { merge: true });
-    } catch (e) {}
-  }
-
-  // 5. Create Finance Transaction (Section 20)
-  const financeTxRecord: FinanceTransactionRecord = {
-    id: txId,
-    schoolId: order.schoolId,
-    orderId: order.id,
-    paymentId,
-    invoiceId,
-    type: "PAYMENT",
-    amount: order.finalAmount,
-    currency: order.currency || "INR",
-    direction: "CREDIT",
-    status: "SUCCESS",
-    description: `Subscription Payment - Plan ${order.planId} (${order.billingCycle})`,
-    createdAt: nowIso,
-  };
-  memoryTransactions.set(txId, financeTxRecord);
-
-  if (adminDb) {
-    try {
-      await adminDb.collection(BILLING_COLLECTIONS.FINANCE_TRANSACTIONS || "financeTransactions").doc(txId).set(financeTxRecord, { merge: true });
-    } catch (e) {}
-  } else if (db) {
-    try {
-      await setDoc(doc(db, BILLING_COLLECTIONS.FINANCE_TRANSACTIONS || "financeTransactions", txId), financeTxRecord, { merge: true });
-    } catch (e) {}
-  }
-
-  // 5b. Concurrency-Safe Atomic Coupon Redemption if coupon was applied
-  if (order.couponId) {
-    try {
-      const { executeAtomicCouponRedemption } = await import("@/lib/billing/offersPromotionsEngine");
-      await executeAtomicCouponRedemption({
-        couponCode: order.couponId,
-        schoolId: order.schoolId,
-        userId: order.userId,
-        orderId: order.id,
-        paymentId,
-        invoiceId,
-        planId: order.planId,
-        planName: order.planId,
-        billingCycle: order.billingCycle,
-        baseAmountPaise: order.baseAmount,
-        discountAmountPaise: order.discountAmount,
-        taxAmountPaise: order.taxAmount,
-        finalAmountPaise: order.finalAmount,
-      });
-    } catch (couponErr: any) {
-      console.warn("[Fulfillment] Coupon atomic redemption notice:", couponErr?.message || couponErr);
-    }
-  }
-
-  // 6. Audit Trail Logging (Section 28)
-  try {
-    await createBillingAuditLog(
-      order.userId,
-      "system",
-      "SUBSCRIPTION_UPDATED",
-      "schoolSubscription",
-      order.schoolId,
-      {
-        actionType: "PAYMENT_FULFILLED",
-        source,
-        orderId: order.id,
-        paymentId,
-        amount: order.finalAmount,
-        planId: order.planId,
-        billingCycle: order.billingCycle,
-        expiresAt: updatedSubscription.expiresAt,
-      }
-    );
-  } catch (e) {}
-
-  return {
-    success: true,
-    order,
-    payment: paymentRecord,
-    subscription: updatedSubscription,
-    invoice: invoiceRecord,
-    financeTransaction: financeTxRecord,
-  };
+    if (!["CREATED", "PAYMENT_PENDING"].includes(order.status) || paySnap.exists || !schoolSnap.exists) throw new Error("Order cannot be fulfilled.");
+    const existing = subSnap.data() as SchoolSubscription | undefined;
+    const expiry = existing ? Date.parse(existing.expiresAt) : 0;
+    const extending = existing?.planId === order.planId && !["CANCELLED", "SUSPENDED"].includes(existing.status) && Number.isFinite(expiry) && expiry > nowMs;
+    const basis = extending ? expiry : nowMs;
+    const duration = order.durationDays ?? (order.billingCycle === "annual" ? 365 : 30);
+    if (!Number.isSafeInteger(duration) || duration <= 0) throw new Error("Invalid paid plan duration.");
+    const periodEnd = order.subscriptionPeriodEnd ? Date.parse(order.subscriptionPeriodEnd) : basis + duration * 86400000;
+    if (!Number.isFinite(periodEnd)) throw new Error("Invalid subscription billing period.");
+    const expiresAt = new Date(order.subscriptionPeriodEnd ? Math.max(periodEnd, Number.isFinite(expiry) ? expiry : 0) : periodEnd).toISOString();
+    const graceDays = policySnap.data()?.gracePeriodDays ?? 7;
+    if (!Number.isSafeInteger(graceDays) || graceDays < 0) throw new Error("Invalid grace period configuration.");
+    const subscription: SchoolSubscription = { id: order.schoolId, schoolId: order.schoolId, planId: order.planId, planVersionId: order.planVersionId, status: existing?.status === "SUSPENDED" ? "SUSPENDED" : "ACTIVE", billingCycle: order.billingCycle, startsAt: extending ? existing!.startsAt : nowIso, expiresAt, graceEndsAt: new Date(Date.parse(expiresAt) + graceDays * 86400000).toISOString(), source: "self_onboarding", lastPaymentId: paymentId, lastOrderId: order.id, createdAt: existing?.createdAt || nowIso, updatedAt: nowIso };
+    const payment: PaymentRecord = { id: paymentId, schoolId: order.schoolId, userId: order.userId, orderId: order.id, razorpayOrderId: order.razorpayOrderId, razorpayPaymentId, amount: order.finalAmount, currency: order.currency, status: "CAPTURED", method: "razorpay", planId: order.planId, planVersionId: order.planVersionId, billingCycle: order.billingCycle, couponId: order.couponId || null, discountAmount: order.discountAmount, createdAt: nowIso, capturedAt: nowIso };
+    const invoice: InvoiceRecord = { id: invoiceId, invoiceNumber: `INV-${new Date(nowMs).getFullYear()}-${order.id.toUpperCase()}`, schoolId: order.schoolId, orderId: order.id, paymentId, planId: order.planId, planVersionId: order.planVersionId, billingCycle: order.billingCycle, subtotal: order.baseAmount, discount: order.discountAmount, tax: order.taxAmount, total: order.finalAmount, currency: order.currency, issuedAt: nowIso, status: "PAID" };
+    const financeTransaction: FinanceTransactionRecord = { id: txId, schoolId: order.schoolId, orderId: order.id, paymentId, invoiceId, type: "PAYMENT", amount: order.finalAmount, currency: order.currency, direction: "CREDIT", status: "SUCCESS", description: `Subscription ${order.planId} (${order.billingCycle})`, createdAt: nowIso };
+    // All reads precede writes. Firestore rolls back the whole fulfillment on failure.
+    if (offerRef && offerSnap?.exists) tx.update(offerRef,{redeemedCount:Number(offerSnap.data()?.redeemedCount || 0)+1,updatedAt:nowIso});
+    if (couponSnap && "docs" in couponSnap) for (const coupon of couponSnap.docs) tx.update(coupon.ref,{usedCount:Number(coupon.data()?.usedCount || 0)+1,updatedAt:nowIso});
+    tx.update(orderRef, { status: "PAID", razorpayPaymentId, updatedAt: nowIso });
+    tx.set(payRef, payment); tx.set(invRef, invoice); tx.set(financeRef, financeTransaction);
+    tx.set(subRef, { ...subscription, ...(order.razorpaySubscriptionId ? { razorpaySubscriptionId: order.razorpaySubscriptionId, autoRenew: true } : {}) }, { merge: true });
+    tx.update(schoolRef, { planId: order.planId, plan: order.planId, billingCycle: order.billingCycle, subscriptionStatus: subscription.status, subscriptionExpiresAt: expiresAt, updatedAt: nowIso });
+    tx.set(db.collection(BILLING_COLLECTIONS.AUDIT_LOGS).doc(`fulfill_${order.id}`), { action: "PAYMENT_FULFILLED", schoolId: order.schoolId, orderId: order.id, paymentId, actorId: order.userId, source, createdAt: nowIso });
+    return { success: true, order: { ...order, status: "PAID" as const }, payment, subscription, invoice, financeTransaction, alreadyFulfilled: false };
+  });
+  const { clearSubscriptionCache } = await import("@/lib/billing/subscriptions");
+  clearSubscriptionCache(result.order.schoolId);
+  return result;
 }

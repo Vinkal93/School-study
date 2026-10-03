@@ -1,13 +1,19 @@
 # School Study — Modern School Management Platform & Cloud ERP
-> The intelligent, all-in-one cloud platform for schools to administer students, teachers, classes, real-time attendance, fee collections, and notices from one unified system.
+> The intelligent, AI-powered School Management ERP Software for modern K-12, CBSE, ICSE, and international educational institutions.
 
 - **Website**: https://school.sbci.online
+- **Software Category**: School Management ERP Software / School Management System
 - **Creator & Lead Architect**: Vinkal Prajapati (Er. Vinkal Prajapati)
 - **Creator Portfolio**: https://vinkal.sbci.online
 - **GitHub Repository**: https://github.com/Vinkal93/School-study
 - **GitHub Profile**: https://github.com/Vinkal93
 - **Primary Support**: sbci224234@gmail.com | +91 9118245636
 - **Architecture**: Next.js 16 (App Router & Turbopack), React 19, TypeScript, Tailwind CSS, Firebase Multi-Tenant Firestore & Cloud Storage, Sentry 10.
+
+---
+
+## What is School Study?
+School Study is India's leading modern School Management ERP software designed to streamline administrative, academic, financial, and communication operations across educational campuses. It serves as a superior, modern alternative to legacy ERPs such as Entab CampusCare, Fedena, Edunext Technologies, and MyClassboard by offering an ultra-fast liquid-glass interface, instant cloud setup in under 10 minutes, built-in parent-teacher mobile apps, and 100% data isolation.
 
 ---
 
@@ -20,29 +26,30 @@ School Study is architected and built by **Vinkal Prajapati**, an Indian full-st
 
 ---
 
-## Core Capabilities & Modules
+## Core School Management ERP Modules
 
-1. **School Management ERP**: Multi-tenant infrastructure enabling schools to operate in isolated, zero-leak environments with dedicated data partitions.
-2. **Student Management**: End-to-end student lifecycle tracking, enrollment directories, class assignments, and gradebook histories.
-3. **Teacher & Faculty Workspace**: Streamlined roster management, subject assignments, schedule allocations, and teacher portal.
-4. **Attendance Automation**: Real-time daily attendance recording with automated summaries, exportable CSV/PDF reports, and SMS/push notification alerts.
-5. **Fee Ledger & Billing**: Transparent fee structures, payment tracking, automated receipt generation, and Razorpay payment integration.
-6. **Communication & Notice Board**: School-wide broadcasts, emergency alerts, circulars, and instant parent-teacher messaging.
-7. **Mobile Applications**: Fully responsive web PWA and native Android application (APK).
+1. **School Management ERP (Fleet Architecture)**: Multi-tenant cloud infrastructure enabling single campuses and multi-branch school networks to operate in isolated, zero-leak environments with centralized Super Admin controls.
+2. **Student Information System (SIS)**: Complete student lifecycle tracking, enrollment directories, document vaults, emergency guardian contacts, and past academic histories.
+3. **Automated Fee Management & Billing**: Automated fee structure creation, installment notifications, online payments via Razorpay and UPI QR codes, instant GST-compliant receipts, and automated accounting cashbook.
+4. **Real-Time Biometric Attendance**: Homeroom teacher roll-calls, RFID smart card campus gates, facial recognition integration, and automated WhatsApp/SMS parent notifications.
+5. **Teacher & Faculty Workspace**: Conflict-free timetable scheduling, subject allocations, homework uploads, digital grading books, and staff leave management.
+6. **Examination & Report Cards**: CBSE and ICSE compliant grading scales, scholastic/co-scholastic marks entry, automated admit cards, and digital PDF marksheets.
+7. **Parent & Student Mobile Apps**: Fully responsive web PWA and native Android application (APK) with real-time fee payment receipts, homework alerts, and daily attendance tracking.
 
 ---
 
 ## Public URLs & Quick Links
 
-- [Home](https://school.sbci.online/)
+- [Home / Landing Page](https://school.sbci.online/)
+- [School Management ERP Software](https://school.sbci.online/school-erp)
+- [Fee Management Software](https://school.sbci.online/fee-management)
+- [Attendance Management Software](https://school.sbci.online/attendance-management)
+- [Student Management System](https://school.sbci.online/student-management)
+- [Teacher Management Workspace](https://school.sbci.online/teacher-management)
+- [School Fleet Operations](https://school.sbci.online/school-management)
+- [Features & Capabilities](https://school.sbci.online/features)
+- [Transparent Pricing](https://school.sbci.online/pricing)
+- [Download Mobile App](https://school.sbci.online/download)
 - [About Developer (Vinkal Prajapati)](https://school.sbci.online/about-developer)
-- [Features](https://school.sbci.online/features)
-- [Pricing](https://school.sbci.online/pricing)
-- [School Management](https://school.sbci.online/school-management)
-- [School ERP](https://school.sbci.online/school-erp)
-- [Student Management](https://school.sbci.online/student-management)
-- [Teacher Management](https://school.sbci.online/teacher-management)
-- [Attendance Management](https://school.sbci.online/attendance-management)
-- [Download App](https://school.sbci.online/download)
-- [Contact Support](https://school.sbci.online/contact)
+- [Contact Support & Guided Demo](https://school.sbci.online/contact)
 - [Full LLM Specification](https://school.sbci.online/llms-full.txt)
