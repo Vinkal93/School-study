@@ -11,8 +11,6 @@ export function configureFeeServerDatabase(database: unknown) {
 export function getFirebaseDb(): client.Firestore {
   if (typeof window !== "undefined") return getClientDb();
   if (serverDb) return serverDb as client.Firestore;
-  const fallback = getClientDb();
-  if (fallback) return fallback;
   throw new Error("Fee server database is unavailable.");
 }
 const isServer = (value: any) => !!value && !value.type && (typeof value.collection === "function" || typeof value.get === "function" || typeof value.doc === "function");

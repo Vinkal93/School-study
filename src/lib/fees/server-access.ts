@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { authenticateRequest } from "@/lib/auth/serverAuth";
 import { getSafeAdminAuth, getSafeAdminDb } from "@/lib/firebase/admin";
 import { configureFeeServerDatabase } from "./firestore";
-import { getFirebaseDb as getClientDb } from "@/lib/firebase/client";
 
 type FeeAuthResult = Awaited<ReturnType<typeof authenticateRequest>>;
 
@@ -16,19 +15,18 @@ export async function requireFeeAccess(request: Request): Promise<FeeAuthResult>
   const adminAuth = getSafeAdminAuth();
   const adminDb = getSafeAdminDb();
 
-  // If Admin Auth is configured, perform strict signature check
-  if (adminAuth && token) {
-    try {
-      await adminAuth.verifyIdToken(token);
-    } catch {
-      return {
-        isAuthenticated: false,
-        errorResponse: NextResponse.json(
-          { error: "Sign in to access fee management." },
-          { status: 401 }
-        ),
-      };
-    }
+  if (!adminAuth || !adminDb) {
+    return { isAuthenticated: false, errorResponse: NextResponse.json(
+      { error: "Fee server is not configured. Add private Firebase Admin credentials on the server and restart.", code: "FEE_SERVER_NOT_CONFIGURED" },
+      { status: 503 }
+    ) };
+  }
+  if (!token) {
+    return { isAuthenticated: false, errorResponse: NextResponse.json({ error: "Sign in to access fee management." }, { status: 401 }) };
+  }
+  try { await adminAuth.verifyIdToken(token, true); }
+  catch {
+    return { isAuthenticated: false, errorResponse: NextResponse.json({ error: "Sign in to access fee management." }, { status: 401 }) };
   }
 
   // Authoritative identity, tenant boundary and role check
@@ -48,19 +46,7 @@ export async function requireFeeAccess(request: Request): Promise<FeeAuthResult>
     };
   }
 
-  // Prefer Admin Firestore when configured; fall back to server client Firestore
-  if (adminDb) {
-    configureFeeServerDatabase(adminDb);
-  } else {
-    try {
-      const fallbackDb = getClientDb();
-      if (fallbackDb) {
-        configureFeeServerDatabase(fallbackDb);
-      }
-    } catch (e) {
-      console.warn("Could not configure fallback fee database:", e);
-    }
-  }
+  configureFeeServerDatabase(adminDb);
 
   return auth;
 }

@@ -62,13 +62,13 @@ export default function AdminCollectFeePage() {
   const requestKey = useRef<{ fingerprint: string; key: string } | null>(null);
   const currentYear = years.find(y => y.id === academicYearId);
   const monthOptions = [...new Set(demands.filter(d => d.status !== "CANCELLED" && d.balanceAmountPaise > 0).map(d => d.period))];
-  const selectedInvoices = demands.filter(d => d.period === feeMonth && d.status !== "CANCELLED" && d.balanceAmountPaise > 0);
   // Student selection state
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStudentId, setSelectedStudentId] = useState("");
 
   // Billing state
   const [feeMonth, setFeeMonth] = useState("");
+  const selectedInvoices = demands.filter(d => d.period === feeMonth && d.status !== "CANCELLED" && d.balanceAmountPaise > 0);
   const [paymentDate, setPaymentDate] = useState(() => {
     const today = new Date();
     return today.toISOString().split("T")[0]; // YYYY-MM-DD

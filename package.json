@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit --pretty false",
-    "test:release": "node scripts/test-fee-integrity.cjs && node scripts/test-plan-flow.cjs",
+    "test:release": "node scripts/test-fee-integrity.cjs && node scripts/test-plan-flow.cjs && node scripts/test-fee-server-access.cjs",
     "release:checks": "npm run typecheck && npm run test:release && npm run build",
     "test": "node scripts/test-runner.mjs",
     "test:all": "node scripts/test-runner.mjs",

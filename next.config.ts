@@ -4,6 +4,9 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // Keep local verification builds separate from the running development server.
   distDir: process.env.NEXT_BUILD_DIR || ".next",
+  images: {
+    remotePatterns: [{ protocol: "https", hostname: "images.unsplash.com", pathname: "/**" }],
+  },
   // Disable x-powered-by header for security and payload reduction
   poweredByHeader: false,
 
@@ -68,20 +71,7 @@ const nextConfig: NextConfig = {
     ];
   },
 
-  // Sentry tunnel rewrite: proxy /monitoring to Sentry's ingestion API
-  // This bypasses ad-blockers and works with Turbopack (unlike the webpack plugin's tunnelRoute)
-  async rewrites() {
-    return [
-      {
-        source: "/monitoring",
-        destination: "https://o4512044365447168.ingest.de.sentry.io/api/4512111626616912/envelope/",
-      },
-      {
-        source: "/monitoring/:path*",
-        destination: "https://o4512044365447168.ingest.de.sentry.io/api/4512111626616912/:path*",
-      },
-    ];
-  },
+
 };
 
 export default withSentryConfig(nextConfig, {

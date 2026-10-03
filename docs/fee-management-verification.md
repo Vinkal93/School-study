@@ -21,3 +21,7 @@ Use a test school/student and a specific academic session.
 9. Record a school expense. Verify expense, voucher and cashbook outflow agree. Trial balance debits and credits should match.
 
 Legacy payments without reconciled invoice allocations cannot safely be refunded automatically; the mutation rejects them rather than guessing which invoice to reopen. Existing historical data is not mass-migrated by this change.
+
+## Runtime configuration regressions
+
+`node scripts/test-fee-server-access.cjs` verifies missing credentials return 503, absent/forged tokens return 401, unauthorized roles return 403, and only verified school administrators configure the server repository. The server never falls back to an unauthenticated browser SDK. Local fee collection remains unverified until private Admin credentials are configured; simulated financial tests do not demonstrate a real payment.
