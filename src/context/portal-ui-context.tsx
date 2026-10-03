@@ -60,12 +60,8 @@ export function PortalUIProvider({ children }: { children: ReactNode }) {
     return DEFAULT_PORTAL_UI_SETTINGS;
   });
 
-  const [loading, setLoading] = useState(() => {
-    if (typeof window !== "undefined") {
-      return !localStorage.getItem("portal_ui_settings");
-    }
-    return true;
-  });
+  const [loading, setLoading] = useState(true);
+  const [resolvedSchoolMode, setResolvedSchoolMode] = useState<string | null>(null);
 
   const [adminPortalUiMode, setAdminPortalUiMode] = useState<"modern" | "classic">(() => {
     if (typeof window !== "undefined") {
@@ -95,8 +91,11 @@ export function PortalUIProvider({ children }: { children: ReactNode }) {
             localStorage.setItem("ss_admin_portal_ui_mode", mode);
           } catch {}
         }
+        setResolvedSchoolMode(schoolId);
       },
       (err) => {
+        setAdminPortalUiMode("modern");
+        setResolvedSchoolMode(schoolId);
         if (err.code !== "permission-denied") {
           console.warn("Notice: Institute adminPortalUiMode listener:", err);
         }
@@ -245,7 +244,7 @@ export function PortalUIProvider({ children }: { children: ReactNode }) {
         isNewUI,
         isLiquidGlassUI,
         isClassicUI,
-        loading,
+        loading: loading || (activePortal === "schoolAdmin" && !!profile?.schoolId && profile.schoolId !== "system" && resolvedSchoolMode !== profile.schoolId),
         adminPortalUiMode,
         getPortalVersion,
         setPortalVersion,

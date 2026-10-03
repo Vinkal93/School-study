@@ -3,22 +3,13 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { Sparkles, ArrowRight, X } from "lucide-react";
+import { useActiveShowcase } from "@/hooks/useActiveShowcase";
 import type { FeatureShowcase } from "@/types/ai";
 
 export function FeatureShowcaseBanner() {
-  const [showcase, setShowcase] = useState<FeatureShowcase | null>(null);
+  const showcase = useActiveShowcase("landing");
   const [dismissed, setDismissed] = useState(false);
 
-  useEffect(() => {
-    fetch("/api/feature-showcase/active?context=landing")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.activeShowcase) {
-          setShowcase(data.activeShowcase);
-        }
-      })
-      .catch(() => {});
-  }, []);
 
   if (!showcase || dismissed) return null;
 

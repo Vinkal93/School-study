@@ -1,4 +1,7 @@
 "use client";
+import { useFeeSession } from "@/components/fees/FeeSessionProvider";
+
+import { feeFetch } from "@/lib/fees/client-request";
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
@@ -53,7 +56,7 @@ export default function AdminFeeReportsPage() {
       ? localStorage.getItem("currentSchoolId") || ""
       : "");
   const schoolId = effectiveSchoolId;
-  const schoolName = (profile as any)?.schoolName || "Lord Buddha Public School";
+  const schoolName = (profile as any)?.schoolName || "School";
 
   // Data states
   const [loading, setLoading] = useState(true);
@@ -68,7 +71,7 @@ export default function AdminFeeReportsPage() {
 
   // Filters
   const [reportType, setReportType] = useState("collection_summary");
-  const [dateRange, setDateRange] = useState("ay_2026_27");
+  const { academicYearId: dateRange, setAcademicYearId: setDateRange } = useFeeSession();
   const [selectedClass, setSelectedClass] = useState("all");
   const [selectedSection, setSelectedSection] = useState("all");
   const [selectedFeeHead, setSelectedFeeHead] = useState("all");
@@ -102,16 +105,16 @@ export default function AdminFeeReportsPage() {
       if (selectedSection !== "all") queryParams.set("sectionName", selectedSection);
 
       const [summaryRes, classRes, defRes, payRes, txList, clsList, ayList] = await Promise.all([
-        fetch(`/api/fees/foundation/analytics/dashboard?${queryParams.toString()}`)
+        feeFetch(`/api/fees/foundation/analytics/dashboard?${queryParams.toString()}`)
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
-        fetch(`/api/fees/foundation/analytics/reports?type=class_wise&${queryParams.toString()}`)
+        feeFetch(`/api/fees/foundation/analytics/reports?type=class_wise&${queryParams.toString()}`)
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
-        fetch(`/api/fees/foundation/analytics/defaulters?${queryParams.toString()}`)
+        feeFetch(`/api/fees/foundation/analytics/defaulters?${queryParams.toString()}`)
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
-        fetch(`/api/fees/foundation/analytics/reports?type=payment_mode&${queryParams.toString()}`)
+        feeFetch(`/api/fees/foundation/analytics/reports?type=payment_mode&${queryParams.toString()}`)
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
         getFeeTransactions(schoolId).catch(() => []),
@@ -127,7 +130,7 @@ export default function AdminFeeReportsPage() {
       // Resilient fallback to direct client services if API returned null (e.g. 401 Unauthorized)
       if (!summaryData) {
         summaryData = await getFeeDashboardSummary(schoolId, {
-          academicYearId: dateRange && dateRange !== "all" ? dateRange : "ay_2026_27",
+          academicYearId: dateRange || "all",
           className: selectedClass !== "all" ? selectedClass : undefined,
           sectionName: selectedSection !== "all" ? selectedSection : undefined,
         }).catch(() => null);
@@ -135,13 +138,13 @@ export default function AdminFeeReportsPage() {
 
       if (!classData || !Array.isArray(classData) || classData.length === 0) {
         classData = await getClassCollectionSummary(schoolId, {
-          academicYearId: dateRange && dateRange !== "all" ? dateRange : "ay_2026_27",
+          academicYearId: dateRange || "all",
         }).catch(() => []);
       }
 
       if (!defData || !Array.isArray(defData) || defData.length === 0) {
         const defResult = await getFeeDefaulters(schoolId, {
-          academicYearId: dateRange && dateRange !== "all" ? dateRange : "ay_2026_27",
+          academicYearId: dateRange || "all",
           className: selectedClass !== "all" ? selectedClass : undefined,
         }).catch(() => ({ defaulters: [] }));
         defData = defResult?.defaulters || [];
@@ -149,7 +152,7 @@ export default function AdminFeeReportsPage() {
 
       if (!payData || !Array.isArray(payData) || payData.length === 0) {
         payData = await getPaymentMethodReport(schoolId, {
-          academicYearId: dateRange && dateRange !== "all" ? dateRange : "ay_2026_27",
+          academicYearId: dateRange || "all",
         }).catch(() => []);
       }
 
@@ -269,7 +272,7 @@ export default function AdminFeeReportsPage() {
     if (!schoolId) return;
     setExporting(true);
     try {
-      const res = await fetch("/api/fees/foundation/analytics/export", {
+      const res = await feeFetch("/api/fees/foundation/analytics/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

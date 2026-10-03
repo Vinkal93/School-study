@@ -1,6 +1,9 @@
 "use client";
+import { useFeeSession } from "@/components/fees/FeeSessionProvider";
 
-import { useEffect, useState, useMemo } from "react";
+import { feeFetch } from "@/lib/fees/client-request";
+
+import { useEffect, useState, useRef, useMemo } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
@@ -42,6 +45,7 @@ import type { FinancialPayment, PaymentMethod, PaymentAllocation, FinancialRefun
 import { toast } from "sonner";
 
 export default function AdminFeeTransactionsPage() {
+  const { academicYearId } = useFeeSession();
   const { profile } = useAuth();
   const effectiveSchoolId =
     profile?.schoolId ||
@@ -49,7 +53,7 @@ export default function AdminFeeTransactionsPage() {
       ? localStorage.getItem("currentSchoolId") || ""
       : "");
   const schoolId = effectiveSchoolId;
-  const schoolName = (profile as any)?.schoolName || "Lord Buddha Public School";
+  const schoolName = (profile as any)?.schoolName || "School";
 
   const [payments, setPayments] = useState<FinancialPayment[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
@@ -81,6 +85,8 @@ export default function AdminFeeTransactionsPage() {
   const [receiptPayment, setReceiptPayment] = useState<FeePayment | null>(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
 
+  const refundRequest = useRef<{ fingerprint: string; key: string } | null>(null);
+  const refundBusy = useRef(false);
   // Refund Modal state
   const [refundPayment, setRefundPayment] = useState<FinancialPayment | null>(null);
   const [refundAmountRupees, setRefundAmountRupees] = useState("");
@@ -98,7 +104,7 @@ export default function AdminFeeTransactionsPage() {
     if (!schoolId) return;
     setLoading(true);
     try {
-      const params = new URLSearchParams({ schoolId });
+      const params = new URLSearchParams({ schoolId, academicYearId });
       if (selectedClass !== "all") params.set("className", selectedClass);
       if (selectedMethod !== "all") params.set("paymentMethod", selectedMethod);
       if (selectedStatus !== "all") params.set("status", selectedStatus);
@@ -111,7 +117,7 @@ export default function AdminFeeTransactionsPage() {
 
       try {
         const [res, classesData] = await Promise.all([
-          fetch(`/api/fees/foundation/payments?${params.toString()}`),
+          feeFetch(`/api/fees/foundation/payments?${params.toString()}`),
           getClassesWithSections(schoolId),
         ]);
         clsList = classesData;
@@ -155,7 +161,7 @@ export default function AdminFeeTransactionsPage() {
 
   useEffect(() => {
     fetchPayments();
-  }, [schoolId, selectedClass, selectedMethod, selectedStatus, startDate, endDate]);
+  }, [schoolId, academicYearId, selectedClass, selectedMethod, selectedStatus, startDate, endDate]);
 
   // Handle Search Input (debounce / button)
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -207,7 +213,7 @@ export default function AdminFeeTransactionsPage() {
     setLoadingDetail(true);
     setPaymentDetailData(null);
     try {
-      const res = await fetch(
+      const res = await feeFetch(
         `/api/fees/foundation/payments/${payment.id}?schoolId=${encodeURIComponent(schoolId)}`
       );
       if (!res.ok) throw new Error("Failed to load payment detail");
@@ -255,7 +261,8 @@ export default function AdminFeeTransactionsPage() {
       paymentDate: payment.paymentDate,
       collectedBy: payment.collectedBy,
       collectedByName: payment.collectedByName,
-      status: payment.status === "REFUNDED" ? "REFUNDED" : "SUCCESS",
+      status: payment.status,
+      refundedAmountPaise: payment.refundedAmountPaise,
       remainingDuePaise: payment.remainingDuePaise,
       createdAt: payment.createdAt,
     };
@@ -276,7 +283,7 @@ export default function AdminFeeTransactionsPage() {
   // Process Refund Submit
   const handleRefundSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!refundPayment || !schoolId) return;
+    if (!refundPayment || !schoolId || refundBusy.current) return;
 
     const amt = Number(refundAmountRupees);
     if (isNaN(amt) || amt <= 0) {
@@ -288,15 +295,19 @@ export default function AdminFeeTransactionsPage() {
       return;
     }
 
+    refundBusy.current = true;
+    const fingerprint = JSON.stringify([refundPayment.id, amt, refundReason.trim(), refundMethod]);
+    if (refundRequest.current?.fingerprint !== fingerprint) refundRequest.current = { fingerprint, key: crypto.randomUUID() };
     setRefundSubmitting(true);
     try {
-      const res = await fetch("/api/fees/foundation/refunds", {
+      const res = await feeFetch("/api/fees/foundation/refunds", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           schoolId,
           paymentId: refundPayment.id,
           amountRupees: amt,
+          idempotencyKey: refundRequest.current.key,
           reason: refundReason.trim(),
           refundMethod,
         }),
@@ -307,11 +318,13 @@ export default function AdminFeeTransactionsPage() {
 
       toast.success(`Refund processed! Receipt #${json.refundReceiptNumber}`);
       setRefundPayment(null);
+      refundRequest.current = null;
       fetchPayments();
     } catch (err: any) {
       console.error("Refund error:", err);
       toast.error(err.message || "Failed to process refund.");
     } finally {
+      refundBusy.current = false;
       setRefundSubmitting(false);
     }
   };
@@ -334,7 +347,7 @@ export default function AdminFeeTransactionsPage() {
 
     setReversalSubmitting(true);
     try {
-      const res = await fetch("/api/fees/foundation/reversals", {
+      const res = await feeFetch("/api/fees/foundation/reversals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

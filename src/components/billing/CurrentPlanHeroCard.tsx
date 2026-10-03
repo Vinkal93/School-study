@@ -26,21 +26,8 @@ export function CurrentPlanHeroCard({
   if (!subscription || !plan) return null;
 
   const isAnnual = subscription.billingCycle === "annual";
-  const priceRupees = isAnnual
-    ? planVersion?.annualPrice
-      ? Math.round(planVersion.annualPrice / 100)
-      : plan.slug === "base" || plan.id === "plan_base"
-      ? 299
-      : plan.slug === "starter"
-      ? 799
-      : 1599
-    : planVersion?.monthlyPrice
-    ? Math.round(planVersion.monthlyPrice / 100)
-    : plan.slug === "base" || plan.id === "plan_base"
-    ? 399
-    : plan.slug === "starter"
-    ? 999
-    : 1999;
+  const pricePaise = isAnnual ? planVersion?.annualPrice : planVersion?.monthlyPrice;
+  const priceRupees = pricePaise === undefined ? null : pricePaise / 100;
 
   const startDateFormatted = new Date(subscription.startsAt).toLocaleDateString("en-IN", {
     day: "2-digit",
@@ -93,7 +80,7 @@ export function CurrentPlanHeroCard({
 
           {/* Pricing Row */}
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-black text-slate-900 dark:text-white">₹{priceRupees.toLocaleString("en-IN")}</span>
+            <span className="text-3xl font-black text-slate-900 dark:text-white">₹{priceRupees?.toLocaleString("en-IN")}</span>
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
               / {isAnnual ? "month (billed annually)" : "month"}
             </span>

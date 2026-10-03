@@ -1,4 +1,7 @@
 "use client";
+import { useFeeSession } from "@/components/fees/FeeSessionProvider";
+
+import { feeFetch } from "@/lib/fees/client-request";
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
@@ -56,7 +59,7 @@ export default function AdminStudentLedgerPage() {
       ? localStorage.getItem("currentSchoolId") || ""
       : "");
   const schoolId = effectiveSchoolId;
-  const schoolName = (profile as any)?.schoolName || "Lord Buddha Public School";
+  const schoolName = (profile as any)?.schoolName || "School";
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -79,7 +82,7 @@ export default function AdminStudentLedgerPage() {
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedClass, setSelectedClass] = useState("all");
-  const [selectedAcademicYear, setSelectedAcademicYear] = useState("all");
+  const { academicYearId: selectedAcademicYear, setAcademicYearId: setSelectedAcademicYear } = useFeeSession();
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [entryTypeFilter, setEntryTypeFilter] = useState<string>("all");
@@ -154,10 +157,10 @@ export default function AdminStudentLedgerPage() {
         if (endDate) q.set("endDate", endDate);
 
         const [ledgerRes, stmtRes] = await Promise.all([
-          fetch(`/api/fees/foundation/ledger/student?${q.toString()}`).then((r) =>
+          feeFetch(`/api/fees/foundation/ledger/student?${q.toString()}`).then((r) =>
             r.ok ? r.json() : null
           ),
-          fetch(`/api/fees/foundation/ledger/student?statement=true&${q.toString()}`).then((r) =>
+          feeFetch(`/api/fees/foundation/ledger/student?statement=true&${q.toString()}`).then((r) =>
             r.ok ? r.json() : null
           ),
         ]);
@@ -226,7 +229,7 @@ export default function AdminStudentLedgerPage() {
     if (!schoolId || !selectedStudent) return;
     setExporting(true);
     try {
-      const res = await fetch("/api/fees/foundation/ledger/export", {
+      const res = await feeFetch("/api/fees/foundation/ledger/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

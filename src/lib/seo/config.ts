@@ -16,9 +16,9 @@ const getSiteUrl = (): string => {
 
 export const developerConfig = {
   name: "Vinkal Prajapati",
-  alternateNames: ["Vinkal", "vinkal93", "Er. Vinkal Prajapati", "Vinkal Developer"],
-  role: "Founder, Software Architect & Full-Stack Developer",
-  bio: "Creator and Lead Architect of School Study — a modern multi-tenant cloud school management and ERP platform. Specializing in high-performance web engineering, EdTech, Next.js, and Cloud Infrastructure.",
+  alternateNames: ["Vinkal", "Vinkal93", "Vinkal041"],
+  role: "Founder & Web Developer",
+  bio: "Vinkal Prajapati is an Indian web developer, educator and digital creator, and the founder and developer of School Study. He builds practical software tools and educational platforms.",
   portfolioUrl: "https://vinkal.sbci.online",
   githubUrl: "https://github.com/Vinkal93",
   projectRepoUrl: "https://github.com/Vinkal93/School-study",

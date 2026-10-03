@@ -28,12 +28,14 @@ export function SubscriptionReminderModal() {
     let isMounted = true;
     if (!schoolId) return;
 
-    getSubscriptionReminder(schoolId, role).then((res) => {
-      if (isMounted && res.shouldRemind && res.showPopup) {
-        setReminder(res);
-        setIsOpen(true);
-      }
-    });
+    getSubscriptionReminder(schoolId, role)
+      .then((res) => {
+        if (isMounted && res.shouldRemind && res.showPopup) {
+          setReminder(res);
+          setIsOpen(true);
+        }
+      })
+      .catch(() => {});
 
     return () => {
       isMounted = false;

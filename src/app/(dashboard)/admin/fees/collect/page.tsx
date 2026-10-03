@@ -1,6 +1,7 @@
 "use client";
+import { useFeeSession } from "@/components/fees/FeeSessionProvider";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
@@ -25,12 +26,13 @@ import {
 import { getStudents } from "@/lib/services/student.service";
 import { getAcademicYears } from "@/lib/services/academic.service";
 import { getFeeSettings } from "@/lib/services/fee.service";
+import { getFastCache, setFastCache } from "@/lib/utils/fast-data-cache";
 import {
   generateProfessionalFeeReceiptPDF,
   type FeeReceiptPDFData,
 } from "@/lib/services/pdf-invoice-receipt.service";
-import { getFirebaseDb } from "@/lib/firebase/client";
-import { collection, doc, setDoc } from "firebase/firestore";
+import { feeFetch } from "@/lib/fees/client-request";
+import type { FeeDemand } from "@/types/fee-foundation";
 import type { AcademicYear, StudentProfile, FeePayment, FeeSettings } from "@/types";
 import { toast } from "sonner";
 
@@ -40,36 +42,10 @@ interface FeeParticularItem {
   amount: number;
 }
 
-const DEFAULT_PARTICULARS: FeeParticularItem[] = [
-  { sr: 1, particulars: "MONTHLY FEE", amount: 400 },
-  { sr: 2, particulars: "ADMISSION FEE", amount: 0 },
-  { sr: 3, particulars: "REGISTRATION FEE", amount: 0 },
-  { sr: 4, particulars: "ART MATERIAL", amount: 0 },
-  { sr: 5, particulars: "TRANSPORT", amount: 0 },
-  { sr: 6, particulars: "BOOKS", amount: 0 },
-  { sr: 7, particulars: "UNIFORM", amount: 0 },
-  { sr: 8, particulars: "FINE", amount: 0 },
-  { sr: 9, particulars: "OTHERS", amount: 0 },
-  { sr: 10, particulars: "Previous Balance", amount: 0 },
-  { sr: 11, particulars: "Discount in Fee 0 %", amount: 0 },
-];
-
-const MONTH_OPTIONS = [
-  "October, 2026",
-  "November, 2026",
-  "December, 2026",
-  "January, 2027",
-  "February, 2027",
-  "March, 2027",
-  "April, 2026",
-  "May, 2026",
-  "June, 2026",
-  "July, 2026",
-  "August, 2026",
-  "September, 2026",
-];
+const DEFAULT_PARTICULARS: FeeParticularItem[] = [{ sr: 1, particulars: "Discount", amount: 0 }];
 
 export default function AdminCollectFeePage() {
+  const { academicYearId } = useFeeSession();
   const { profile } = useAuth();
   const schoolId = profile?.schoolId || "";
 
@@ -79,13 +55,20 @@ export default function AdminCollectFeePage() {
   const [settings, setSettings] = useState<FeeSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-
+  const [demands, setDemands] = useState<FeeDemand[]>([]);
+  const [loadingInvoices, setLoadingInvoices] = useState(false);
+  const [invoiceRevision, setInvoiceRevision] = useState(0);
+  const inFlight = useRef(false);
+  const requestKey = useRef<{ fingerprint: string; key: string } | null>(null);
+  const currentYear = years.find(y => y.id === academicYearId);
+  const monthOptions = [...new Set(demands.filter(d => d.status !== "CANCELLED" && d.balanceAmountPaise > 0).map(d => d.period))];
   // Student selection state
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStudentId, setSelectedStudentId] = useState("");
 
   // Billing state
-  const [feeMonth, setFeeMonth] = useState("October, 2026");
+  const [feeMonth, setFeeMonth] = useState("");
+  const selectedInvoices = demands.filter(d => d.period === feeMonth && d.status !== "CANCELLED" && d.balanceAmountPaise > 0);
   const [paymentDate, setPaymentDate] = useState(() => {
     const today = new Date();
     return today.toISOString().split("T")[0]; // YYYY-MM-DD
@@ -98,7 +81,7 @@ export default function AdminCollectFeePage() {
   const [particulars, setParticulars] = useState<FeeParticularItem[]>(DEFAULT_PARTICULARS);
 
   // Deposit input state
-  const [depositAmount, setDepositAmount] = useState<number>(400);
+  const [depositAmount, setDepositAmount] = useState<number>(0);
 
   // Completed Receipt Result state
   const [submittedReceipt, setSubmittedReceipt] = useState<{
@@ -121,10 +104,48 @@ export default function AdminCollectFeePage() {
     items: FeeParticularItem[];
   } | null>(null);
 
-  // Fetch initial data
+  useEffect(() => {
+    let cancelled = false;
+    setDemands([]);
+    setParticulars(DEFAULT_PARTICULARS);
+    if (!schoolId || !selectedStudentId || !currentYear?.id) return;
+    setLoadingInvoices(true);
+    feeFetch(`/api/fees/foundation/demands?schoolId=${encodeURIComponent(schoolId)}&studentId=${encodeURIComponent(selectedStudentId)}&academicYearId=${encodeURIComponent(currentYear.id)}`)
+      .then(async response => { const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || "Invoice load failed."); return data.demands as FeeDemand[]; })
+      .then(list => { if (cancelled) return; setDemands(list); setFeeMonth(previous => list.some(d => d.period === previous && d.balanceAmountPaise > 0) ? previous : list.find(d => d.status !== "CANCELLED" && d.balanceAmountPaise > 0)?.period || ""); })
+      .catch(error => { if (!cancelled) toast.error(error.message); })
+      .finally(() => { if (!cancelled) setLoadingInvoices(false); });
+    return () => { cancelled = true; };
+  }, [schoolId, selectedStudentId, currentYear?.id, invoiceRevision]);
+  useEffect(() => {
+    const rows = demands.filter(d => d.period === feeMonth && d.status !== "CANCELLED" && d.balanceAmountPaise > 0)
+      .map((d, index) => ({ sr: index + 1, particulars: d.feeHeadName, amount: d.balanceAmountPaise / 100 }));
+    setParticulars([...rows, { sr: rows.length + 1, particulars: "Discount", amount: 0 }]);
+  }, [demands, feeMonth]);
+
+
+  // Fetch initial data with instant zero-flicker cache
   useEffect(() => {
     if (!schoolId) return;
-    setLoading(true);
+    const cacheKey = `admin_fees_collect_${schoolId}`;
+    const cached = getFastCache<{
+      students: StudentProfile[];
+      years: AcademicYear[];
+      settings: FeeSettings | null;
+    }>(cacheKey);
+
+    if (cached) {
+      setStudents(cached.students);
+      setYears(cached.years);
+      setSettings(cached.settings);
+      if (cached.students.length > 0) {
+        setSelectedStudentId((prev) => prev || cached.students[0].id);
+      }
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     Promise.all([
       getStudents(schoolId),
       getAcademicYears(schoolId),
@@ -134,15 +155,16 @@ export default function AdminCollectFeePage() {
         setStudents(stuList);
         setYears(yrList);
         setSettings(feeSett);
+        setFastCache(cacheKey, { students: stuList, years: yrList, settings: feeSett }, 10 * 60 * 1000);
 
-        // Pre-select first student if available
+        // Pre-select first student if available and none selected yet
         if (stuList.length > 0) {
-          setSelectedStudentId(stuList[0].id);
+          setSelectedStudentId((prev) => prev || stuList[0].id);
         }
       })
       .catch((err) => {
         console.error("Failed to load collect fee dependencies:", err);
-        toast.error("Failed to load students data.");
+        if (!cached) toast.error("Failed to load students data.");
       })
       .finally(() => setLoading(false));
   }, [schoolId]);
@@ -169,8 +191,8 @@ export default function AdminCollectFeePage() {
 
   // Total Gross calculation (heads 1 to 10 minus discount)
   const totalAmount = useMemo(() => {
-    const gross = particulars.slice(0, 10).reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-    const discount = Number(particulars[10]?.amount) || 0;
+    const gross = particulars.slice(0, -1).reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    const discount = Number(particulars[particulars.length - 1]?.amount) || 0;
     return Math.max(0, gross - discount);
   }, [particulars]);
 
@@ -196,23 +218,48 @@ export default function AdminCollectFeePage() {
   // Submit Fees
   const handleSubmitFees = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (inFlight.current) return;
     if (!currentStudent) {
       toast.error("Please select a student.");
       return;
     }
 
-    if (depositAmount <= 0 && totalAmount > 0) {
+    if (!Number.isFinite(depositAmount) || depositAmount <= 0) {
       toast.error("Please enter a valid deposit amount.");
       return;
     }
 
+    inFlight.current = true;
     setSubmitting(true);
 
     try {
       const now = new Date();
       const timeStr = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      const receiptNo = `REC-${now.getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
-      const paymentId = `pay_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      const resolvedYearId = currentYear?.id || years[0]?.id || "ay_current";
+      const payload = {
+        schoolId,
+        studentId: currentStudent.id,
+        studentName: currentStudent.name,
+        admissionNumber: currentStudent.admissionNumber || currentStudent.id,
+        className: currentStudent.className,
+        sectionName: currentStudent.sectionName || "",
+        academicYearId: resolvedYearId,
+        feeType: "tuition",
+        periodMonths: [feeMonth],
+        targetDemandIds: selectedInvoices.map((d) => d.id),
+        amountPaidRupees: depositAmount,
+        discountRupees: Number(particulars[particulars.length - 1]?.amount) || 0,
+        paymentMethod,
+        transactionRef: transactionRef.trim(),
+        remarks: remarks.trim(),
+        paymentDate,
+      };
+      const fingerprint = JSON.stringify(payload);
+      if (requestKey.current?.fingerprint !== fingerprint) requestKey.current = { fingerprint, key: crypto.randomUUID() };
+      const response = await feeFetch("/api/fees/collect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, idempotencyKey: requestKey.current.key }) });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || "Payment could not be recorded.");
+      const receiptNo = result.receiptNumber;
 
       const regNo =
         currentStudent.admissionNumber ||
@@ -222,7 +269,7 @@ export default function AdminCollectFeePage() {
       const guardian =
         currentStudent.guardianName ||
         currentStudent.fatherName ||
-        "Demo";
+        "";
 
       const receiptRecord = {
         receiptNumber: receiptNo,
@@ -239,49 +286,14 @@ export default function AdminCollectFeePage() {
         transactionRef: transactionRef.trim() || undefined,
         totalAmount: totalAmount,
         depositAmount: depositAmount,
-        remainingBalance: dueBalance,
-        discountAmount: Number(particulars[10]?.amount) || 0,
+        remainingBalance: (result.payment.remainingDuePaise ?? Math.round(dueBalance * 100)) / 100,
+        discountAmount: Number(particulars[particulars.length - 1]?.amount) || 0,
         items: particulars,
       };
 
-      // Persist in Firebase Firestore
-      const db = getFirebaseDb();
-      if (db && schoolId) {
-        const docPayload = {
-          id: paymentId,
-          schoolId,
-          receiptNumber: receiptNo,
-          studentId: currentStudent.id,
-          studentName: currentStudent.name,
-          admissionNumber: regNo,
-          className: currentStudent.className,
-          sectionName: currentStudent.sectionName || "A",
-          academicYearId: years.find((y) => y.isCurrent)?.id || "ay_current",
-          feeType: "tuition",
-          periodMonths: [feeMonth],
-          amountPaidPaise: Math.round(depositAmount * 100),
-          netAmountPaise: Math.round(depositAmount * 100),
-          totalGrossPaise: Math.round(totalAmount * 100),
-          remainingDuePaise: Math.round(dueBalance * 100),
-          discountPaise: Math.round((Number(particulars[10]?.amount) || 0) * 100),
-          lateFeePaise: 0,
-          paymentMethod: paymentMethod,
-          transactionRef: transactionRef.trim() || null,
-          remarks: remarks.trim() || `Fee collection for ${feeMonth}`,
-          paymentDate: paymentDate,
-          collectedBy: profile?.uid || "admin",
-          collectedByName: profile?.name || "School Cashier",
-          status: "SUCCESS",
-          items: particulars,
-          createdAt: now.toISOString(),
-        };
-
-        // Write to both financialPayments & feePayments for unified sync
-        await setDoc(doc(db, "financialPayments", paymentId), docPayload, { merge: true }).catch(() => {});
-        await setDoc(doc(db, "feePayments", paymentId), docPayload, { merge: true }).catch(() => {});
-      }
-
       setSubmittedReceipt(receiptRecord);
+      requestKey.current = null;
+      setInvoiceRevision(revision => revision + 1);
       toast.success(`Fee collected successfully! Receipt ${receiptNo}`);
 
       // Automatically trigger official high-res PDF generation and download
@@ -290,6 +302,7 @@ export default function AdminCollectFeePage() {
       console.error("Fee collection error:", err);
       toast.error(err.message || "Could not record fee payment.");
     } finally {
+      inFlight.current = false;
       setSubmitting(false);
     }
   };
@@ -298,10 +311,10 @@ export default function AdminCollectFeePage() {
   const downloadOfficialPDF = (receiptData: NonNullable<typeof submittedReceipt>) => {
     try {
       const pdfInput: FeeReceiptPDFData = {
-        schoolName: settings?.schoolName || profile?.schoolName || "DEMO PUBLIC SCHOOL",
-        schoolAddress: settings?.schoolAddress || "Institutional Area, Main Campus",
-        schoolPhone: settings?.schoolPhone || "+91 98765 43210",
-        schoolAffiliation: "Affiliated to CBSE / State Board (Reg. No: 2026/89)",
+        schoolName: settings?.schoolName || profile?.schoolName || "School",
+        schoolAddress: settings?.schoolAddress || "",
+        schoolPhone: settings?.schoolPhone || "",
+        schoolAffiliation: "",
         receiptNumber: receiptData.receiptNumber,
         paymentDate: receiptData.paymentDate,
         paymentTime: receiptData.paymentTime,
@@ -347,7 +360,7 @@ export default function AdminCollectFeePage() {
     const msg = encodeURIComponent(
       `*OFFICIAL FEE PAYMENT RECEIPT*\n` +
         `--------------------------------\n` +
-        `🏫 *${settings?.schoolName || "DEMO PUBLIC SCHOOL"}*\n` +
+        `🏫 *${settings?.schoolName || "School"}*\n` +
         `🧾 Receipt No: *${receiptData.receiptNumber}*\n` +
         `👤 Student: *${receiptData.studentName}* (Reg: ${receiptData.registrationNo})\n` +
         `📚 Class: *${receiptData.className}*\n` +
@@ -370,7 +383,7 @@ export default function AdminCollectFeePage() {
   // Reset for next fee collection
   const handleCollectAnother = () => {
     setSubmittedReceipt(null);
-    setDepositAmount(400);
+    setDepositAmount(0);
     setParticulars(DEFAULT_PARTICULARS);
     setTransactionRef("");
     setRemarks("");
@@ -591,6 +604,23 @@ export default function AdminCollectFeePage() {
           </div>
         )}
 
+          {!submittedReceipt && !loadingInvoices && !monthOptions.length && currentStudent && (
+            <div className="rounded-xl border p-4 space-y-3">
+              <p>No outstanding invoices for this student in {currentYear?.name || "the selected session"}. Configure Fee Structure, then generate the schedule.</p>
+              <button type="button" disabled={submitting || !currentYear} className="rounded-lg bg-blue-600 px-4 py-2 text-white" onClick={async () => {
+                if (inFlight.current || !currentYear) return;
+                inFlight.current = true; setSubmitting(true);
+                try {
+                  const response = await feeFetch("/api/fees/foundation/demands/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ schoolId, studentId: currentStudent.id, academicYearId: currentYear.id, academicYearName: currentYear.name }) });
+                  const data = await response.json();
+                  if (!response.ok || !data.success) throw new Error(data.error || "Schedule generation failed.");
+                  toast.success(`${data.count} invoices in fee schedule`); setInvoiceRevision(revision => revision + 1);
+                } catch (error) { toast.error(error instanceof Error ? error.message : "Schedule generation failed."); }
+                finally { inFlight.current = false; setSubmitting(false); }
+              }}>Generate fee schedule</button>
+            </div>
+          )}
+
         {/* MAIN COLLECTION FORM (Matching User's Specified Workflow) */}
         {!submittedReceipt && (
           <form onSubmit={handleSubmitFees} className="space-y-6">
@@ -639,7 +669,7 @@ export default function AdminCollectFeePage() {
                   {filteredStudents.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name} | Reg: {s.admissionNumber || s.id} | Class: {s.className}{" "}
-                      {s.sectionName || "A"} | Guardian: {s.guardianName || s.fatherName || "Demo"}
+                      {s.sectionName || "A"} | Guardian: {s.guardianName || s.fatherName || ""}
                     </option>
                   ))}
                 </select>
@@ -664,7 +694,7 @@ export default function AdminCollectFeePage() {
                 <div>
                   <span className="text-xs text-slate-500">Guardian Name</span>
                   <p className="mt-0.5 text-sm font-bold text-slate-900 dark:text-white">
-                    {currentStudent?.guardianName || currentStudent?.fatherName || "Demo"}
+                    {currentStudent?.guardianName || currentStudent?.fatherName || ""}
                   </p>
                 </div>
 
@@ -688,7 +718,7 @@ export default function AdminCollectFeePage() {
                   onChange={(e) => setFeeMonth(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-medium text-slate-800 shadow-sm focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                 >
-                  {MONTH_OPTIONS.map((m) => (
+                  {monthOptions.map((m) => (
                     <option key={m} value={m}>
                       {m}
                     </option>
@@ -757,6 +787,7 @@ export default function AdminCollectFeePage() {
                             type="number"
                             min="0"
                             value={item.amount}
+                              readOnly={idx !== particulars.length - 1}
                             onChange={(e) => handleParticularChange(idx, Number(e.target.value) || 0)}
                             className="w-28 rounded-lg border border-slate-200 px-3 py-1.5 text-right text-xs font-semibold text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                           />
@@ -786,7 +817,7 @@ export default function AdminCollectFeePage() {
                       id="depositInput"
                       type="number"
                       min="0"
-                      max={totalAmount * 2}
+                      max={totalAmount}
                       value={depositAmount}
                       onChange={(e) => setDepositAmount(Number(e.target.value) || 0)}
                       required

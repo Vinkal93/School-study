@@ -54,6 +54,10 @@ export function EntitlementGate({
     let isMounted = true;
 
     async function evaluateAccess() {
+      if (entitlementCtx.loading && role !== "super_admin") {
+        setLoading(true);
+        return;
+      }
       // 1. Super Admin always bypasses frontend feature gates
       if (role === "super_admin") {
         if (isMounted) {
@@ -212,7 +216,7 @@ export function EntitlementGate({
     entitlementCtx?.entitlement?.plan?.id,
   ]);
 
-  if (loading) {
+  if (loading || (entitlementCtx.loading && role !== "super_admin")) {
     if (!showLoading) return null;
     return (
       <div className="flex items-center justify-center p-8">
@@ -222,7 +226,7 @@ export function EntitlementGate({
   }
 
   // 1. Full Access granted
-  if (accessResult?.allowed) {
+  if (accessResult?.allowed && (!targetCapability || entitlementCtx.canAccess(targetCapability))) {
     return <>{children}</>;
   }
 
@@ -232,7 +236,7 @@ export function EntitlementGate({
   }
 
   // 3. If access mode is HIDDEN, completely omit from UI
-  if (accessMode === "HIDDEN" && (type === "action" || type === "button" || type === "export")) {
+  if (targetCapability && entitlementCtx.getCapabilityAccessMode(targetCapability) === "HIDDEN") {
     return null;
   }
 

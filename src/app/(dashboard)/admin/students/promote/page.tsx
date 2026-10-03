@@ -8,6 +8,7 @@ import { getStudents, transferStudentsBulk } from "@/lib/services/student.servic
 import { getClassesWithSections } from "@/lib/services/academic.service";
 import type { StudentProfile, SchoolClass } from "@/types";
 import { toast } from "sonner";
+import { WholeSchoolPromotion } from "@/components/admin/WholeSchoolPromotion";
 import {
   ArrowRight,
   GraduationCap,
@@ -55,8 +56,8 @@ export default function PromoteStudentsPage() {
   const [sourceSectionId, setSourceSectionId] = useState("all");
   const [targetClassId, setTargetClassId] = useState("");
   const [targetSectionId, setTargetSectionId] = useState("");
-  const [rollNumberMode, setRollNumberMode] = useState<"sequential" | "keep">("sequential");
-  const [autoAssignFees, setAutoAssignFees] = useState(true);
+  const [rollNumberMode, setRollNumberMode] = useState<"sequential" | "keep">("keep");
+  const [autoAssignFees, setAutoAssignFees] = useState(false);
   const [promotionReason, setPromotionReason] = useState("Annual Academic Session Promotion");
 
   // Selected Student IDs
@@ -231,6 +232,7 @@ export default function PromoteStudentsPage() {
 
   return (
     <div className="space-y-6 pb-12">
+      <WholeSchoolPromotion schoolId={schoolId} actorId={profile?.uid || ""} students={students} classes={classes} onComplete={() => { refetchStudents(true); }} />
       {/* Top Header & Breadcrumbs */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>

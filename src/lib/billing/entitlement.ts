@@ -7,21 +7,22 @@ import { getSchoolAccess } from "./accessEngine";
 import { getSchoolUsage } from "./usage";
 import { getPlanFeatures, getEffectiveFeatureAccessModes, getRequiredPlanForFeature } from "./featureAccess";
 import { getActiveLimitOverrides, getActiveAccessOverrides } from "./subscriptionAdjustmentEngine";
-import { getActivePlan } from "./plans";
+import { getActivePlan, getAllPlans } from "./plans";
 
 /**
  * Section 27 & Phase 12B: Authoritative Effective Entitlement Service.
  * Resolves: Security/Suspension -> Access Policy -> Manual Restrictions -> Subscription Status -> Plan Version -> Limits -> Limit Overrides -> Real Usage -> 3-Way Feature Access Modes.
  */
 export async function getEffectiveEntitlement(schoolId: string): Promise<EffectiveEntitlement> {
-  const [summary, usage, features, featureAccessModes, limitOverrides, accessOverrides] = await Promise.all([
+  const [summary, usage, featureAccessModes, limitOverrides, accessOverrides, catalog] = await Promise.all([
     getSchoolAccess(schoolId),
     getSchoolUsage(schoolId),
-    getPlanFeatures(schoolId),
     getEffectiveFeatureAccessModes(schoolId),
     getActiveLimitOverrides(schoolId),
     getActiveAccessOverrides(schoolId),
+    getAllPlans(),
   ]);
+  const features = Object.fromEntries(Object.entries(featureAccessModes).map(([key, mode]) => [key, mode === "FULL_ACCESS"]));
 
   const planDoc = await getActivePlan(summary?.planId || "plan_starter");
 
@@ -35,8 +36,8 @@ export async function getEffectiveEntitlement(schoolId: string): Promise<Effecti
 
   // Check temporary access override or FULL_CONTROL mode
   const hasTempAccess = accessOverrides.some((o) => o.type === "TEMPORARY_ACCESS");
-  const isFullControl = summary?.controlMode === "FULL_CONTROL" || hasTempAccess;
-  const effectiveAccessMode = (isFullControl && summary.status !== "SUSPENDED") ? "FULL_ACCESS" : summary.accessMode;
+  const isFullControl = summary.accessMode === "FULL_ACCESS" && (summary?.controlMode === "FULL_CONTROL" || hasTempAccess);
+  const effectiveAccessMode = summary.accessMode;
 
   // Apply active Limit Overrides or FULL_CONTROL unlimited (-1)
   const effectiveMaxStudents = isFullControl ? -1 : (limitOverrides.find((o) => o.limitKey === "students")?.overrideValue ?? baseLimits.maxStudents ?? 500);
@@ -91,7 +92,7 @@ export async function getEffectiveEntitlement(schoolId: string): Promise<Effecti
     featureKeysToCheck.map(async (fKey) => {
       if (featureAccessModes[fKey] !== "FULL_ACCESS") {
         try {
-          const req = await getRequiredPlanForFeature(fKey, summary.planId);
+          const req = await getRequiredPlanForFeature(fKey, summary.planId, catalog);
           availableFromMap[fKey] = req.planName;
         } catch {
           availableFromMap[fKey] = "Higher Plan Required";

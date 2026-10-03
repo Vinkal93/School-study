@@ -5,18 +5,16 @@
  import * as Sentry from "@sentry/nextjs";
 
  Sentry.init({
-   dsn: "https://3afd755197a4fd101abb82b2cc4f612d@o4512044365447168.ingest.de.sentry.io/4512111626616912",
-   enabled: process.env.NODE_ENV === "production",
+   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+   enabled: process.env.NODE_ENV === "production" && !!process.env.NEXT_PUBLIC_SENTRY_DSN,
 
-   // Route browser requests to Sentry through a Next.js rewrite to circumvent ad-blockers.
-   // This is the modern replacement for the webpack plugin's tunnelRoute option.
-   tunnel: "/monitoring",
+   // Enable monitoring only with an explicitly configured project DSN.
 
    // Add optional integrations for additional features
    integrations: [Sentry.replayIntegration()],
 
   // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
-  tracesSampleRate: process.env.NODE_ENV === "development" ? 0.05 : 1,
+  tracesSampleRate: 0.1,
 
   // Define how likely Replay events are sampled.
   // This sets the sample rate to be 10%. You may want this to be 100% while

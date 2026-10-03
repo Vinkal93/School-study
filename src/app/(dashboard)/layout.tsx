@@ -19,7 +19,8 @@ import { AdminWelcomeOverlay } from "@/components/common/AdminWelcomeOverlay";
 import { FeatureShowcaseModal } from "@/components/showcase/FeatureShowcaseModal";
 
 function DashboardShellSwitch({ children }: { children: React.ReactNode }) {
-  const { isNewUI, isLiquidGlassUI, activePortal } = usePortalUI();
+  const { isNewUI, isLiquidGlassUI, activePortal, loading } = usePortalUI();
+  if (loading) return <div className="flex min-h-screen items-center justify-center"><Spinner size="lg" /></div>;
 
   if (isLiquidGlassUI) {
     return (

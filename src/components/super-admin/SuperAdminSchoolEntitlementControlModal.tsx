@@ -32,7 +32,12 @@ import { toast } from "sonner";
 import { safeFetchJson } from "@/lib/utils/safeFetch";
 import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
-import type { SchoolSubscription } from "@/types";
+import { applySchoolPlanControl } from "@/lib/billing/school-control";
+import { getAllPlansAdmin } from "@/lib/billing/plans";
+import { getEffectiveEntitlement } from "@/lib/billing/entitlement";
+import { getActiveAccessOverrides, getActiveLimitOverrides } from "@/lib/billing/subscriptionAdjustmentEngine";
+import { ADMIN_FEATURE_REGISTRY } from "@/lib/features/adminFeatureRegistry";
+import type { Plan, SchoolSubscription } from "@/types";
 
 interface SuperAdminSchoolEntitlementControlModalProps {
   isOpen: boolean;
@@ -49,6 +54,7 @@ export function SuperAdminSchoolEntitlementControlModal({
   schoolName,
   onUpdated,
 }: SuperAdminSchoolEntitlementControlModalProps) {
+  const [plans, setPlans] = useState<Plan[]>([]);
   const [activeTab, setActiveTab] = useState<"plan" | "control_mode" | "limits" | "matrix">("plan");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -67,7 +73,7 @@ export function SuperAdminSchoolEntitlementControlModal({
   const [customDateInput, setCustomDateInput] = useState("");
   const [expiryDaysInput, setExpiryDaysInput] = useState<number>(30);
   const [reasonInput, setReasonInput] = useState("Super Admin school custom access update");
-  
+
   // Overrides Map: key -> "ALLOW" | "DENY" | "SHOWCASE" | undefined
   const [featureOverridesMap, setFeatureOverridesMap] = useState<Record<string, "ALLOW" | "DENY" | "SHOWCASE">>({});
 
@@ -99,59 +105,13 @@ export function SuperAdminSchoolEntitlementControlModal({
         } catch (e) {}
       }
 
-      const [subRes, matrixRes] = await Promise.all([
-        safeFetchJson(`/api/super-admin/schools/${schoolId}/subscription`),
-        safeFetchJson(`/api/super-admin/schools/${schoolId}/entitlements`),
-      ]);
+      const [catalog, entitlement, access, limits] = await Promise.all([getAllPlansAdmin(), getEffectiveEntitlement(schoolId), getActiveAccessOverrides(schoolId), getActiveLimitOverrides(schoolId)]);
+      setPlans(catalog.filter(p => p.status === "ACTIVE" && !p.isArchived));
+      setSummary(entitlement);
+      setMatrix(ADMIN_FEATURE_REGISTRY.map(f => ({ ...f, name: f.label, category: f.category, planAccess: entitlement.featureAccessModes?.[f.key] || "HIDDEN", effectiveAccess: entitlement.featureAccessModes?.[f.key] || "HIDDEN" })));
+      setFeatureOverridesMap(Object.fromEntries(access.filter(o => o.featureKey).map(o => [o.featureKey!, o.accessMode === "HIDDEN" ? "DENY" : o.accessMode === "SHOWCASE" ? "SHOWCASE" : "ALLOW"])));
+      setLimitOverridesInput(prev => Object.fromEntries(Object.keys(prev).map(key => { const found = limits.find(l => l.limitKey === key); return [key, found ? { mode: found.overrideValue === -1 ? "UNLIMITED" : "CUSTOM_LIMIT", customValue: found.overrideValue } : { mode: "PLAN_DEFAULT", customValue: 0 }]; })) as typeof prev);
 
-      if (subRes.ok && subRes.data) {
-        const subData = subRes.data.subscription;
-        if (subData) {
-          setSubscription(subData);
-          setSelectedPlanId(subData?.planId || "plan_starter");
-          setBillingCycle(subData?.billingCycle || "monthly");
-          setControlMode(subRes.data.controlMode || subData?.controlMode || "PLAN_DEFAULT");
-
-          if (subData?.expiresAt) {
-            setCustomDateInput(subData.expiresAt.split("T")[0]);
-          }
-        }
-      }
-
-      if (matrixRes.ok && matrixRes.data) {
-        setMatrix(matrixRes.data.matrix || []);
-        setSummary(matrixRes.data.summary || null);
-
-        // Prepopulate feature overrides map
-        const initialOverrides: Record<string, "ALLOW" | "DENY" | "SHOWCASE"> = {};
-        (matrixRes.data.matrix || []).forEach((item: any) => {
-          if (item.schoolOverride === "ALLOW") initialOverrides[item.id] = "ALLOW";
-          else if (item.schoolOverride === "DENY") initialOverrides[item.id] = "DENY";
-          else if (item.schoolOverride === "SHOWCASE") initialOverrides[item.id] = "SHOWCASE";
-        });
-        setFeatureOverridesMap(initialOverrides);
-
-        // Prepopulate limit overrides
-        const rawLimits = matrixRes.data.limitOverrides || [];
-        const nextLimits = {
-          students: { mode: "PLAN_DEFAULT", customValue: 500 },
-          teachers: { mode: "PLAN_DEFAULT", customValue: 20 },
-          classes: { mode: "PLAN_DEFAULT", customValue: 15 },
-          staff: { mode: "PLAN_DEFAULT", customValue: 2 },
-        };
-
-        rawLimits.forEach((l: any) => {
-          const k = l.limitKey as "students" | "teachers" | "classes" | "staff";
-          if (nextLimits[k]) {
-            if (l.overrideValue === -1) {
-              nextLimits[k] = { mode: "UNLIMITED", customValue: -1 };
-            } else {
-              nextLimits[k] = { mode: "CUSTOM_LIMIT", customValue: l.overrideValue };
-            }
-          }
-        });
-        setLimitOverridesInput(nextLimits);
-      }
     } catch (err: any) {
       toast.error("Failed to load school entitlement control data.");
     } finally {
@@ -195,43 +155,7 @@ export function SuperAdminSchoolEntitlementControlModal({
         ...additionalPayload,
       };
 
-      // 1. Direct Client Firestore Write (Instant & Resilient)
-      const db = getFirebaseDb();
-      if (db) {
-        const now = new Date();
-        const durDays = billingCycle === "annual" ? 365 : 30;
-        const expIso = customDateInput ? new Date(customDateInput).toISOString() : new Date(now.getTime() + durDays * 86400000).toISOString();
-        const graceIso = new Date(new Date(expIso).getTime() + 7 * 86400000).toISOString();
-
-        const patchData: any = {
-          planId: selectedPlanId,
-          planVersionId: `${selectedPlanId}_v1`,
-          billingCycle,
-          status: "ACTIVE",
-          expiresAt: expIso,
-          currentPeriodEnd: expIso,
-          graceEndsAt: graceIso,
-          controlMode: targetMode,
-          updatedAt: now.toISOString(),
-        };
-
-        await setDoc(doc(db, "schoolSubscriptions", schoolId), patchData, { merge: true }).catch((e) => console.warn("Client sub setDoc notice:", e));
-        await updateDoc(doc(db, "schools", schoolId), {
-          planId: selectedPlanId,
-          plan: selectedPlanId,
-          billingCycle,
-          subscriptionStatus: "ACTIVE",
-          updatedAt: now.toISOString(),
-        }).catch((e) => console.warn("Client school updateDoc notice:", e));
-      }
-
-      // 2. Background server API sync
-      const res = await safeFetchJson(`/api/super-admin/schools/${schoolId}/subscription`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
+      await applySchoolPlanControl(schoolId, payload);
       toast.success(`Action ${actionName} applied successfully!`);
       await loadData();
       if (onUpdated) onUpdated();
@@ -249,24 +173,11 @@ export function SuperAdminSchoolEntitlementControlModal({
 
     setSubmitting(true);
     try {
-      const res = await safeFetchJson(`/api/super-admin/schools/${schoolId}/entitlements`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          controlMode: "RESET_TO_PLAN",
-          reason: reasonInput || "Super Admin reset school to Plan Default",
-        }),
-      });
+      await applySchoolPlanControl(schoolId, { action: "RESET_TO_PLAN", planId: selectedPlanId, billingCycle, controlMode: "PLAN_DEFAULT", expiryDays: 0, reason: reasonInput, featureOverrides: [], limitOverrides: {} });
+      toast.success("School access reset to the assigned plan.");
+      setControlMode("PLAN_DEFAULT"); setFeatureOverridesMap({});
+      await loadData(); onUpdated?.();
 
-      if (res.ok && res.data?.success) {
-        toast.success("School entitlements successfully reset to Plan Default!");
-        setControlMode("PLAN_DEFAULT");
-        setFeatureOverridesMap({});
-        await loadData();
-        if (onUpdated) onUpdated();
-      } else {
-        toast.error(res.error || "Failed to reset entitlements.");
-      }
     } catch (err: any) {
       toast.error(err.message || "Reset action failed.");
     } finally {
@@ -480,43 +391,10 @@ export function SuperAdminSchoolEntitlementControlModal({
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
                     Assign Base Plan
                   </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div
-                      onClick={() => setSelectedPlanId("plan_starter")}
-                      className={`p-3.5 rounded-2xl border-2 cursor-pointer transition-all ${
-                        selectedPlanId === "plan_starter"
-                          ? "border-blue-600 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/30"
-                          : "border-slate-200 dark:border-slate-800"
-                      }`}
-                    >
-                      <h4 className="font-bold text-sm text-slate-900 dark:text-white">Starter</h4>
-                      <p className="text-xs text-slate-500 mt-0.5">500 Students, 20 Teachers, Basic Attendance</p>
-                    </div>
-
-                    <div
-                      onClick={() => setSelectedPlanId("plan_professional")}
-                      className={`p-3.5 rounded-2xl border-2 cursor-pointer transition-all ${
-                        selectedPlanId === "plan_professional"
-                          ? "border-blue-600 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/30"
-                          : "border-slate-200 dark:border-slate-800"
-                      }`}
-                    >
-                      <h4 className="font-bold text-sm text-slate-900 dark:text-white">Professional</h4>
-                      <p className="text-xs text-slate-500 mt-0.5">2,000 Students, Reports, Advanced Controls</p>
-                    </div>
-
-                    <div
-                      onClick={() => setSelectedPlanId("plan_enterprise")}
-                      className={`p-3.5 rounded-2xl border-2 cursor-pointer transition-all ${
-                        selectedPlanId === "plan_enterprise"
-                          ? "border-blue-600 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/30"
-                          : "border-slate-200 dark:border-slate-800"
-                      }`}
-                    >
-                      <h4 className="font-bold text-sm text-slate-900 dark:text-white">Enterprise</h4>
-                      <p className="text-xs text-slate-500 mt-0.5">Unlimited Capacity, Custom Modules</p>
-                    </div>
-                  </div>
+                  <select value={selectedPlanId} onChange={e => { setSelectedPlanId(e.target.value); setCustomDateInput(""); }} className="w-full rounded-xl border p-3">
+                    <option value="">Select a configured plan</option>
+                    {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
                 </div>
 
                 {/* Billing Cycle */}

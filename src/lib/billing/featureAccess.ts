@@ -1,5 +1,6 @@
-import type { FeatureCheckResult, PlanLimits, AccessMode, FeatureAccessMode } from "@/types";
+import type { FeatureCheckResult, PlanLimits, AccessMode, FeatureAccessMode, Plan } from "@/types";
 import { getSchoolAccess } from "./accessEngine";
+import { ADMIN_FEATURE_REGISTRY, findFeatureByKey } from "@/lib/features/adminFeatureRegistry";
 import { FEATURE_REGISTRY } from "@/lib/features/featureRegistry";
 import { getActivePlan, getAllPlans } from "./plans";
 import { getActiveAccessOverrides } from "./subscriptionAdjustmentEngine";
@@ -70,7 +71,7 @@ export const FEATURE_KEY_ALIASES: Record<string, string[]> = {
 function getAllKnownCapabilityKeys(
   planDoc?: { features?: string[]; featureAccess?: Record<string, FeatureAccessMode> } | null
 ): string[] {
-  const keys = new Set<string>();
+  const keys = new Set<string>(ADMIN_FEATURE_REGISTRY.flatMap(f => [f.key, ...(f.aliases || [])]));
   for (const f of FEATURE_REGISTRY) {
     keys.add(f.key);
   }
@@ -133,6 +134,9 @@ export async function getEffectiveFeatureAccessModes(
     const canonical = canonicalizeCapabilityKey(rawKey);
     if (planFeatureAccess[rawKey]) return planFeatureAccess[rawKey];
     if (planFeatureAccess[canonical]) return planFeatureAccess[canonical];
+    for (const item of ADMIN_FEATURE_REGISTRY) {
+      if (canonicalizeCapabilityKey(item.key) === canonical && planFeatureAccess[item.key]) return planFeatureAccess[item.key];
+    }
 
     const aliases = FEATURE_KEY_ALIASES[rawKey] || FEATURE_KEY_ALIASES[canonical] || [];
     for (const alias of aliases) {
@@ -150,6 +154,11 @@ export async function getEffectiveFeatureAccessModes(
     if (direct) return direct;
 
     // 2. Direct parent in capability hierarchy
+    const registryParent = findFeatureByKey(rawKey)?.parentId;
+    if (registryParent) {
+      const mode = getExplicitPlanMode(registryParent);
+      if (mode) return mode;
+    }
     let currentParentKey = getParentCapabilityKey(canonical);
     while (currentParentKey) {
       const parentMode = getExplicitPlanMode(currentParentKey);
@@ -227,6 +236,13 @@ export async function getEffectiveFeatureAccessModes(
   for (const rawKey of allKnownKeys) {
     const canonical = canonicalizeCapabilityKey(rawKey);
 
+    // Expiry policy limits remain mandatory even when a plan grants the feature.
+    if ((summary.accessMode === "GRACE_ACCESS" || summary.accessMode === "RESTRICTED_ACCESS") &&
+        !isFeatureAllowedInList(canonical, summary.allowedFeatures)) {
+      resultModes[rawKey] = resolveInheritedPlanMode(canonical) === "HIDDEN" ? "HIDDEN" : "SHOWCASE";
+      resultModes[canonical] = resultModes[rawKey];
+      continue;
+    }
     // 1. Check school custom overrides first (Explicit Super Admin override takes highest priority)
     const customOverride = findSchoolOverrideMode(canonical);
     if (customOverride !== null) {
@@ -314,10 +330,11 @@ function checkDependencies(featureKey: string, allowedList: string[]): boolean {
  */
 export async function getRequiredPlanForFeature(
   featureKey: string,
-  currentPlanSlug?: string
+  currentPlanSlug?: string,
+  catalog?: Plan[]
 ): Promise<{ planName: string; planSlug: string; isCustomAccess: boolean }> {
   try {
-    const plans = await getAllPlans();
+    const plans = catalog || await getAllPlans();
     if (!plans || plans.length === 0) {
       return { planName: "Higher Plan Required", planSlug: "professional", isCustomAccess: false };
     }

@@ -716,6 +716,99 @@ service cloud.firestore {
       );
     }
 
+    match /financialPayments/{paymentId} {
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        resource.data.get('studentId', '') == request.auth.uid ||
+        isSuperAdmin()
+      );
+      allow create, update, delete: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
+    }
+
+    match /feeDemands/{demandId} {
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        resource.data.get('studentId', '') == request.auth.uid ||
+        isSuperAdmin()
+      );
+      allow create, update, delete: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
+    }
+
+    match /paymentAllocations/{allocId} {
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
+      allow create, update, delete: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
+    }
+
+    match /financialRefunds/{refundId} {
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
+      allow create, update, delete: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
+    }
+
+    match /paymentReversals/{revId} {
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
+      allow create, update, delete: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
+    }
+
+    match /feeAdjustments/{adjId} {
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
+      allow create, update, delete: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
+    }
+
+    match /journalEntries/{entryId} {
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolAdmin(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
+      allow create, update, delete: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
+    }
+
     match /feeDiscounts/{discountId} {
       allow read, write: if isAuthenticated() && (
         (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
@@ -767,6 +860,17 @@ service cloud.firestore {
     // Subscription Plans (Pricing & feature entitlement blueprints)
     match /plans/{planId} {
       allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    match /billingProfiles/{schoolId} {
+      allow read: if isSchoolMember(schoolId) || isSuperAdmin();
+      allow create, update: if (isSchoolAdmin(schoolId) || isSuperAdmin()) && request.resource.data.schoolId == schoolId;
+      allow delete: if isSuperAdmin();
+    }
+
+    match /paymentMethods/{schoolId} {
+      allow read: if isSchoolMember(schoolId) || isSuperAdmin();
       allow write: if isSuperAdmin();
     }
 
