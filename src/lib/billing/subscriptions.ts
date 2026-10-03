@@ -98,11 +98,13 @@ export async function getSchoolSubscription(schoolId: string): Promise<SchoolSub
     schoolData = school.exists() ? school.data() : null;
   }
   if (!subData && !schoolData) throw new Error("School subscription was not found.");
+  const epoch = new Date(0).toISOString();
+
   const toIso = (value: any, fallback: string) => {
     const date = value?.toDate ? value.toDate() : new Date(value || fallback);
     return Number.isFinite(date.getTime()) ? date.toISOString() : fallback;
   };
-  const epoch = new Date(0).toISOString();
+
   const planId = normalizePlanId(subData?.planId || schoolData?.planId || schoolData?.plan || "plan_base");
   // Legacy trials are anchored to school creation, never restarted on every read.
   const startsAt = toIso(subData?.startsAt || schoolData?.subscriptionStartsAt || schoolData?.createdAt, epoch);
