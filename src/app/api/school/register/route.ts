@@ -32,6 +32,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ success:true,schoolId:schoolRef.id,adminUid:user.uid });
   } catch (error) {
     if (createdUid) await auth.deleteUser(createdUid).catch(() => console.error("Registration compensation failed; administrator review required."));
-    return NextResponse.json({ error:error instanceof Error ? error.message : "Registration failed." },{status:400});
+    return NextResponse.json({ error:error instanceof Error ? error.message : "Registration failed." },{status:503});
   }
 }
