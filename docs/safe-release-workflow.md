@@ -2,7 +2,7 @@
 
 `main` is the stable production branch. Develop on `codex/<feature>` or `feature/<feature>`, push that branch, and open a draft PR targeting main. GitHub runs TypeScript, financial/plan regression tests, and a production build. The required checks must pass against an up-to-date branch before merging; failure or cancellation must block the merge. GitHub protection also applies to administrators and prevents force pushes/deletion.
 
-The repository owner manually merges a ready PR only after testing its latest preview. Auto-merge stays off. A review approval from another person is not required for a solo maintainer: manually merging is the owner's release approval. The PR checklist records this decision; checking its boxes alone does not run tests or certify correctness.
+The repository owner manually merges a ready PR only after testing its latest preview. Auto-merge stays off. `Vercel – school-study` is also a required status check, so an unsuccessful or pending hosting deployment blocks merging. A review approval from another person is not required for a solo maintainer: manually merging is the owner's release approval. The PR checklist records this decision; checking its boxes alone does not run tests or certify correctness.
 
 ## Local development
 

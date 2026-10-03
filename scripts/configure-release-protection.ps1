@@ -9,7 +9,7 @@ if (-not $taskCredentialFields.password) { throw 'Sign in to GitHub with Git Cre
 $taskHeaders = @{ Authorization = ('Bearer ' + $taskCredentialFields.password); Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
 $taskUrl = 'https://api.github.com/repos/Vinkal93/School-study/branches/main/protection'
 $taskConfig = @{
-  required_status_checks = @{ strict = $true; contexts = @('Release checks', 'Safe release gate') }
+  required_status_checks = @{ strict = $true; contexts = @('Release checks', 'Safe release gate', 'Vercel – school-study') }
   enforce_admins = $true
   required_pull_request_reviews = @{ dismiss_stale_reviews = $true; require_code_owner_reviews = $false; required_approving_review_count = 0 }
   restrictions = $null

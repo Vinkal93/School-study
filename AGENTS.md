@@ -13,7 +13,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - `main` is the stable release branch. Before modifying code on main, create a `codex/<feature>` branch; keep existing uncommitted work intact.
 - Push feature branches and open a draft pull request targeting main. Attach created PRs to the task when the app tool is available.
 - Never force-push main or bypass its required GitHub checks. Do not auto-merge or publish a feature branch to production.
-- Validate the latest commit with `npm run typecheck`, `npm run test:release`, and a production build. GitHub's Release checks and Safe release gate must both pass before main receives a change.
+- Validate the latest commit with `npm run typecheck`, `npm run test:release`, and a production build. Release checks, Safe release gate and the Vercel – school-study deployment check must all pass before main receives a change.
 - Keep the PR draft until the owner has reviewed the affected workflows on a preview and explicitly approved release. A request to develop or push a feature is not approval to merge or deploy it.
 - Preview/testing must use a separate test database and test payment configuration. Branches alone do not isolate school records. Never run migrations or test financial writes against live data.
 - Do not automatically deploy Firestore rules/indexes or data migrations with application changes. Prepare backwards-compatible changes and a rollback/backup plan, then obtain the owner's release approval.
