@@ -1,5 +1,6 @@
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),ts=require('typescript'),assert=require('node:assert/strict'),crypto=require('node:crypto');
-let records=new Map(),failCommit=false,payment={},queue=Promise.resolve(),gatewayCalls=0;
+let records=new Map(),failCommit=false,payment={},queue=Promise.resolve(),gatewayCalls=0,authDeleted=0;
+const authService={createUser:async()=>({uid:'new-admin'}),setCustomUserClaims:async()=>{},deleteUser:async()=>{authDeleted++;},verifyIdToken:async token=>{if(token!=='signed')throw Error('Invalid token');return {uid:'admin'};}};
 const snap=ref=>({ref,id:ref.id,exists:records.has(ref.path),data:()=>structuredClone(records.get(ref.path))});
 const reference=key=>({path:key,id:key.split('/').at(-1),get:async()=>snap(reference(key)),set:async value=>{if(failCommit)throw Error('Database write failed');records.set(key,structuredClone(value));},update:async value=>{if(failCommit)throw Error('Database write failed');records.set(key,{...records.get(key),...structuredClone(value)});}});
 const collection=name=>{let filters=[];const result={doc:id=>reference(name+'/'+(id||'generated')),where:(key,op,value)=>{filters.push({key,value});return result;},get:async()=>{const docs=[...records.keys()].filter(k=>k.startsWith(name+'/')&&k.split('/').length===name.split('/').length+1&&filters.every(f=>records.get(k)[f.key]===f.value)).map(k=>snap(reference(k)));return {docs,empty:!docs.length};}};return result;};
@@ -7,7 +8,7 @@ const database={collection,runTransaction:fn=>{const task=queue.then(async()=>{c
 const collections={ORDERS:'orders',PAYMENTS:'payments',INVOICES:'invoices',SCHOOL_SUBSCRIPTIONS:'schoolSubscriptions',FINANCE_TRANSACTIONS:'financeTransactions',ACCESS_POLICIES:'accessPolicies',PLANS:'plans',PLAN_VERSIONS:'planVersions',AUDIT_LOGS:'audit_logs'};
 const gateway={payments:{fetch:async()=>structuredClone(payment)},invoices:{fetch:async()=>({subscription_id:'sub_test'})},subscriptions:{fetch:async()=>({plan_id:'rzp_plan',current_end:1900000000})}};
 const mocks={
- '@/lib/firebase/admin':{getSafeAdminDb:()=>database,getSafeAdminAuth:()=>({verifyIdToken:async token=>{if(token!=='signed')throw Error('Invalid token');return {uid:'admin'};}})},
+ '@/lib/firebase/admin':{getSafeAdminDb:()=>database,getSafeAdminAuth:()=>authService},
  '@/lib/billing/plans':{BILLING_COLLECTIONS:collections,getActivePlanVersion:async()=>null},
  '@/lib/billing/audit':{createBillingAuditLog:async()=>{}},
  '@/lib/billing/subscriptions':{clearSubscriptionCache:()=>{}},
@@ -24,8 +25,8 @@ const fulfillment=load('src/lib/payments/fulfillment.ts');mocks['@/lib/payments/
 const pricing=load('src/lib/billing/gstCouponsEngine.ts');mocks['@/lib/billing/gstCouponsEngine']=pricing;
 const actor=load('src/lib/payments/server-access.ts');mocks['@/lib/payments/server-access']=actor;
 const orders=load('src/app/api/billing/orders/route.ts'),verify=load('src/app/api/billing/verify/route.ts'),webhook=load('src/app/api/webhooks/razorpay/route.ts');
-function seed(){records=new Map([['users/admin',{role:'school_admin',schoolId:'s',status:'active'}],['schools/s',{name:'Test school'}],['plans/custom',{status:'ACTIVE',name:'Custom'}],['planVersions/custom_v2',{planId:'custom',version:2,status:'ACTIVE',monthlyPrice:10000,annualPrice:8000,currency:'INR'}],['siteSettings/billing_settings',{gstEnabled:false,gstPercentage:0,gstin:''}],['orders/internal',{id:'internal',schoolId:'s',userId:'admin',planId:'custom',planVersionId:'custom_v2',billingCycle:'monthly',baseAmount:10000,discountAmount:0,taxAmount:0,finalAmount:10000,currency:'INR',status:'CREATED',razorpayOrderId:'order_rzp',createdAt:'2026-10-03T00:00:00Z',expiresAt:'2026-10-04T00:00:00Z'}]]);payment={id:'pay_gateway',order_id:'order_rzp',status:'captured',amount:10000,currency:'INR'};failCommit=false;gatewayCalls=0;queue=Promise.resolve();}
-const renewal=load("src/lib/payments/renewal.ts");
+function seed(){records=new Map([['users/admin',{role:'school_admin',schoolId:'s',status:'active'}],['schools/s',{name:'Test school'}],['plans/custom',{status:'ACTIVE',name:'Custom'}],['planVersions/custom_v2',{planId:'custom',version:2,status:'ACTIVE',monthlyPrice:10000,annualPrice:8000,currency:'INR'}],['siteSettings/billing_settings',{gstEnabled:false,gstPercentage:0,gstin:''}],['orders/internal',{id:'internal',schoolId:'s',userId:'admin',planId:'custom',planVersionId:'custom_v2',billingCycle:'monthly',baseAmount:10000,discountAmount:0,taxAmount:0,finalAmount:10000,currency:'INR',status:'CREATED',razorpayOrderId:'order_rzp',createdAt:'2026-10-03T00:00:00Z',expiresAt:'2026-10-04T00:00:00Z'}]]);payment={id:'pay_gateway',order_id:'order_rzp',status:'captured',amount:10000,currency:'INR'};failCommit=false;gatewayCalls=0;authDeleted=0;queue=Promise.resolve();}
+const renewal=load("src/lib/payments/renewal.ts"),registration=load('src/app/api/school/register/route.ts');
 let count=0;async function test(name,fn){seed();await fn();count++;console.log('PASS',name);}
 const req=(body,token='signed')=>new Request('http://test/api',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify(body)});
 (async()=>{
@@ -46,5 +47,10 @@ const req=(body,token='signed')=>new Request('http://test/api',{method:'POST',he
  await test('Cancellation keeps paid dates and records verified actor',async()=>{records.set('schoolSubscriptions/s',{planId:'custom',expiresAt:'2030-01-01',status:'ACTIVE'});const response=await renewal.updateRenewal(req({schoolId:'s'}),'cancel');assert.equal(response.status,200);assert.equal(records.get('schoolSubscriptions/s').expiresAt,'2030-01-01');assert.equal(records.get('schoolSubscriptions/s').autoRenew,false);assert.equal(records.get('audit_logs/generated').actorId,'admin');});
  await test('Renewal cannot mutate another school',async()=>{assert.equal((await renewal.updateRenewal(req({schoolId:'other',autoRenew:false}),'toggle')).status,403);});
  await test('Unpublished built-in coupon cannot invent a discount',async()=>{assert.equal(await pricing.getCouponByCode('WELCOME20'),null);});
+ const signup={name:'Test school',code:'TEST',adminName:'Admin',adminEmail:'test@example.com',adminPassword:'testpass123'};
+ const freePlan=()=>{records.set('plans/plan_free',{status:'ACTIVE'});records.set('planVersions/free_v3',{planId:'plan_free',status:'ACTIVE',version:3,monthlyPrice:0,annualPrice:0});};
+ await test('Registration requires a published zero-price plan',async()=>{assert.equal((await registration.POST(req(signup))).status,503);assert.equal(records.has('users/new-admin'),false);});
+ await test('Registration atomically binds actual free version and admin UID',async()=>{freePlan();const result=await registration.POST(req(signup));assert.equal(result.status,200);assert.equal(records.get('users/new-admin').schoolId,'generated');assert.equal(records.get('schoolSubscriptions/generated').planVersionId,'free_v3');assert.equal(records.get('schoolCodes/TEST').schoolId,'generated');});
+ await test('Registration database failure compensates Auth creation',async()=>{freePlan();failCommit=true;assert.equal((await registration.POST(req(signup))).status,503);assert.equal(authDeleted,1);assert.equal(records.has('users/new-admin'),false);assert.equal(records.has('schools/generated'),false);});
  console.log(`${count} production Razorpay/checkout regression scenarios passed (no network/payment writes).`);
 })().catch(error=>{console.error(error);process.exitCode=1;});
