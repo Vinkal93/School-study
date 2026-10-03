@@ -1,11 +1,10 @@
 import { NextResponse, NextRequest } from "next/server";
-import { requireFeeAccess as authenticateRequest } from "@/lib/fees/server-access";
+import { authenticateRequest } from "@/lib/auth/serverAuth";
 import { getFeeDashboardSummary } from "@/lib/services/fee-analytics.service";
 
 export async function GET(request: NextRequest) {
   try {
     const authResult = await authenticateRequest(request);
-    if (!authResult.isAuthenticated || !authResult.user) return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (!authResult.isAuthenticated || !authResult.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

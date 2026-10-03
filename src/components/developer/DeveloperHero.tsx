@@ -55,7 +55,7 @@ export function DeveloperHero() {
 
         {/* Supporting text */}
         <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-slate-600 sm:text-lg dark:text-slate-300">
-          Indian web developer, educator and digital creator. Founder and developer of School Study, building practical tools for school management and education.
+          Building practical digital products that make learning, education management, and everyday technology simpler.
         </p>
 
         {/* CTA Actions */}

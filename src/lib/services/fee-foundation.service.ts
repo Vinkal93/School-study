@@ -1,5 +1,5 @@
 import { moneyPaise, sameAcademicYear, normalizePaymentMethod, allocatePayment } from "@/lib/fees/finance-core";
-import { getFirebaseDb } from "@/lib/fees/firestore";
+import { getFirebaseDb } from "@/lib/firebase/client";
 import {
   collection,
   doc,
@@ -14,7 +14,7 @@ import {
   serverTimestamp,
   writeBatch,
   runTransaction,
-} from "@/lib/fees/firestore";
+} from "firebase/firestore";
 import type {
   FeeHead,
   FeeStructureDefinition,
@@ -419,8 +419,12 @@ export function buildDeterministicDemandId(
   feeHeadId: string,
   period: string
 ): string {
-  return `demand_${encodeURIComponent(JSON.stringify([schoolId, studentId, academicYearId, feeHeadId, period]))}`;
-
+  const pKey = period.trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
+  const hKey = feeHeadId.trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
+  const sKey = schoolId.trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
+  const stKey = studentId.trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
+  const aKey = academicYearId.trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
+  return `demand_${sKey}_${stKey}_${aKey}_${hKey}_${pKey}`;
 }
 
 /**
@@ -502,7 +506,6 @@ export async function processFeeRefund(
   schoolId: string,
   input: {
     paymentId: string;
-    idempotencyKey?: string;
     amountRupees: number;
     reason: string;
     refundMethod?: PaymentMethod;
@@ -525,7 +528,6 @@ export async function processPaymentReversal(
   schoolId: string,
   input: {
     paymentId: string;
-    idempotencyKey?: string;
     reason: string;
     actorId?: string;
     actorName?: string;
@@ -573,7 +575,7 @@ export async function getFinancialPayments(
         seenIds.add(d.id);
         const data = d.data();
         if (data.receiptNumber) seenReceipts.add(data.receiptNumber);
-        list.push({ ...data, id: d.id, amountPaise: data.amountPaise ?? data.amountPaidPaise ?? data.netAmountPaise ?? 0, paymentMethod: normalizePaymentMethod(data.paymentMethod || "CASH") } as FinancialPayment);
+        list.push({ id: d.id, ...data } as FinancialPayment);
       }
     } catch (e) {
       console.warn("Root financialPayments fetch notice:", e);
@@ -589,7 +591,7 @@ export async function getFinancialPayments(
         if (rec && seenReceipts.has(rec)) continue;
         seenIds.add(d.id);
         if (rec) seenReceipts.add(rec);
-        list.push({ ...data, id: d.id, amountPaise: data.amountPaise ?? data.amountPaidPaise ?? data.netAmountPaise ?? 0, paymentMethod: normalizePaymentMethod(data.paymentMethod || "CASH") } as FinancialPayment);
+        list.push({ id: d.id, ...data } as FinancialPayment);
       }
     } catch {}
 
@@ -624,7 +626,6 @@ export async function getFinancialPayments(
           collectedBy: data.collectedBy || "",
           collectedByName: data.collectedByName || "",
           status: (data.status || "SUCCESS") as FinancialPayment["status"],
-          refundedAmountPaise: data.refundedAmountPaise || 0,
           remarks: data.remarks || "",
           allocatedTotalPaise: data.amountPaidPaise || 0,
           unallocatedPaise: 0,
@@ -666,7 +667,6 @@ export async function getFinancialPayments(
           collectedBy: data.collectedBy || "",
           collectedByName: data.collectedByName || "",
           status: (data.status || "SUCCESS") as FinancialPayment["status"],
-          refundedAmountPaise: data.refundedAmountPaise || 0,
           remarks: data.remarks || "",
           allocatedTotalPaise: data.amountPaidPaise || 0,
           unallocatedPaise: 0,
@@ -866,7 +866,6 @@ export async function applyFeeAdjustment(
     amountRupees: number;
     reason: string;
     approvedBy: string;
-    idempotencyKey?: string;
     actorId?: string;
   }
 ): Promise<{ adjustment: FeeAdjustment; updatedDemand: FeeDemand }> {
@@ -1036,7 +1035,6 @@ export async function getStudentFinancialSummary(
           collectedBy: data.collectedBy || "",
           collectedByName: data.collectedByName || data.collectedBy || "Staff",
           status: (data.status || "SUCCESS") as FinancialPayment["status"],
-          refundedAmountPaise: data.refundedAmountPaise || 0,
           remarks: data.remarks || "",
           allocatedTotalPaise: amtPaise,
           unallocatedPaise: 0,
@@ -1079,7 +1077,6 @@ export async function getStudentFinancialSummary(
           collectedBy: data.collectedBy || "",
           collectedByName: data.collectedByName || data.collectedBy || "Staff",
           status: (data.status || "SUCCESS") as FinancialPayment["status"],
-          refundedAmountPaise: data.refundedAmountPaise || 0,
           remarks: data.remarks || "",
           allocatedTotalPaise: amtPaise,
           unallocatedPaise: 0,
@@ -1177,7 +1174,7 @@ export async function getStudentFinancialSummary(
     };
   } catch (err) {
     console.warn("getStudentFinancialSummary error:", err);
-    throw err;
+    return emptySummary;
   }
 }
 
@@ -1395,11 +1392,6 @@ export async function createFeeStructureDefinition(
     throw new Error("Fee structure amount must be greater than zero.");
   }
 
-  moneyPaise(input.amountRupees, true);
-  if (["all", "ay_current", "current"].includes(input.academicYearId)) throw new Error("Select a specific academic session.");
-  if (!["monthly", "quarterly", "half_yearly", "annual", "annually", "one_time", "custom"].includes(input.frequency)) throw new Error("Invalid billing frequency.");
-  if (input.dueDayOfMonth !== undefined && (!Number.isInteger(input.dueDayOfMonth) || input.dueDayOfMonth < 1 || input.dueDayOfMonth > 28)) throw new Error("Due day must be between 1 and 28.");
-  if (input.gracePeriodDays !== undefined && (!Number.isInteger(input.gracePeriodDays) || input.gracePeriodDays < 0)) throw new Error("Invalid grace period.");
   // Check duplicate active structure for same academicYear, class, and feeHead
   const qExisting = query(
     collection(db, "feeStructures"),
@@ -1424,7 +1416,7 @@ export async function createFeeStructureDefinition(
     throw new Error(`An active fee structure already exists for this Class and Fee Head in session ${input.academicYearName}.`);
   }
 
-  const structId = `fs_${encodeURIComponent(JSON.stringify([schoolId, input.academicYearId, normClass, normSection, input.feeHeadId]))}`;
+  const structId = `fs_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const now = new Date().toISOString();
 
   const newStructure: FeeStructureDefinition = {
@@ -1455,12 +1447,7 @@ export async function createFeeStructureDefinition(
     createdBy: actorId,
   };
 
-  await runTransaction(db, async tx => {
-    const ref = doc(db, "feeStructures", structId);
-    const previous = await tx.get(ref);
-    if (previous.exists() && previous.data().status === "ACTIVE") throw new Error("An active structure already exists for this session, class and fee head.");
-    tx.set(ref, newStructure);
-  });
+  await setDoc(doc(db, "feeStructures", structId), newStructure);
   await logFinancialAudit(
     schoolId,
     { id: actorId, role: "admin" },
@@ -1509,15 +1496,9 @@ export async function updateFeeStructureDefinition(
     }
   }
 
-  if (updates.dueDayOfMonth !== undefined && (!Number.isInteger(updates.dueDayOfMonth) || updates.dueDayOfMonth < 1 || updates.dueDayOfMonth > 28)) throw new Error("Due day must be between 1 and 28.");
-  if (updates.status !== undefined && !["ACTIVE", "INACTIVE"].includes(updates.status)) throw new Error("Invalid structure status.");
-  const allowed: Partial<FeeStructureDefinition> = {};
-  for (const key of ["title", "dueDayOfMonth", "gracePeriodDays", "lateFeeRule", "status"] as const) {
-    if (updates[key] !== undefined) (allowed as Record<string, unknown>)[key] = updates[key];
-  }
   const updated: FeeStructureDefinition = {
     ...current,
-    ...allowed,
+    ...updates,
     amountPaise: newAmountPaise,
     version: newVersion,
     updatedAt: now,
@@ -1604,7 +1585,6 @@ export async function previewBulkDemandGeneration(
   schoolId: string,
   options: BulkDemandOptions
 ): Promise<BulkDemandGenerationResult> {
-  if (!options.academicYearId || ["all", "current", "ay_current"].includes(options.academicYearId)) throw new Error("Select a specific academic session to generate fees.");
   const db = getFirebaseDb();
   if (!db || !schoolId) {
     return {
@@ -1687,16 +1667,7 @@ export async function previewBulkDemandGeneration(
         continue;
       }
 
-      // A class/section override replaces the general rate for the same head.
-      const chosen = new Map<string, { structure: FeeStructureDefinition; score: number }>();
-      for (const structure of studentStructures) {
-        const score = (normalizeClassKey(structure.className) === studentClassNorm ? 2 : 0) + (normalizeClassKey(structure.sectionName || "all") === studentSectionNorm ? 1 : 0);
-        const previous = chosen.get(structure.feeHeadId);
-        if (previous && previous.score === score) throw new Error(`Multiple active rates for ${structure.feeHeadName}. Keep one active structure per class/section/head.`);
-        if (!previous || score > previous.score) chosen.set(structure.feeHeadId, { structure, score });
-      }
-
-      for (const { structure: struct } of chosen.values()) {
+      for (const struct of studentStructures) {
         const freqPeriods = getFrequencyPeriods(struct.frequency, academicName).filter(p =>
           !["monthly", "custom"].includes(struct.frequency) || !struct.applicableMonths?.length || struct.applicableMonths.some(m => p.displayName.toLowerCase().startsWith(m.toLowerCase()))
         );
@@ -1814,10 +1785,7 @@ export async function generateBulkFeeDemands(
     return preview;
   }
 
-  const BATCH_SIZE = 100;
-  const { getChartOfAccounts } = await import("./accounting.service");
-  const { writeDemandJournal } = await import("./fee-mutations.service");
-  const accounts = await getChartOfAccounts(schoolId);
+  const BATCH_SIZE = 200;
   const demands = preview.demands;
   const committedDemands: FeeDemand[] = [];
   const errors: string[] = [];
@@ -1829,10 +1797,7 @@ export async function generateBulkFeeDemands(
         const refs = chunk.map(d => doc(db, "feeDemands", d.id));
         const snapshots = await Promise.all(refs.map(ref => tx.get(ref)));
         const fresh = chunk.filter((_, index) => !snapshots[index].exists());
-        for (const demand of fresh) {
-          tx.set(doc(db, "feeDemands", demand.id), demand);
-          writeDemandJournal(tx, accounts, demand, options.actorId || "admin");
-        }
+        for (const demand of fresh) tx.set(doc(db, "feeDemands", demand.id), demand);
         return fresh;
       });
       committedDemands.push(...created);
@@ -1857,6 +1822,35 @@ export async function generateBulkFeeDemands(
     `Bulk generated ${committedDemands.length} fee demands.`,
     { academicYearId: options.academicYearId }
   );
+
+  // Auto-post double-entry journal entries for committed demands
+  try {
+    const { postJournalForDemand } = await import("./accounting.service");
+    for (const dem of committedDemands) {
+      try {
+        await postJournalForDemand(
+          schoolId,
+          {
+            id: dem.id,
+            invoiceNumber: dem.invoiceNumber,
+            studentId: dem.studentId,
+            studentName: dem.studentName,
+            feeHeadName: dem.feeHeadName,
+            grossAmountPaise: dem.grossAmountPaise,
+            concessionAmountPaise: dem.concessionAmountPaise,
+            netAmountPaise: dem.netAmountPaise,
+            dueDate: dem.dueDate,
+            academicYearId: dem.academicYearId,
+          },
+          { id: options.actorId || "admin", name: options.actorName || "Admin" }
+        );
+      } catch (jErr) {
+        // Individual journal failures should not abort the bulk generation
+      }
+    }
+  } catch (err) {
+    console.warn("[fee-foundation] Auto journal posting for bulk demands warning:", err);
+  }
 
   return {
     eligibleStudents: preview.eligibleStudents,

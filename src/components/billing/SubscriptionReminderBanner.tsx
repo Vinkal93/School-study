@@ -21,13 +21,11 @@ export function SubscriptionReminderBanner() {
     let isMounted = true;
     if (!schoolId) return;
 
-    getSubscriptionReminder(schoolId, role)
-      .then((res) => {
-        if (isMounted && res.shouldRemind && res.showBanner) {
-          setReminder(res);
-        }
-      })
-      .catch(() => {});
+    getSubscriptionReminder(schoolId, role).then((res) => {
+      if (isMounted && res.shouldRemind && res.showBanner) {
+        setReminder(res);
+      }
+    });
 
     return () => {
       isMounted = false;

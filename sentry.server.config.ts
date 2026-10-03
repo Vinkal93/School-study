@@ -5,11 +5,10 @@
 import * as Sentry from "@sentry/nextjs";
 
 Sentry.init({
-  dsn: process.env.SENTRY_DSN,
-  enabled: process.env.NODE_ENV === "production" && !!process.env.SENTRY_DSN,
+  dsn: "https://846dc6ef2e81044cc31cc3683cda4716@o4512044365447168.ingest.de.sentry.io/4512111697133648",
 
   // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
-  tracesSampleRate: 0.1,
+  tracesSampleRate: 1,
 
   dataCollection: {
     // To disable sending user data and HTTP bodies, uncomment the lines below. For more info visit:

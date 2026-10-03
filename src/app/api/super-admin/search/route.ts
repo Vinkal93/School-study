@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/auth/serverAuth";
-import { getSafeAdminAuth, getSafeAdminDb } from "@/lib/firebase/admin";
 import { getFirebaseDb } from "@/lib/firebase/client";
-import { collection, getDocs, limit } from "firebase/firestore";
-import { SUPER_ADMIN_NAV_ITEMS } from "@/lib/search/navigation-items";
-import type { School, AppUser } from "@/types";
+import {
+  collection,
+  getDocs,
+  getDoc,
+  doc,
+  query,
+  where,
+  limit,
+} from "firebase/firestore";
+import { COLLECTIONS } from "@/lib/utils/constants";
+import type { AppUser, School, UserRole } from "@/types";
 
 export interface GlobalSearchResultItem {
   id: string;
-  type: string;
+  type: "school" | "navigation" | UserRole;
   category?: "schools" | "users" | "navigation";
   name: string;
   subtitle: string;
@@ -18,28 +24,107 @@ export interface GlobalSearchResultItem {
   url: string;
 }
 
+const SUPER_ADMIN_NAV_ITEMS: Array<{
+  id: string;
+  name: string;
+  subtitle: string;
+  keywords: string[];
+  url: string;
+}> = [
+  {
+    id: "nav_schools",
+    name: "Schools Directory",
+    subtitle: "Manage all onboarded institutions & licenses",
+    keywords: ["school", "schools", "institutions", "directory", "license"],
+    url: "/super-admin/schools",
+  },
+  {
+    id: "nav_users",
+    name: "Platform Users",
+    subtitle: "All school admins, teachers, and system accounts",
+    keywords: ["users", "accounts", "admin", "teacher", "student", "roles"],
+    url: "/super-admin/users",
+  },
+  {
+    id: "nav_finance",
+    name: "Finance Center",
+    subtitle: "Platform billing, plan subscriptions & revenue overview",
+    keywords: ["finance", "billing", "revenue", "plans", "subscriptions"],
+    url: "/super-admin/finance",
+  },
+  {
+    id: "nav_inquiries",
+    name: "School Inquiries",
+    subtitle: "Leads, demo inquiries & registration requests",
+    keywords: ["inquiry", "inquiries", "leads", "contact", "demos"],
+    url: "/super-admin/inquiries",
+  },
+  {
+    id: "nav_communication",
+    name: "Communication Hub",
+    subtitle: "Global SMS, WhatsApp gateway, Twilio & dispatch logs",
+    keywords: ["communication", "sms", "whatsapp", "twilio", "messaging"],
+    url: "/super-admin/communication",
+  },
+  {
+    id: "nav_analytics",
+    name: "Platform Analytics",
+    subtitle: "Real-time ecosystem metrics & usage trends",
+    keywords: ["analytics", "metrics", "reports", "stats", "growth"],
+    url: "/super-admin/analytics",
+  },
+  {
+    id: "nav_activity",
+    name: "Security & Audit Logs",
+    subtitle: "Global login activity & platform audit trails",
+    keywords: ["activity", "audit", "security", "logins", "compliance"],
+    url: "/super-admin/activity/logins",
+  },
+  {
+    id: "nav_offers",
+    name: "Offers & Promotions",
+    subtitle: "Coupon codes, discounts & promotional campaigns",
+    keywords: ["offers", "promotions", "coupon", "discount", "campaign"],
+    url: "/super-admin/offers",
+  },
+];
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
+    const performerUid = searchParams.get("performerUid");
     const q = searchParams.get("q")?.toLowerCase().trim() || "";
     const category = searchParams.get("category")?.toLowerCase() || "all";
+
+    if (!performerUid) {
+      return NextResponse.json(
+        { error: "Missing performerUid parameter" },
+        { status: 401 }
+      );
+    }
 
     if (!q || q.length < 1) {
       return NextResponse.json({ success: true, count: 0, results: [] });
     }
 
-    // 1. Authorize Caller (Must be super_admin or authorized developer)
-    const adminAuth = getSafeAdminAuth();
-    if (!adminAuth) return NextResponse.json({ error: "Search service unavailable." }, { status: 503 });
-    const token = req.headers.get("authorization")?.match(/^Bearer (.+)$/)?.[1];
-    if (!token) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
-    try { await adminAuth.verifyIdToken(token, true); }
-    catch { return NextResponse.json({ error: "Invalid authentication." }, { status: 401 }); }
-    const authResult = await authenticateRequest(req);
-    const user = authResult.user;
-    const isSuperAdmin = authResult.isAuthenticated && user && user.role === "super_admin";
+    const db = getFirebaseDb();
+    if (!db) {
+      return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+    }
 
-    if (!isSuperAdmin) return authResult.errorResponse || NextResponse.json({ error: "Access denied." }, { status: 403 });
+    // 1. Verify Super Admin authorization
+    const performerSnap = await getDoc(doc(db, COLLECTIONS.USERS, performerUid));
+    if (!performerSnap.exists()) {
+      return NextResponse.json({ error: "Performer account not found" }, { status: 403 });
+    }
+
+    const performer = performerSnap.data() as AppUser;
+    if (performer.role !== "super_admin" || performer.status !== "active") {
+      return NextResponse.json(
+        { error: "Unauthorized. Super Admin access required." },
+        { status: 403 }
+      );
+    }
 
     const results: GlobalSearchResultItem[] = [];
 
@@ -64,137 +149,86 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // 3. Search Database Entities (Schools & Users)
-    const adminDb = getSafeAdminDb();
+    // 3. Fetch Schools and Users in parallel
+    const [schoolsSnap, usersSnap] = await Promise.all([
+      category === "all" || category === "schools"
+        ? getDocs(collection(db, COLLECTIONS.SCHOOLS))
+        : Promise.resolve(null),
+      category === "all" || category === "users" || category === "school_admins" || category === "teachers" || category === "students"
+        ? getDocs(collection(db, COLLECTIONS.USERS))
+        : Promise.resolve(null),
+    ]);
 
-    if (adminDb) {
-      const [schoolsSnap, usersSnap] = await Promise.all([
-        category === "all" || category === "schools"
-          ? adminDb.collection("schools").limit(100).get().catch(() => null)
-          : Promise.resolve(null),
-        category === "all" || category === "users" || category === "school_admins" || category === "teachers" || category === "students"
-          ? adminDb.collection("users").limit(150).get().catch(() => null)
-          : Promise.resolve(null),
-      ]);
+    const schoolsMap = new Map<string, School>();
+    if (schoolsSnap) {
+      const schools = schoolsSnap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      })) as School[];
 
-      const schoolsMap = new Map<string, any>();
-      if (schoolsSnap) {
-        schoolsSnap.docs.forEach((d) => {
-          const school = { id: d.id, ...d.data() } as any;
-          schoolsMap.set(d.id, school);
+      schools.forEach((s) => schoolsMap.set(s.id, s));
 
-          const matchName = school.name?.toLowerCase().includes(q);
-          const matchCode = school.code?.toLowerCase().includes(q);
-          const matchCity = school.city?.toLowerCase().includes(q);
-          const matchEmail = school.email?.toLowerCase().includes(q);
-          const matchAdminEmail = school.adminEmail?.toLowerCase().includes(q);
+      // Search Matching Schools
+      schools.forEach((school) => {
+        const matchName = school.name?.toLowerCase().includes(q);
+        const matchCode = school.code?.toLowerCase().includes(q);
+        const matchCity = school.city?.toLowerCase().includes(q);
+        const matchEmail = school.email?.toLowerCase().includes(q);
+        const matchAdminEmail = school.adminEmail?.toLowerCase().includes(q);
 
-          if (matchName || matchCode || matchCity || matchEmail || matchAdminEmail) {
-            results.push({
-              id: school.id,
-              type: "school",
-              category: "schools",
-              name: school.name || "School",
-              subtitle: `Code: ${school.code || "N/A"} · ${school.city || school.email || "Institution"} · ${school.status || "active"}`,
-              schoolName: school.name,
-              schoolCode: school.code,
-              status: school.status || "active",
-              url: `/super-admin/schools/${school.id}`,
-            });
-          }
-        });
-      }
-
-      if (usersSnap) {
-        usersSnap.docs.forEach((d) => {
-          const u = { uid: d.id, ...d.data() } as any;
-
-          if (category === "school_admins" && u.role !== "school_admin") return;
-          if (category === "teachers" && u.role !== "teacher") return;
-          if (category === "students" && u.role !== "student") return;
-
-          const matchName = u.name?.toLowerCase().includes(q);
-          const matchEmail = u.email?.toLowerCase().includes(q);
-          const matchUid = u.uid?.toLowerCase().includes(q);
-          const phoneVal = u.phone || u.phoneNumber || "";
-          const matchPhone = phoneVal ? String(phoneVal).toLowerCase().includes(q) : false;
-
-          if (matchName || matchEmail || matchUid || matchPhone) {
-            const associatedSchool = u.schoolId ? schoolsMap.get(u.schoolId) : null;
-
-            results.push({
-              id: u.uid,
-              type: u.role || "user",
-              category: "users",
-              name: u.name || u.email || "User",
-              subtitle: `${u.email} · Role: ${u.role || "user"}${phoneVal ? ` · 📞 ${phoneVal}` : ""}`,
-              schoolName: associatedSchool ? associatedSchool.name : "Platform Global",
-              schoolCode: associatedSchool ? associatedSchool.code : undefined,
-              status: u.status || "active",
-              url: `/super-admin/users/${u.uid}`,
-            });
-          }
-        });
-      }
-    } else {
-      // Server-side fallback: try client SDK safely
-      try {
-        const db = getFirebaseDb();
-        if (db) {
-          const [schoolsSnap, usersSnap] = await Promise.all([
-            category === "all" || category === "schools"
-              ? getDocs(collection(db, "schools")).catch(() => null)
-              : Promise.resolve(null),
-            category === "all" || category === "users" || category === "school_admins" || category === "teachers" || category === "students"
-              ? getDocs(collection(db, "users")).catch(() => null)
-              : Promise.resolve(null),
-          ]);
-
-          if (schoolsSnap) {
-            schoolsSnap.docs.forEach((d) => {
-              const school = { id: d.id, ...d.data() } as any;
-              const matchName = school.name?.toLowerCase().includes(q);
-              const matchCode = school.code?.toLowerCase().includes(q);
-
-              if (matchName || matchCode) {
-                results.push({
-                  id: school.id,
-                  type: "school",
-                  category: "schools",
-                  name: school.name || "School",
-                  subtitle: `Code: ${school.code || "N/A"} · ${school.city || "School"}`,
-                  schoolName: school.name,
-                  schoolCode: school.code,
-                  status: school.status || "active",
-                  url: `/super-admin/schools/${school.id}`,
-                });
-              }
-            });
-          }
-
-          if (usersSnap) {
-            usersSnap.docs.forEach((d) => {
-              const u = { uid: d.id, ...d.data() } as any;
-              const matchName = u.name?.toLowerCase().includes(q);
-              const matchEmail = u.email?.toLowerCase().includes(q);
-
-              if (matchName || matchEmail) {
-                results.push({
-                  id: u.uid,
-                  type: u.role || "user",
-                  category: "users",
-                  name: u.name || u.email || "User",
-                  subtitle: `${u.email} · Role: ${u.role}`,
-                  status: u.status || "active",
-                  url: `/super-admin/users/${u.uid}`,
-                });
-              }
-            });
-          }
+        if (matchName || matchCode || matchCity || matchEmail || matchAdminEmail) {
+          results.push({
+            id: school.id,
+            type: "school",
+            category: "schools",
+            name: school.name,
+            subtitle: `Code: ${school.code} · ${school.city || school.email || "School"} · ${school.status}`,
+            schoolName: school.name,
+            schoolCode: school.code,
+            status: school.status,
+            url: `/super-admin/schools/${school.id}`,
+          });
         }
-      } catch (clientErr) {
-        // Navigation results are still preserved
-      }
+      });
+    }
+
+    // Search Matching Users
+    if (usersSnap) {
+      const users = usersSnap.docs.map((d) => ({
+        uid: d.id,
+        ...d.data(),
+      })) as AppUser[];
+
+      users.forEach((user) => {
+        if (category === "school_admins" && user.role !== "school_admin") return;
+        if (category === "teachers" && user.role !== "teacher") return;
+        if (category === "students" && user.role !== "student") return;
+
+        const userAny = user as any;
+        const matchName = user.name?.toLowerCase().includes(q);
+        const matchEmail = user.email?.toLowerCase().includes(q);
+        const matchUid = user.uid?.toLowerCase().includes(q);
+        const phoneVal = userAny.phone || userAny.phoneNumber || "";
+        const matchPhone = phoneVal ? String(phoneVal).toLowerCase().includes(q) : false;
+
+        if (matchName || matchEmail || matchUid || matchPhone) {
+          const associatedSchool = user.schoolId ? schoolsMap.get(user.schoolId) : null;
+
+          results.push({
+            id: user.uid,
+            type: user.role,
+            category: "users",
+            name: user.name,
+            subtitle: `${user.email} · Role: ${user.role}${
+              phoneVal ? ` · 📞 ${phoneVal}` : ""
+            }`,
+            schoolName: associatedSchool ? associatedSchool.name : "Platform Global",
+            schoolCode: associatedSchool ? associatedSchool.code : undefined,
+            status: user.status,
+            url: `/super-admin/users/${user.uid}`,
+          });
+        }
+      });
     }
 
     return NextResponse.json({
@@ -203,7 +237,10 @@ export async function GET(req: NextRequest) {
       results: results.slice(0, 35),
     });
   } catch (error: any) {
-    console.error("Super Admin global search notice:", error);
-    return NextResponse.json({ success: true, count: 0, results: [] });
+    console.error("Global search failed:", error);
+    return NextResponse.json(
+      { error: error?.message || "Internal server error executing search" },
+      { status: 500 }
+    );
   }
 }

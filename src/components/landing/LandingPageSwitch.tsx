@@ -29,25 +29,14 @@ export interface LandingPageSwitchProps {
 
 export function LandingPageSwitch({ initialVersion }: LandingPageSwitchProps) {
   const { settings, loading } = usePortalUI();
-  const [queryVersion, setQueryVersion] = React.useState<PortalUIVersion | null>(null);
-
-  React.useEffect(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const v = params.get("theme") || params.get("version") || params.get("ui");
-      if (v === "liquid_glass" || v === "classic" || v === "new") {
-        setQueryVersion(v as PortalUIVersion);
-      }
-    }
-  }, []);
 
   // Instant zero-flicker resolution:
-  // 1. URL preview parameter (?theme=liquid_glass)
-  // 2. Live Super Admin settings (settings.landingPage)
-  // 3. Fallback to SSR initialVersion
-  const activeVersion: PortalUIVersion = queryVersion || (!loading
+  // 1. If live settings loaded from Firestore or localStorage, use settings.landingPage
+  // 2. Otherwise fallback to SSR initialVersion (from cookie / server config)
+  // 3. Default to "new" (Modern UI 2.0)
+  const activeVersion: PortalUIVersion = !loading
     ? settings.landingPage
-    : initialVersion || settings.landingPage || "new");
+    : initialVersion || settings.landingPage || "new";
 
   return (
     <>

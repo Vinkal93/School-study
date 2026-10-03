@@ -1,17 +1,16 @@
 import { NextResponse } from "next/server";
-import { requireFeeAccess as authenticateRequest } from "@/lib/fees/server-access";
+import { authenticateRequest } from "@/lib/auth/serverAuth";
 import {
   createFeeStructureDefinition,
   updateFeeStructureDefinition,
 } from "@/lib/services/fee-foundation.service";
 import { getSafeAdminDb } from "@/lib/firebase/admin";
-import { collection, doc, getDocs, query, where, deleteDoc, setDoc } from "@/lib/fees/firestore";
+import { collection, doc, getDocs, query, where, deleteDoc, setDoc } from "firebase/firestore";
 import type { FeeStructureDefinition } from "@/types/fee-foundation";
 
 export async function GET(request: Request) {
   try {
     const authResult = await authenticateRequest(request);
-    if (!authResult.isAuthenticated || !authResult.user) return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { searchParams } = new URL(request.url);
     const requestedSchoolId = searchParams.get("schoolId");
 
@@ -31,7 +30,7 @@ export async function GET(request: Request) {
     if (!adminDb) {
       // Fallback to client SDK if Admin SDK not available
       try {
-        const { getFirebaseDb } = await import("@/lib/fees/firestore");
+        const { getFirebaseDb } = await import("@/lib/firebase/client");
         const clientDb = getFirebaseDb();
         if (!clientDb) throw new Error("Database not connected");
 
@@ -85,7 +84,6 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const authResult = await authenticateRequest(request);
-    if (!authResult.isAuthenticated || !authResult.user) return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (!authResult.isAuthenticated || !authResult.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -149,7 +147,6 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   try {
     const authResult = await authenticateRequest(request);
-    if (!authResult.isAuthenticated || !authResult.user) return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (!authResult.isAuthenticated || !authResult.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -187,7 +184,6 @@ export async function PUT(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const authResult = await authenticateRequest(request);
-    if (!authResult.isAuthenticated || !authResult.user) return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (!authResult.isAuthenticated || !authResult.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -213,7 +209,7 @@ export async function DELETE(request: Request) {
     const adminDb = getSafeAdminDb();
     if (!adminDb) {
       // Fallback to client SDK if Admin SDK not available
-      const { getFirebaseDb } = await import("@/lib/fees/firestore");
+      const { getFirebaseDb } = await import("@/lib/firebase/client");
       const db = getFirebaseDb();
       if (!db) throw new Error("Database not connected");
 
@@ -250,8 +246,6 @@ export async function DELETE(request: Request) {
       .get();
 
     const structRef = adminDb.collection("feeStructures").doc(structureId);
-    const structureSnapshot = await structRef.get();
-    if (!structureSnapshot.exists || structureSnapshot.data()?.schoolId !== targetSchoolId) return NextResponse.json({ error: "Structure not found in this school." }, { status: 404 });
 
     if (!demandsSnap.empty) {
       // Demands exist: Do not hard delete to maintain historical financial audit integrity! Deactivate instead.

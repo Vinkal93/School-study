@@ -3,11 +3,9 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { Sparkles, ArrowRight, X, CheckCircle2 } from "lucide-react";
-import { useActiveShowcase } from "@/hooks/useActiveShowcase";
 import type { FeatureShowcase } from "@/types/ai";
 
 export function FeatureShowcaseModal() {
-  const activeShowcase = useActiveShowcase("dashboard");
   const [showcase, setShowcase] = useState<FeatureShowcase | null>(null);
   const [isOpen, setIsOpen] = useState(false);
 
@@ -17,8 +15,12 @@ export function FeatureShowcaseModal() {
       return;
     }
 
-    const item = activeShowcase;
-    if (!item) { setIsOpen(false); return; }
+    fetch("/api/feature-showcase/active?context=dashboard")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const item: FeatureShowcase | undefined = data?.activeShowcase;
+        if (!item) return;
+
         // 1. Check if disabled or paused
         if (item.enabled === false || item.status === "PAUSED" || item.status === "ARCHIVED") {
           return;
@@ -47,7 +49,9 @@ export function FeatureShowcaseModal() {
         if (typeof window !== "undefined") {
           localStorage.setItem(impressionKey, String(currentImpressions + 1));
         }
-  }, [activeShowcase]);
+      })
+      .catch(() => {});
+  }, []);
 
   const handleDismiss = async () => {
     if (!showcase) return;

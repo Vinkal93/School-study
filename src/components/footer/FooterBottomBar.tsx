@@ -4,7 +4,6 @@ import React from "react";
 import Link from "next/link";
 import { Heart, Search, Code2, ExternalLink, User } from "lucide-react";
 import { BackToTop } from "./BackToTop";
-import { resetConsent } from "@/lib/cookies/cookie-consent";
 
 import { useSiteSettings } from "@/context/SiteSettingsContext";
 
@@ -28,28 +27,18 @@ export function FooterBottomBar() {
           <span>{renderedCopyright}</span>
         )}
 
-        <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
-          {footerConfig?.showLegal !== false && legalLinks.length > 0 && (
-            <>
-              {legalLinks.map((l, idx) => (
-                <React.Fragment key={l.id || l.label}>
-                  {idx > 0 && <span>•</span>}
-                  <Link href={l.url} className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-                    {l.label}
-                  </Link>
-                </React.Fragment>
-              ))}
-              <span>•</span>
-            </>
-          )}
-          <button
-            type="button"
-            onClick={() => resetConsent()}
-            className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer"
-          >
-            Cookie Preferences
-          </button>
-        </div>
+        {footerConfig?.showLegal !== false && legalLinks.length > 0 && (
+          <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+            {legalLinks.map((l, idx) => (
+              <React.Fragment key={l.id || l.label}>
+                {idx > 0 && <span>•</span>}
+                <Link href={l.url} className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+                  {l.label}
+                </Link>
+              </React.Fragment>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Crafted Badge & Developer Credit */}

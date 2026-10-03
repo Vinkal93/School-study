@@ -119,7 +119,8 @@ function buildSchoolAdminNavItems(): NavItem[] {
         .map((child) => ({
           label: child.label,
           href: child.route!,
-            featureKey: child.key,
+          featureKey: child.planControlled ? child.key : undefined,
+          isLocked: child.isLocked,
           badge: child.badge,
         }));
 
@@ -608,6 +609,7 @@ export function Sidebar({ variant = "classic" }: SidebarProps) {
                   >
                     {item.subItems!.map((sub) => {
                       if (
+                        !sub.isLocked &&
                         sub.featureKey &&
                         !canAccess(sub.featureKey) &&
                         getFeatureAccessMode(sub.featureKey) !== "SHOWCASE"
@@ -631,7 +633,7 @@ export function Sidebar({ variant = "classic" }: SidebarProps) {
                           )}
                         >
                           <span className="truncate">{sub.label}</span>
-                          {sub.featureKey && getFeatureAccessMode(sub.featureKey) === "SHOWCASE" && (
+                          {sub.isLocked && (
                             <span className="inline-flex items-center justify-center p-0.5 rounded-full bg-pink-100 dark:bg-pink-950/60 text-pink-500 dark:text-pink-400 shrink-0 ml-1.5" title="Locked feature">
                               <Lock className="h-3 w-3" />
                             </span>

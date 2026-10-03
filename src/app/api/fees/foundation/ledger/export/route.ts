@@ -1,5 +1,5 @@
 import { NextResponse, NextRequest } from "next/server";
-import { requireFeeAccess as authenticateRequest } from "@/lib/fees/server-access";
+import { authenticateRequest } from "@/lib/auth/serverAuth";
 import {
   getStudentLedger,
   getAccountLedger,
@@ -10,7 +10,6 @@ import type { PaymentMethod } from "@/types/fee-foundation";
 export async function POST(request: NextRequest) {
   try {
     const authResult = await authenticateRequest(request);
-    if (!authResult.isAuthenticated || !authResult.user) return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const body = await request.json();
     const {
       schoolId: clientSchoolId,

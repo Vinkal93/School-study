@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { constructMetadata } from "@/lib/seo";
-import { AdminRouteAccess } from "@/components/common/AdminRouteAccess";
 
 export const metadata: Metadata = constructMetadata({
   title: "School Admin Portal",
@@ -12,5 +11,5 @@ export default function AdminDashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <AdminRouteAccess>{children}</AdminRouteAccess>;
+  return children;
 }

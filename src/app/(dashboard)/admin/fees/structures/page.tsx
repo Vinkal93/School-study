@@ -1,7 +1,4 @@
 "use client";
-import { useFeeSession } from "@/components/fees/FeeSessionProvider";
-
-import { feeFetch } from "@/lib/fees/client-request";
 
 import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/hooks/use-auth";
@@ -49,7 +46,7 @@ export default function AdminFeeStructuresPage() {
   const [loading, setLoading] = useState(true);
 
   // Filter States
-  const { academicYearId: selectedAcademicYear, setAcademicYearId: setSelectedAcademicYear } = useFeeSession();
+  const [selectedAcademicYear, setSelectedAcademicYear] = useState<string>("all");
   const [selectedClass, setSelectedClass] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -100,7 +97,7 @@ export default function AdminFeeStructuresPage() {
           setFormAcademicYearId(current.id);
           setFormAcademicYearName(current.name);
           setSourceYearId(current.id);
-          setSelectedAcademicYear(previous => previous || current.id);
+          setSelectedAcademicYear(current.id);
         }
 
         // Load Classes
@@ -111,7 +108,7 @@ export default function AdminFeeStructuresPage() {
         // Load Fee Heads
         let heads: FeeHead[] = [];
         try {
-          const headsRes = await feeFetch(`/api/fees/foundation/heads?schoolId=${schoolId}`);
+          const headsRes = await fetch(`/api/fees/foundation/heads?schoolId=${schoolId}`);
           if (headsRes.ok) {
             const headsData = await headsRes.json();
             if (headsData.success && Array.isArray(headsData.heads) && headsData.heads.length > 0) {
@@ -140,7 +137,7 @@ export default function AdminFeeStructuresPage() {
     if (!schoolId) return;
     setLoading(true);
     try {
-      const res = await feeFetch(`/api/fees/foundation/structures?schoolId=${schoolId}`);
+      const res = await fetch(`/api/fees/foundation/structures?schoolId=${schoolId}`);
       if (res.ok) {
         const data = await res.json();
         if (data.success && Array.isArray(data.structures) && data.structures.length > 0) {
@@ -148,14 +145,14 @@ export default function AdminFeeStructuresPage() {
           return;
         }
       }
-      const direct = await getFeeStructures(schoolId, selectedAcademicYear);
+      const direct = await getFeeStructures(schoolId);
       if (direct && direct.length > 0) {
         setStructures(direct as any);
       }
     } catch (err) {
       console.warn("Structures API fallback to direct getFeeStructures:", err);
       try {
-        const direct = await getFeeStructures(schoolId, selectedAcademicYear);
+        const direct = await getFeeStructures(schoolId);
         setStructures(direct as any);
       } catch (e) {
         toast.error("Failed to load fee structures.");
@@ -205,7 +202,7 @@ export default function AdminFeeStructuresPage() {
     try {
       if (editingStructureId) {
         // PUT update
-        const res = await feeFetch("/api/fees/foundation/structures", {
+        const res = await fetch("/api/fees/foundation/structures", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -228,7 +225,7 @@ export default function AdminFeeStructuresPage() {
         toast.success("Fee structure updated with new version!");
       } else {
         // POST create
-        const res = await feeFetch("/api/fees/foundation/structures", {
+        const res = await fetch("/api/fees/foundation/structures", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -272,7 +269,7 @@ export default function AdminFeeStructuresPage() {
   const handleToggleStatus = async (s: FeeStructureDefinition) => {
     const nextStatus = s.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
     try {
-      const res = await feeFetch("/api/fees/foundation/structures", {
+      const res = await fetch("/api/fees/foundation/structures", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -294,7 +291,7 @@ export default function AdminFeeStructuresPage() {
   const handleDelete = async (s: FeeStructureDefinition) => {
     if (!confirm(`Are you sure you want to delete or deactivate "${s.title}"?`)) return;
     try {
-      const res = await feeFetch(`/api/fees/foundation/structures?schoolId=${schoolId}&id=${s.id}`, {
+      const res = await fetch(`/api/fees/foundation/structures?schoolId=${schoolId}&id=${s.id}`, {
         method: "DELETE",
       });
       const data = await res.json();
@@ -315,7 +312,7 @@ export default function AdminFeeStructuresPage() {
     }
     setSubmitting(true);
     try {
-      const res = await feeFetch("/api/fees/foundation/structures/duplicate", {
+      const res = await fetch("/api/fees/foundation/structures/duplicate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -342,7 +339,7 @@ export default function AdminFeeStructuresPage() {
     setGenLoading(true);
     try {
       const currentYearObj = academicYears.find((y) => y.id === selectedAcademicYear) || academicYears[0];
-      const res = await feeFetch("/api/fees/foundation/demands/bulk", {
+      const res = await fetch("/api/fees/foundation/demands/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -370,7 +367,7 @@ export default function AdminFeeStructuresPage() {
     setGenLoading(true);
     try {
       const currentYearObj = academicYears.find((y) => y.id === selectedAcademicYear) || academicYears[0];
-      const res = await feeFetch("/api/fees/foundation/demands/bulk", {
+      const res = await fetch("/api/fees/foundation/demands/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

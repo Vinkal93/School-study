@@ -1,9 +1,9 @@
 /**
  * ADMIN FEATURE REGISTRY — SINGLE SOURCE OF TRUTH
- *
+ * 
  * Authoritative single registry for all Admin Panel sidebar navigation,
  * Plan Editor feature entitlements, access control, and route permissions.
- *
+ * 
  * Architecture Rule:
  *   Feature Registry (Single Source of Truth)
  *       ↓
@@ -528,7 +528,7 @@ export const ADMIN_FEATURE_REGISTRY: AdminFeatureItem[] = [
     permissions: ["view", "create", "edit", "delete", "export", "manage"],
     status: "active",
     showInSidebar: true,
-    planControlled: true,
+    planControlled: false,
     aliases: ["accounts"],
   },
   {
@@ -546,7 +546,7 @@ export const ADMIN_FEATURE_REGISTRY: AdminFeatureItem[] = [
     permissions: ["view", "create", "delete"],
     status: "active",
     showInSidebar: true,
-    planControlled: true,
+    planControlled: false,
   },
   {
     id: "account_add_income",
@@ -563,7 +563,7 @@ export const ADMIN_FEATURE_REGISTRY: AdminFeatureItem[] = [
     permissions: ["view", "create", "export"],
     status: "active",
     showInSidebar: true,
-    planControlled: true,
+    planControlled: false,
   },
   {
     id: "account_add_expense",
@@ -580,7 +580,7 @@ export const ADMIN_FEATURE_REGISTRY: AdminFeatureItem[] = [
     permissions: ["view", "create", "export"],
     status: "active",
     showInSidebar: true,
-    planControlled: true,
+    planControlled: false,
   },
   {
     id: "account_statement",
@@ -597,7 +597,7 @@ export const ADMIN_FEATURE_REGISTRY: AdminFeatureItem[] = [
     permissions: ["view", "export"],
     status: "active",
     showInSidebar: true,
-    planControlled: true,
+    planControlled: false,
   },
 
   // 8. Fee Management

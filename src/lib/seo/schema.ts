@@ -18,7 +18,7 @@ export function getPersonSchema() {
       name: siteConfig.name,
       url: siteConfig.url,
     },
-    url: `${siteConfig.url}/about-developer`,
+    url: siteConfig.developer.portfolioUrl,
     image: `${siteConfig.url}${siteConfig.developer.avatarUrl}`,
     email: `mailto:${siteConfig.developer.email}`,
     telephone: siteConfig.developer.phone,
@@ -29,8 +29,6 @@ export function getPersonSchema() {
     sameAs: [
       siteConfig.developer.portfolioUrl,
       siteConfig.developer.githubUrl,
-      "https://www.linkedin.com/in/vinkal041/",
-      "https://vinkal041.hashnode.dev/",
       `${siteConfig.url}/about-developer`,
     ],
     description: siteConfig.developer.bio,
@@ -50,6 +48,7 @@ export function getOrganizationSchema() {
     "@type": "Organization",
     "@id": `${siteConfig.url}/#organization`,
     name: siteConfig.name,
+    legalName: siteConfig.legalName,
     alternateName: ["School Study SaaS", "School Study ERP", "SchoolStudy"],
     url: siteConfig.url,
     logo: {
@@ -118,6 +117,7 @@ export function getSoftwareAppSchema() {
     description: siteConfig.defaultDescription,
     url: siteConfig.url,
     downloadUrl: `${siteConfig.url}/download`,
+    installUrl: `${siteConfig.url}/register`,
     screenshot: `${siteConfig.url}/og-image.png`,
     author: {
       "@type": "Person",
@@ -134,6 +134,36 @@ export function getSoftwareAppSchema() {
       "@type": "Organization",
       "@id": `${siteConfig.url}/#organization`,
       name: siteConfig.name,
+    },
+    offers: {
+      "@type": "AggregateOffer",
+      priceCurrency: "INR",
+      lowPrice: "0",
+      highPrice: "9999",
+      offerCount: "3",
+      offers: [
+        {
+          "@type": "Offer",
+          name: "Free Community Starter Tier",
+          price: "0",
+          priceCurrency: "INR",
+          description: "Full core school management for growing schools with zero upfront cost",
+        },
+        {
+          "@type": "Offer",
+          name: "Growth Tier",
+          price: "1999",
+          priceCurrency: "INR",
+          description: "Advanced analytics, automated SMS & unlimited records",
+        },
+        {
+          "@type": "Offer",
+          name: "Enterprise Multi-School Tier",
+          price: "4999",
+          priceCurrency: "INR",
+          description: "Full multi-branch white-labeled administrative control plane",
+        },
+      ],
     },
     featureList: [
       "Multi-Tenant Database & School Isolation",
@@ -245,5 +275,6 @@ export function getHomepageJsonLd() {
     getWebsiteSchema(),
     getSoftwareAppSchema(),
     getPersonSchema(),
+    getHomepageFaqSchema(),
   ];
 }

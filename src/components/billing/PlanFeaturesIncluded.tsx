@@ -2,7 +2,6 @@
 
 import React from "react";
 import { CheckCircle2, ShieldCheck, ExternalLink, Sparkles } from "lucide-react";
-import { ADMIN_FEATURE_REGISTRY } from "@/lib/features/adminFeatureRegistry";
 import { GRANULAR_PERMISSIONS } from "@/lib/billing/permissions";
 
 export interface PlanFeaturesIncludedProps {
@@ -22,7 +21,19 @@ export function PlanFeaturesIncluded({
     const addedKeys = new Set<string>();
 
     // 1. High level modules
-    const knownModules: Record<string, string> = Object.fromEntries(ADMIN_FEATURE_REGISTRY.map(f => [f.key, f.label]));
+    const knownModules: Record<string, string> = {
+      student_management: "Student Management & Admissions",
+      teacher_management: "Teacher Directory & Staff Controls",
+      class_management: "Classes & Section Management",
+      basic_attendance: "Daily Attendance Marking",
+      attendance_automation: "Automated Attendance & Alerts",
+      school_dashboard: "Real-Time School Analytics Dashboard",
+      notices_announcements: "Notice Board & Broadcast Circulars",
+      advanced_reports: "Advanced Academic & Fee Reports",
+      reports_export: "CSV & Data Exports",
+      student_portal: "Student Portal Access",
+      teacher_portal: "Teacher Portal Access",
+    };
 
     for (const key of allowedFeatures) {
       if (knownModules[key] && !addedKeys.has(key)) {

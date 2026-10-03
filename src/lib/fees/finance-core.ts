@@ -75,10 +75,9 @@ export function adjustedDemand(demand: FeeDemand, type: AdjustmentType, amount: 
   if (!["DISCOUNT", "CONCESSION", "SCHOLARSHIP", "WAIVER", "FINE_REDUCTION"].includes(type)) {
     throw new Error("Unsupported adjustment type.");
   }
-  if (type === "FINE_REDUCTION" && amount > (current.lateFeePaise || 0) + (current.finePaise || 0) - (current.fineReliefPaise || 0)) {
+  if (type === "FINE_REDUCTION" && amount > (current.lateFeePaise || 0) + (current.finePaise || 0)) {
     throw new Error("Fine reduction cannot exceed the invoice's penalties.");
   }
-  if (type === "FINE_REDUCTION") current.fineReliefPaise = (current.fineReliefPaise || 0) + amount;
   // Keep penalties at their original value for the ledger; the separate relief is a credit.
   if (type === "CONCESSION" || type === "SCHOLARSHIP") current.concessionAmountPaise += amount;
   else current.discountAmountPaise += amount;

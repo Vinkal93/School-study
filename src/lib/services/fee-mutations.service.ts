@@ -1,5 +1,5 @@
-import { collection, doc, getDocs, query, where, runTransaction, type Transaction } from "@/lib/fees/firestore";
-import { getFirebaseDb } from "@/lib/fees/firestore";
+import { collection, doc, getDocs, query, where, runTransaction, type Transaction } from "firebase/firestore";
+import { getFirebaseDb } from "@/lib/firebase/client";
 import { getChartOfAccounts } from "./accounting.service";
 import { activeDemand, adjustedDemand, allocatePayment, assertPaise, moneyPaise, normalizePaymentMethod, recalculateDemand, sameAcademicYear } from "@/lib/fees/finance-core";
 import type { Account, JournalEntry, JournalReferenceType } from "@/types/accounting";
@@ -28,14 +28,6 @@ function journal(tx: Transaction, accounts: Account[], schoolId: string, event: 
   const value: JournalEntry = { id, schoolId, voucherNumber: `JV-${event.id}`, voucherType: event.type === "PAYMENT" ? "RECEIPT" : event.type === "REFUND" ? "PAYMENT" : "JOURNAL", date: event.date.slice(0, 10), academicYearId: event.academicYearId, referenceType: event.type, referenceId: event.id, narration: event.description, lines, totalDebitPaise: debit, totalCreditPaise: credit, totalDebitRupees: debit / 100, totalCreditRupees: credit / 100, isBalanced: true, createdBy: event.actorId, createdAt: now, updatedAt: now };
   tx.set(doc(db, "journalEntries", id), value);
   tx.set(doc(db, "financialAuditLogs", `audit_${id}`), { id: `audit_${id}`, schoolId, actorId: event.actorId, action: event.type, entityId: event.id, studentId: event.studentId, academicYearId: event.academicYearId, reason: event.description, timestamp: now, createdAt: now });
-}
-
-/** Invoice and its receivable/income voucher are created in the same transaction. */
-export function writeDemandJournal(tx: Transaction, accounts: Account[], demand: FeeDemand, actorId: string) {
-  const head = (demand.feeHeadName || "").toLowerCase();
-  const income = /admission|registration/.test(head) ? "4020" : /transport|bus/.test(head) ? "4030" : /exam|test/.test(head) ? "4040" : /tuition|monthly/.test(head) ? "4010" : "4090";
-  const relief = (demand.discountAmountPaise || 0) + (demand.concessionAmountPaise || 0);
-  journal(tx, accounts, demand.schoolId, { id: demand.id, type: "FEE_DEMAND", academicYearId: demand.academicYearId, date: demand.dueDate, actorId, studentId: demand.studentId, description: `Fee invoice ${demand.invoiceNumber}` }, [["1040", demand.netAmountPaise, 0], ["5010", relief, 0], [income, 0, demand.grossAmountPaise], ["4050", 0, (demand.lateFeePaise || 0) + (demand.finePaise || 0)]]);
 }
 
 async function demandRefs(schoolId: string, studentId: string, academicYearId: string) {
@@ -123,27 +115,18 @@ export async function adjustInvoice(schoolId: string, input: Parameters<typeof a
   if (!input.reason?.trim() || !input.approvedBy) throw new Error("Adjustment reason and approver are required.");
   const db = getFirebaseDb();
   const accounts = await getChartOfAccounts(schoolId);
-  const key = input.idempotencyKey?.trim();
-  if (key && key.length > 150) throw new Error("Invalid adjustment request key.");
-  const id = `adj_${idPart(schoolId)}_${idPart(key || uid())}`;
-  const adjustmentRef = doc(db, "feeAdjustments", id);
-  const fingerprint = JSON.stringify([input.demandId, input.studentId, input.academicYearId, input.type, amount, input.reason.trim(), input.approvedBy]);
+  const id = `adj_${uid()}`;
   return runTransaction(db, async tx => {
-    const previous = await tx.get(adjustmentRef);
     const ref = doc(db, "feeDemands", input.demandId);
     const snap = await tx.get(ref);
     if (!snap.exists()) throw new Error("Fee invoice not found.");
     const demand = { ...snap.data(), id: snap.id } as FeeDemand;
     if (demand.schoolId !== schoolId || demand.studentId !== input.studentId || !sameAcademicYear(demand.academicYearId, input.academicYearId)) throw new Error("Invoice does not belong to this student/session.");
-    if (previous.exists()) {
-      if (previous.data().requestFingerprint !== fingerprint) throw new Error("This request key belongs to a different adjustment.");
-      return { adjustment: previous.data() as FeeAdjustment, updatedDemand: demand };
-    }
     const now = new Date().toISOString();
     const updatedDemand = { ...adjustedDemand(demand, input.type, amount), adjustmentIds: [...(demand.adjustmentIds || []), id], updatedAt: now };
     const adjustment: FeeAdjustment = { id, schoolId, studentId: demand.studentId, studentName: demand.studentName, academicYearId: demand.academicYearId, demandId: demand.id, period: demand.period, type: input.type, amountPaise: amount, reason: input.reason.trim(), approvedBy: input.approvedBy, createdBy: input.actorId || input.approvedBy, date: now, status: "APPLIED", createdAt: now, updatedAt: now };
     tx.set(ref, updatedDemand);
-    tx.set(adjustmentRef, { ...adjustment, requestFingerprint: fingerprint });
+    tx.set(doc(db, "feeAdjustments", id), adjustment);
     journal(tx, accounts, schoolId, { id, type: "ADJUSTMENT", academicYearId: demand.academicYearId, date: now, actorId: adjustment.createdBy, studentId: demand.studentId, description: adjustment.reason }, [["5010", amount, 0], ["1040", 0, amount]]);
     return { adjustment, updatedDemand };
   });
@@ -154,22 +137,13 @@ export async function returnPayment(schoolId: string, input: Parameters<typeof p
   const db = getFirebaseDb();
   const accounts = await getChartOfAccounts(schoolId);
   const allocationSnap = await getDocs(query(collection(db, "paymentAllocations"), where("schoolId", "==", schoolId), where("paymentId", "==", input.paymentId)));
-  const key = input.idempotencyKey?.trim();
-  if (key && key.length > 150) throw new Error("Invalid refund request key.");
-  const id = `${reverse ? "rev" : "ref"}_${idPart(schoolId)}_${idPart(key || uid())}`;
-  const eventRef = doc(db, reverse ? "paymentReversals" : "financialRefunds", id);
-  const fingerprint = JSON.stringify([input.paymentId, reverse ? null : (input as Parameters<typeof processFeeRefund>[1]).amountRupees, input.reason.trim(), "refundMethod" in input ? input.refundMethod || "" : "", "referenceNumber" in input ? input.referenceNumber || "" : ""]);
+  const id = `${reverse ? "rev" : "ref"}_${uid()}`;
   return runTransaction(db, async tx => {
-    const previous = await tx.get(eventRef);
     const paymentRef = doc(db, "financialPayments", input.paymentId);
     const snap = await tx.get(paymentRef);
     if (!snap.exists()) throw new Error("Payment not found.");
     const payment = { ...snap.data(), id: snap.id } as FinancialPayment;
     if (payment.schoolId !== schoolId) throw new Error("Payment belongs to a different school.");
-    if (previous.exists()) {
-      if (previous.data().requestFingerprint !== fingerprint) throw new Error("This request key belongs to a different refund.");
-      return { refund: previous.data() as FinancialRefund, reversal: previous.data() as PaymentReversal, updatedPayment: payment, updatedDemands: [] as FeeDemand[] };
-    }
     if (!["SUCCESS", "PARTIALLY_REFUNDED"].includes(payment.status)) throw new Error("Only a settled, refundable payment can be refunded or reversed.");
     if (reverse && (payment.refundedAmountPaise || 0) > 0) throw new Error("A partially refunded payment cannot be reversed. Refund its remaining balance instead.");
     const amount = reverse ? payment.amountPaise : moneyPaise((input as Parameters<typeof processFeeRefund>[1]).amountRupees, true);
@@ -209,7 +183,7 @@ export async function returnPayment(schoolId: string, input: Parameters<typeof p
     if (legacy.exists()) tx.update(legacy.ref, { status: updatedPayment.status, refundedAmountPaise: refunded, updatedAt: now });
     const refund: FinancialRefund = { id, schoolId, paymentId: payment.id, receiptNumber: payment.receiptNumber, refundReceiptNumber: `REF-${id}`, studentId: payment.studentId, studentName: payment.studentName, admissionNumber: payment.admissionNumber, className: payment.className, sectionName: payment.sectionName, academicYearId: payment.academicYearId, amountPaise: amount, reason: input.reason.trim(), refundMethod: method, referenceNumber: "referenceNumber" in input ? input.referenceNumber || "" : "", processedBy: actor, processedByName: input.actorName || actor, refundDate: now, allocatedRefunds: parts, advanceRefundPaise: advanceRefund, createdAt: now };
     const reversal: PaymentReversal = { id, schoolId, paymentId: payment.id, receiptNumber: payment.receiptNumber, studentId: payment.studentId, academicYearId: payment.academicYearId, paymentMethod: payment.paymentMethod, reversedAmountPaise: amount, advanceReversedPaise: advanceRefund, reason: input.reason.trim(), reversedBy: actor, reversedByName: input.actorName || actor, reversedAt: now, reversedAllocations: parts.map(p => ({ demandId: p.demandId, allocationId: p.allocationId, feeHeadName: p.feeHeadName, period: p.period, reversedAmountPaise: p.refundedAmountPaise })), createdAt: now };
-    tx.set(eventRef, { ...(reverse ? reversal : refund), requestFingerprint: fingerprint });
+    tx.set(doc(db, reverse ? "paymentReversals" : "financialRefunds", id), reverse ? reversal : refund);
     journal(tx, accounts, schoolId, { id, type: reverse ? "REVERSAL" : "REFUND", academicYearId: payment.academicYearId, date: now, actorId: actor, studentId: payment.studentId, description: input.reason.trim() }, [["1040", amount - advanceRefund, 0], ["2010", advanceRefund, 0], [assetCode(method), 0, amount]]);
     return { refund, reversal, updatedPayment, updatedDemands };
   });

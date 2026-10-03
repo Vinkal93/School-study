@@ -1,4 +1,3 @@
-import { assertPaise, postedPayment, normalizePaymentMethod } from "@/lib/fees/finance-core";
 /**
  * PHASE 6 — ACCOUNTING CORE + DOUBLE ENTRY + TRIAL BALANCE
  * Central Accounting Service Engine
@@ -12,7 +11,7 @@ import { assertPaise, postedPayment, normalizePaymentMethod } from "@/lib/fees/f
  * 6. Historical preservation: No deletes, corrections via reversals.
  */
 
-import { getFirebaseDb } from "@/lib/fees/firestore";
+import { getFirebaseDb } from "@/lib/firebase/client";
 import {
   collection,
   doc,
@@ -24,8 +23,7 @@ import {
   orderBy,
   limit,
   Timestamp,
-  runTransaction,
-} from "@/lib/fees/firestore";
+} from "firebase/firestore";
 import type {
   Account,
   AccountCategory,
@@ -238,7 +236,6 @@ export async function postJournalEntry(
       studentName?: string;
       feeHeadId?: string;
     }>;
-    linkedExpense?: SchoolExpense;
     createdBy: string;
     createdByName?: string;
   }
@@ -246,12 +243,10 @@ export async function postJournalEntry(
   const db = getFirebaseDb();
 
   // 1. Idempotency Check: Don't create duplicate journal for same reference
-  if (entry.linkedExpense && (entry.linkedExpense.schoolId !== schoolId || entry.linkedExpense.id !== entry.referenceId || entry.referenceType !== "EXPENSE")) throw new Error("Expense must belong to this school and voucher.");
   const existingQ = query(
     collection(db, "journalEntries"),
     where("schoolId", "==", schoolId),
     where("referenceId", "==", entry.referenceId),
-    where("referenceType", "==", entry.referenceType),
     limit(1)
   );
   const existingSnap = await getDocs(existingQ);
@@ -271,13 +266,12 @@ export async function postJournalEntry(
 
   entry.lines.forEach((l, idx) => {
     const acc = coaMap.get(l.accountCode);
-    if (!acc || !acc.isActive) {
+    if (!acc) {
       throw new Error(`Account with code ${l.accountCode} does not exist in Chart of Accounts.`);
     }
 
-    const debitPaise = assertPaise(l.debitPaise);
-    const creditPaise = assertPaise(l.creditPaise);
-    if (debitPaise > 0 && creditPaise > 0) throw new Error("A journal line cannot contain both debit and credit.");
+    const debitPaise = Math.round(l.debitPaise || 0);
+    const creditPaise = Math.round(l.creditPaise || 0);
 
     totalDebitPaise += debitPaise;
     totalCreditPaise += creditPaise;
@@ -301,7 +295,7 @@ export async function postJournalEntry(
 
   // 4. Strict Double Entry Balance Assertion
   const differencePaise = Math.abs(totalDebitPaise - totalCreditPaise);
-  if (differencePaise > 0 || totalDebitPaise <= 0 || entry.lines.length < 2) {
+  if (differencePaise > 0) {
     throw new Error(
       `Double-Entry Invariant Violation: Total Debits (₹${paiseToRupees(totalDebitPaise)}) must equal Total Credits (₹${paiseToRupees(totalCreditPaise)}). Imbalance: ₹${paiseToRupees(differencePaise)}`
     );
@@ -320,7 +314,7 @@ export async function postJournalEntry(
   const randomSuffix = Math.floor(1000 + Math.random() * 9000);
   const voucherNumber = `${voucherPrefix}-${dateCompact}-${randomSuffix}`;
 
-  const id = `je_${encodeURIComponent(schoolId)}_${entry.referenceType}_${encodeURIComponent(entry.referenceId)}`;
+  const id = `je_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const now = new Date().toISOString();
 
   const journalDoc: JournalEntry = {
@@ -347,13 +341,9 @@ export async function postJournalEntry(
   };
 
   const docRef = doc(db, "journalEntries", id);
-  return runTransaction(db, async tx => {
-    const existing = await tx.get(docRef);
-    if (existing.exists()) return existing.data() as JournalEntry;
-    tx.set(docRef, journalDoc);
-    if (entry.linkedExpense) tx.set(doc(db, "schoolExpenses", entry.linkedExpense.id), { ...entry.linkedExpense, voucherNumber: journalDoc.voucherNumber });
-    return journalDoc;
-  });
+  await setDoc(docRef, journalDoc);
+
+  return journalDoc;
 }
 
 // -------------------------------------------------------------
@@ -378,12 +368,12 @@ function mapFeeHeadToIncomeAccount(feeHeadName?: string): string {
  * Maps Payment Method to Asset Account Code
  */
 function mapPaymentMethodToAssetAccount(method?: string): string {
-  const m = normalizePaymentMethod(method || "CASH");
+  const m = (method || "CASH").toUpperCase();
   if (m === "CASH") return "1010"; // Cash in Hand
-  if (["UPI", "CARD", "ONLINE"].includes(m)) return "1030"; // UPI Collections
-  if (m === "BANK_TRANSFER") return "1020"; // Bank Account
+  if (m === "UPI") return "1030"; // UPI Collections
+  if (m === "BANK_TRANSFER" || m === "NEFT" || m === "RTGS" || m === "IMPS") return "1020"; // Bank Account
   if (m === "CHEQUE") return "1020"; // Cheque clears to Bank
-  return "1020";
+  return "1010";
 }
 
 /**
@@ -663,8 +653,7 @@ export async function postJournalForAdjustment(
     adjustment.type === "WAIVER" ||
     adjustment.type === "DISCOUNT" ||
     adjustment.type === "CONCESSION" ||
-    adjustment.type === "SCHOLARSHIP" ||
-    adjustment.type === "FINE_REDUCTION";
+    adjustment.type === "SCHOLARSHIP";
 
   let lines: Array<{ accountCode: string; debitPaise: number; creditPaise: number; narration?: string }>;
 
@@ -745,36 +734,6 @@ export async function recordSchoolExpense(
   const id = `exp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
   const now = new Date().toISOString();
 
-  assertPaise(expenseData.amountPaise);
-  if (!schoolId || expenseData.amountPaise <= 0 || !expenseData.description?.trim() || !expenseData.payeeName?.trim() || !Number.isFinite(Date.parse(expenseData.expenseDate))) throw new Error("A positive amount, date, payee and description are required.");
-  const accounts = await getChartOfAccounts(schoolId);
-  const selectedExpenseAccount = accounts.find(account => account.code === expenseData.expenseAccountCode && account.isActive && account.category === "EXPENSE");
-  if (!selectedExpenseAccount) throw new Error("Select an active expense account.");
-  // 2. Save SchoolExpense record
-  const expense: SchoolExpense = {
-    id,
-    schoolId,
-    academicYearId: expenseData.academicYearId || "ay_2026_27",
-    voucherNumber: "",
-    expenseAccountId: selectedExpenseAccount.id,
-    expenseAccountCode: expenseData.expenseAccountCode,
-    expenseAccountName: selectedExpenseAccount.name,
-    paymentMethod: expenseData.paymentMethod,
-    paymentAccountId: expenseData.paymentAccountId,
-    paymentAccountName: expenseData.paymentAccountName,
-    amountPaise: expenseData.amountPaise,
-    amountRupees: paiseToRupees(expenseData.amountPaise),
-    expenseDate: expenseData.expenseDate,
-    payeeName: expenseData.payeeName,
-    invoiceNumber: expenseData.invoiceNumber,
-    referenceNumber: expenseData.referenceNumber,
-    category: expenseData.category,
-    description: expenseData.description,
-    createdBy: actor.id,
-    createdByName: actor.name,
-    createdAt: now,
-  };
-
   // 1. Post Balanced Journal Entry (Payment Voucher)
   const paymentAccountCode = mapPaymentMethodToAssetAccount(expenseData.paymentMethod);
   const journal = await postJournalEntry(schoolId, {
@@ -799,12 +758,36 @@ export async function recordSchoolExpense(
         narration: `Paid via ${expenseData.paymentMethod} to ${expenseData.payeeName}`,
       },
     ],
-    linkedExpense: expense,
     createdBy: actor.id,
     createdByName: actor.name,
   });
 
-  expense.voucherNumber = journal.voucherNumber;
+  // 2. Save SchoolExpense record
+  const expense: SchoolExpense = {
+    id,
+    schoolId,
+    academicYearId: expenseData.academicYearId || "ay_2026_27",
+    voucherNumber: journal.voucherNumber,
+    expenseAccountId: expenseData.expenseAccountId,
+    expenseAccountCode: expenseData.expenseAccountCode,
+    expenseAccountName: expenseData.expenseAccountName,
+    paymentMethod: expenseData.paymentMethod,
+    paymentAccountId: expenseData.paymentAccountId,
+    paymentAccountName: expenseData.paymentAccountName,
+    amountPaise: expenseData.amountPaise,
+    amountRupees: paiseToRupees(expenseData.amountPaise),
+    expenseDate: expenseData.expenseDate,
+    payeeName: expenseData.payeeName,
+    invoiceNumber: expenseData.invoiceNumber,
+    referenceNumber: expenseData.referenceNumber,
+    category: expenseData.category,
+    description: expenseData.description,
+    createdBy: actor.id,
+    createdByName: actor.name,
+    createdAt: now,
+  };
+
+  await setDoc(doc(db, "schoolExpenses", id), expense);
 
   return { expense, journalEntry: journal };
 }
@@ -836,8 +819,6 @@ export async function syncPhase1to5JournalEntries(
   let syncedReversals = 0;
   let syncedAdjustments = 0;
 
-  const adjustmentSnapshot = await getDocs(query(collection(db, "feeAdjustments"), where("schoolId", "==", schoolId)));
-  const recordedAdjustments = adjustmentSnapshot.docs.map(d => d.data()).filter(a => a.status === "APPLIED");
   // 1. Sync Fee Demands
   const demandsQ = query(
     collection(db, "feeDemands"),
@@ -846,7 +827,7 @@ export async function syncPhase1to5JournalEntries(
   const demandsSnap = await getDocs(demandsQ);
   for (const dDoc of demandsSnap.docs) {
     const d = dDoc.data() as any;
-    if (d.status === "CANCELLED" || d.status === "VOID" || !matchAcademicYear(d.academicYearId, academicYearId)) continue;
+    if (d.status === "CANCELLED" || d.status === "VOID") continue;
     try {
       await postJournalForDemand(
         schoolId,
@@ -856,9 +837,9 @@ export async function syncPhase1to5JournalEntries(
           studentId: d.studentId,
           studentName: d.studentName || "Student",
           feeHeadName: d.feeHeadName,
-          grossAmountPaise: (d.grossAmountPaise || 0) + (d.lateFeePaise || 0) + (d.finePaise || 0),
-          concessionAmountPaise: Math.max(0, (d.discountAmountPaise || 0) + (d.concessionAmountPaise || 0) - recordedAdjustments.filter(a => a.demandId === (d.id || dDoc.id)).reduce((sum,a) => sum + (a.amountPaise || 0), 0)),
-          netAmountPaise: (d.netAmountPaise || 0) + recordedAdjustments.filter(a => a.demandId === (d.id || dDoc.id)).reduce((sum,a) => sum + (a.amountPaise || 0), 0),
+          grossAmountPaise: d.grossAmountPaise || 0,
+          concessionAmountPaise: d.concessionAmountPaise || 0,
+          netAmountPaise: d.netAmountPaise || 0,
           dueDate: d.dueDate,
           academicYearId: d.academicYearId || academicYearId,
         },
@@ -871,7 +852,7 @@ export async function syncPhase1to5JournalEntries(
   }
 
   // 2. Sync Payments
-  const payments = (await getFinancialPayments(schoolId, { academicYearId })).filter(p => postedPayment(p.status));
+  const payments = await getFinancialPayments(schoolId, { status: "SUCCESS" });
   for (const p of payments) {
     try {
       await postJournalForPayment(
@@ -905,7 +886,6 @@ export async function syncPhase1to5JournalEntries(
   const refundsSnap = await getDocs(refundsQ);
   for (const rDoc of refundsSnap.docs) {
     const r = rDoc.data() as any;
-    if (!matchAcademicYear(r.academicYearId, academicYearId)) continue;
     try {
       await postJournalForRefund(
         schoolId,
@@ -934,7 +914,6 @@ export async function syncPhase1to5JournalEntries(
   const revSnap = await getDocs(revQ);
   for (const revDoc of revSnap.docs) {
     const rev = revDoc.data() as any;
-    if (!matchAcademicYear(rev.academicYearId, academicYearId)) continue;
     try {
       await postJournalForReversal(
         schoolId,
@@ -961,7 +940,6 @@ export async function syncPhase1to5JournalEntries(
   const adjSnap = await getDocs(adjQ);
   for (const aDoc of adjSnap.docs) {
     const adj = aDoc.data() as any;
-    if (!matchAcademicYear(adj.academicYearId, academicYearId)) continue;
     try {
       await postJournalForAdjustment(
         schoolId,
@@ -1058,6 +1036,7 @@ export async function getGeneralLedger(
   // Get all journal entries containing this account
   const allJournals = await getJournalEntries(schoolId, {
     academicYearId: options.academicYearId,
+    startDate: options.startDate,
     endDate: options.endDate,
   });
 
@@ -1103,7 +1082,6 @@ export async function getGeneralLedger(
   // ASSET / EXPENSE: Balance = Opening + Debit - Credit
   // LIABILITY / EQUITY / INCOME: Balance = Opening + Credit - Debit
   const isDebitNormal = account.normalBalance === "DEBIT";
-  let openingPaise = 0;
   let runningPaise = 0; // Default opening balance is 0 unless pre-configured
   let totalDebitPaise = 0;
   let totalCreditPaise = 0;
@@ -1111,11 +1089,6 @@ export async function getGeneralLedger(
   const entries: GeneralLedgerEntry[] = [];
 
   for (const ev of rawEvents) {
-    if (options.startDate && ev.date.slice(0,10) < options.startDate) {
-      openingPaise += isDebitNormal ? ev.debitPaise - ev.creditPaise : ev.creditPaise - ev.debitPaise;
-      runningPaise = openingPaise;
-      continue;
-    }
     if (isDebitNormal) {
       runningPaise += ev.debitPaise - ev.creditPaise;
     } else {
@@ -1137,8 +1110,8 @@ export async function getGeneralLedger(
   return {
     account,
     academicYearId: options.academicYearId || "ay_2026_27",
-    openingBalancePaise: openingPaise,
-    openingBalanceRupees: paiseToRupees(openingPaise),
+    openingBalancePaise: 0,
+    openingBalanceRupees: 0,
     totalDebitPaise,
     totalDebitRupees: paiseToRupees(totalDebitPaise),
     totalCreditPaise,
@@ -1165,6 +1138,7 @@ export async function getTrialBalance(
   const coa = await getChartOfAccounts(schoolId);
   const journals = await getJournalEntries(schoolId, {
     academicYearId: options.academicYearId,
+    startDate: options.startDate,
     endDate: options.endDate,
   });
 
@@ -1233,7 +1207,7 @@ export async function getTrialBalance(
 
   return {
     schoolId,
-    schoolName: "School",
+    schoolName: "Lord Buddha Public School",
     academicYearId: options.academicYearId || "ay_2026_27",
     asOfDate: options.endDate || new Date().toISOString().split("T")[0],
     rows,
@@ -1371,7 +1345,7 @@ export async function getProfitAndLossStatement(
 
   return {
     schoolId,
-    schoolName: "School",
+    schoolName: "Lord Buddha Public School",
     academicYearId,
     academicYearName: academicYearId.replace("ay_", "").replace("_", "-"),
     startDate,
@@ -1401,6 +1375,7 @@ export async function getBalanceSheet(
   const coa = await getChartOfAccounts(schoolId);
   const journals = await getJournalEntries(schoolId, {
     academicYearId: options.academicYearId,
+    startDate: options.startDate,
     endDate: options.endDate,
   });
 
@@ -1558,7 +1533,7 @@ export async function getBalanceSheet(
 
   return {
     schoolId,
-    schoolName: "School",
+    schoolName: "Lord Buddha Public School",
     academicYearId,
     academicYearName: academicYearId.replace("ay_", "").replace("_", "-"),
     asOfDate,

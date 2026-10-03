@@ -1,5 +1,4 @@
 "use client";
-import { useFeeSession } from "@/components/fees/FeeSessionProvider";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import Link from "next/link";
@@ -82,7 +81,7 @@ export default function AdminAccountingPage() {
       ? localStorage.getItem("currentSchoolId") || ""
       : "");
   const schoolId = effectiveSchoolId;
-  const schoolName = (profile as any)?.schoolName || "School";
+  const schoolName = (profile as any)?.schoolName || "Lord Buddha Public School";
   const searchParams = useSearchParams();
 
   const initialTab = (searchParams.get("tab") as AccountingTab) || "trial_balance";
@@ -90,7 +89,7 @@ export default function AdminAccountingPage() {
 
   // Common Filters
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
-  const { academicYearId: selectedYear, setAcademicYearId: setSelectedYear } = useFeeSession();
+  const [selectedYear, setSelectedYear] = useState<string>("");
   const [compareYear, setCompareYear] = useState<string>("");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");

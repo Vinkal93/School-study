@@ -35,7 +35,6 @@ export function FeeReceiptModal({
 
   if (!isOpen || !payment) return null;
 
-  const receiptStatus = payment.status === "SUCCESS" ? payment.remainingDuePaise === undefined ? "PAYMENT RECEIVED" : payment.remainingDuePaise > 0 ? "PARTIAL PAYMENT" : "PAID IN FULL" : payment.status.replaceAll("_", " ");
   const handlePrint = () => {
     window.print();
   };
@@ -76,7 +75,6 @@ export function FeeReceiptModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/70 backdrop-blur-md animate-in fade-in">
-      {payment.refundedAmountPaise ? <div role="status" className="absolute top-4 rounded-lg bg-amber-100 px-4 py-2 text-sm text-amber-900">Returned: ₹{(payment.refundedAmountPaise / 100).toFixed(2)} · {receiptStatus}</div> : null}
       <style>{`
         @media print {
           @page {
@@ -543,7 +541,7 @@ export function FeeReceiptModal({
                 <div className="flex justify-between text-xs text-neutral-700">
                   <span>Status:</span>
                   <span className="font-bold uppercase px-1.5 py-0.5 border border-black text-[10px]">
-                    {receiptStatus}
+                    PAID IN FULL
                   </span>
                 </div>
               </div>
@@ -598,7 +596,7 @@ export function FeeReceiptModal({
                 <div className="text-right">
                   <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
                     <CheckCircle2 className="h-3.5 w-3.5" />
-                    <span>{receiptStatus}</span>
+                    <span>PAID</span>
                   </div>
                   <p className="text-xs font-bold text-slate-700 mt-2">
                     No: <span className="font-mono text-blue-600">{payment.receiptNumber}</span>
