@@ -1,4 +1,5 @@
 "use client";
+import { useFeeSession } from "@/components/fees/FeeSessionProvider";
 
 import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/hooks/use-auth";
@@ -22,9 +23,11 @@ import type { FeePayment, SchoolClass } from "@/types";
 import { getFeeTransactions } from "@/lib/services/fee.service";
 import { getClassesWithSections } from "@/lib/services/academic.service";
 import { formatINR } from "@/lib/services/fee-foundation.service";
+import { netPaymentPaise } from "@/lib/fees/finance-core";
 import { toast } from "sonner";
 
 export default function AdminFeeReceiptsPage() {
+  const { academicYearId } = useFeeSession();
   const { profile } = useAuth();
   const effectiveSchoolId =
     profile?.schoolId ||
@@ -32,7 +35,7 @@ export default function AdminFeeReceiptsPage() {
       ? localStorage.getItem("currentSchoolId") || ""
       : "");
   const schoolId = effectiveSchoolId;
-  const schoolName = (profile as any)?.schoolName || "Lord Buddha Public School";
+  const schoolName = (profile as any)?.schoolName || "School";
 
   const [receipts, setReceipts] = useState<FeePayment[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
@@ -51,7 +54,7 @@ export default function AdminFeeReceiptsPage() {
       setLoading(true);
       try {
         const [list, clsList] = await Promise.all([
-          getFeeTransactions(schoolId),
+          getFeeTransactions(schoolId, { academicYearId }),
           getClassesWithSections(schoolId).catch(() => []),
         ]);
         setReceipts(list);
@@ -64,7 +67,7 @@ export default function AdminFeeReceiptsPage() {
       }
     }
     loadReceipts();
-  }, [schoolId]);
+  }, [schoolId, academicYearId]);
 
   const filtered = useMemo(() => {
     return receipts.filter((r) => {
@@ -87,7 +90,7 @@ export default function AdminFeeReceiptsPage() {
 
   // Quick Stats
   const totalAmountPaise = useMemo(
-    () => filtered.reduce((sum, r) => sum + (r.amountPaidPaise || r.netAmountPaise || 0), 0),
+    () => filtered.reduce((sum, r) => sum + netPaymentPaise({ status: r.status, amountPaise: r.amountPaidPaise || r.netAmountPaise || 0, refundedAmountPaise: r.refundedAmountPaise }), 0),
     [filtered]
   );
   const upiCount = useMemo(

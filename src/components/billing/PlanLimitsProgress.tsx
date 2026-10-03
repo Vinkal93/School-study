@@ -128,10 +128,10 @@ export function PlanLimitsProgress({ planName, usage, onUpgrade }: PlanLimitsPro
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {metrics.map((m) => {
+        {metrics.filter(m => !["parents", "storage", "notifications"].includes(m.key) || (m.key === "parents" ? !!usage.parents : m.key === "storage" ? !!usage.storage : !!usage.monthlyNotifications)).map((m) => {
           const Icon = m.icon;
           const isUnlimited = m.limit === -1;
-          const pct = isUnlimited ? 0 : Math.min(100, Math.round((m.current / m.limit) * 100));
+          const pct = isUnlimited ? 0 : m.limit <= 0 ? 100 : Math.min(100, Math.max(0, Math.round((m.current / m.limit) * 100)));
 
           const isNearLimit = pct >= 80 && pct < 90;
           const isCritical = pct >= 90 && pct < 100;

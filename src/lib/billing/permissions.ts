@@ -1,6 +1,7 @@
+import { findFeatureByKey } from "@/lib/features/adminFeatureRegistry";
 /**
  * GRANULAR CAPABILITY SCHEMA & HIERARCHICAL REGISTRY
- * 
+ *
  * Defines hierarchical module -> page -> tab -> section -> action -> export -> limit mappings.
  * Supports backward compatibility with legacy high-level feature keys and dot-notation keys.
  */
@@ -925,7 +926,7 @@ export function canonicalizeCapabilityKey(key: string): string {
   );
   if (featMatch) return featMatch.id;
 
-  return cleanKey;
+  return findFeatureByKey(cleanKey)?.key || cleanKey;
 }
 
 /**
@@ -948,7 +949,8 @@ export function getDefaultGranularPermissionsForPlan(planSlug: string): Record<s
 export function getParentFeatureKey(key: string): string {
   const canonical = canonicalizeCapabilityKey(key);
   const found = GRANULAR_PERMISSIONS.find((p) => p.id === canonical);
-  return found ? found.featureKey : key;
+  const item = findFeatureByKey(canonical);
+  return found ? found.featureKey : item?.parentId || item?.key || key;
 }
 
 /**
@@ -957,7 +959,7 @@ export function getParentFeatureKey(key: string): string {
 export function getParentCapabilityKey(key: string): string | undefined {
   const canonical = canonicalizeCapabilityKey(key);
   const found = GRANULAR_PERMISSIONS.find((p) => p.id === canonical);
-  return found?.parentKey || (found && found.category !== "module" ? found.featureKey : undefined);
+  return found?.parentKey || (found && found.category !== "module" ? found.featureKey : findFeatureByKey(canonical)?.parentId || undefined);
 }
 
 /**

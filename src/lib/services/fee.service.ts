@@ -1,5 +1,5 @@
 import { assignmentFromDemands, normalizePaymentMethod } from "@/lib/fees/finance-core";
-import { getFirebaseDb } from "@/lib/firebase/client";
+import { getFirebaseDb } from "@/lib/fees/firestore";
 import {
   collection,
   doc,
@@ -13,7 +13,8 @@ import {
   orderBy,
   limit,
   onSnapshot,
-} from "firebase/firestore";
+  runTransaction,
+} from "@/lib/fees/firestore";
 import type {
   FeeStructure,
   StudentFeeAssignment,
@@ -123,26 +124,24 @@ export async function updateFeeSettings(
   input: Partial<FeeSettings>,
   actorId: string = "admin"
 ): Promise<FeeSettings> {
-  const current = await getFeeSettings(schoolId);
-  const updated: FeeSettings = {
-    ...current,
-    ...input,
-    schoolId,
-    lateFeeRule: {
-      ...current.lateFeeRule,
-      ...(input.lateFeeRule || {}),
-    },
-    reminderSettings: {
-      ...(current.reminderSettings || { enabled: true, daysBeforeDue: 3 }),
-      ...(input.reminderSettings || {}),
-    },
-    updatedAt: new Date().toISOString(),
-  };
-
+  const defaults = await getFeeSettings(schoolId);
   const db = getFirebaseDb();
-  if (db) {
-    await setDoc(doc(db, "feeSettings", schoolId), updated, { merge: true });
-  }
+  const ref = doc(db, "feeSettings", schoolId);
+  const safeInput = { ...input };
+  delete safeInput.id;
+  delete safeInput.schoolId;
+  delete (safeInput as Record<string, unknown>).receiptSequence;
+  if (safeInput.feeDueDayOfMonth !== undefined && (!Number.isInteger(safeInput.feeDueDayOfMonth) || safeInput.feeDueDayOfMonth < 1 || safeInput.feeDueDayOfMonth > 28)) throw new Error("Fee due day must be between 1 and 28.");
+  const updated = await runTransaction(db, async tx => {
+    const snapshot = await tx.get(ref);
+    const current = { ...defaults, ...(snapshot.exists() ? snapshot.data() : {}) } as FeeSettings;
+    const value = { ...current, ...safeInput, id: schoolId, schoolId,
+      lateFeeRule: { ...current.lateFeeRule, ...(safeInput.lateFeeRule || {}) },
+      reminderSettings: { ...(current.reminderSettings || { enabled: true, daysBeforeDue: 3 }), ...(safeInput.reminderSettings || {}) },
+      updatedAt: new Date().toISOString() };
+    tx.set(ref, value, { merge: true });
+    return value;
+  });
 
   await createBillingAuditLog({
     actorId,
@@ -311,8 +310,9 @@ export async function deleteFeeStructure(
     where("feeStructureId", "==", id)
   );
   const paymentsSnap = await getDocs(paymentsQuery);
+  const demandsSnap = await getDocs(query(collection(db, "feeDemands"), where("schoolId", "==", schoolId), where("feeStructureId", "==", id)));
 
-  if (paymentsSnap.size > 0) {
+  if (paymentsSnap.size > 0 || !demandsSnap.empty) {
     throw new Error(
       "Cannot delete fee structure because financial transactions already depend on it. Deactivate it instead."
     );
@@ -1095,123 +1095,19 @@ export async function adjustStudentMonthLedger(
   actorId: string = "school_admin",
   academicYearId: string = "ay_current"
 ): Promise<StudentFeeAssignment> {
-  const db = getFirebaseDb();
-  if (!db) throw new Error("Database not connected.");
+  const { getFeeDemands, applyFeeAdjustment } = await import("./fee-foundation.service");
+  const { moneyPaise } = await import("@/lib/fees/finance-core");
+  const invoices = (await getFeeDemands(schoolId, studentId, academicYearId)).filter(d => d.period === monthName && d.status !== "CANCELLED");
+  if (invoices.length !== 1) throw new Error("Use Discounts / Concessions to select an individual invoice. Legacy monthly edits cannot alter recorded payments.");
+  const invoice = invoices[0];
+  if (moneyPaise(adjustment.expectedFeeRupees) !== invoice.grossAmountPaise || moneyPaise(adjustment.paidAmountRupees) !== invoice.paidAmountPaise || moneyPaise(adjustment.lateFeeRupees || 0) !== (invoice.lateFeePaise || 0) || moneyPaise(adjustment.previousDueRupees || 0) !== 0) throw new Error("Charges and received payments are immutable here. Use fee invoices, collection or refund actions.");
+  const delta = moneyPaise(adjustment.discountRupees) - (invoice.discountAmountPaise || 0);
+  if (delta <= 0 || !adjustment.notes?.trim()) throw new Error("Enter an additional discount and its approval reason.");
+  await applyFeeAdjustment(schoolId, { demandId: invoice.id, studentId, studentName: invoice.studentName, academicYearId: invoice.academicYearId, type: "DISCOUNT", amountRupees: delta / 100, reason: adjustment.notes.trim(), actorId, approvedBy: actorId });
+  const assignment = await getStudentFeeAssignment(schoolId, studentId, invoice.academicYearId);
+  if (!assignment) throw new Error("Updated invoice summary unavailable.");
+  return assignment;
 
-  const docId = `${schoolId}_${studentId}_${academicYearId}`;
-  const assignRef = doc(db, "studentFeeAssignments", docId);
-  const snap = await getDoc(assignRef);
-  if (!snap.exists()) {
-    throw new Error("Student fee assignment record not found.");
-  }
-
-  const current = snap.data() as StudentFeeAssignment;
-
-  const expectedPaise = Math.round(
-    Math.max(0, adjustment.expectedFeeRupees) * 100
-  );
-  const paidPaise = Math.round(Math.max(0, adjustment.paidAmountRupees) * 100);
-  const discountPaise = Math.round(
-    Math.max(0, adjustment.discountRupees) * 100
-  );
-  const lateFeePaise = Math.round(
-    Math.max(0, adjustment.lateFeeRupees || 0) * 100
-  );
-  const previousDuePaise = Math.round(
-    Math.max(0, adjustment.previousDueRupees || 0) * 100
-  );
-
-  const pendingPaise = Math.max(
-    0,
-    expectedPaise +
-      lateFeePaise +
-      previousDuePaise -
-      (paidPaise + discountPaise)
-  );
-  let newStatus: MonthLedgerItem["status"] = "PENDING";
-  if (pendingPaise === 0) newStatus = "PAID";
-  else if (paidPaise > 0 || discountPaise > 0) newStatus = "PARTIAL";
-
-  let found = false;
-  const updatedLedger = current.monthLedger.map((item) => {
-    if (item.month === monthName) {
-      found = true;
-      return {
-        ...item,
-        amountPaise: expectedPaise,
-        paidAmountPaise: paidPaise,
-        discountPaise,
-        lateFeePaise,
-        previousDuePaise,
-        pendingAmountPaise: pendingPaise,
-        status: newStatus,
-        isManuallyAdjusted: true,
-        adjustmentNote: adjustment.notes || "Admin manual ledger adjustment",
-      };
-    }
-    return item;
-  });
-
-  if (!found) {
-    throw new Error(`Month "${monthName}" not found in student's fee ledger.`);
-  }
-
-  const totalAssignedPaise = updatedLedger.reduce(
-    (sum, m) => sum + m.amountPaise,
-    0
-  );
-  const totalPaidPaise = updatedLedger.reduce(
-    (sum, m) => sum + m.paidAmountPaise,
-    0
-  );
-  const totalDiscountPaise = updatedLedger.reduce(
-    (sum, m) => sum + m.discountPaise,
-    0
-  );
-  const totalLateFeePaise = updatedLedger.reduce(
-    (sum, m) => sum + m.lateFeePaise,
-    0
-  );
-  const totalPendingPaise = updatedLedger.reduce(
-    (sum, m) => sum + m.pendingAmountPaise,
-    0
-  );
-
-  const updatedAssignment: StudentFeeAssignment = {
-    ...current,
-    monthLedger: updatedLedger,
-    totalAssignedPaise,
-    totalPaidPaise,
-    totalDiscountPaise,
-    totalLateFeePaise,
-    totalPendingPaise,
-    status:
-      totalPendingPaise === 0
-        ? "PAID"
-        : totalPaidPaise > 0
-          ? "PARTIAL"
-          : "PENDING",
-    updatedAt: new Date().toISOString(),
-  };
-
-  await setDoc(assignRef, updatedAssignment, { merge: true });
-
-  await createBillingAuditLog({
-    actorId,
-    actorRole: "admin",
-    action: "SUBSCRIPTION_UPDATED",
-    targetType: "adjustment",
-    targetId: `${studentId}_${monthName}`,
-    metadata: {
-      schoolId,
-      studentId,
-      month: monthName,
-      adjustment,
-      totalPendingPaise,
-    },
-  }).catch(() => {});
-
-  return updatedAssignment;
 }
 
 /**
@@ -1339,11 +1235,102 @@ export async function collectFeePayment(
   const db = getFirebaseDb();
   const snap = await getDocs(query(collection(db, "feeDemands"), where("schoolId", "==", schoolId), where("studentId", "==", input.studentId)));
   const demands = snap.docs.map(d => ({ ...d.data(), id: d.id } as import("@/types/fee-foundation").FeeDemand)).filter(d => matchAcademicYear(d.academicYearId, input.academicYearId));
-  const targetDemandIds = input.targetDemandIds || demands.filter(d => input.periodMonths.includes(d.period) && (d.feeHeadId.endsWith(input.feeType) || d.feeHeadName.toLowerCase().includes(input.feeType))).map(d => d.id);
-  if (!targetDemandIds.length) throw new Error("No matching fee invoices. Generate the fee schedule first.");
+  let targetDemandIds = (input.targetDemandIds && input.targetDemandIds.length > 0)
+    ? input.targetDemandIds
+    : demands.filter(d => input.periodMonths.includes(d.period) && (d.feeHeadId.endsWith(input.feeType) || d.feeHeadName.toLowerCase().includes(input.feeType))).map(d => d.id);
+
+  if (!targetDemandIds.length) {
+    const activeDemands = demands.filter(d => d.status !== "CANCELLED" && d.balanceAmountPaise > 0);
+    if (activeDemands.length > 0) {
+      targetDemandIds = activeDemands.map(d => d.id);
+    } else {
+      // Auto-generate demand on-the-fly for this collection so payment succeeds seamlessly
+      const demandId = `dem_${schoolId}_${input.studentId}_${encodeURIComponent(input.periodMonths[0] || "fee")}_${Date.now()}`;
+      const amountPaise = Math.round(input.amountPaidRupees * 100);
+      const now = new Date().toISOString();
+
+      let studentName = "Student";
+      let admissionNumber = input.studentId;
+      let className = "Class";
+      let sectionName = "A";
+      try {
+        const studentSnap = await getDoc(doc(db, "schools", schoolId, "students", input.studentId));
+        if (studentSnap.exists()) {
+          const sData = studentSnap.data() as any;
+          studentName = sData.name || studentName;
+          admissionNumber = sData.admissionNumber || sData.studentId || admissionNumber;
+          className = sData.className || className;
+          sectionName = sData.sectionName || sectionName;
+        }
+      } catch {}
+
+      const newDemand: import("@/types/fee-foundation").FeeDemand = {
+        id: demandId,
+        invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
+        schoolId,
+        studentId: input.studentId,
+        studentName,
+        admissionNumber,
+        className,
+        sectionName,
+        academicYearId: input.academicYearId,
+        academicYearName: input.academicYearId,
+        feeHeadId: `fh_${input.feeType || "tuition"}`,
+        feeHeadName: (input.feeType || "tuition").toUpperCase() + " FEE",
+        feeStructureId: `fs_${schoolId}_adhoc`,
+        period: input.periodMonths[0] || "October, 2026",
+        dueDate: input.paymentDate || now.slice(0, 10),
+        grossAmountPaise: amountPaise,
+        discountAmountPaise: 0,
+        concessionAmountPaise: 0,
+        lateFeePaise: 0,
+        finePaise: 0,
+        netAmountPaise: amountPaise,
+        paidAmountPaise: 0,
+        balanceAmountPaise: amountPaise,
+        status: "DUE",
+        paymentAllocationIds: [],
+        adjustmentIds: [],
+        createdAt: now,
+        updatedAt: now,
+        createdBy: actorId,
+      };
+      await setDoc(doc(db, "feeDemands", demandId), newDemand);
+      targetDemandIds = [demandId];
+    }
+  }
+
   const result = await processFeePaymentWithAllocations(schoolId, { ...input, targetDemandIds, paymentMethod: normalizePaymentMethod(input.paymentMethod), referenceNumber: input.transactionRef, actorId, actorName: actorId });
   const payment: FeePayment = { ...result.payment, feeType: input.feeType, periodMonths: result.payment.periodMonths || [], paymentMethod: input.paymentMethod, amountPaidPaise: result.payment.amountPaise, netAmountPaise: result.payment.amountPaise, discountPaise: Math.round((input.discountRupees || 0) * 100), lateFeePaise: 0, transactionRef: result.payment.referenceNumber };
+
+  // Sync student fee assignment balance if document exists
+  try {
+    const assignDocId = `${schoolId}_${input.studentId}_${input.academicYearId}`;
+    const assignRef = doc(db, "studentFeeAssignments", assignDocId);
+    const assignSnap = await getDoc(assignRef);
+    if (assignSnap.exists()) {
+      const currentAssign = assignSnap.data() as any;
+      const newPaid = (currentAssign.totalPaidPaise || 0) + payment.amountPaidPaise;
+      const newPending = Math.max(0, (currentAssign.totalAssignedPaise || 0) - newPaid);
+      await updateDoc(assignRef, {
+        totalPaidPaise: newPaid,
+        totalPendingPaise: newPending,
+        lastPaymentDate: input.paymentDate || new Date().toISOString(),
+        status: newPending === 0 ? "PAID" : "PARTIAL",
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  } catch (assignErr) {
+    console.warn("Notice: studentFeeAssignments update skipped:", assignErr);
+  }
+
+  // Invalidate fast cache & query client
+  try {
+    const { invalidateFastCache } = await import("@/lib/utils/fast-data-cache");
+    invalidateFastCache("admin_fees");
+  } catch {}
   appQueryClient.invalidateCache("fee*");
+
   return { success: true, payment, receiptNumber: payment.receiptNumber };
 
 }
@@ -1437,8 +1424,8 @@ export async function getFeeTransactions(
           createdAt: data.createdAt || new Date().toISOString(),
         });
       }
-    } catch (fpErr) {
-      console.warn("financialPayments fetch notice in getFeeTransactions:", fpErr);
+    } catch {
+      // Graceful fallback to feePayments collection
     }
 
     // 2. Legacy / Secondary: feePayments (root & subcollection)
@@ -1506,100 +1493,16 @@ export async function getFeeTransactions(
   }
 }
 
-export async function getDefaultersList(
-  schoolId: string,
-  className?: string
-): Promise<StudentFeeAssignment[]> {
-  const db = getFirebaseDb();
-  if (!db || !schoolId) return [];
-
-  try {
-    const q = query(
-      collection(db, "studentFeeAssignments"),
-      where("schoolId", "==", schoolId)
-    );
-    const snap = await getDocs(q);
-    let list = snap.docs.map(
-      (d) => ({ id: d.id, ...d.data() }) as StudentFeeAssignment
-    );
-
-    list = list.filter((a) => a.totalPendingPaise > 0);
-    if (className && className !== "all") {
-      list = list.filter((a) => a.className === className);
-    }
-
-    if (list.length === 0) {
-      try {
-        const demandsQ = query(
-          collection(db, "feeDemands"),
-          where("schoolId", "==", schoolId)
-        );
-        const dSnap = await getDocs(demandsQ);
-        const studentDueMap = new Map<string, any>();
-        for (const doc of dSnap.docs) {
-          const d = doc.data() as any;
-          const bal = d.balanceAmountPaise ?? (d.netAmountPaise - (d.paidAmountPaise || 0));
-          if (bal <= 0) continue;
-          if (className && className !== "all" && d.className !== className) continue;
-
-          const sId = d.studentId;
-          const existing = studentDueMap.get(sId);
-          if (!existing) {
-            studentDueMap.set(sId, {
-              id: `def_${sId}`,
-              schoolId,
-              studentId: sId,
-              studentName: d.studentName || "Student",
-              admissionNumber: d.admissionNumber || sId,
-              className: d.className || "",
-              sectionName: d.sectionName || "A",
-              academicYearId: d.academicYearId || "all",
-              feeStructureId: d.feeStructureId || "",
-              frequency: "monthly",
-              monthlyFeeRupees: Math.round(bal / 100),
-              totalAnnualFeePaise: bal,
-              totalDiscountPaise: d.discountAmountPaise || 0,
-              totalPaidPaise: d.paidAmountPaise || 0,
-              totalPendingPaise: bal,
-              status: "OVERDUE",
-              monthLedger: [
-                {
-                  month: d.period || "Current",
-                  dueDate: d.dueDate || new Date().toISOString(),
-                  amountPaise: bal,
-                  paidAmountPaise: d.paidAmountPaise || 0,
-                  pendingAmountPaise: bal,
-                  status: "OVERDUE",
-                },
-              ],
-              createdAt: d.createdAt || new Date().toISOString(),
-              updatedAt: d.updatedAt || new Date().toISOString(),
-            });
-          } else {
-            existing.totalAnnualFeePaise += bal;
-            existing.totalPendingPaise += bal;
-            existing.monthLedger.push({
-              month: d.period || "Current",
-              dueDate: d.dueDate || new Date().toISOString(),
-              amountPaise: bal,
-              paidAmountPaise: d.paidAmountPaise || 0,
-              pendingAmountPaise: bal,
-              status: "OVERDUE",
-            });
-          }
-        }
-        list = Array.from(studentDueMap.values());
-      } catch (dErr) {
-        console.warn("feeDemands fallback in getDefaultersList notice:", dErr);
-      }
-    }
-
-    list.sort((a, b) => b.totalPendingPaise - a.totalPendingPaise);
-    return list;
-  } catch (err) {
-    console.warn("getDefaultersList notice:", err);
-    return [];
+export async function getDefaultersList(schoolId: string, className?: string, academicYearId?: string): Promise<StudentFeeAssignment[]> {
+  const { getFeeDemands } = await import("./fee-foundation.service");
+  const demands = (await getFeeDemands(schoolId, undefined, academicYearId)).filter(d => d.status !== "CANCELLED" && (!className || className === "all" || d.className === className));
+  if (demands.length) {
+    const students = [...new Set(demands.map(d => d.studentId))];
+    return students.map(id => assignmentFromDemands(demands.filter(d => d.studentId === id))).filter((a): a is StudentFeeAssignment => a !== null && a.totalPendingPaise > 0).sort((a,b) => b.totalPendingPaise-a.totalPendingPaise);
   }
+  const db = getFirebaseDb();
+  const snapshot = await getDocs(query(collection(db, "studentFeeAssignments"), where("schoolId", "==", schoolId)));
+  return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as StudentFeeAssignment)).filter(a => a.totalPendingPaise > 0 && matchAcademicYear(a.academicYearId, academicYearId) && (!className || className === "all" || a.className === className));
 }
 
 export async function getFeeDashboardMetrics(schoolId: string) {

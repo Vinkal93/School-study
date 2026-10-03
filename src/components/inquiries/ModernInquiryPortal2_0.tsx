@@ -52,6 +52,8 @@ import {
   SEED_INQUIRIES_2_0,
 } from "@/lib/inquiries";
 import { toast } from "sonner";
+import { writeBatch } from "firebase/firestore";
+import { parseInquiryImport } from "@/lib/inquiries/import";
 import { useAuth } from "@/hooks/use-auth";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { InquiryEventCalendar } from "@/components/ui/calendar-picker";
@@ -64,6 +66,11 @@ import {
   setDoc,
   query,
   orderBy,
+  where,
+  getDoc,
+  updateDoc,
+  deleteDoc,
+  arrayUnion,
   serverTimestamp,
 } from "firebase/firestore";
 
@@ -124,6 +131,7 @@ export function ModernInquiryPortal2_0({
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [newNoteText, setNewNoteText] = useState("");
   const [newFollowUpTitle, setNewFollowUpTitle] = useState("");
   const [newFollowUpDate, setNewFollowUpDate] = useState("");
@@ -138,72 +146,42 @@ export function ModernInquiryPortal2_0({
     source: "Website" as InquirySource,
     interestLevel: "High" as InquiryInterestLevel,
     status2: "New" as InquiryStatus2,
-    assignedToName: "Ankit Kumar",
+    assignedToName: profile?.name || "",
     preferredContact: "Phone" as const,
     expectedTimeline: "Within 1 month",
     message: "",
   });
 
   // Fetch real inquiries from backend with resilient client fallback
+  const [loadError, setLoadError] = useState("");
   const loadData = useCallback(async () => {
     setLoading(true);
+    setLoadError("");
     try {
-      let loaded = false;
-      const endpoint =
-        portalType === "superAdmin"
-          ? "/api/super-admin/inquiries?pageSize=200"
-          : `/api/school/inquiries${schoolId ? `?schoolId=${encodeURIComponent(schoolId)}` : ""}`;
-      try {
-        const res = await fetch(endpoint, { cache: "no-store" });
-        if (res.ok) {
-          const json = await res.json();
-          const list: Inquiry[] = json.inquiries || [];
-          if (list.length > 0) {
-            setInquiries(list);
-            setSelectedInquiry((prev) => {
-              if (prev && list.some((i) => i.id === prev.id)) {
-                return list.find((i) => i.id === prev.id) || null;
-              }
-              return list[0] || null;
-            });
-            loaded = true;
-          }
-        }
-      } catch (e) {
-        console.warn("Inquiries API fetch notice:", e);
-      }
-
-      // Direct Client Firestore query fallback using authenticated session
-      if (!loaded) {
-        try {
-          const db = getFirebaseDb();
-          if (db) {
-            let snap = await getDocs(query(collection(db, "inquiries"), orderBy("createdAt", "desc"))).catch(() => null);
-            if (!snap || snap.empty) {
-              snap = await getDocs(collection(db, "inquiries")).catch(() => null);
-            }
-            if (snap && !snap.empty) {
-              const list = snap.docs.map((d) => normalizeInquiry(d.id, d.data()));
-              setInquiries(list);
-              setSelectedInquiry(list[0] || null);
-              loaded = true;
-            }
-          }
-        } catch (clientErr) {
-          console.warn("Client inquiries query notice:", clientErr);
-        }
-      }
-
-      if (!loaded && portalType === "superAdmin") {
-        setInquiries(SEED_INQUIRIES_2_0);
-        setSelectedInquiry(SEED_INQUIRIES_2_0[0] || null);
-      }
+      const db = getFirebaseDb();
+      if (!db || (portalType === "schoolAdmin" && !schoolId)) throw new Error("School context is unavailable.");
+      const ref = collection(db, "inquiries");
+      const snap = await getDocs(portalType === "schoolAdmin" ? query(ref, where("schoolId", "==", schoolId)) : ref);
+      const list = snap.docs.map(d => normalizeInquiry(d.id, d.data())).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setInquiries(list);
+      setSelectedInquiry(prev => list.find(i => i.id === prev?.id) || null);
     } catch (err) {
-      console.error("Failed to load real inquiries:", err);
-    } finally {
-      setLoading(false);
-    }
+      setLoadError(err instanceof Error ? err.message : "Unable to load inquiries.");
+      setInquiries([]);
+      setSelectedInquiry(null);
+    } finally { setLoading(false); }
   }, [portalType, schoolId]);
+
+  const saveInquiry = async (id: string, changes: Record<string, unknown>, remove = false) => {
+    const db = getFirebaseDb();
+    if (!db) throw new Error("Database unavailable.");
+    const ref = doc(db, "inquiries", id);
+    const snap = await getDoc(ref);
+    if (!snap.exists() || (portalType === "schoolAdmin" && (!schoolId || snap.data().schoolId !== schoolId))) throw new Error("Inquiry is unavailable for this school.");
+    if (remove) await deleteDoc(ref);
+    else await updateDoc(ref, { ...changes, updatedAt: serverTimestamp() });
+    await loadData();
+  };
 
   useEffect(() => {
     loadData();
@@ -222,7 +200,7 @@ export function ModernInquiryPortal2_0({
 
     return {
       total,
-      newThisWeek: newCount,
+      newThisWeek: inquiries.filter(i => { const date = new Date(i.createdAt); const start = new Date(); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - (start.getDay() + 6) % 7); return date >= start && date <= new Date(); }).length,
       pending: pendingCount,
       converted: convertedCount,
       closed: closedCount,
@@ -280,6 +258,13 @@ export function ModernInquiryPortal2_0({
         if (!match) return false;
       }
 
+      if (dateRangeFilter !== "All Time") {
+        const date = new Date(inq.createdAt);
+        const start = new Date(); start.setHours(0, 0, 0, 0);
+        if (dateRangeFilter === "This Week") start.setDate(start.getDate() - (start.getDay() + 6) % 7);
+        if (dateRangeFilter === "This Month") start.setDate(1);
+        if (!Number.isFinite(date.getTime()) || date < start || date > new Date()) return false;
+      }
       // 7. Interactive Calendar Date Filter
       if (selectedCalendarDate) {
         if (!inq.createdAt) return false;
@@ -293,7 +278,7 @@ export function ModernInquiryPortal2_0({
 
       return true;
     });
-  }, [inquiries, activeStatusPill, statusFilter, sourceFilter, interestFilter, assignedFilter, searchQuery, selectedCalendarDate]);
+  }, [inquiries, activeStatusPill, statusFilter, sourceFilter, interestFilter, assignedFilter, searchQuery, selectedCalendarDate, dateRangeFilter]);
 
   // Calendar Event Dots Map
   const inquiryCountMap = useMemo(() => {
@@ -356,41 +341,10 @@ export function ModernInquiryPortal2_0({
       ? "CONVERTED"
       : "CLOSED") as InquiryStatus;
 
-    setInquiries((prev) =>
-      prev.map((i) => {
-        if (i.id === inquiryId) {
-          const updated = {
-            ...i,
-            status2: newStatus2,
-            status: mapped,
-            updatedAt: new Date().toISOString(),
-          };
-          if (selectedInquiry?.id === inquiryId) setSelectedInquiry(updated);
-          return updated;
-        }
-        return i;
-      })
-    );
-
     try {
-      const endpoint =
-        portalType === "superAdmin"
-          ? `/api/super-admin/inquiries/${inquiryId}`
-          : `/api/school/inquiries/${inquiryId}`;
-
-      await fetch(endpoint, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          status: mapped,
-          status2: newStatus2,
-          actionType: "STATUS_CHANGE",
-        }),
-      });
+      await saveInquiry(inquiryId, { status: mapped, status2: newStatus2 });
       toast.success(`Inquiry marked as ${newStatus2}.`);
-    } catch (err) {
-      console.warn("Status update sync notice:", err);
-    }
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Status could not be saved."); }
   };
 
   // Add Note with API sync
@@ -406,38 +360,11 @@ export function ModernInquiryPortal2_0({
       createdAt: new Date().toISOString(),
     };
 
-    setInquiries((prev) =>
-      prev.map((i) => {
-        if (i.id === selectedInquiry.id) {
-          const notes = [...(i.notes || []), noteItem];
-          const updated = { ...i, notes, notesCount: notes.length };
-          setSelectedInquiry(updated);
-          return updated;
-        }
-        return i;
-      })
-    );
-    setNewNoteText("");
-
     try {
-      if (portalType === "superAdmin") {
-        await fetch(`/api/super-admin/inquiries/${selectedInquiry.id}/notes`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ note: noteText }),
-        });
-      } else {
-        const existingNotes = selectedInquiry.notes || [];
-        await fetch(`/api/school/inquiries/${selectedInquiry.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ notes: [...existingNotes, noteItem] }),
-        });
-      }
-      toast.success("Note added successfully.");
-    } catch (e) {
-      toast.error("Failed to sync note to server.");
-    }
+      await saveInquiry(selectedInquiry.id, { notes: arrayUnion(noteItem) });
+      setNewNoteText("");
+      toast.success("Note saved.");
+    } catch (err) { toast.error("Note could not be saved."); }
   };
 
   // Add Follow-up with API sync
@@ -452,50 +379,22 @@ export function ModernInquiryPortal2_0({
       title: newFollowUpTitle.trim(),
       scheduledAt: newFollowUpDate,
       status: "PENDING" as const,
-      assignedToName: selectedInquiry.assignedToName || "Ankit Kumar",
+      assignedToName: selectedInquiry.assignedToName || profile?.name || "",
       createdAt: new Date().toISOString(),
     };
 
-    setInquiries((prev) =>
-      prev.map((i) => {
-        if (i.id === selectedInquiry.id) {
-          const followUps = [...(i.followUps || []), followUpItem];
-          const updated = { ...i, followUps };
-          setSelectedInquiry(updated);
-          return updated;
-        }
-        return i;
-      })
-    );
-    setNewFollowUpTitle("");
-    setNewFollowUpDate("");
-
     try {
-      const endpoint =
-        portalType === "superAdmin"
-          ? `/api/super-admin/inquiries/${selectedInquiry.id}`
-          : `/api/school/inquiries/${selectedInquiry.id}`;
-      const existing = selectedInquiry.followUps || [];
-      await fetch(endpoint, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ followUps: [...existing, followUpItem] }),
-      });
-      toast.success("Follow-up scheduled.");
-    } catch (e) {
-      toast.error("Failed to sync follow-up to server.");
-    }
+      await saveInquiry(selectedInquiry.id, { followUps: arrayUnion(followUpItem) });
+      setNewFollowUpTitle(""); setNewFollowUpDate("");
+      toast.success("Follow-up saved.");
+    } catch (err) { toast.error("Follow-up could not be saved."); }
   };
 
   // Delete Inquiry
   const handleDeleteInquiry = async (inquiryId: string) => {
     if (!confirm("Are you sure you want to delete this inquiry?")) return;
     try {
-      const endpoint =
-        portalType === "superAdmin"
-          ? `/api/super-admin/inquiries/${inquiryId}`
-          : `/api/school/inquiries/${inquiryId}`;
-      await fetch(endpoint, { method: "DELETE" });
+      await saveInquiry(inquiryId, {}, true);
       setInquiries((prev) => prev.filter((i) => i.id !== inquiryId));
       if (selectedInquiry?.id === inquiryId) {
         setSelectedInquiry(null);
@@ -538,7 +437,7 @@ export function ModernInquiryPortal2_0({
         interestLevel: addForm.interestLevel,
         status: "NEW",
         status2: addForm.status2 || "New",
-        assignedToName: addForm.assignedToName || "Ankit Kumar",
+        assignedToName: addForm.assignedToName || profile?.name || "",
         preferredContact: addForm.preferredContact,
         expectedTimeline: addForm.expectedTimeline,
         message: cleanMessage,
@@ -550,48 +449,12 @@ export function ModernInquiryPortal2_0({
         updatedAt: nowIso,
       };
 
-      // 1. Direct client-side write to Firestore using authenticated session
-      try {
-        const db = getFirebaseDb();
-        if (db) {
-          const docRef = await addDoc(collection(db, "inquiries"), {
-            ...newInquiryPayload,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          });
-          createdDocId = docRef.id;
-        }
-      } catch (clientWriteErr) {
-        console.warn("Client addDoc notice, trying fallback setDoc:", clientWriteErr);
-        try {
-          const db = getFirebaseDb();
-          if (db) {
-            await setDoc(doc(db, "inquiries", createdDocId), newInquiryPayload);
-          }
-        } catch (e2) {}
-      }
-
-      // 2. Immediately prepend to local state so UI updates in real-time
-      const normalizedNewInquiry = normalizeInquiry(createdDocId, {
-        ...newInquiryPayload,
-        id: createdDocId,
+      const db = getFirebaseDb();
+      if (!db || (portalType === "schoolAdmin" && !schoolId)) throw new Error("School context is unavailable.");
+      const created = await addDoc(collection(db, "inquiries"), {
+        ...newInquiryPayload, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
       });
-      setInquiries((prev) => [normalizedNewInquiry, ...prev]);
-      setSelectedInquiry(normalizedNewInquiry);
-
-      // 3. Post to backend endpoint in background for server audit logging
-      const endpoint = portalType === "superAdmin" ? "/api/super-admin/inquiries" : "/api/school/inquiries";
-      fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...newInquiryPayload,
-          inquiryId: createdDocId,
-        }),
-      }).catch((apiErr) => {
-        console.warn("Background API inquiry sync notice:", apiErr);
-      });
-
+      await loadData();
       toast.success("Inquiry created successfully!");
       setShowAddModal(false);
       setAddForm({
@@ -603,7 +466,7 @@ export function ModernInquiryPortal2_0({
         source: "Website",
         interestLevel: "High",
         status2: "New",
-        assignedToName: "Ankit Kumar",
+        assignedToName: profile?.name || "",
         preferredContact: "Phone",
         expectedTimeline: "Within 1 month",
         message: "",
@@ -717,6 +580,7 @@ export function ModernInquiryPortal2_0({
 
   return (
     <div className="space-y-6 pb-12 font-sans">
+      {loadError && <div role="alert" className="rounded-xl border border-red-200 p-4 text-sm text-red-700">{loadError}<button onClick={loadData} className="ml-3 underline">Retry</button></div>}
       {/* 1. TOP HEADER */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
@@ -842,7 +706,7 @@ export function ModernInquiryPortal2_0({
           <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Total Inquiries</span>
           <p className="text-2xl font-extrabold text-slate-900 dark:text-white mt-0.5">{stats.total.toLocaleString()}</p>
           <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-0.5">
-            <span>↑ 12%</span> <span className="text-slate-400 font-normal">vs last month</span>
+            <span className="text-slate-400 font-normal">Based on saved inquiries</span>
           </p>
         </div>
 
@@ -854,7 +718,7 @@ export function ModernInquiryPortal2_0({
           <span className="text-xs font-medium text-slate-500 dark:text-slate-400">New This Week</span>
           <p className="text-2xl font-extrabold text-slate-900 dark:text-white mt-0.5">{stats.newThisWeek}</p>
           <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-0.5">
-            <span>↑ 28%</span> <span className="text-slate-400 font-normal">vs last week</span>
+            <span className="text-slate-400 font-normal">Received since Monday</span>
           </p>
         </div>
 
@@ -866,7 +730,7 @@ export function ModernInquiryPortal2_0({
           <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Pending</span>
           <p className="text-2xl font-extrabold text-slate-900 dark:text-white mt-0.5">{stats.pending}</p>
           <p className="text-[11px] font-semibold text-rose-500 mt-1 flex items-center gap-0.5">
-            <span>↑ 15%</span> <span className="text-slate-400 font-normal">needs attention</span>
+            <span className="text-slate-400 font-normal">needs attention</span>
           </p>
         </div>
 
@@ -878,7 +742,7 @@ export function ModernInquiryPortal2_0({
           <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Converted</span>
           <p className="text-2xl font-extrabold text-slate-900 dark:text-white mt-0.5">{stats.converted}</p>
           <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-0.5">
-            <span>↑ 18%</span> <span className="text-slate-400 font-normal">{portalType === "superAdmin" ? "to schools" : "to admissions"}</span>
+            <span className="text-slate-400 font-normal">{portalType === "superAdmin" ? "to schools" : "to admissions"}</span>
           </p>
         </div>
 
@@ -890,7 +754,7 @@ export function ModernInquiryPortal2_0({
           <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Closed</span>
           <p className="text-2xl font-extrabold text-slate-900 dark:text-white mt-0.5">{stats.closed}</p>
           <p className="text-[11px] font-semibold text-rose-500 mt-1 flex items-center gap-0.5">
-            <span>↑ 5%</span> <span className="text-slate-400 font-normal">not interested</span>
+            <span className="text-slate-400 font-normal">not interested</span>
           </p>
         </div>
 
@@ -902,7 +766,7 @@ export function ModernInquiryPortal2_0({
           <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Conversion Rate</span>
           <p className="text-2xl font-extrabold text-slate-900 dark:text-white mt-0.5">{stats.conversionRate}</p>
           <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-0.5">
-            <span>↑ 6.2%</span> <span className="text-slate-400 font-normal">vs last month</span>
+            <span className="text-slate-400 font-normal">Based on saved inquiries</span>
           </p>
         </div>
       </div>
@@ -1029,9 +893,7 @@ export function ModernInquiryPortal2_0({
           className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 focus:outline-none"
         >
           <option value="ALL">Assigned To</option>
-          <option value="Ankit Kumar">Ankit Kumar</option>
-          <option value="Sneha Patel">Sneha Patel</option>
-          <option value="Rohit Gupta">Rohit Gupta</option>
+          {Array.from(new Set(inquiries.map(i => i.assignedToName || "").filter(Boolean))).map(name => <option key={name} value={name}>{name}</option>)}
         </select>
 
         {/* Reset Link */}
@@ -1202,7 +1064,7 @@ export function ModernInquiryPortal2_0({
                               >
                                 {inq.assignedToAvatar || "AK"}
                               </span>
-                              <span className="truncate max-w-[90px]">{inq.assignedToName || "Ankit Kumar"}</span>
+                              <span className="truncate max-w-[90px]">{inq.assignedToName || profile?.name || ""}</span>
                             </div>
                           </td>
 
@@ -1253,7 +1115,7 @@ export function ModernInquiryPortal2_0({
             {/* Pagination Footer */}
             <div className="bg-slate-50 dark:bg-slate-950/60 border-t border-slate-200 dark:border-slate-800 p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
               <p>
-                Showing {(currentPage - 1) * pageSize + 1} to{" "}
+                Showing {filteredInquiries.length ? (currentPage - 1) * pageSize + 1 : 0} to{" "}
                 {Math.min(currentPage * pageSize, filteredInquiries.length)} of {filteredInquiries.length} inquiries
               </p>
 
@@ -1444,7 +1306,7 @@ export function ModernInquiryPortal2_0({
                         <span className={`w-4 h-4 rounded-full text-[8px] font-bold flex items-center justify-center ${getAvatarColor(selectedInquiry.assignedToName || "")}`}>
                           {selectedInquiry.assignedToAvatar || "AK"}
                         </span>
-                        <span>{selectedInquiry.assignedToName || "Ankit Kumar"}</span>
+                        <span>{selectedInquiry.assignedToName || profile?.name || ""}</span>
                       </div>
                     </div>
                     <div className="flex justify-between items-center">
@@ -1626,7 +1488,7 @@ export function ModernInquiryPortal2_0({
       {/* ADD INQUIRY MODAL */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl p-6 space-y-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg max-h-[90dvh] overflow-y-auto shadow-2xl p-4 sm:p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Plus className="w-4 h-4 text-blue-600" />
@@ -1720,9 +1582,8 @@ export function ModernInquiryPortal2_0({
                     onChange={(e) => setAddForm({ ...addForm, assignedToName: e.target.value })}
                     className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
                   >
-                    <option value="Ankit Kumar">Ankit Kumar</option>
-                    <option value="Sneha Patel">Sneha Patel</option>
-                    <option value="Rohit Gupta">Rohit Gupta</option>
+                    <option value="">Unassigned</option>
+                    {profile?.name && <option value={profile.name}>{profile.name}</option>}
                   </select>
                 </div>
               </div>
@@ -1776,18 +1637,27 @@ export function ModernInquiryPortal2_0({
 
             <div className="p-8 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl text-center space-y-2">
               <Upload className="w-8 h-8 text-blue-600 mx-auto" />
-              <p className="font-bold text-slate-900 dark:text-white">Drag & drop your CSV file here</p>
+              <p className="font-bold text-slate-900 dark:text-white">Choose a CSV or Excel file (up to 450 rows)</p>
               <p className="text-slate-400 text-[11px]">Supports CSV format with Name, Email, Phone, and Source.</p>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowImportModal(false);
-                  toast.success("Sample 10 inquiries imported successfully.");
-                }}
-                className="mt-2 px-4 py-2 rounded-xl bg-blue-600 text-white font-bold"
-              >
-                Select File & Import
-              </button>
+              <input aria-label="Import inquiry spreadsheet" type="file" accept=".csv,.xlsx,.xls" disabled={importing} className="mt-3 max-w-full" onChange={async e => {
+                const file = e.target.files?.[0]; if (!file || importing) return;
+                setImporting(true);
+                try {
+                  const db = getFirebaseDb();
+                  if (!db || (portalType === "schoolAdmin" && !schoolId)) throw new Error("School context is unavailable.");
+                  const rows = await parseInquiryImport(file);
+                  const batch = writeBatch(db);
+                  rows.forEach(row => batch.set(doc(collection(db, "inquiries")), {
+                    ...row, schoolName: row.organization, schoolId: schoolId || null,
+                    status: "NEW", status2: "New", interestLevel: "Medium", assignedToName: profile?.name || "",
+                    notesCount: 0, isArchived: false, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+                  }));
+                  await batch.commit();
+                  await loadData(); setShowImportModal(false); toast.success(`${rows.length} inquiries imported.`);
+                } catch (err) { toast.error(err instanceof Error ? err.message : "Import failed. No success was recorded."); }
+                finally { setImporting(false); e.target.value = ""; }
+              }} />
+              {importing && <p role="status">Validating and saving inquiries…</p>}
             </div>
           </div>
         </div>

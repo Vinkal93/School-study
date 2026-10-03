@@ -1,10 +1,12 @@
+import { matchAcademicYear } from "@/lib/services/fee-foundation.service";
 import { NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/auth/serverAuth";
+import { requireFeeAccess as authenticateRequest } from "@/lib/fees/server-access";
 import { applyFeeAdjustment } from "@/lib/services/fee-foundation.service";
 
 export async function POST(request: Request) {
   try {
     const authResult = await authenticateRequest(request);
+    if (!authResult.isAuthenticated || !authResult.user) return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (!authResult.isAuthenticated || !authResult.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -25,6 +27,7 @@ export async function POST(request: Request) {
       amountRupees,
       reason,
       approvedBy,
+      idempotencyKey,
     } = body;
 
     const targetSchoolId = authResult.user.role === "super_admin"
@@ -44,8 +47,9 @@ export async function POST(request: Request) {
         demandId,
         type,
         amountRupees: Number(amountRupees),
-        reason: reason || "Administrative concession",
-        approvedBy: approvedBy || authResult.user.name || "Principal",
+        reason,
+        approvedBy: authResult.user.uid,
+        idempotencyKey,
         actorId: authResult.user.uid,
       }
     );
@@ -63,6 +67,7 @@ export async function POST(request: Request) {
 export async function GET(request: Request) {
   try {
     const authResult = await authenticateRequest(request);
+    if (!authResult.isAuthenticated || !authResult.user) return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (!authResult.isAuthenticated || !authResult.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -79,7 +84,7 @@ export async function GET(request: Request) {
     }
 
     const studentId = searchParams.get("studentId");
-    const { getFirebaseDb } = await import("@/lib/firebase/client");
+    const { getFirebaseDb } = await import("@/lib/fees/firestore");
     const { collection, query, where, getDocs } = await import("firebase/firestore");
     const db = getFirebaseDb();
     if (!db) return NextResponse.json({ success: true, adjustments: [] });
@@ -92,7 +97,10 @@ export async function GET(request: Request) {
       q = query(q, where("studentId", "==", studentId));
     }
     const snap = await getDocs(q);
-    const adjustments = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    let adjustments = snap.docs.map((d) => ({ id: d.id, ...d.data() } as import("@/types/fee-foundation").FeeAdjustment));
+    const year = searchParams.get("academicYearId");
+    if (year && year !== "all") adjustments = adjustments.filter(a => matchAcademicYear(a.academicYearId, year));
+
     adjustments.sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || ""));
 
     return NextResponse.json({ success: true, adjustments });

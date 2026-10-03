@@ -1,4 +1,7 @@
 "use client";
+import { useFeeSession } from "@/components/fees/FeeSessionProvider";
+
+import { feeFetch } from "@/lib/fees/client-request";
 
 import { useEffect, useState, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -48,10 +51,12 @@ import type { FeeDemand, StudentFinancialSummary, FeeAdjustment } from "@/types/
 import type { StudentLedgerSummary, StudentLedgerEntry } from "@/types/fee-ledger";
 import {
   getStudentFeeAssignment,
-  provisionStudentFeeAssignment,
-  reconcileStudentFeeLedger,
   getStudentFeeTransactions,
+  getFeeFollowUps,
 } from "@/lib/services/fee.service";
+import { getAcademicYears } from "@/lib/services/academic.service";
+import { sameAcademicYear } from "@/lib/fees/finance-core";
+import type { AcademicYear } from "@/types";
 import { getStudentFinancialSummary } from "@/lib/services/fee-foundation.service";
 import { getStudentLedger } from "@/lib/services/fee-ledger.service";
 import { getStudents } from "@/lib/services/student.service";
@@ -69,7 +74,7 @@ export default function AdminStudentFeesPage() {
       ? localStorage.getItem("currentSchoolId") || ""
       : "");
   const schoolId = effectiveSchoolId;
-  const schoolName = (profile as any)?.schoolName || "Lord Buddha Public School";
+  const schoolName = (profile as any)?.schoolName || "School";
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -80,6 +85,7 @@ export default function AdminStudentFeesPage() {
   const [selectedStudent, setSelectedStudent] = useState<StudentProfile | null>(null);
   const [assignment, setAssignment] = useState<StudentFeeAssignment | null>(null);
   const [financialSummary, setFinancialSummary] = useState<StudentFinancialSummary | null>(null);
+  const [followUps, setFollowUps] = useState<import("@/types").FeeFollowUp[]>([]);
   const [transactions, setTransactions] = useState<FeePayment[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingLedger, setLoadingLedger] = useState(false);
@@ -93,8 +99,13 @@ export default function AdminStudentFeesPage() {
   const [studentLedgerEntries, setStudentLedgerEntries] = useState<StudentLedgerEntry[]>([]);
   const [studentLedgerLoading, setStudentLedgerLoading] = useState(false);
 
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
+  useEffect(() => {
+    if (!schoolId) return;
+    getAcademicYears(schoolId).then(list => { setAcademicYears(list); setSelectedAcademicYear(previous => previous || list.find(y => y.isCurrent)?.id || list[0]?.id || ""); }).catch(() => toast.error("Academic sessions unavailable."));
+  }, [schoolId]);
   // Sub-features state
-  const [selectedAcademicYear, setSelectedAcademicYear] = useState("2026-2027");
+  const { academicYearId: selectedAcademicYear, setAcademicYearId: setSelectedAcademicYear } = useFeeSession();
   const [selectedClass, setSelectedClass] = useState<string>("all");
   const [selectedSection, setSelectedSection] = useState<string>("all");
   const [monthStatusFilter, setMonthStatusFilter] = useState<"all" | "paid" | "pending" | "partial">("all");
@@ -183,16 +194,19 @@ export default function AdminStudentFeesPage() {
 
   // 2. Fetch authoritative fee ledger & transactions when selected student changes
   const fetchStudentLedger = async () => {
-    if (!schoolId || !selectedStudent?.id) {
+    if (!schoolId || !selectedStudent?.id || !selectedAcademicYear) {
       setAssignment(null);
       setFinancialSummary(null);
       return;
     }
     setLoadingLedger(true);
+    setFinancialSummary(null);
+    setAssignment(null);
+    setTransactions([]);
     try {
       // 1. Fetch Authoritative Foundation Summary
       try {
-        const sumRes = await fetch(
+        const sumRes = await feeFetch(
           `/api/fees/foundation/student-summary?schoolId=${schoolId}&studentId=${selectedStudent.id}&academicYearId=${selectedAcademicYear}`
         );
         if (sumRes.ok) {
@@ -216,26 +230,14 @@ export default function AdminStudentFeesPage() {
         }
       }
 
-      // 2. Fetch Legacy Assignment for backward compatibility
-      let data = await getStudentFeeAssignment(schoolId, selectedStudent.id);
-      if (!data) {
-        data = await provisionStudentFeeAssignment(schoolId, {
-          id: selectedStudent.id,
-          name: selectedStudent.name,
-          admissionNumber: selectedStudent.admissionNumber || selectedStudent.studentId,
-          className: selectedStudent.className,
-          sectionName: selectedStudent.sectionName || "A",
-          admissionDate: selectedStudent.admissionDate,
-        });
-      } else if (data.totalAssignedPaise === 0) {
-        const reconciled = await reconcileStudentFeeLedger(schoolId, selectedStudent.id);
-        if (reconciled) data = reconciled;
-      }
+      // Legacy assignments are read-only and must belong to this session.
+      const data = await getStudentFeeAssignment(schoolId, selectedStudent.id, selectedAcademicYear);
       setAssignment(data);
 
       // 3. Load past payments
       const history = await getStudentFeeTransactions(schoolId, selectedStudent.id);
-      setTransactions(history);
+      setFollowUps(await getFeeFollowUps(schoolId, selectedStudent.id));
+      setTransactions(history.filter(payment => sameAcademicYear(payment.academicYearId, selectedAcademicYear)));
     } catch (err) {
       console.error("Failed to load student fee ledger:", err);
       toast.error("Failed to load fee ledger.");
@@ -251,7 +253,7 @@ export default function AdminStudentFeesPage() {
   useEffect(() => {
     if (schoolId && selectedStudent?.id) {
       setStudentLedgerLoading(true);
-      fetch(`/api/fees/foundation/ledger/student?schoolId=${schoolId}&studentId=${selectedStudent.id}`)
+      feeFetch(`/api/fees/foundation/ledger/student?schoolId=${schoolId}&studentId=${selectedStudent.id}&academicYearId=${encodeURIComponent(selectedAcademicYear)}`)
         .then((r) => {
           if (!r.ok) throw new Error("Failed to fetch ledger");
           return r.json();
@@ -316,100 +318,15 @@ export default function AdminStudentFeesPage() {
 
   // Dynamic Ledger Calculation: Merges real FeeDemand records across the 12 Indian session months (April to March)
   const ledgerData = useMemo(() => {
-    const SESSION_MONTHS_NAMES = [
-      "April", "May", "June", "July", "August", "September",
-      "October", "November", "December", "January", "February", "March"
-    ];
-
-    if (financialSummary && financialSummary.recentDemands && financialSummary.recentDemands.length > 0) {
-      return SESSION_MONTHS_NAMES.map((mName) => {
-        const foundDemand = financialSummary.recentDemands.find((d) =>
-          d.period.toLowerCase().includes(mName.toLowerCase())
-        );
-
-        if (foundDemand) {
-          const base = foundDemand.grossAmountPaise / 100;
-          const late = (foundDemand.lateFeePaise || 0) / 100;
-          const paid = (foundDemand.paidAmountPaise || 0) / 100;
-          const balance = (foundDemand.balanceAmountPaise || 0) / 100;
-          const total = (foundDemand.netAmountPaise || 0) / 100;
-          const status =
-            foundDemand.status === "PAID"
-              ? "Paid"
-              : foundDemand.status === "PARTIAL"
-              ? "Partial"
-              : foundDemand.status === "WAIVED"
-              ? "Waived"
-              : foundDemand.status === "OVERDUE"
-              ? "Overdue"
-              : "Due";
-
-          return {
-            name: mName,
-            due: foundDemand.dueDate
-              ? new Date(foundDemand.dueDate).toLocaleDateString("en-IN", {
-                  day: "2-digit",
-                  month: "short",
-                  year: "numeric",
-                })
-              : "10th",
-            base,
-            late,
-            total,
-            paid,
-            balance,
-            status,
-            rawDemand: foundDemand,
-            raw: null,
-            missing: false,
-          };
-        }
-
-        // Fallback to legacy assignment month if demand not yet ported
-        const legacyItem = assignment?.monthLedger?.find((m) => m.month.toLowerCase().includes(mName.toLowerCase()));
-        if (legacyItem) {
-          const base = legacyItem.amountPaise / 100;
-          const late = legacyItem.lateFeePaise / 100;
-          const paid = legacyItem.paidAmountPaise / 100;
-          const balance = legacyItem.pendingAmountPaise / 100;
-          const total = base + late;
-          return {
-            name: legacyItem.month,
-            due: legacyItem.dueDate
-              ? new Date(legacyItem.dueDate).toLocaleDateString("en-IN", {
-                  day: "2-digit",
-                  month: "short",
-                  year: "numeric",
-                })
-              : "10th",
-            base,
-            late,
-            total,
-            paid,
-            balance,
-            status: legacyItem.status === "PAID" ? "Paid" : legacyItem.status === "PARTIAL" ? "Partial" : "Due",
-            rawDemand: null,
-            raw: legacyItem,
-            missing: false,
-          };
-        }
-
-        return {
-          name: mName,
-          due: "—",
-          base: 0,
-          late: 0,
-          total: 0,
-          paid: 0,
-          balance: 0,
-          status: "Due",
-          rawDemand: null,
-          raw: null,
-          missing: true,
-        };
-      });
+    if (financialSummary?.recentDemands?.length) {
+      return financialSummary.recentDemands.filter(d => d.status !== "CANCELLED").map(d => ({
+        name: `${d.feeHeadName} · ${d.period}`, due: d.dueDate ? new Date(d.dueDate).toLocaleDateString("en-IN") : "—",
+        base: d.grossAmountPaise / 100, late: ((d.lateFeePaise || 0) + (d.finePaise || 0)) / 100,
+        total: d.netAmountPaise / 100, paid: d.paidAmountPaise / 100, balance: d.balanceAmountPaise / 100,
+        status: d.status === "PAID" ? "Paid" : d.status === "PARTIAL" ? "Partial" : d.status === "WAIVED" ? "Waived" : d.status === "OVERDUE" ? "Overdue" : "Due",
+        rawDemand: d, raw: null, missing: false,
+      }));
     }
-
     if (assignment && assignment.monthLedger && assignment.monthLedger.length > 0) {
       return assignment.monthLedger.map((m) => {
         const base = m.amountPaise / 100;
@@ -521,7 +438,7 @@ export default function AdminStudentFeesPage() {
 
     setWaiverSubmitting(true);
     try {
-      const res = await fetch("/api/fees/foundation/waiver", {
+      const res = await feeFetch("/api/fees/foundation/waiver", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -551,7 +468,7 @@ export default function AdminStudentFeesPage() {
     if (!selectedStudent) return;
     setGeneratingDemandPeriod(monthName);
     try {
-      const res = await fetch("/api/fees/foundation/demands/bulk", {
+      const res = await feeFetch("/api/fees/foundation/demands/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -847,7 +764,7 @@ export default function AdminStudentFeesPage() {
                   )}
                 </div>
                 <span className="absolute -bottom-1.5 -right-1.5 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500 text-white border-2 border-white dark:border-slate-900 shadow-xs">
-                  Active
+                  Review discounts
                 </span>
               </div>
 
@@ -1666,7 +1583,7 @@ export default function AdminStudentFeesPage() {
                       </td>
                       <td className="py-3.5 px-4 text-center">
                         <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[10px]">
-                          Completed
+                          {tx.status.replaceAll("_", " ")}
                         </span>
                       </td>
                       <td className="py-3.5 px-4 text-right">
@@ -1858,83 +1775,22 @@ export default function AdminStudentFeesPage() {
           </div>
         )}
 
-        {/* When tab is Discounts */}
-        {activeTab === "discounts" && (
-          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
-            <h3 className="text-base font-black text-slate-900 dark:text-white">
-              Fee Concessions & Scholarships
-            </h3>
-            <p className="text-xs text-slate-500">
-              Discounts applied to this student account for Session 2026-2027.
-            </p>
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 flex items-center justify-between">
-              <div>
-                <h4 className="text-xs font-black text-slate-900 dark:text-white">Sibling Concession</h4>
-                <p className="text-[11px] text-slate-500">10% discount on standard tuition fee rates.</p>
-              </div>
-              <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700">
-                Active
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* When tab is Notes */}
-        {activeTab === "notes" && (
-          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-black text-slate-900 dark:text-white">CRM Follow-up Notes</h3>
-              <button
-                type="button"
-                onClick={() => setShowFollowUpModal(true)}
-                className="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-xs hover:bg-blue-700 cursor-pointer shadow-xs"
-              >
-                + Add Follow-up Note
-              </button>
-            </div>
-            <div className="space-y-3">
-              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 space-y-1">
-                <div className="flex items-center justify-between text-xs font-bold">
-                  <span className="text-purple-600">Telephonic Conversation with Father</span>
-                  <span className="text-slate-400">10 Sep 2026, 04:30 PM</span>
-                </div>
-                <p className="text-xs text-slate-600 dark:text-slate-300">
-                  Discussed second term fees. Parent assured clear payment of ₹5,500 by coming Monday.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* When tab is Settings */}
-        {activeTab === "settings" && (
-          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
-            <h3 className="text-base font-black text-slate-900 dark:text-white">Account Fee Settings</h3>
-            <div className="space-y-3">
-              <label className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 cursor-pointer">
-                <div>
-                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                    Automatic WhatsApp Reminders
-                  </p>
-                  <p className="text-[11px] text-slate-400">
-                    Send automatic WhatsApp reminder 3 days prior to monthly due date.
-                  </p>
-                </div>
-                <input type="checkbox" defaultChecked className="rounded text-blue-600 cursor-pointer" />
-              </label>
-
-              <label className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 cursor-pointer">
-                <div>
-                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200">Late Fee Waiver</p>
-                  <p className="text-[11px] text-slate-400">
-                    Waive automatic late fee penalty for this student account.
-                  </p>
-                </div>
-                <input type="checkbox" className="rounded text-blue-600 cursor-pointer" />
-              </label>
-            </div>
-          </div>
-        )}
+        {activeTab === "discounts" && <div className="rounded-2xl border p-6 space-y-4">
+          <h3 className="font-bold">Recorded discounts and concessions</h3>
+          {financialSummary?.recentAdjustments?.length ? financialSummary.recentAdjustments.map(adjustment => <div key={adjustment.id} className="border-b py-3 text-sm">
+            <strong>{adjustment.type} · ₹{(adjustment.amountPaise / 100).toFixed(2)}</strong><p>{adjustment.reason}</p><span>{adjustment.status}</span>
+          </div>) : <p>No recorded adjustments in this session.</p>}
+          <Link href="/admin/fees/discounts" className="text-blue-600 underline">Manage discounts and concessions</Link>
+        </div>}
+        {activeTab === "notes" && <div className="rounded-2xl border p-6 space-y-4">
+          <h3 className="font-bold">Fee follow-up history</h3>
+          <button type="button" onClick={() => setShowFollowUpModal(true)} className="rounded-lg bg-blue-600 px-4 py-2 text-white">Add follow-up note</button>
+          {followUps.length ? followUps.map(note => <div key={note.id} className="border-b py-3 text-sm"><strong>{note.status} · {new Date(note.createdAt).toLocaleDateString("en-IN")}</strong><p>{note.notes}</p></div>) : <p>No recorded follow-up notes.</p>}
+        </div>}
+        {activeTab === "settings" && <div className="rounded-2xl border p-6 space-y-4">
+          <h3 className="font-bold">Fee settings</h3><p>School fee settings control available payment methods and receipt details. Invoice concessions require a recorded adjustment.</p>
+          <Link href="/admin/fees/settings" className="text-blue-600 underline">Open school fee settings</Link>
+        </div>}
 
         {/* Centralized Share Fee Modal */}
         {showShareModal && (
@@ -2014,6 +1870,7 @@ export default function AdminStudentFeesPage() {
             }}
             onFollowUpRecorded={() => {
               toast.success("Follow-up note recorded successfully!");
+                getFeeFollowUps(schoolId, student.id).then(setFollowUps);
             }}
           />
         )}

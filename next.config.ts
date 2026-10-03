@@ -2,6 +2,8 @@ import { withSentryConfig } from "@sentry/nextjs/config";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Keep local verification builds separate from the running development server.
+  distDir: process.env.NEXT_BUILD_DIR || ".next",
   // Disable x-powered-by header for security and payload reduction
   poweredByHeader: false,
 
@@ -30,6 +32,10 @@ const nextConfig: NextConfig = {
   // Production Security Headers
   async headers() {
     return [
+      ...["admin", "teacher", "student", "super-admin", "billing", "api", "setup-super-admin", "su"].map((segment) => ({
+        source: `/${segment}/:path*`,
+        headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+      })),
       {
         source: "/:path*",
         headers: [

@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { useAuth } from "@/hooks/use-auth";
 import {
   X,
   CreditCard,
@@ -17,7 +18,7 @@ import {
 import { toast } from "sonner";
 import { safeFetchJson } from "@/lib/utils/safeFetch";
 import { triggerRazorpayCheckout } from "@/lib/payments/clientCheckout";
-import type { SchoolUsage } from "@/types";
+import type { Plan, SchoolUsage } from "@/types";
 
 interface RechargeModalProps {
   isOpen: boolean;
@@ -28,6 +29,7 @@ interface RechargeModalProps {
   initialBillingCycle?: "monthly" | "annual";
   currentPlanId?: string;
   currentUsage?: SchoolUsage;
+  plans?: Plan[];
   onSuccess?: (orderId: string) => void;
 }
 
@@ -57,35 +59,39 @@ export function RechargeModal({
   initialBillingCycle = "monthly",
   currentPlanId = "plan_starter",
   currentUsage,
+  plans = [],
   onSuccess,
 }: RechargeModalProps) {
+  const { firebaseUser } = useAuth();
+  const priceRequest = useRef(0);
   const [selectedPlanId, setSelectedPlanId] = useState(initialPlanId);
   const [billingCycle, setBillingCycle] = useState<"monthly" | "annual">(initialBillingCycle);
   const [couponInput, setCouponInput] = useState("");
   const [appliedCoupon, setAppliedCoupon] = useState("");
+  const [priceReady, setPriceReady] = useState(false);
+  const [pricedSelection, setPricedSelection] = useState("");
+  const selectionKey = `${selectedPlanId}:${billingCycle}:${appliedCoupon}`;
   const [isCalculating, setIsCalculating] = useState(false);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [breakdown, setBreakdown] = useState<PriceBreakdown>({
-    baseAmount: 99900,
+    baseAmount: 0,
     discountAmount: 0,
-    finalAmount: 99900,
+    finalAmount: 0,
     currency: "INR",
     couponValid: false,
   });
 
-  // Keep state in sync with initial props
-  useEffect(() => {
-    if (initialPlanId) setSelectedPlanId(initialPlanId);
-    if (initialBillingCycle) setBillingCycle(initialBillingCycle);
-  }, [initialPlanId, initialBillingCycle]);
-
   // Recalculate price server-side when plan, billing cycle, or coupon changes
   const calculatePrice = async (planId: string, cycle: "monthly" | "annual", coupon?: string) => {
-    setIsCalculating(true);
+    const requestId = ++priceRequest.current;
     try {
+      const token = await firebaseUser?.getIdToken();
+      if (requestId !== priceRequest.current) return;
+      setIsCalculating(true);
+      setPriceReady(false);
       const res = await safeFetchJson("/api/billing/calculate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
           planId,
           billingCycle: cycle,
@@ -93,9 +99,12 @@ export function RechargeModal({
           schoolId,
         }),
       });
+      if (requestId !== priceRequest.current) return;
 
       if (res.ok && res.data && res.data.calculation) {
         const calc = res.data.calculation;
+        setPricedSelection(`${planId}:${cycle}:${coupon || ""}`);
+        setPriceReady(true);
         setBreakdown({
           baseAmount: calc.baseAmountPaise,
           discountAmount: calc.discountAmountPaise,
@@ -117,18 +126,21 @@ export function RechargeModal({
       } else {
         toast.error(res.error || "Failed to calculate pricing.");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      if (requestId !== priceRequest.current) return;
       console.error("Price calculate error:", err);
       toast.error("Failed to calculate server-side pricing.");
     } finally {
-      setIsCalculating(false);
+      if (requestId === priceRequest.current) setIsCalculating(false);
     }
   };
 
   useEffect(() => {
+    let cancelled = false;
     if (isOpen) {
-      calculatePrice(selectedPlanId, billingCycle, appliedCoupon);
+      void Promise.resolve().then(() => { if (!cancelled) return calculatePrice(selectedPlanId, billingCycle, appliedCoupon); });
     }
+    return () => { cancelled = true; priceRequest.current++; };
   }, [isOpen, selectedPlanId, billingCycle, appliedCoupon]);
 
   if (!isOpen) return null;
@@ -145,10 +157,10 @@ export function RechargeModal({
   const handleRemoveCoupon = () => {
     setAppliedCoupon("");
     setCouponInput("");
-    calculatePrice(selectedPlanId, billingCycle, "");
   };
 
   const handleProceedToPayment = async () => {
+    if (!priceReady || pricedSelection !== selectionKey) return;
     if (!schoolId || !userId) {
       toast.error("Authentication session missing. Please reload the page.");
       return;
@@ -182,35 +194,18 @@ export function RechargeModal({
           toast.error(errMsg || "Payment checkout failed.");
         },
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       setIsCheckingOut(false);
-      toast.error(err.message || "Failed to open Razorpay Checkout.");
+      toast.error(err instanceof Error ? err.message : "Failed to open Razorpay Checkout.");
     }
   };
 
-  // Downgrade check
-  const planTiers: Record<string, number> = {
-    plan_free: 0,
-    plan_base: 1,
-    plan_starter: 2,
-    plan_growth: 3,
-    plan_professional: 4,
-    plan_enterprise: 5,
-  };
-  const isDowngrade = (planTiers[selectedPlanId] ?? 0) < (planTiers[currentPlanId] ?? 0);
-  const studentCount = typeof currentUsage?.students === "number" 
-    ? currentUsage.students 
-    : (currentUsage?.students as any)?.current || 0;
-  const studentLimits: Record<string, number> = {
-    plan_free: 100,
-    plan_base: 500,
-    plan_starter: 500,
-    plan_growth: 1500,
-    plan_professional: 2000,
-    plan_enterprise: 999999,
-  };
-  const targetLimit = studentLimits[selectedPlanId] ?? 500;
-  const isOverLimitOnDowngrade = isDowngrade && studentCount > targetLimit;
+  const current = plans.find(p => p.id === currentPlanId);
+  const selected = plans.find(p => p.id === selectedPlanId);
+  const isDowngrade = !!current && !!selected && selected.displayOrder < current.displayOrder;
+  const studentCount = currentUsage?.students ?? 0;
+  const targetLimit = selected?.limits.maxStudents ?? 0;
+  const isOverLimitOnDowngrade = isDowngrade && targetLimit !== -1 && studentCount > targetLimit;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs overflow-y-auto">
@@ -245,112 +240,10 @@ export function RechargeModal({
             <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
               Select Subscription Plan
             </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Base Plan */}
-              <div
-                onClick={() => setSelectedPlanId("plan_base")}
-                className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${
-                  selectedPlanId === "plan_base"
-                    ? "border-blue-600 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/30 ring-2 ring-blue-500/20"
-                    : "border-slate-200 dark:border-slate-800 hover:border-slate-300"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-sm text-slate-900 dark:text-white">Base Plan</h3>
-                  <span className="text-xs font-mono font-bold text-blue-600 dark:text-blue-400">
-                    {billingCycle === "annual" ? "₹299/mo" : "₹399/mo"}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Up to 500 students, 20 teachers, notices & daily administration.
-                </p>
-              </div>
-
-              {/* Starter Plan */}
-              <div
-                onClick={() => setSelectedPlanId("plan_starter")}
-                className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${
-                  selectedPlanId === "plan_starter"
-                    ? "border-blue-600 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/30 ring-2 ring-blue-500/20"
-                    : "border-slate-200 dark:border-slate-800 hover:border-slate-300"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-sm text-slate-900 dark:text-white">Starter Plan</h3>
-                  <span className="text-xs font-mono font-bold text-blue-600 dark:text-blue-400">
-                    {billingCycle === "annual" ? "₹799/mo" : "₹999/mo"}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Up to 500 students, 20 teachers, 15 classes & basic attendance.
-                </p>
-              </div>
-
-              {/* Growth Plan */}
-              <div
-                onClick={() => setSelectedPlanId("plan_growth")}
-                className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${
-                  selectedPlanId === "plan_growth"
-                    ? "border-blue-600 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/30 ring-2 ring-blue-500/20"
-                    : "border-slate-200 dark:border-slate-800 hover:border-slate-300"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-sm text-slate-900 dark:text-white">Growth Plan</h3>
-                  <span className="text-xs font-mono font-bold text-blue-600 dark:text-blue-400">
-                    {billingCycle === "annual" ? "₹1,199/mo" : "₹1,499/mo"}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Up to 1,500 students, 60 teachers, 40 classes & automated bells.
-                </p>
-              </div>
-
-              {/* Professional Plan */}
-              <div
-                onClick={() => setSelectedPlanId("plan_professional")}
-                className={`p-4 rounded-2xl border-2 cursor-pointer transition-all relative ${
-                  selectedPlanId === "plan_professional"
-                    ? "border-blue-600 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/30 ring-2 ring-blue-500/20"
-                    : "border-slate-200 dark:border-slate-800 hover:border-slate-300"
-                }`}
-              >
-                <span className="absolute -top-2.5 right-3 px-2 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-extrabold uppercase">
-                  Popular
-                </span>
-                <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-sm text-slate-900 dark:text-white">Professional</h3>
-                  <span className="text-xs font-mono font-bold text-blue-600 dark:text-blue-400">
-                    {billingCycle === "annual" ? "₹1,599/mo" : "₹1,999/mo"}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Up to 2,000 students, 100 teachers, fee management & reports.
-                </p>
-              </div>
-
-              {/* Enterprise Plan */}
-              <div
-                onClick={() => setSelectedPlanId("plan_enterprise")}
-                className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${
-                  selectedPlanId === "plan_enterprise"
-                    ? "border-blue-600 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/30 ring-2 ring-blue-500/20"
-                    : "border-slate-200 dark:border-slate-800 hover:border-slate-300"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-sm text-slate-900 dark:text-white">Enterprise Plan</h3>
-                  <span className="text-xs font-mono font-bold text-blue-600 dark:text-blue-400">
-                    {billingCycle === "annual" ? "₹3,999/mo" : "₹4,999/mo"}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Unlimited students, teachers, campuses, custom SLA & support.
-                </p>
-              </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {plans.filter(p => p.status === "ACTIVE" && !p.isArchived && p.publicVisible !== false).map(p => <button type="button" key={p.id} onClick={() => setSelectedPlanId(p.id)} className={`rounded-2xl border p-4 text-left ${selectedPlanId === p.id ? "border-blue-600 bg-blue-50 dark:bg-blue-950" : "border-slate-200 dark:border-slate-700"}`}><strong>{p.name}</strong><p className="mt-2 text-xs">{p.description}</p></button>)}
             </div>
           </div>
-
           {/* Billing Cycle Toggle */}
           <div className="space-y-2">
             <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
@@ -392,7 +285,7 @@ export function RechargeModal({
               <div>
                 <p className="font-bold">Capacity Notice for Downgrade</p>
                 <p className="mt-0.5 text-amber-800 dark:text-amber-400 leading-relaxed">
-                  Your school currently has <strong>{studentCount} students</strong>, which exceeds the Starter plan limit (500). Your existing data will remain completely intact, but you won't be able to enroll new students until you upgrade.
+                  Your school currently has <strong>{studentCount} students</strong>, which exceeds the {selected?.name} plan limit ({targetLimit}). Review capacity before changing plans.
                 </p>
               </div>
             </div>
@@ -494,7 +387,7 @@ export function RechargeModal({
 
             <button
               onClick={handleProceedToPayment}
-              disabled={isCheckingOut || isCalculating}
+              disabled={isCheckingOut || isCalculating || !priceReady || pricedSelection !== selectionKey}
               className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-6 py-3.5 text-xs sm:text-sm font-bold text-white shadow-lg shadow-blue-500/25 hover:bg-blue-700 active:scale-98 disabled:opacity-50 transition-all cursor-pointer"
             >
               {isCheckingOut ? (

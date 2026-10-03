@@ -1,13 +1,14 @@
 import { NextResponse, NextRequest } from "next/server";
-import { authenticateRequest } from "@/lib/auth/serverAuth";
+import { requireFeeAccess as authenticateRequest } from "@/lib/fees/server-access";
 import { processFeeRefund } from "@/lib/services/fee-foundation.service";
-import { getFirebaseDb } from "@/lib/firebase/client";
-import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
+import { getFirebaseDb } from "@/lib/fees/firestore";
+import { collection, query, where, getDocs, orderBy } from "@/lib/fees/firestore";
 import type { FinancialRefund, PaymentMethod } from "@/types/fee-foundation";
 
 export async function GET(request: NextRequest) {
   try {
     const authResult = await authenticateRequest(request);
+    if (!authResult.isAuthenticated || !authResult.user) return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (!authResult.isAuthenticated || !authResult.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -58,6 +59,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const authResult = await authenticateRequest(request);
+    if (!authResult.isAuthenticated || !authResult.user) return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (!authResult.isAuthenticated || !authResult.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -78,6 +80,7 @@ export async function POST(request: NextRequest) {
       reason,
       refundMethod,
       referenceNumber,
+      idempotencyKey,
     } = body;
 
     const targetSchoolId =
@@ -98,6 +101,7 @@ export async function POST(request: NextRequest) {
       reason,
       refundMethod: refundMethod ? (refundMethod.toUpperCase() as PaymentMethod) : undefined,
       referenceNumber,
+      idempotencyKey,
       actorId: authResult.user.uid,
       actorName: authResult.user.name || authResult.user.email || "Staff Admin",
     });

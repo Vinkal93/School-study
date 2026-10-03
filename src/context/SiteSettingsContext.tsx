@@ -39,7 +39,7 @@ export function SiteSettingsProvider({
     }
     return DEFAULT_SITE_SETTINGS;
   });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(!initialSettings);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -55,7 +55,7 @@ export function SiteSettingsProvider({
           }
         }
       }
-    } catch {}
+    } catch {} finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
@@ -89,14 +89,15 @@ export function SiteSettingsProvider({
                   localStorage.setItem("site_settings_cache", JSON.stringify(merged));
                 } catch {}
               }
-            }
+            } else { setSettings({ ...DEFAULT_SITE_SETTINGS, announcements: [] }); }
+            setLoading(false);
           },
           () => {
-            // Non-blocking fallback
+            void fetchSettings();
           }
         );
-      }
-    } catch {}
+      } else { void Promise.resolve().then(fetchSettings); }
+    } catch { void Promise.resolve().then(fetchSettings); }
 
     return () => {
       if (unsub) unsub();
