@@ -1,4 +1,3 @@
-import { requireFeeAccess } from "@/lib/fees/server-access";
 import { NextResponse } from "next/server";
 import { getSafeAdminDb } from "@/lib/firebase/admin";
 import { canAccessFeature } from "@/lib/billing/featureAccess";
@@ -11,10 +10,8 @@ import {
 
 export async function GET(request: Request) {
   try {
-    const auth = await requireFeeAccess(request);
-    if (!auth.user) return auth.errorResponse;
     const { searchParams } = new URL(request.url);
-    const schoolId = auth.user.role === "super_admin" ? searchParams.get("schoolId") || auth.user.schoolId : auth.user.schoolId;
+    const schoolId = searchParams.get("schoolId");
     const academicYearId = searchParams.get("academicYearId") || undefined;
 
     if (!schoolId) {
@@ -35,11 +32,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const auth = await requireFeeAccess(request);
-    if (!auth.user) return auth.errorResponse;
     const body = await request.json();
-    const { schoolId: requestedSchoolId, academicYearId, className, sectionName, feeType, title, amountRupees, frequency } = body;
-    const schoolId = auth.user.role === "super_admin" ? requestedSchoolId || auth.user.schoolId : auth.user.schoolId;
+    const { schoolId, academicYearId, className, sectionName, feeType, title, amountRupees, frequency } = body;
 
     if (!schoolId || !title || !className || !amountRupees) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -69,10 +63,8 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const auth = await requireFeeAccess(request);
-    if (!auth.user) return auth.errorResponse;
     const { searchParams } = new URL(request.url);
-    const schoolId = auth.user.role === "super_admin" ? searchParams.get("schoolId") || auth.user.schoolId : auth.user.schoolId;
+    const schoolId = searchParams.get("schoolId");
     const structureId = searchParams.get("id");
 
     if (!schoolId || !structureId) {

@@ -126,28 +126,10 @@ export async function getSubscriptionReminder(
   userRole: string = "school_admin",
   nowMs: number = Date.now()
 ): Promise<SubscriptionReminderResult> {
-  const safeFallback: SubscriptionReminderResult = {
-    shouldRemind: false,
-    daysRemaining: 0,
-    severity: "info",
-    title: "",
-    message: "",
-    showPopup: false,
-    showBanner: false,
-    showRechargeButton: false,
-    canRecharge: false,
-    accessMode: "NO_ACCESS",
-  };
-
-  if (!schoolId || schoolId === "system") {
-    return safeFallback;
-  }
-
-  try {
-    const [sub, policy] = await Promise.all([
-      getSchoolSubscription(schoolId),
-      getGlobalAccessPolicy(),
-    ]);
+  const [sub, policy] = await Promise.all([
+    getSchoolSubscription(schoolId),
+    getGlobalAccessPolicy(),
+  ]);
 
   const state = calculateSubscriptionState(sub, policy, nowMs);
   const { daysRemaining, accessMode, isExpired, isInGrace } = state;
@@ -270,21 +252,17 @@ export async function getSubscriptionReminder(
     nowMs
   );
 
-    return {
-      shouldRemind: true,
-      reminderId,
-      daysRemaining,
-      severity,
-      title: dynamicTitle,
-      message: dynamicMessage,
-      showPopup: daysRemaining <= 3 && showPopupAllowed,
-      showBanner: true,
-      showRechargeButton: canRecharge,
-      canRecharge,
-      accessMode,
-    };
-  } catch (error) {
-    console.warn("Notice: getSubscriptionReminder error handled gracefully:", error);
-    return safeFallback;
-  }
+  return {
+    shouldRemind: true,
+    reminderId,
+    daysRemaining,
+    severity,
+    title: dynamicTitle,
+    message: dynamicMessage,
+    showPopup: daysRemaining <= 3 && showPopupAllowed,
+    showBanner: true,
+    showRechargeButton: canRecharge,
+    canRecharge,
+    accessMode,
+  };
 }

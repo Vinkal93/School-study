@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
 
     // Only inject default showcase if NO database records exist at all yet
     if (!hasDbRecords) {
-      showcases = [];
+      showcases = [DEFAULT_AI_SHOWCASE];
     }
 
     // Filter strictly by published status, enabled flag, context, and target portal

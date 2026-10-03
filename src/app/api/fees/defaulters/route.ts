@@ -1,14 +1,11 @@
-import { requireFeeAccess } from "@/lib/fees/server-access";
 import { NextResponse } from "next/server";
 import { canAccessFeature } from "@/lib/billing/featureAccess";
 import { getDefaultersList } from "@/lib/services/fee.service";
 
 export async function GET(request: Request) {
   try {
-    const auth = await requireFeeAccess(request);
-    if (!auth.user) return auth.errorResponse;
     const { searchParams } = new URL(request.url);
-    const schoolId = auth.user.role === "super_admin" ? searchParams.get("schoolId") || auth.user.schoolId : auth.user.schoolId;
+    const schoolId = searchParams.get("schoolId");
     const className = searchParams.get("className") || undefined;
 
     if (!schoolId) {

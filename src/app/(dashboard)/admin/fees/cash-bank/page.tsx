@@ -1,7 +1,4 @@
 "use client";
-import { useFeeSession } from "@/components/fees/FeeSessionProvider";
-
-import { feeFetch } from "@/lib/fees/client-request";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import Link from "next/link";
@@ -54,11 +51,11 @@ export default function AdminCashBankLedgerPage() {
       ? localStorage.getItem("currentSchoolId") || ""
       : "");
   const schoolId = effectiveSchoolId;
-  const schoolName = (profile as any)?.schoolName || "School";
+  const schoolName = (profile as any)?.schoolName || "Lord Buddha Public School";
 
   const [activeTab, setActiveTab] = useState<AccountTab>("ALL");
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
-  const { academicYearId: selectedYear, setAcademicYearId: setSelectedYear } = useFeeSession();
+  const [selectedYear, setSelectedYear] = useState<string>("");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -138,7 +135,7 @@ export default function AdminCashBankLedgerPage() {
         if (startDate) params.append("startDate", startDate);
         if (endDate) params.append("endDate", endDate);
 
-        const res = await feeFetch(`/api/fees/foundation/ledger/cash-bank?${params.toString()}`);
+        const res = await fetch(`/api/fees/foundation/ledger/cash-bank?${params.toString()}`);
         if (res.ok) {
           const json = await res.json();
           const data = json.data || {};
@@ -178,7 +175,7 @@ export default function AdminCashBankLedgerPage() {
     if (!schoolId || !accountSummary) return;
     setExporting(true);
     try {
-      const res = await feeFetch("/api/fees/foundation/ledger/export", {
+      const res = await fetch("/api/fees/foundation/ledger/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -290,7 +287,7 @@ export default function AdminCashBankLedgerPage() {
                 Cash & Bank Multi-Account Ledger
               </h1>
               <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                Real-time cash drawer, UPI, and bank account balances reconciled with collections, refunds and school expenses.
+                Real-time cash drawer, UPI, and bank account balances reconciled with collections and refunds.
               </p>
             </div>
           </div>
@@ -623,7 +620,7 @@ export default function AdminCashBankLedgerPage() {
 
               <div className="p-4 rounded-2xl bg-rose-50/60 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40">
                 <div className="text-[11px] text-rose-700 dark:text-rose-300 font-bold uppercase tracking-wider flex items-center gap-1">
-                  <TrendingDown className="w-3.5 h-3.5 text-rose-600" /> Refunds / Expenses (Outflows)
+                  <TrendingDown className="w-3.5 h-3.5 text-rose-600" /> Refunds (Outflows)
                 </div>
                 <div className="text-xl font-black text-rose-600 dark:text-rose-400 mt-1">
                   -{formatCurrency(accountSummary.totalRefundsRupees)}

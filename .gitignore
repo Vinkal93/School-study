@@ -15,7 +15,6 @@
 
 # next.js
 /.next/
-/.next-verification/
 /out/
 
 # production
@@ -44,13 +43,6 @@ vercel.env
 *.env
 !.env.example
 !.env.production.example
-
-# Firebase & Cloud service account secrets
-*service*account*.json
-*adminsdk*.json
-service-account.json
-firebase-admin-key.json
-secrets/
 
 # vercel
 .vercel

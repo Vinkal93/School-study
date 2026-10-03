@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireFeeAccess as authenticateRequest } from "@/lib/fees/server-access";
+import { authenticateRequest } from "@/lib/auth/serverAuth";
 import { getStudentFeeSummary } from "@/lib/services/fee.service";
 import { getSafeAdminDb } from "@/lib/firebase/admin";
-import { getFirebaseDb } from "@/lib/fees/firestore";
-import { doc, getDoc } from "@/lib/fees/firestore";
+import { getFirebaseDb } from "@/lib/firebase/client";
+import { doc, getDoc } from "firebase/firestore";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
     const authResult = await authenticateRequest(request);
-    if (!authResult.isAuthenticated || !authResult.user) return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (!authResult.isAuthenticated || !authResult.user) {
       return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

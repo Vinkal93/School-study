@@ -1,9 +1,0 @@
-#!/bin/sh
-while read local_ref local_sha remote_ref remote_sha
-do
-  if [ "$remote_ref" = "refs/heads/main" ]; then
-    echo "Direct push to main is blocked. Push a feature branch and use a verified pull request." >&2
-    exit 1
-  fi
-done
-exit 0

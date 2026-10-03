@@ -1,5 +1,5 @@
 import { NextResponse, NextRequest } from "next/server";
-import { requireFeeAccess as authenticateRequest } from "@/lib/fees/server-access";
+import { authenticateRequest } from "@/lib/auth/serverAuth";
 import {
   processFeePaymentWithAllocations,
   getFinancialPayments,
@@ -9,7 +9,6 @@ import type { PaymentMethod } from "@/types/fee-foundation";
 export async function GET(request: NextRequest) {
   try {
     const authResult = await authenticateRequest(request);
-    if (!authResult.isAuthenticated || !authResult.user) return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (!authResult.isAuthenticated || !authResult.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -66,7 +65,6 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const authResult = await authenticateRequest(request);
-    if (!authResult.isAuthenticated || !authResult.user) return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (!authResult.isAuthenticated || !authResult.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -95,8 +93,6 @@ export async function POST(request: NextRequest) {
       remarks,
       paymentDate,
       idempotencyKey,
-      discountRupees,
-      feeType,
     } = body;
 
     const targetSchoolId =
@@ -125,8 +121,6 @@ export async function POST(request: NextRequest) {
       remarks,
       paymentDate,
       idempotencyKey,
-      discountRupees,
-      feeType,
       actorId: authResult.user.uid,
       actorName: authResult.user.name || authResult.user.email || "Staff Accountant",
     });

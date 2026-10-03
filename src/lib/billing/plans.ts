@@ -670,7 +670,7 @@ function validatePlanLimitsAndFeatures(
   featureAccess?: Record<string, FeatureAccessMode>
 ): { cleanLimits: PlanLimits; cleanFeatures: string[]; cleanFeatureAccess: Record<string, FeatureAccessMode> } {
   for (const [key, val] of Object.entries(limits)) {
-    if (typeof val !== "number" || !Number.isSafeInteger(val) || val < -1) {
+    if (typeof val !== "number" || isNaN(val) || val < -1) {
       throw new Error(`Invalid capacity limit for "${key}". Limits must be a non-negative integer or -1 for Unlimited.`);
     }
   }
@@ -680,7 +680,7 @@ function validatePlanLimitsAndFeatures(
     for (const [fKey, mode] of Object.entries(featureAccess)) {
       if (typeof fKey === "string" && fKey.trim()) {
         const validMode: FeatureAccessMode =
-          mode === "FULL_ACCESS" || mode === "SHOWCASE" || mode === "HIDDEN" ? mode : "HIDDEN";
+          mode === "FULL_ACCESS" || mode === "SHOWCASE" || mode === "HIDDEN" ? mode : "FULL_ACCESS";
         cleanFeatureAccess[fKey.trim()] = validMode;
       }
     }
@@ -700,7 +700,6 @@ function validatePlanLimitsAndFeatures(
     cleanFeatures = Object.keys(cleanFeatureAccess).filter((k) => cleanFeatureAccess[k] === "FULL_ACCESS");
   }
 
-  cleanFeatures = Object.keys(cleanFeatureAccess).filter(k => cleanFeatureAccess[k] === "FULL_ACCESS");
   return { cleanLimits: limits, cleanFeatures, cleanFeatureAccess };
 }
 
@@ -959,7 +958,7 @@ export function normalizePlanId(planId?: string): string {
   )
     return "plan_professional";
   if (lower === "enterprise" || lower === "plan_enterprise" || lower === "enterprise plan") return "plan_enterprise";
-  return planId.trim(); // Custom document IDs are case-sensitive and must remain exact.
+  return lower.startsWith("plan_") ? lower : `plan_${lower}`;
 }
 
 export async function getActivePlan(planId: string): Promise<Plan | null> {
@@ -1019,7 +1018,11 @@ export async function getActivePlan(planId: string): Promise<Plan | null> {
             (p) => p.id === normId || p.slug === normId || p.id === planId || p.slug === planId
           );
           const plan = { id: planDoc.id, ...planDoc.data() } as Plan;
-
+          if (defaultPlan) {
+            plan.features = Array.from(new Set([...(defaultPlan.features || []), ...(plan.features || [])]));
+            plan.featureAccess = { ...(defaultPlan.featureAccess || {}), ...(plan.featureAccess || {}) };
+            plan.limits = { ...(defaultPlan.limits || {}), ...(plan.limits || {}) };
+          }
           if (plan.status === "ACTIVE" && !plan.isArchived) {
             cachePlan(plan);
             return plan;
@@ -1030,7 +1033,11 @@ export async function getActivePlan(planId: string): Promise<Plan | null> {
           (p) => p.id === normId || p.slug === normId || p.id === planId || p.slug === planId
         );
         const plan = { id: planSnap.id, ...planSnap.data() } as Plan;
-
+        if (defaultPlan) {
+          plan.features = Array.from(new Set([...(defaultPlan.features || []), ...(plan.features || [])]));
+          plan.featureAccess = { ...(defaultPlan.featureAccess || {}), ...(plan.featureAccess || {}) };
+          plan.limits = { ...(defaultPlan.limits || {}), ...(plan.limits || {}) };
+        }
         if (plan.status === "ACTIVE" && !plan.isArchived) {
           cachePlan(plan);
           return plan;
@@ -1041,20 +1048,13 @@ export async function getActivePlan(planId: string): Promise<Plan | null> {
     }
   }
 
-  // Fallback to static plan catalog
-  const fallback =
-    DEFAULT_STATIC_PLANS.find(
-      (p) => p.id === normId || p.slug === normId || p.id === planId || p.slug === planId
-    ) ||
-    DEFAULT_STATIC_PLANS.find((p) => p.id === "plan_starter") ||
-    null;
-
+  const fallback = DEFAULT_STATIC_PLANS.find(
+    (p) => p.id === normId || p.slug === normId || p.id === planId || p.slug === planId
+  );
   if (fallback) {
     cachePlan(fallback);
-    return fallback;
   }
-
-  return null;
+  return fallback || null;
 }
 
 export async function getPlanVersion(planId: string, version: number): Promise<PlanVersion | null> {
@@ -1090,7 +1090,7 @@ export async function getAllPlans(): Promise<Plan[]> {
   const db = getFirebaseDb();
   if (db) {
     if (typeof window === "undefined") {
-      // Catalog initialization is an explicit admin operation, never a read side effect.
+      await initializeDefaultBillingCatalog().catch(() => {});
     }
     try {
       const snap = await getDocs(collection(db, BILLING_COLLECTIONS.PLANS));
@@ -1099,34 +1099,31 @@ export async function getAllPlans(): Promise<Plan[]> {
         const filtered = allPlans
           .filter((p) => p.status === "ACTIVE" && p.publicVisible !== false && !p.isArchived)
           .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
-        return filtered;
+        if (filtered.length > 0) return filtered;
       }
     } catch (err) {
       console.warn("getAllPlans error:", err);
     }
   }
-  return DEFAULT_STATIC_PLANS.filter((p) => p.status === "ACTIVE" && p.publicVisible !== false && !p.isArchived)
-    .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+  return [...DEFAULT_STATIC_PLANS].sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
 }
 
 export async function getAllPlansAdmin(): Promise<Plan[]> {
   const db = getFirebaseDb();
-  if (!db) return DEFAULT_STATIC_PLANS.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+  if (!db) return [];
 
   if (typeof window === "undefined") {
-    // Catalog initialization is an explicit admin operation, never a read side effect.
+    await initializeDefaultBillingCatalog().catch(() => {});
   }
 
   try {
     const snap = await getDocs(collection(db, BILLING_COLLECTIONS.PLANS));
     const allPlans = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Plan[];
-    if (allPlans.length > 0) {
-      return allPlans.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
-    }
+    return allPlans.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
   } catch (err) {
     console.warn("getAllPlansAdmin error:", err);
+    return [];
   }
-  return DEFAULT_STATIC_PLANS.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
 }
 
 export async function getActivePlanVersion(planId: string): Promise<PlanVersion | null> {
@@ -1143,6 +1140,15 @@ export async function getActivePlanVersion(planId: string): Promise<PlanVersion 
         const activeVersions = versions.filter((v) => v.status === "ACTIVE");
         if (activeVersions.length > 0) {
           const v = { ...activeVersions.sort((a, b) => b.version - a.version)[0] };
+          const staticFallback = DEFAULT_STATIC_PLAN_VERSIONS[normId] || DEFAULT_STATIC_PLAN_VERSIONS[planId];
+          if (!normId.includes("free")) {
+            if (!v.monthlyPrice || v.monthlyPrice <= 0) {
+              v.monthlyPrice = staticFallback?.monthlyPrice || (normId.includes("base") ? 39900 : 99900);
+            }
+            if (!v.annualPrice || v.annualPrice <= 0) {
+              v.annualPrice = staticFallback?.annualPrice || (normId.includes("base") ? 29900 : 79900);
+            }
+          }
           return v;
         }
       }
@@ -1151,14 +1157,8 @@ export async function getActivePlanVersion(planId: string): Promise<PlanVersion 
     }
   }
 
-  // Fallback to static plan version catalog
-  const staticVersion =
-    DEFAULT_STATIC_PLAN_VERSIONS[normId] ||
-    DEFAULT_STATIC_PLAN_VERSIONS[planId] ||
-    DEFAULT_STATIC_PLAN_VERSIONS["plan_starter"] ||
-    null;
-
-  return staticVersion;
+  const fallback = DEFAULT_STATIC_PLAN_VERSIONS[normId] || DEFAULT_STATIC_PLAN_VERSIONS[planId];
+  return fallback || null;
 }
 
 export async function getPlanVersions(planId: string): Promise<PlanVersion[]> {
@@ -1182,7 +1182,7 @@ export async function createPlan(input: CreatePlanInput, actorId: string = "supe
   const db = getFirebaseDb();
   if (!db) throw new Error("Database unavailable.");
 
-  if (![input.monthlyPricePaise, input.annualPricePaise].every(v => Number.isSafeInteger(v) && v >= 0)) {
+  if (input.monthlyPricePaise < 0 || input.annualPricePaise < 0) {
     throw new Error("Plan price cannot be negative.");
   }
 
@@ -1223,6 +1223,7 @@ export async function createPlan(input: CreatePlanInput, actorId: string = "supe
     updatedAt: nowIso,
   };
 
+  await setDoc(doc(db, BILLING_COLLECTIONS.PLANS, planId), plan);
 
   const versionId = `${planId}_v1`;
   const planVersion: PlanVersion = {
@@ -1241,13 +1242,7 @@ export async function createPlan(input: CreatePlanInput, actorId: string = "supe
     createdAt: nowIso,
   };
 
-  await runTransaction(db, async tx => {
-    const planRef = doc(db, BILLING_COLLECTIONS.PLANS, planId);
-    const existing = await tx.get(planRef);
-    if (existing.exists()) throw new Error("A plan with this slug already exists.");
-    tx.set(planRef, plan);
-    tx.set(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, versionId), planVersion);
-  });
+  await setDoc(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, versionId), planVersion);
 
   await createBillingAuditLog(actorId, "super_admin", "PLAN_CREATED", "plan", planId, {
     planName: plan.name,
@@ -1265,9 +1260,6 @@ export async function updatePlan(
   input: UpdatePlanInput,
   actorId: string = "super_admin"
 ): Promise<{ plan: Plan; newVersionCreated: boolean }> {
-  for (const price of [input.monthlyPricePaise, input.annualPricePaise]) {
-    if (price !== undefined && (!Number.isSafeInteger(price) || price < 0)) throw new Error("Plan prices must be non-negative integer amounts in paise.");
-  }
   const db = getFirebaseDb();
   if (!db) throw new Error("Database unavailable.");
 
@@ -1332,11 +1324,15 @@ export async function updatePlan(
   };
 
   let newVersionCreated = false;
-  let pendingVersion: PlanVersion | null = null;
 
   if (isPriceOrFeatureChange) {
     const nextVersionNum = (currentVersion.version || 1) + 1;
     const newVersionId = `${planId}_v${nextVersionNum}`;
+
+    await updateDoc(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, currentVersion.id), {
+      status: "ARCHIVED",
+      effectiveUntil: nowIso,
+    });
 
     const newPlanVersion: PlanVersion = {
       id: newVersionId,
@@ -1355,25 +1351,28 @@ export async function updatePlan(
       createdAt: nowIso,
     };
 
-    pendingVersion = newPlanVersion;
+    await setDoc(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, newVersionId), newPlanVersion);
     updatedPlanData.version = nextVersionNum;
     newVersionCreated = true;
 
+    await createBillingAuditLog(actorId, "super_admin", "PLAN_VERSION_CREATED", "planVersion", newVersionId, {
+      planId,
+      oldVersion: currentVersion.version,
+      newVersion: nextVersionNum,
+      monthlyPrice: newPlanVersion.monthlyPrice,
+      annualPrice: newPlanVersion.annualPrice,
+    });
+
+    if (isFeatureAccessChange) {
+      await createBillingAuditLog(actorId, "super_admin", "PLAN_FEATURE_ACCESS_CHANGED", "plan", planId, {
+        planId,
+        version: nextVersionNum,
+        featureAccess: cleanFeatureAccess,
+      });
+    }
   }
 
-  await runTransaction(db, async tx => {
-    const latest = await tx.get(planRef);
-    const latestVersion = await tx.get(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, currentVersion.id));
-    if (!latest.exists() || !latestVersion.exists() || latest.data().version !== currentPlan.version || latest.data().updatedAt !== currentPlan.updatedAt || latestVersion.data().status !== "ACTIVE") {
-      throw new Error("This plan changed while editing. Reload before saving.");
-    }
-    if (pendingVersion) {
-      tx.update(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, currentVersion.id), { status: "ARCHIVED", effectiveUntil: nowIso });
-      tx.set(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, pendingVersion.id), pendingVersion);
-    }
-    tx.update(planRef, updatedPlanData);
-  });
-  if (pendingVersion) await createBillingAuditLog(actorId, "super_admin", "PLAN_VERSION_CREATED", "planVersion", pendingVersion.id, { planId, version: pendingVersion.version });
+  await updateDoc(planRef, updatedPlanData);
   const updatedPlan = { ...currentPlan, ...updatedPlanData };
   cachePlan(updatedPlan);
 

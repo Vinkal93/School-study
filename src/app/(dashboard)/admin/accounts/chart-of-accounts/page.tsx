@@ -26,7 +26,6 @@ import {
   deleteAccountHead,
   type AccountHead,
 } from "@/lib/services/account-head.service";
-import { getFastCache, setFastCache } from "@/lib/utils/fast-data-cache";
 import { toast } from "sonner";
 
 export default function ChartOfAccountsPage() {
@@ -47,26 +46,15 @@ export default function ChartOfAccountsPage() {
   const [pageSize, setPageSize] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Load Heads with zero-flicker fast cache
+  // Load Heads
   useEffect(() => {
     if (!schoolId) return;
-    const cacheKey = `admin_account_heads_${schoolId}`;
-    const cached = getFastCache<AccountHead[]>(cacheKey);
-    if (cached) {
-      setHeads(cached);
-      setLoading(false);
-    } else {
-      setLoading(true);
-    }
-
+    setLoading(true);
     getAccountHeads(schoolId)
-      .then((data) => {
-        setHeads(data);
-        setFastCache(cacheKey, data, 10 * 60 * 1000);
-      })
+      .then((data) => setHeads(data))
       .catch((err) => {
         console.error("Failed to load account heads:", err);
-        if (!cached) toast.error("Failed to load chart of accounts.");
+        toast.error("Failed to load chart of accounts.");
       })
       .finally(() => setLoading(false));
   }, [schoolId]);
@@ -86,11 +74,7 @@ export default function ChartOfAccountsPage() {
     setSaving(true);
     try {
       const created = await createAccountHead(schoolId, headName.trim(), headType);
-      setHeads((prev) => {
-        const next = [...prev, created];
-        setFastCache(`admin_account_heads_${schoolId}`, next, 10 * 60 * 1000);
-        return next;
-      });
+      setHeads((prev) => [...prev, created]);
       setHeadName("");
       setHeadType("");
       toast.success(`Account Head "${created.name}" created successfully!`);
@@ -110,11 +94,7 @@ export default function ChartOfAccountsPage() {
 
     try {
       await deleteAccountHead(schoolId, head.id);
-      setHeads((prev) => {
-        const next = prev.filter((h) => h.id !== head.id);
-        setFastCache(`admin_account_heads_${schoolId}`, next, 10 * 60 * 1000);
-        return next;
-      });
+      setHeads((prev) => prev.filter((h) => h.id !== head.id));
       toast.success(`Account Head "${head.name}" deleted.`);
     } catch (err: any) {
       console.error("Delete head error:", err);

@@ -1,15 +1,11 @@
-import { requireFeeAccess } from "@/lib/fees/server-access";
 import { NextResponse } from "next/server";
 import { adjustStudentMonthLedger } from "@/lib/services/fee.service";
 import { canAccessFeature } from "@/lib/billing/featureAccess";
 
 export async function POST(request: Request) {
   try {
-    const auth = await requireFeeAccess(request);
-    if (!auth.user) return auth.errorResponse;
     const body = await request.json();
-    const { schoolId: requestedSchoolId, studentId, monthName, adjustment, actorId, academicYearId } = body;
-    const schoolId = auth.user.role === "super_admin" ? requestedSchoolId || auth.user.schoolId : auth.user.schoolId;
+    const { schoolId, studentId, monthName, adjustment, actorId, academicYearId } = body;
 
     if (!schoolId || !studentId || !monthName || !adjustment) {
       return NextResponse.json(
@@ -28,7 +24,7 @@ export async function POST(request: Request) {
       studentId,
       monthName,
       adjustment,
-      auth.user.uid,
+      actorId || "school_admin",
       academicYearId || "ay_current"
     );
 

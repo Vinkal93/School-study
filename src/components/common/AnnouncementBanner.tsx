@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { useSiteSettings } from "@/context/SiteSettingsContext";
 import { useAuth } from "@/hooks/use-auth";
 import { computeAnnouncementStatus, CmsAnnouncement } from "@/lib/cms/siteSettings";
@@ -14,9 +13,7 @@ interface AnnouncementBannerProps {
 }
 
 export function AnnouncementBanner({ area = "ALL", previewAnnouncement }: AnnouncementBannerProps) {
-  const { settings, loading } = useSiteSettings();
-  const pathname = usePathname();
-  const effectiveArea = area === "ALL" ? (pathname === "/" ? "HOMEPAGE" : pathname === "/pricing" ? "PRICING" : /^(\/admin|\/teacher|\/student|\/super-admin)(\/|$)/.test(pathname) ? "PORTALS" : "ALL") : area;
+  const { settings } = useSiteSettings();
   const { profile } = useAuth();
   const [dismissedId, setDismissedId] = useState<string | null>(null);
 
@@ -25,14 +22,12 @@ export function AnnouncementBanner({ area = "ALL", previewAnnouncement }: Announ
   const [isOverflowing, setIsOverflowing] = useState(false);
 
   const announcements = settings?.announcements || [];
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => { const timer = setInterval(() => setNowMs(Date.now()), 30000); return () => clearInterval(timer); }, []);
+  const nowMs = Date.now();
 
   const activeAnnouncement: CmsAnnouncement | null = useMemo(() => {
     if (previewAnnouncement) {
       return previewAnnouncement;
     }
-    if (loading) return null;
 
     const filtered = announcements
       .filter((a) => {
@@ -41,7 +36,7 @@ export function AnnouncementBanner({ area = "ALL", previewAnnouncement }: Announ
         if (status !== "ACTIVE") return false;
 
         // Area filtering
-        if (a.targetPublicArea && a.targetPublicArea !== "ALL" && a.targetPublicArea !== effectiveArea) {
+        if (a.targetPublicArea && a.targetPublicArea !== "ALL" && a.targetPublicArea !== area) {
           return false;
         }
 
@@ -58,7 +53,7 @@ export function AnnouncementBanner({ area = "ALL", previewAnnouncement }: Announ
       .sort((a, b) => (b.priority || 1) - (a.priority || 1));
 
     return filtered[0] || null;
-  }, [previewAnnouncement, announcements, nowMs, effectiveArea, profile?.schoolId, loading]);
+  }, [previewAnnouncement, announcements, nowMs, area, profile?.schoolId]);
 
   // Check sessionStorage dismissal
   useEffect(() => {

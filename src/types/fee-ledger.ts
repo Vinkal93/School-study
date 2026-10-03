@@ -105,7 +105,6 @@ export type AccountLedgerEntryType =
   | "COLLECTION"
   | "REFUND"
   | "REVERSAL"
-  | "EXPENSE"
   | "TRANSFER";
 
 export interface AccountLedgerEntry {

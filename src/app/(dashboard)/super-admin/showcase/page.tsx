@@ -26,7 +26,6 @@ import { DEFAULT_AI_SHOWCASE } from "@/types/ai";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 import Link from "next/link";
-import { showcaseAdminRequest } from "@/lib/services/showcase.service";
 
 interface GlobalShowcaseSettings {
   enabled: boolean;
@@ -60,7 +59,7 @@ export default function SuperAdminShowcasePage() {
   const fetchShowcases = useCallback(async () => {
     try {
       const headers = await getAuthHeaders();
-      const res = await showcaseAdminRequest("/api/super-admin/feature-showcase", { headers });
+      const res = await fetch("/api/super-admin/feature-showcase", { headers });
       if (res.ok) {
         const data = await res.json();
         setShowcases(data.showcases || []);
@@ -88,7 +87,7 @@ export default function SuperAdminShowcasePage() {
     setSaving(true);
     try {
       const headers = await getAuthHeaders();
-      const res = await showcaseAdminRequest("/api/super-admin/feature-showcase", {
+      const res = await fetch("/api/super-admin/feature-showcase", {
         method: "POST",
         headers,
         body: JSON.stringify(showcaseToSave),
@@ -118,7 +117,7 @@ export default function SuperAdminShowcasePage() {
         status: newStatus,
         enabled: newStatus === "PUBLISHED",
       };
-      const res = await showcaseAdminRequest("/api/super-admin/feature-showcase", {
+      const res = await fetch("/api/super-admin/feature-showcase", {
         method: "POST",
         headers,
         body: JSON.stringify(updatedShowcase),
@@ -145,7 +144,7 @@ export default function SuperAdminShowcasePage() {
     setTogglingAction("landing");
     try {
       const headers = await getAuthHeaders();
-      const res = await showcaseAdminRequest("/api/super-admin/feature-showcase", {
+      const res = await fetch("/api/super-admin/feature-showcase", {
         method: "POST",
         headers,
         body: JSON.stringify({
@@ -175,7 +174,7 @@ export default function SuperAdminShowcasePage() {
     setTogglingAction("master");
     try {
       const headers = await getAuthHeaders();
-      const res = await showcaseAdminRequest("/api/super-admin/feature-showcase", {
+      const res = await fetch("/api/super-admin/feature-showcase", {
         method: "POST",
         headers,
         body: JSON.stringify({
@@ -399,7 +398,7 @@ export default function SuperAdminShowcasePage() {
               setTogglingAction("modal");
               try {
                 const headers = await getAuthHeaders();
-                await showcaseAdminRequest("/api/super-admin/feature-showcase", {
+                await fetch("/api/super-admin/feature-showcase", {
                   method: "POST",
                   headers,
                   body: JSON.stringify({

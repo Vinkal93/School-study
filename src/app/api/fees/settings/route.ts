@@ -1,26 +1,56 @@
 import { NextResponse } from "next/server";
-import { requireFeeAccess } from "@/lib/fees/server-access";
 import { getFeeSettings, updateFeeSettings } from "@/lib/services/fee.service";
+import { canAccessFeature } from "@/lib/billing/featureAccess";
+
 export async function GET(request: Request) {
   try {
-    const auth = await requireFeeAccess(request);
-    if (!auth.user) return auth.errorResponse;
-    const schoolId = auth.user.role === "super_admin" ? new URL(request.url).searchParams.get("schoolId") || auth.user.schoolId : auth.user.schoolId;
-    if (!schoolId) return NextResponse.json({ error: "School required." }, { status: 400 });
-    return NextResponse.json({ success: true, settings: await getFeeSettings(schoolId) });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Settings unavailable." }, { status: 500 });
+    const { searchParams } = new URL(request.url);
+    const schoolId = searchParams.get("schoolId");
+
+    if (!schoolId) {
+      return NextResponse.json({ error: "School ID required" }, { status: 400 });
+    }
+
+    const access = await canAccessFeature(schoolId, "fee_management");
+    if (!access.allowed) {
+      return NextResponse.json({ error: "Fee management feature locked" }, { status: 403 });
+    }
+
+    const settings = await getFeeSettings(schoolId);
+    return NextResponse.json({ success: true, settings });
+  } catch (err: any) {
+    console.error("GET /api/fees/settings error:", err);
+    return NextResponse.json(
+      { error: err.message || "Failed to load fee settings" },
+      { status: 500 }
+    );
   }
 }
+
 export async function POST(request: Request) {
   try {
-    const auth = await requireFeeAccess(request);
-    if (!auth.user) return auth.errorResponse;
     const body = await request.json();
-    const schoolId = auth.user.role === "super_admin" ? body.schoolId || auth.user.schoolId : auth.user.schoolId;
-    if (!schoolId || !body.settings) return NextResponse.json({ error: "School and settings required." }, { status: 400 });
-    return NextResponse.json({ success: true, settings: await updateFeeSettings(schoolId, body.settings, auth.user.uid) });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Settings update failed." }, { status: 400 });
+    const { schoolId, settings, actorId } = body;
+
+    if (!schoolId || !settings) {
+      return NextResponse.json(
+        { error: "School ID and settings are required" },
+        { status: 400 }
+      );
+    }
+
+    const access = await canAccessFeature(schoolId, "fee_management");
+    if (!access.allowed) {
+      return NextResponse.json({ error: "Fee management feature locked" }, { status: 403 });
+    }
+
+    const updated = await updateFeeSettings(schoolId, settings, actorId || "school_admin");
+    return NextResponse.json({ success: true, settings: updated });
+  } catch (err: any) {
+    console.error("POST /api/fees/settings error:", err);
+    return NextResponse.json(
+      { error: err.message || "Failed to save fee settings" },
+      { status: 500 }
+    );
   }
 }

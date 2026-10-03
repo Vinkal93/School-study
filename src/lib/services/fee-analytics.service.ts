@@ -14,7 +14,7 @@ import { postedPayment, normalizePaymentMethod } from "@/lib/fees/finance-core";
  * Strict multi-tenant isolation, integer-paise precision, Indian session (Apr-Mar) aware.
  */
 
-import { getFirebaseDb } from "@/lib/fees/firestore";
+import { getFirebaseDb } from "@/lib/firebase/client";
 import {
   collection,
   query,
@@ -22,7 +22,7 @@ import {
   getDocs,
   orderBy,
   limit,
-} from "@/lib/fees/firestore";
+} from "firebase/firestore";
 import type {
   FeeDemand,
   FinancialPayment,
@@ -1061,12 +1061,13 @@ export async function getClassCollectionSummary(
   const db = getFirebaseDb();
   if (!db || !schoolId) return [];
 
-  const yearId = filter?.academicYearId || "all";
+  const yearId = filter?.academicYearId || "ay_2026_27";
   let demands: FeeDemand[] = [];
 
   const q = query(
     collection(db, "feeDemands"),
     where("schoolId", "==", schoolId),
+    where("academicYearId", "==", yearId)
   );
   const snap = await getDocs(q);
   demands = snap.docs.map(
@@ -1126,8 +1127,6 @@ export async function getClassCollectionSummary(
     }
   }
 
-  demands = demands.filter(d => matchAcademicYear(d.academicYearId, yearId));
-  const studentTotals = new Map<string, { paid: number; balance: number }>();
   const classMap = new Map<
     string,
     {
@@ -1172,20 +1171,13 @@ export async function getClassCollectionSummary(
     cEntry.collectedPaise += d.paidAmountPaise || 0;
     cEntry.outstandingPaise += d.balanceAmountPaise || 0;
 
-    const key = `${cName}:${d.studentId}`;
-    const totals = studentTotals.get(key) || { paid: 0, balance: 0 };
-    totals.paid += d.paidAmountPaise || 0; totals.balance += d.balanceAmountPaise || 0;
-    studentTotals.set(key, totals);
+    if (d.balanceAmountPaise === 0) cEntry.paidStudentIds.add(d.studentId);
+    else if (d.paidAmountPaise > 0) cEntry.partialStudentIds.add(d.studentId);
+    else cEntry.dueStudentIds.add(d.studentId);
   }
 
   const rows: ClassCollectionRow[] = [];
   for (const entry of classMap.values()) {
-    for (const id of entry.studentIds) {
-      const totals = studentTotals.get(`${entry.className}:${id}`)!;
-      if (totals.balance === 0) entry.paidStudentIds.add(id);
-      else if (totals.paid > 0) entry.partialStudentIds.add(id);
-      else entry.dueStudentIds.add(id);
-    }
     const rate =
       entry.expectedPaise > 0
         ? Number(
@@ -1227,15 +1219,15 @@ export async function getFeeHeadCollectionSummary(
   const db = getFirebaseDb();
   if (!db || !schoolId) return [];
 
-  const yearId = filter?.academicYearId || "all";
+  const yearId = filter?.academicYearId || "ay_2026_27";
   let q = query(
     collection(db, "feeDemands"),
     where("schoolId", "==", schoolId),
+    where("academicYearId", "==", yearId)
   );
   const snap = await getDocs(q);
   let demands = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as FeeDemand);
 
-  demands = demands.filter(d => matchAcademicYear(d.academicYearId, yearId));
   if (filter?.className && filter.className !== "all") {
     demands = demands.filter(
       (d) => d.className?.toLowerCase() === filter.className!.toLowerCase()

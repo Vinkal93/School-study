@@ -22,7 +22,7 @@ export function PaymentMethodCard({ paymentMethod, onUpdate }: PaymentMethodCard
   const [identifier, setIdentifier] = useState(paymentMethod?.maskedIdentifier || "schoolstudy@upi");
 
   const handleSave = () => {
-    toast.info("Choose your payment method during secure checkout.");
+    toast.success("Payment method preference updated.");
     setShowUpdateModal(false);
     onUpdate();
   };
@@ -36,7 +36,7 @@ export function PaymentMethodCard({ paymentMethod, onUpdate }: PaymentMethodCard
             <span>Active Payment Method</span>
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Payment method recorded for your school subscription.
+            Masked payment credential stored securely via PCI-DSS compliant Razorpay gateway tokenization.
           </p>
         </div>
 

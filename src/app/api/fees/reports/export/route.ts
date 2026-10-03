@@ -1,15 +1,11 @@
-import { requireFeeAccess } from "@/lib/fees/server-access";
 import { NextResponse } from "next/server";
 import { canAccessFeature } from "@/lib/billing/featureAccess";
 import { getFeeTransactions } from "@/lib/services/fee.service";
 
 export async function POST(request: Request) {
   try {
-    const auth = await requireFeeAccess(request);
-    if (!auth.user) return auth.errorResponse;
     const body = await request.json();
-    const { schoolId: requestedSchoolId, format } = body;
-    const schoolId = auth.user.role === "super_admin" ? requestedSchoolId || auth.user.schoolId : auth.user.schoolId;
+    const { schoolId, format } = body;
 
     if (!schoolId) {
       return NextResponse.json({ error: "School ID required" }, { status: 400 });

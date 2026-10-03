@@ -29,8 +29,8 @@ export function calculateAccessMode(
     return "NO_ACCESS";
   }
 
-  const now = nowMs ?? Date.now();
-  const expiresAtMs = safeDateMs(subscription.expiresAt, 0);
+  const now = nowMs || Date.now();
+  const expiresAtMs = safeDateMs(subscription.expiresAt, now + 365 * 86400000);
   const graceEndsAtMs = safeDateMs(subscription.graceEndsAt, expiresAtMs + 7 * 86400000);
   const daysRemaining = Math.max(0, Math.ceil((expiresAtMs - now) / (1000 * 60 * 60 * 24)));
 
@@ -63,8 +63,8 @@ export function calculateSubscriptionState(
   policy: GlobalAccessPolicy,
   nowMs?: number
 ) {
-  const now = nowMs ?? Date.now();
-  const expiresAtMs = safeDateMs(subscription.expiresAt, 0);
+  const now = nowMs || Date.now();
+  const expiresAtMs = safeDateMs(subscription.expiresAt, now + 365 * 86400000);
   const graceEndsAtMs = safeDateMs(subscription.graceEndsAt, expiresAtMs + 7 * 86400000);
 
   const daysRemaining = Math.max(
@@ -119,21 +119,30 @@ export async function getSchoolAccess(schoolId: string): Promise<SchoolAccessSum
   ]);
 
   const now = Date.now();
-  const expiresAtMs = safeDateMs(sub.expiresAt, 0);
+  const expiresAtMs = safeDateMs(sub.expiresAt, now + 365 * 86400000);
   const daysRemaining = Math.max(0, Math.ceil((expiresAtMs - now) / (1000 * 60 * 60 * 24)));
   const accessMode = calculateAccessMode(sub, policy, now);
 
   const reminderRequired =
     now < expiresAtMs && policy.reminderDays.some((d) => daysRemaining <= d);
 
-  let allowedFeatures: string[] = [];
-  let planLimits = { maxStudents: 0, maxTeachers: 0, maxClasses: 0, maxStaffAccounts: 0 };
+  // Default features fallback according to planId
+  let allowedFeatures: string[] = sub.planId === "plan_starter"
+    ? ["student_management", "teacher_management", "class_management", "basic_attendance", "school_dashboard"]
+    : ["student_management", "teacher_management", "class_management", "basic_attendance", "attendance_automation", "school_dashboard", "notices_announcements", "advanced_reports", "fee_management"];
+
+  let planLimits = {
+    maxStudents: sub.planId === "plan_starter" ? 500 : 2000,
+    maxTeachers: sub.planId === "plan_starter" ? 20 : 100,
+    maxClasses: sub.planId === "plan_starter" ? 15 : 60,
+    maxStaffAccounts: sub.planId === "plan_starter" ? 2 : 10,
+  };
 
   try {
     // 1. Authoritative Primary: Load the active Plan document directly from Firestore / memory cache
     const activePlan = await getActivePlan(sub.planId);
     if (activePlan) {
-      if (Array.isArray(activePlan.features)) {
+      if (Array.isArray(activePlan.features) && activePlan.features.length > 0) {
         allowedFeatures = [...activePlan.features];
       }
       if (activePlan.limits) {

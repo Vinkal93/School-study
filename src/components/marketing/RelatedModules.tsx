@@ -17,7 +17,6 @@ interface RelatedModuleItem {
 }
 
 const ALL_MODULES: RelatedModuleItem[] = [
-  { title: "School Fee Management", href: "/fee-management", description: "Connect fee structures, student dues, collections, receipts and ledgers.", icon: School, anchorText: "Explore School Fee Management Software" },
   {
     title: "School Management",
     href: "/school-management",
@@ -66,7 +65,7 @@ export function RelatedModules({
   title = "Explore Related School Modules",
   subtitle = "Discover how School Study's interconnected modules simplify your institution's daily workflows.",
 }: RelatedModulesProps) {
-  const related = ALL_MODULES.filter((mod) => mod.href !== currentPath);
+  const related = ALL_MODULES.filter((mod) => mod.href !== currentPath).slice(0, 3);
 
   return (
     <section className="py-16 bg-slate-50/70 dark:bg-gray-900/40 border-t border-slate-100 dark:border-slate-800">

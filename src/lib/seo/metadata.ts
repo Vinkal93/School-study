@@ -66,7 +66,7 @@ export function constructMetadata({
   const pageTitle = normalizeTitle(title);
   
   // Merge page-specific keywords with global brand & creator keywords (deduped)
-  const combinedKeywords = Array.from(new Set(keywords.length ? keywords : [siteConfig.name, "school management software", "school ERP software"]));
+  const combinedKeywords = Array.from(new Set([...keywords, ...siteConfig.keywords]));
 
   return {
     title: pageTitle,
@@ -89,7 +89,7 @@ export function constructMetadata({
     openGraph: {
       title: pageTitle,
       description,
-      url: new URL(canonicalUrl || "/", siteConfig.url).toString(),
+      url: canonicalUrl ? `${siteConfig.url}${canonicalUrl}` : siteConfig.url,
       siteName: siteConfig.name,
       images: [
         {
@@ -108,6 +108,8 @@ export function constructMetadata({
       title: pageTitle,
       description,
       images: [image],
+      creator: "@schoolstudy",
+      site: "@schoolstudy",
     },
     verification: {
       google: siteConfig.googleSiteVerification,
