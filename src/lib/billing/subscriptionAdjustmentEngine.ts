@@ -668,6 +668,14 @@ export async function revokeLimitOverride(
 }
 
 export async function getActiveLimitOverrides(schoolId: string): Promise<LimitOverrideRecord[]> {
+  if (typeof window === "undefined") {
+    const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+    const db = getSafeAdminDb();
+    if (!db) throw new Error("Private Firebase Admin configuration is required.");
+    const snap = await db.collection(BILLING_COLLECTIONS.LIMIT_OVERRIDES).where("schoolId","==",schoolId).get();
+    const now = new Date().toISOString();
+    return snap.docs.map(d => ({id:d.id,...d.data()} as LimitOverrideRecord)).filter(o => o.status === "ACTIVE" && o.endAt > now);
+  }
   const db = getFirebaseDb();
   if (!db) return [];
 

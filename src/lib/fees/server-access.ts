@@ -48,7 +48,7 @@ export async function requireFeeAccess(request: Request): Promise<FeeAuthResult>
   }
 
   if (auth.user.role !== "super_admin") {
-    try { await requireFeatureAccess(auth.user.schoolId, "fee_management"); }
+    try { await requireFeatureAccess(auth.user.schoolId || "", "fee_management"); }
     catch (error) {
       return {isAuthenticated:false,errorResponse:NextResponse.json({error:error instanceof Error ? error.message : "Fee plan access denied."},{status:403})};
     }

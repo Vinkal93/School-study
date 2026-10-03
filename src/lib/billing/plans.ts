@@ -1075,6 +1075,13 @@ export async function calculatePlanPrice(
 }
 
 export async function getAllPlans(): Promise<Plan[]> {
+  if (typeof window === "undefined") {
+    const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+    const db = getSafeAdminDb();
+    if (!db) return [];
+    const snap = await db.collection(BILLING_COLLECTIONS.PLANS).get();
+    return snap.docs.map(d => ({id:d.id,...d.data()} as Plan)).filter(p => p.status === "ACTIVE" && p.publicVisible !== false && !p.isArchived).sort((a,b)=>(a.displayOrder||0)-(b.displayOrder||0));
+  }
   const db = getFirebaseDb();
   if (db) {
     if (typeof window === "undefined") {
@@ -1097,6 +1104,13 @@ export async function getAllPlans(): Promise<Plan[]> {
 }
 
 export async function getAllPlansAdmin(): Promise<Plan[]> {
+  if (typeof window === "undefined") {
+    const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+    const db = getSafeAdminDb();
+    if (!db) return [];
+    const snap = await db.collection(BILLING_COLLECTIONS.PLANS).get();
+    return snap.docs.map(d => ({id:d.id,...d.data()} as Plan)).filter(p => true).sort((a,b)=>(a.displayOrder||0)-(b.displayOrder||0));
+  }
   const db = getFirebaseDb();
   if (!db) return [];
 

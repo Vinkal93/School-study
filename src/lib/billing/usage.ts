@@ -115,6 +115,17 @@ export async function reconcileSchoolUsage(
  * If the record does not exist or has never been initialized, automatically triggers reconciliation.
  */
 export async function getSchoolUsage(schoolId: string): Promise<SchoolUsage> {
+  if (typeof window === "undefined") {
+    const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+    const db = getSafeAdminDb();
+    if (!db || !schoolId) throw new Error("School usage database is unavailable.");
+    const snap = await db.collection(USAGE_COLLECTION).doc(schoolId).get();
+    if (snap.exists) return {...getDefaultSchoolUsage(schoolId),...snap.data(),schoolId} as SchoolUsage;
+    const [students,teachers,classes,staff] = await Promise.all([
+      db.collection(`schools/${schoolId}/students`).get(),db.collection(`schools/${schoolId}/teachers`).get(),db.collection(`schools/${schoolId}/classes`).get(),db.collection("users").where("schoolId","==",schoolId).where("role","==","school_admin").get()
+    ]);
+    return {...getDefaultSchoolUsage(schoolId),students:students.size,teachers:teachers.size,classes:classes.size,staff:staff.size};
+  }
   if (!schoolId || schoolId === "school_default" || schoolId === "system") {
     return getDefaultSchoolUsage(schoolId || "school_default");
   }

@@ -13,6 +13,11 @@ import type { PaymentMethodData } from "@/components/billing/PaymentMethodCard";
 export async function getSchoolBillingDashboard(schoolId: string) {
   const db = getFirebaseDb();
   if (!db || !schoolId) throw new Error("School billing database is unavailable.");
+  const adminDb = typeof window === "undefined" ? (await import("@/lib/firebase/admin")).getSafeAdminDb() : null;
+  const readDocumentAt = async (name:string, id:string) => {
+    if (adminDb) { const snap = await adminDb.collection(name).doc(id).get(); return snap.exists ? {...snap.data(),id:snap.id} : null; }
+    const snap = await getDoc(doc(db,name,id)); return snap.exists() ? {...snap.data(),id:snap.id} : null;
+  };
   const subscription = await getSchoolSubscription(schoolId);
   const [entitlement, plan, planVersion, allPlans, policy] = await Promise.all([
     getEffectiveEntitlement(schoolId), getActivePlan(subscription.planId),
@@ -20,17 +25,14 @@ export async function getSchoolBillingDashboard(schoolId: string) {
   ]);
 
   const resolvedPlan = plan;
-  const versionSnap = await getDoc(doc(db, "planVersions", subscription.planVersionId));
-  const resolvedVersion = versionSnap.exists() ? { ...versionSnap.data(), id: versionSnap.id } as PlanVersion : planVersion;
+  const resolvedVersion = await readDocumentAt("planVersions", subscription.planVersionId) as PlanVersion | null;
   if (!resolvedPlan || !resolvedVersion || resolvedVersion.planId !== subscription.planId) throw new Error("Assigned plan or pricing version is unavailable. Contact the school administrator.");
   const effectivePlans = allPlans;
   const versions = await Promise.all(effectivePlans.map(p => getActivePlanVersion(p.id)));
   const planPrices = Object.fromEntries(versions.filter(v => v !== null).map(v => [v.planId, { monthlyPrice: v.monthlyPrice, annualPrice: v.annualPrice, currency: v.currency || "INR" }]));
-  const readDocument = async (name: string) => {
-    const snap = await getDoc(doc(db, name, schoolId));
-    return snap.exists() ? snap.data() : null;
-  };
+  const readDocument = (name:string) => readDocumentAt(name,schoolId);
   const readRecords = async (name: string) => {
+    if (adminDb) { const snap = await adminDb.collection(name).where("schoolId","==",schoolId).get(); return snap.docs.map(d => ({...d.data(),id:d.id})); }
     const snap = await getDocs(query(collection(db, name), where("schoolId", "==", schoolId)));
     return snap.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) =>
       new Date((b as { createdAt?: string }).createdAt || 0).getTime() - new Date((a as { createdAt?: string }).createdAt || 0).getTime());
@@ -38,7 +40,7 @@ export async function getSchoolBillingDashboard(schoolId: string) {
   // Optional collections can be unavailable to the role; keep absence explicit.
   const [billingProfile, paymentMethod, invoices, payments] = await Promise.all([
     readDocument("billingProfiles").catch(() => null), readDocument("paymentMethods").catch(() => null),
-    readRecords("invoices").catch(() => []), readRecords("payments").catch(() => []),
+    readRecords("invoices"), readRecords("payments"),
   ]);
   return {
     schoolId, subscription, subState: calculateSubscriptionState(subscription, policy), planPrices,
