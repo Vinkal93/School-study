@@ -18,10 +18,34 @@ import {
   DEFAULT_FEE_AUTOMATION_RULES,
   dispatchCommunicationMessage,
   getSchoolCommunicationAccess,
-  resolveTemplateVariables,
 } from "./communication.service";
 import { getStudents } from "@/lib/services/student.service";
-import { getFeeStructures } from "./fee.service";
+import { getFeeStructures, getStudentFeeSummary } from "./fee.service";
+import { resolveMessageTemplate } from "./communication-variables";
+import { generateUpiPayLink } from "./fee-share.service";
+
+/**
+ * Checks if current time in Indian Standard Time (IST) falls within quiet hours.
+ * Default quiet hours: 21:00 (9 PM) to 08:00 (8 AM)
+ */
+export function isWithinQuietHours(startHour: number = 21, endHour: number = 8): boolean {
+  try {
+    const formatter = new Intl.DateTimeFormat("en-IN", {
+      timeZone: "Asia/Kolkata",
+      hour: "numeric",
+      hour12: false,
+    });
+    const currentHour = parseInt(formatter.format(new Date()), 10);
+    if (startHour > endHour) {
+      return currentHour >= startHour || currentHour < endHour;
+    } else {
+      return currentHour >= startHour && currentHour < endHour;
+    }
+  } catch {
+    const hour = new Date().getHours();
+    return hour >= startHour || hour < endHour;
+  }
+}
 
 /**
  * Retrieves configured fee automation rules for a school.
@@ -85,24 +109,33 @@ export interface AutomationExecutionReport {
   activeRulesCount: number;
   messagesDispatched: number;
   duplicatesSkipped: number;
+  suppressedCount: number;
+  quietHoursSuppressed: number;
   errorsCount: number;
   details: Array<{
     studentName: string;
     ruleType: string;
     channel: string;
     status: string;
+    reason?: string;
     error?: string;
   }>;
 }
 
 /**
  * Executes fee reminder automation for a school.
- * Evaluates rules (before due, on due, overdue, late fee) against real student fee records.
- * Uses strict deduplication to prevent duplicate reminders on the same day.
+ * 
+ * Features:
+ * 1. Checks real student fee balances via getStudentFeeSummary
+ * 2. Automatic suppression when balance is 0 or already paid
+ * 3. Quiet hours enforcement (21:00 - 08:00 IST)
+ * 4. Precise deduplication key per student, rule, and calendar date
+ * 5. Multi-channel dispatch (WhatsApp Cloud API, SMS, In-App)
  */
 export async function runSchoolFeeReminderAutomation(
   schoolId: string,
-  triggeredBy: { uid: string; name: string; role: string }
+  triggeredBy: { uid: string; name: string; role: string },
+  options?: { ignoreQuietHours?: boolean }
 ): Promise<AutomationExecutionReport> {
   const report: AutomationExecutionReport = {
     timestamp: new Date().toISOString(),
@@ -111,6 +144,8 @@ export async function runSchoolFeeReminderAutomation(
     activeRulesCount: 0,
     messagesDispatched: 0,
     duplicatesSkipped: 0,
+    suppressedCount: 0,
+    quietHoursSuppressed: 0,
     errorsCount: 0,
     details: [],
   };
@@ -146,15 +181,61 @@ export async function runSchoolFeeReminderAutomation(
   for (const student of students) {
     if (student.status && student.status.toLowerCase() !== "active") continue;
 
-    // Resolve student monthly fee
+    // Resolve matching fee structure
     const matchingStructure = feeStructures.find(
       (s) => (s as any).classId === student.classId || s.className?.toLowerCase() === student.className?.toLowerCase()
     );
-    const monthlyFee = matchingStructure?.amountPaise ? Math.round(matchingStructure.amountPaise / 100) : 500;
+    const standardFee = matchingStructure?.amountPaise ? Math.round(matchingStructure.amountPaise / 100) : 500;
     const dueDay = matchingStructure?.dueDayOfMonth || defaultDueDay;
+
+    // Calculate real live fee summary for this student
+    let feeSummary = null;
+    try {
+      feeSummary = await getStudentFeeSummary(schoolId, student);
+    } catch (fErr) {
+      console.warn(`[CommunicationAutomation] Failed to get live fee summary for ${student.name}:`, fErr);
+    }
+
+    const pendingAmount = feeSummary?.totalPendingRupees ?? standardFee;
 
     // Check each active rule
     for (const rule of activeRules) {
+      // 1. Class filter check
+      if (rule.eligibleClassIds && rule.eligibleClassIds.length > 0) {
+        if (!student.classId || !rule.eligibleClassIds.includes(student.classId)) {
+          continue;
+        }
+      }
+
+      // 2. Suppression check: If fee balance is 0 or less than minimum threshold, SUPPRESS reminder
+      const minThreshold = rule.minOutstandingAmount ?? 1;
+      if (pendingAmount < minThreshold) {
+        report.suppressedCount++;
+        report.details.push({
+          studentName: student.name,
+          ruleType: rule.type,
+          channel: "all",
+          status: "balance_cleared_suppressed",
+          reason: `Student fee is fully settled or outstanding balance (₹${pendingAmount}) is below threshold (₹${minThreshold}).`,
+        });
+        continue;
+      }
+
+      // 3. Quiet hours check
+      const quietStart = rule.quietHoursStart ?? 21;
+      const quietEnd = rule.quietHoursEnd ?? 8;
+      if (!options?.ignoreQuietHours && isWithinQuietHours(quietStart, quietEnd)) {
+        report.quietHoursSuppressed++;
+        report.details.push({
+          studentName: student.name,
+          ruleType: rule.type,
+          channel: "all",
+          status: "quiet_hours_suppressed",
+          reason: `Message withheld: currently within quiet hours (${quietStart}:00 - ${quietEnd}:00 IST).`,
+        });
+        continue;
+      }
+
       let isApplicable = false;
       let dueDateFormatted = `${dueDay} of this month`;
 
@@ -175,13 +256,53 @@ export async function runSchoolFeeReminderAutomation(
         if (currentDayOfMonth === targetOverdueDay) {
           isApplicable = true;
         }
+      } else if (rule.type === "late_fee") {
+        const targetLateFeeDay = dueDay + Math.max(rule.daysOffset, 7);
+        if (currentDayOfMonth === targetLateFeeDay) {
+          isApplicable = true;
+        }
       }
 
       if (isApplicable) {
+        const payLink = `https://school.sbci.online/pay/${schoolId}/${student.id}`;
+
+        // Variable context using the central variable engine
+        const varContext = {
+          student: {
+            id: student.id,
+            name: student.name,
+            admissionNumber: student.admissionNumber || student.rollNumber,
+            className: student.className,
+            sectionName: student.sectionName,
+            fatherName: student.fatherName,
+            motherName: student.motherName,
+            guardianName: student.guardianName,
+            phone: student.phone,
+            email: student.email,
+          },
+          school: {
+            id: schoolId,
+            name: access.schoolName || "School",
+          },
+          fee: {
+            feeAmount: standardFee,
+            outstandingAmount: pendingAmount,
+            dueDate: dueDateFormatted,
+            paymentLink: payLink,
+          },
+          customVariables: {
+            due_date: dueDateFormatted,
+            payment_link: payLink,
+          },
+        };
+
+        const resolvedBody = resolveMessageTemplate(rule.bodyTemplate, varContext);
+        const resolvedTitle = rule.titleTemplate ? resolveMessageTemplate(rule.titleTemplate, varContext) : "School Fee Reminder";
+
         // Process for each configured channel in this rule
         for (const channel of rule.channels) {
           // Idempotency deduplication key
-          const dedupKey = `auto:${schoolId}:${student.id}:${rule.type}:${channel}:${todayDateStr}`;
+          const dedupKey = `auto:${schoolId}:${student.id}:${rule.id}:${channel}:${todayDateStr}`;
 
           // Check if already sent today
           const isSentToday = await checkIdempotency(schoolId, dedupKey);
@@ -189,21 +310,6 @@ export async function runSchoolFeeReminderAutomation(
             report.duplicatesSkipped++;
             continue;
           }
-
-          // Template variable resolution
-          const templateData = {
-            student_name: student.name,
-            parent_name: student.fatherName || student.guardianName || "Parent",
-            class_name: student.className || "Class",
-            admission_no: student.admissionNumber || student.rollNumber || "N/A",
-            amount: monthlyFee,
-            due_date: dueDateFormatted,
-            school_name: access.schoolName || "School",
-            pay_link: `https://schoolstudy.in/pay/${schoolId}/${student.id}`,
-          };
-
-          const resolvedBody = resolveTemplateVariables(rule.bodyTemplate, templateData);
-          const resolvedTitle = resolveTemplateVariables(rule.titleTemplate || "School Fee Reminder", templateData);
 
           try {
             const sendRes = await dispatchCommunicationMessage(
@@ -225,7 +331,7 @@ export async function runSchoolFeeReminderAutomation(
                 metadata: {
                   ruleId: rule.id,
                   ruleType: rule.type,
-                  amount: monthlyFee,
+                  outstandingAmount: pendingAmount,
                 },
               },
               triggeredBy
