@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "@/hooks/use-auth";
 import type { SchoolCommunicationAccess, CommunicationTemplate, FeeAutomationRule, CommunicationLogEntry } from "@/types/communication";
 
 export function useSchoolCommunication(schoolId?: string) {
+  const { firebaseUser } = useAuth();
   const [access, setAccess] = useState<SchoolCommunicationAccess | null>(null);
   const [templates, setTemplates] = useState<CommunicationTemplate[]>([]);
   const [rules, setRules] = useState<FeeAutomationRule[]>([]);
@@ -19,7 +21,15 @@ export function useSchoolCommunication(schoolId?: string) {
 
     try {
       setLoading(true);
-      const res = await fetch(`/api/communication/status?schoolId=${encodeURIComponent(schoolId)}`);
+      const token = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const res = await fetch(`/api/communication/status?schoolId=${encodeURIComponent(schoolId)}`, {
+        headers,
+      });
       const data = await res.json();
 
       if (data.success) {
@@ -36,7 +46,7 @@ export function useSchoolCommunication(schoolId?: string) {
     } finally {
       setLoading(false);
     }
-  }, [schoolId]);
+  }, [schoolId, firebaseUser]);
 
   useEffect(() => {
     fetchStatus();

@@ -65,12 +65,21 @@ function SchoolCommunicationHubContent() {
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab") as HubTab | null;
 
-  const { profile } = useAuth();
+  const { profile, firebaseUser } = useAuth();
   const effectiveSchoolId =
     profile?.schoolId ||
     (typeof window !== "undefined" ? localStorage.getItem("currentSchoolId") || "" : "");
   const schoolId = effectiveSchoolId;
   const schoolName = (profile as any)?.schoolName || "Institution";
+
+  const getAuthHeaders = async () => {
+    const token = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    return headers;
+  };
 
   const { access, templates, rules, recentLogs, loading, refresh } =
     useSchoolCommunication(schoolId);
@@ -285,7 +294,7 @@ function SchoolCommunicationHubContent() {
 
       const res = await fetch("/api/communication/send", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({
           schoolId,
           isBatch: recipientsPayload.length > 1,
@@ -339,7 +348,7 @@ function SchoolCommunicationHubContent() {
     try {
       const res = await fetch("/api/communication/test", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({
           schoolId,
           channel: composeChannel === "sms" ? "sms" : "whatsapp",
@@ -405,7 +414,7 @@ function SchoolCommunicationHubContent() {
     try {
       await fetch("/api/communication/manual-action", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({
           schoolId,
           logId: `manual_${Date.now()}_${student.id}`,
@@ -449,7 +458,7 @@ function SchoolCommunicationHubContent() {
     try {
       const res = await fetch("/api/communication/templates", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({
           schoolId,
           template: {
@@ -485,8 +494,10 @@ function SchoolCommunicationHubContent() {
   const handleDeleteTemplate = async (templateId: string) => {
     if (!confirm("Are you sure you want to remove this custom template?")) return;
     try {
+      const authHeaders = await getAuthHeaders();
       const res = await fetch(`/api/communication/templates?schoolId=${encodeURIComponent(schoolId)}&templateId=${encodeURIComponent(templateId)}`, {
         method: "DELETE",
+        headers: authHeaders,
       });
       const data = await res.json();
       if (data.success) {
@@ -530,7 +541,7 @@ function SchoolCommunicationHubContent() {
     try {
       const res = await fetch("/api/communication/retry", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({ logId: log.id, schoolId }),
       });
       const data = await res.json();
@@ -570,7 +581,7 @@ function SchoolCommunicationHubContent() {
     try {
       const res = await fetch("/api/communication/automation/run", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({
           schoolId,
           action: "save_rule",
@@ -592,7 +603,7 @@ function SchoolCommunicationHubContent() {
     try {
       const res = await fetch("/api/communication/automation/run", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({ schoolId }),
       });
       const data = await res.json();
@@ -634,7 +645,7 @@ function SchoolCommunicationHubContent() {
                   Communication Center
                 </h1>
                 <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/80 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                  {access?.tierName || "Enterprise Tier"}
+                  {access?.planName || access?.tierName || (loading ? "Loading..." : "Current Plan")}
                 </span>
               </div>
               <p className="mt-0.5 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
@@ -748,6 +759,36 @@ function SchoolCommunicationHubContent() {
           <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
         </button>
       </div>
+
+      {/* Platform Twilio Configuration Warning */}
+      {access?.twilioWarning && (
+        <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-900 dark:text-amber-200 flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="text-xs sm:text-sm">
+            <p className="font-bold">Provider Configuration Notice</p>
+            <p className="mt-0.5 opacity-90">{access.twilioWarning}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Plan Restricted Banner (only if school plan does not include automated messaging) */}
+      {!access?.canSendWhatsApp && !access?.canSendSms && access?.lockReason && (
+        <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-900 dark:text-indigo-200 flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <Lock className="h-5 w-5 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
+            <div className="text-xs sm:text-sm">
+              <p className="font-bold">Automated Channel Access</p>
+              <p className="mt-0.5 opacity-90">{access.lockReason}</p>
+            </div>
+          </div>
+          <Link
+            href="/admin/billing"
+            className="shrink-0 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition"
+          >
+            Upgrade Plan
+          </Link>
+        </div>
+      )}
 
       {/* ==================================================== */}
       {/* TAB 1: OVERVIEW */}

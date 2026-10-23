@@ -151,7 +151,7 @@ export async function runSchoolFeeReminderAutomation(
   };
 
   // 1. Verify school communication & automation entitlement
-  const access = await getSchoolCommunicationAccess(schoolId);
+  const access = await getSchoolCommunicationAccess(schoolId, triggeredBy);
   if (!access.canAutomate) {
     throw new Error(access.lockReason || "Fee reminder automation is not enabled for this school's plan.");
   }

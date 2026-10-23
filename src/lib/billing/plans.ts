@@ -212,6 +212,7 @@ export const DEFAULT_STATIC_PLANS: Plan[] = [
       timetable_bells: "FULL_ACCESS",
       fee_management: "SHOWCASE",
       subscription_billing: "FULL_ACCESS",
+      communication_hub: "FULL_ACCESS",
     },
     limits: {
       maxStudents: 1500,
@@ -260,6 +261,7 @@ export const DEFAULT_STATIC_PLANS: Plan[] = [
       rules_policies: "FULL_ACCESS",
       timetable_bells: "FULL_ACCESS",
       subscription_billing: "FULL_ACCESS",
+      communication_hub: "FULL_ACCESS",
     },
     limits: {
       maxStudents: 2000,
@@ -308,6 +310,7 @@ export const DEFAULT_STATIC_PLANS: Plan[] = [
       rules_policies: "FULL_ACCESS",
       timetable_bells: "FULL_ACCESS",
       subscription_billing: "FULL_ACCESS",
+      communication_hub: "FULL_ACCESS",
     },
     limits: {
       maxStudents: -1,
@@ -356,6 +359,7 @@ export const DEFAULT_STATIC_PLANS: Plan[] = [
       rules_policies: "FULL_ACCESS",
       timetable_bells: "FULL_ACCESS",
       subscription_billing: "FULL_ACCESS",
+      communication_hub: "FULL_ACCESS",
     },
     limits: {
       maxStudents: -1,

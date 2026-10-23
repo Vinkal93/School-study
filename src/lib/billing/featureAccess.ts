@@ -63,6 +63,26 @@ export const FEATURE_KEY_ALIASES: Record<string, string[]> = {
   fee_structure: ["fee_structure", "fees.structure", "fee_management", "fees"],
   inquiries: ["inquiries_portal", "inquiries", "leads"],
   inquiries_portal: ["inquiries_portal", "inquiries", "leads"],
+  communication_hub: [
+    "communication_hub",
+    "communication",
+    "whatsapp",
+    "comm_whatsapp",
+    "comm_email",
+    "comm_in_app",
+    "comm_automation",
+    "communication.whatsappApi",
+    "communication.smsApi",
+    "communication.manualWhatsApp",
+    "communication.feeReminders",
+    "communication.automatedReminders",
+    "communication.customTemplates",
+    "communication.bulkSending",
+    "communication.deliveryTracking",
+    "communication.scheduling",
+    "communication.testMessages",
+  ],
+  communication: ["communication_hub", "communication", "whatsapp"],
 };
 
 /**

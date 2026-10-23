@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
     }
 
     const [access, logs, rules, templates] = await Promise.all([
-      getSchoolCommunicationAccess(schoolId),
+      getSchoolCommunicationAccess(schoolId, authResult.user),
       getSchoolCommunicationLogs(schoolId, undefined, undefined, 50),
       getSchoolAutomationRules(schoolId),
       getSchoolTemplates(schoolId),

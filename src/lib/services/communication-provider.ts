@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { normalizePhoneNumber } from "./phone-validation";
 import type {
   CommunicationChannel,
   CommunicationDeliveryStatus,
@@ -44,10 +45,13 @@ export function classifyProviderError(
       return "Message Blocked: The recipient has opted out of SMS / WhatsApp communication from your sender number.";
     case 21614:
       return "Invalid Sender: The configured SMS sender number is not mobile-capable or not enabled for SMS dispatch.";
+    case 63015:
+    case 63032:
+      return "Template not approved: The specified WhatsApp template has not been approved by Meta/Twilio. Please select an approved template.";
     case 63016:
-      return "WhatsApp 24-Hour Policy Window Expired: Initiating a new conversation with a customer requires an approved WhatsApp Content Template (SID: HX...).";
+      return "24-Hour Messaging Window Expired / Template not approved: Initiating a conversation outside the 24-hour window requires an approved WhatsApp Content Template (SID: HX...).";
     case 63018:
-      return "Unregistered WhatsApp Sender: Your Twilio number has not been provisioned on WhatsApp Business API.";
+      return "24-hour messaging window or Unregistered WhatsApp Sender: Your Twilio number has not been provisioned on WhatsApp Business API or channel rate limit was reached.";
     case 30008:
       return "Unknown Destination Error: The mobile carrier failed to acknowledge or deliver the SMS.";
     default:
@@ -111,18 +115,18 @@ export async function sendTwilioWhatsApp(
     };
   }
 
-  // Clean phone number
-  const digitsOnly = toPhone.replace(/[^0-9]/g, "");
-  if (!digitsOnly || digitsOnly.length < 10) {
+  // Normalize phone number (E.164 compliant)
+  const phoneRes = normalizePhoneNumber(toPhone);
+  if (!phoneRes.isValid) {
     return {
       success: false,
       status: "failed",
-      errorMessage: "Invalid recipient mobile number (minimum 10 digits required)",
-      userFriendlyError: "Invalid recipient mobile number (minimum 10 digits required)",
+      errorMessage: phoneRes.error || "Invalid recipient mobile number",
+      userFriendlyError: phoneRes.error || "Invalid recipient mobile number",
     };
   }
 
-  const formattedTo = digitsOnly.length === 10 ? `+91${digitsOnly}` : `+${digitsOnly}`;
+  const formattedTo = phoneRes.normalized;
   const formattedFrom = fromNumber.startsWith("whatsapp:") ? fromNumber : `whatsapp:${fromNumber}`;
 
   try {
@@ -198,17 +202,18 @@ export async function sendTwilioSMS(
     };
   }
 
-  const digitsOnly = toPhone.replace(/[^0-9]/g, "");
-  if (!digitsOnly || digitsOnly.length < 10) {
+  // Normalize phone number (E.164 compliant)
+  const phoneRes = normalizePhoneNumber(toPhone);
+  if (!phoneRes.isValid) {
     return {
       success: false,
       status: "failed",
-      errorMessage: "Invalid recipient mobile number",
-      userFriendlyError: "Invalid recipient mobile number",
+      errorMessage: phoneRes.error || "Invalid recipient mobile number",
+      userFriendlyError: phoneRes.error || "Invalid recipient mobile number",
     };
   }
 
-  const formattedTo = digitsOnly.length === 10 ? `+91${digitsOnly}` : `+${digitsOnly}`;
+  const formattedTo = phoneRes.normalized;
 
   try {
     const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;

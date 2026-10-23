@@ -193,6 +193,8 @@ export interface SchoolCommunicationAccess {
   isOverridden: boolean;
   overrideEnabled?: boolean;
   lockReason?: string;
+  twilioReady?: boolean;
+  twilioWarning?: string;
   limits: CommunicationPlanLimits;
   monthlyUsage: {
     totalSent: number;
