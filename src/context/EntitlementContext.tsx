@@ -93,6 +93,8 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
   const { profile } = useAuth();
   const schoolId = profile?.schoolId || "";
   const role = profile?.role;
+  const isSuper = role === "super_admin";
+  const hasValidSchool = Boolean(schoolId && schoolId !== "system" && !isSuper);
 
   const activeSchool = useRef(schoolId);
   activeSchool.current = schoolId;
@@ -105,7 +107,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
 
   const fetchEffectiveFeatures = async () => {
     try {
-      const url = schoolId
+      const url = hasValidSchool
         ? `/api/features/effective?schoolId=${encodeURIComponent(schoolId)}`
         : `/api/features/effective`;
       const res = await fetch(url);
@@ -137,7 +139,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
   };
 
   const fetchEntitlement = async () => {
-    if (!schoolId) {
+    if (!hasValidSchool) {
       setLoading(false);
       return;
     }
@@ -208,8 +210,8 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       }
     );
 
-    // If no schoolId, still keep global listener
-    if (!schoolId) {
+    // Super admins and users without a valid school do not have a school subscription or school-level entitlement
+    if (!hasValidSchool) {
       setLoading(false);
       return () => unsubscribeFeatures();
     }
@@ -373,7 +375,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
         window.removeEventListener("storage", handleStorageEvent);
       }
     };
-  }, [schoolId]);
+  }, [schoolId, role]);
 
   const findSchoolOverride = (key: string): SchoolFeatureOverride | undefined => {
     if (!schoolId || !schoolFeatureOverrides.length) return undefined;
@@ -679,15 +681,15 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     <EntitlementContext.Provider
       value={{
         entitlement,
-        loading: loading || (role !== "super_admin" && resolvedSchool !== schoolId),
-        accessMode: entitlement?.accessMode || "NO_ACCESS",
-        canAccess,
-        canAccessFeature: canAccess,
-        canAccessAction: canAccess,
-        getFeatureAccessMode,
-        getCapabilityAccessMode: getFeatureAccessMode,
-        getRequiredPlanForFeature,
-        getRequiredPlanForCapability: getRequiredPlanForFeature,
+        loading: isSuper ? false : (loading || resolvedSchool !== schoolId),
+        accessMode: isSuper ? "FULL_ACCESS" : (entitlement?.accessMode || "NO_ACCESS"),
+        canAccess: (key: string) => (isSuper ? true : canAccess(key)),
+        canAccessFeature: (key: string) => (isSuper ? true : canAccess(key)),
+        canAccessAction: (key: string) => (isSuper ? true : canAccess(key)),
+        getFeatureAccessMode: (key: string) => (isSuper ? "FULL_ACCESS" : getFeatureAccessMode(key)),
+        getCapabilityAccessMode: (key: string) => (isSuper ? "FULL_ACCESS" : getFeatureAccessMode(key)),
+        getRequiredPlanForFeature: (key: string) => (isSuper ? "Included" : getRequiredPlanForFeature(key)),
+        getRequiredPlanForCapability: (key: string) => (isSuper ? "Included" : getRequiredPlanForFeature(key)),
         refreshEntitlement: fetchEntitlement,
         globalFeatureStates,
         schoolFeatureOverrides,
