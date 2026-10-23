@@ -4,6 +4,7 @@ import {
   getDoc,
   getDocs,
   setDoc,
+  deleteDoc,
   query,
   where,
   orderBy,
@@ -21,7 +22,10 @@ import type {
   SchoolCommunicationAccess,
   SendMessagePayload,
   SendResult,
+  WhatsAppSendMode,
+  CommunicationPlanLimits,
 } from "@/types/communication";
+import { DEFAULT_COMMUNICATION_PLAN_LIMITS } from "@/types/communication";
 import { createNotification } from "./notification.service";
 import {
   DEFAULT_COMMUNICATION_TEMPLATES,
@@ -33,6 +37,17 @@ import {
   maskSecret,
   isMasked,
 } from "./communication-crypto";
+import {
+  sendTwilioWhatsApp,
+  sendTwilioSMS,
+  fetchTwilioMessageStatus,
+  classifyProviderError,
+} from "./communication-provider";
+import {
+  resolveTemplateContent,
+  type VariableResolutionContext,
+} from "./communication-variables";
+import { normalizePhoneNumber, maskPhoneNumber } from "./phone-validation";
 
 // Collection Constants
 const GLOBAL_CONTROLS_DOC = "siteSettings/communication_controls";
@@ -42,6 +57,7 @@ export const DEFAULT_COMMUNICATION_SETTINGS: GlobalCommunicationSettings = {
   masterEnabled: true,
   channels: {
     whatsapp: true,
+    sms: true,
     email: true,
     in_app: true,
     automation: true,
@@ -61,13 +77,14 @@ export const DEFAULT_COMMUNICATION_SETTINGS: GlobalCommunicationSettings = {
     isConfigured: Boolean(process.env.EMAIL_API_KEY || process.env.EMAIL_PROVIDER),
   },
   planAccess: {
-    free: { whatsapp: false, email: false, in_app: true, automation: false },
-    base: { whatsapp: false, email: false, in_app: true, automation: false },
-    starter: { whatsapp: false, email: true, in_app: true, automation: false },
-    growth: { whatsapp: true, email: true, in_app: true, automation: true },
-    professional: { whatsapp: true, email: true, in_app: true, automation: true },
-    enterprise: { whatsapp: true, email: true, in_app: true, automation: true },
+    free: { whatsapp: false, sms: false, email: false, in_app: true, automation: false },
+    base: { whatsapp: false, sms: false, email: false, in_app: true, automation: false },
+    starter: { whatsapp: false, sms: false, email: true, in_app: true, automation: false },
+    growth: { whatsapp: true, sms: true, email: true, in_app: true, automation: true },
+    professional: { whatsapp: true, sms: true, email: true, in_app: true, automation: true },
+    enterprise: { whatsapp: true, sms: true, email: true, in_app: true, automation: true },
   },
+  planLimits: DEFAULT_COMMUNICATION_PLAN_LIMITS,
   schoolOverrides: {},
   updatedAt: new Date().toISOString(),
 };
@@ -84,8 +101,13 @@ export const DEFAULT_FEE_AUTOMATION_RULES: FeeAutomationRule[] = [
     channels: ["whatsapp", "in_app"],
     titleTemplate: "Upcoming Fee Reminder",
     bodyTemplate:
-      "Dear {{parent_name}}, gentle reminder that fee of ₹{{amount}} for {{student_name}} (Class: {{class_name}}) is due on {{due_date}}. Please pay on time. - {{school_name}}",
+      "Dear {{parent_name}}, gentle reminder that fee of {{fee_amount}} for {{student_name}} (Class: {{class_name}}) is due on {{due_date}}. Please pay on time. - {{school_name}}",
     enabled: true,
+    minOutstandingAmount: 100,
+    quietHoursStart: 21,
+    quietHoursEnd: 8,
+    maxRemindersPerInvoice: 2,
+    excludeWaivedOrDisputed: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -98,8 +120,13 @@ export const DEFAULT_FEE_AUTOMATION_RULES: FeeAutomationRule[] = [
     channels: ["whatsapp"],
     titleTemplate: "Fee Due Today",
     bodyTemplate:
-      "Dear {{parent_name}}, today is the due date for {{student_name}}'s school fee of ₹{{amount}}. Kindly clear today to avoid late fees. - {{school_name}}",
+      "Dear {{parent_name}}, today is the due date for {{student_name}}'s school fee of {{outstanding_amount}}. Kindly clear today to avoid late fees. - {{school_name}}",
     enabled: true,
+    minOutstandingAmount: 100,
+    quietHoursStart: 21,
+    quietHoursEnd: 8,
+    maxRemindersPerInvoice: 1,
+    excludeWaivedOrDisputed: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -112,8 +139,13 @@ export const DEFAULT_FEE_AUTOMATION_RULES: FeeAutomationRule[] = [
     channels: ["whatsapp", "email", "in_app"],
     titleTemplate: "Overdue Fee Notice",
     bodyTemplate:
-      "Dear {{parent_name}}, the fee of ₹{{amount}} for {{student_name}} is now OVERDUE. Please clear the outstanding balance immediately. - {{school_name}}",
+      "Dear {{parent_name}}, the fee of {{outstanding_amount}} for {{student_name}} is now OVERDUE. Please clear the outstanding balance immediately. - {{school_name}}",
     enabled: true,
+    minOutstandingAmount: 200,
+    quietHoursStart: 21,
+    quietHoursEnd: 8,
+    maxRemindersPerInvoice: 3,
+    excludeWaivedOrDisputed: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -126,8 +158,13 @@ export const DEFAULT_FEE_AUTOMATION_RULES: FeeAutomationRule[] = [
     channels: ["whatsapp", "in_app"],
     titleTemplate: "Late Fee Applied Notice",
     bodyTemplate:
-      "Attention: Late fee penalty has been applied to {{student_name}}'s outstanding fee. Total balance: ₹{{amount}}. Settle immediately at school office. - {{school_name}}",
+      "Attention: Late fee penalty has been applied to {{student_name}}'s outstanding fee. Total balance: {{outstanding_amount}}. Settle immediately at school office. - {{school_name}}",
     enabled: false,
+    minOutstandingAmount: 500,
+    quietHoursStart: 21,
+    quietHoursEnd: 8,
+    maxRemindersPerInvoice: 2,
+    excludeWaivedOrDisputed: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -139,7 +176,6 @@ let runtimeEncryptedSecretsCache: Record<string, string> = {};
 
 /**
  * Validates WhatsApp sender phone number format.
- * Accepts E.164 formatted WhatsApp numbers: whatsapp:+[1-9][0-9]{7,14}
  */
 export function validateWhatsAppSender(sender: string): {
   isValid: boolean;
@@ -155,7 +191,6 @@ export function validateWhatsAppSender(sender: string): {
   const normalized = trimmed.startsWith("whatsapp:") ? trimmed : `whatsapp:${trimmed}`;
   const phonePart = normalized.replace(/^whatsapp:/, "");
 
-  // Must follow E.164: + followed by 8 to 15 digits
   const e164Regex = /^\+[1-9]\d{7,14}$/;
   if (!e164Regex.test(phonePart)) {
     return {
@@ -207,7 +242,6 @@ export function validateSmsSender(sender?: string | null): {
 
 /**
  * Validates Twilio credentials by calling Twilio Accounts API.
- * Saving credentials does NOT depend on successfully sending a WhatsApp message.
  */
 export async function validateTwilioConnection(credentials: {
   accountSid: string;
@@ -351,7 +385,6 @@ export async function validateTwilioConnection(credentials: {
 
 /**
  * Retrieves authoritative global communication configuration.
- * Client safe flag masks sensitive credentials like Twilio AuthToken and Email API keys.
  */
 export async function getGlobalCommunicationSettings(clientSafe = true): Promise<GlobalCommunicationSettings> {
   try {
@@ -417,6 +450,7 @@ export async function getGlobalCommunicationSettings(clientSafe = true): Promise
         ...DEFAULT_COMMUNICATION_SETTINGS.planAccess,
         ...(controls.planAccess || {}),
       },
+      planLimits: controls.planLimits || DEFAULT_COMMUNICATION_PLAN_LIMITS,
       schoolOverrides: controls.schoolOverrides || {},
       updatedAt: controls.updatedAt || new Date().toISOString(),
       updatedBy: controls.updatedBy || "System",
@@ -431,8 +465,7 @@ export async function getGlobalCommunicationSettings(clientSafe = true): Promise
 }
 
 /**
- * Super Admin updates global settings, plan permissions, or provider credentials.
- * Credentials are encrypted at rest with AES-256-GCM and stored in server-only secrets doc.
+ * Super Admin updates global settings, plan permissions, limits, or provider credentials.
  */
 export async function updateGlobalCommunicationSettings(
   payload: Partial<GlobalCommunicationSettings>,
@@ -449,6 +482,7 @@ export async function updateGlobalCommunicationSettings(
   if (payload.masterEnabled !== undefined) publicData.masterEnabled = payload.masterEnabled;
   if (payload.channels) publicData.channels = payload.channels;
   if (payload.planAccess) publicData.planAccess = payload.planAccess;
+  if (payload.planLimits) publicData.planLimits = payload.planLimits;
   if (payload.schoolOverrides) publicData.schoolOverrides = payload.schoolOverrides;
 
   // Clean twilio public metadata
@@ -519,97 +553,16 @@ export async function updateGlobalCommunicationSettings(
 }
 
 /**
- * Evaluates real-time communication access for a specific school.
+ * Evaluates real-time communication access, limits, and quotas for a specific school.
+ * Authoritatively powered by resolveEffectiveSchoolEntitlements (Single Source of Truth).
  */
-export async function getSchoolCommunicationAccess(schoolId: string): Promise<SchoolCommunicationAccess> {
-  const globalSettings = await getGlobalCommunicationSettings(true);
-
-  let schoolPlanSlug = "free";
-  let schoolPlanName = "Free Plan";
-  let schoolName = "School";
-
-  try {
-    const adminDb = getSafeAdminDb();
-    if (adminDb && schoolId) {
-      const sSnap = await adminDb.collection("schools").doc(schoolId).get();
-      if (sSnap.exists) {
-        const sData = sSnap.data() || {};
-        schoolName = sData.name || "School";
-        schoolPlanSlug = (sData.planSlug || sData.planId || "free").toLowerCase().replace(/^plan_/, "");
-        schoolPlanName = sData.planName || schoolPlanSlug;
-      }
-    }
-  } catch (err) {
-    console.warn("[CommunicationService] Error resolving school plan:", err);
-  }
-
-  // 1. Plan baseline
-  const planChannels =
-    globalSettings.planAccess[schoolPlanSlug] ||
-    globalSettings.planAccess.free || {
-      whatsapp: false,
-      email: false,
-      in_app: true,
-      automation: false,
-    };
-
-  // 2. Manual override
-  const override = globalSettings.schoolOverrides?.[schoolId];
-  const isOverridden = Boolean(override && typeof override.enabled === "boolean");
-  const overrideEnabled = override?.enabled ?? true;
-
-  let canWhatsApp =
-    globalSettings.channels.whatsapp &&
-    (override?.channels?.whatsapp ?? (planChannels.whatsapp && overrideEnabled));
-  let canEmail =
-    globalSettings.channels.email &&
-    (override?.channels?.email ?? (planChannels.email && overrideEnabled));
-  let canInApp = globalSettings.channels.in_app;
-  let canAutomate =
-    globalSettings.channels.automation &&
-    (override?.channels?.automation ?? (planChannels.automation && overrideEnabled));
-
-  if (!globalSettings.masterEnabled) {
-    canWhatsApp = false;
-    canEmail = false;
-    canInApp = false;
-    canAutomate = false;
-  }
-
-  // Generate clear lock reason
-  let lockReason: string | undefined = undefined;
-  if (!globalSettings.masterEnabled) {
-    lockReason = "Communication features are temporarily paused system-wide by Super Admin.";
-  } else if (isOverridden && !overrideEnabled) {
-    lockReason = "Communication access has been manually disabled for your school by Super Admin.";
-  } else if (!canWhatsApp && !canEmail) {
-    lockReason = `WhatsApp & Email automation requires Growth or Professional Plan. Current: ${schoolPlanName}.`;
-  }
-
-  const monthlyUsage = {
-    totalSent: 0,
-    whatsappSent: 0,
-    emailSent: 0,
-    inAppSent: 0,
-    failed: 0,
-    limit: override?.monthlyLimit || 5000,
-  };
-
-  return {
-    schoolId,
-    schoolName,
-    planSlug: schoolPlanSlug,
-    planName: schoolPlanName,
-    isGloballyEnabled: globalSettings.masterEnabled,
-    canSendWhatsApp: Boolean(canWhatsApp),
-    canSendEmail: Boolean(canEmail),
-    canSendInApp: Boolean(canInApp),
-    canAutomate: Boolean(canAutomate),
-    isOverridden,
-    overrideEnabled: override?.enabled,
-    lockReason,
-    monthlyUsage,
-  };
+export async function getSchoolCommunicationAccess(
+  schoolId: string,
+  userContext?: { uid?: string; role?: string; schoolId?: string | null; email?: string }
+): Promise<SchoolCommunicationAccess> {
+  const { resolveEffectiveSchoolEntitlements } = await import("@/lib/billing/entitlement");
+  const entitlements = await resolveEffectiveSchoolEntitlements(schoolId, userContext);
+  return entitlements.communication;
 }
 
 /**
@@ -619,36 +572,116 @@ export async function dispatchCommunicationMessage(
   payload: SendMessagePayload,
   triggeredBy: { uid: string; name: string; role: string }
 ): Promise<SendResult> {
-  const { schoolId, channel, studentId, studentName, content } = payload;
+  const { schoolId, channel, studentId, studentName, content, sendMode = "api" } = payload;
 
   if (!schoolId) {
     return { success: false, logId: "", channel, status: "failed", error: "Missing schoolId" };
   }
 
   // 1. Verify School Access & Channel Entitlement
-  const access = await getSchoolCommunicationAccess(schoolId);
+  const access = await getSchoolCommunicationAccess(schoolId, triggeredBy);
   if (!access.isGloballyEnabled) {
     return { success: false, logId: "", channel, status: "failed", error: "Communication globally disabled" };
   }
 
+  // Manual WhatsApp mode check
+  if (channel === "whatsapp" && sendMode === "manual") {
+    if (!access.canManualWhatsApp) {
+      return { success: false, logId: "", channel, status: "failed", error: access.lockReason || "Manual WhatsApp disabled for this school" };
+    }
+
+    const phoneRes = normalizePhoneNumber(payload.recipientPhone || "");
+    if (!phoneRes.isValid) {
+      return { success: false, logId: "", channel, status: "failed", error: phoneRes.error || "Invalid recipient mobile number" };
+    }
+
+    const formattedTo = phoneRes.normalized.replace(/^\+/, "");
+    const waLink = `https://wa.me/${formattedTo}?text=${encodeURIComponent(content)}`;
+
+    const logId = `comm_man_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const logEntry: CommunicationLogEntry = {
+      id: logId,
+      schoolId,
+      studentId,
+      studentName,
+      admissionNumber: payload.admissionNumber || "",
+      className: payload.className || "",
+      sectionName: payload.sectionName || "",
+      parentName: payload.parentName || "",
+      recipient: phoneRes.masked,
+      channel: "whatsapp",
+      sendMode: "manual",
+      templateId: payload.templateId,
+      title: payload.title || "Manual WhatsApp",
+      content,
+      triggeredBy,
+      triggerType: payload.triggerType,
+      status: "manual_opened",
+      retryCount: 0,
+      createdAt: new Date().toISOString(),
+    };
+
+    // Save log entry without touching API quotas
+    try {
+      const adminDb = getSafeAdminDb();
+      if (adminDb) {
+        await adminDb.collection("schools").doc(schoolId).collection("communication_logs").doc(logId).set(logEntry);
+      }
+    } catch {}
+
+    return {
+      success: true,
+      logId,
+      channel: "whatsapp",
+      status: "manual_opened",
+      waLink,
+    };
+  }
+
+  // API sending checks
   if (channel === "whatsapp" && !access.canSendWhatsApp) {
     return {
       success: false,
       logId: "",
       channel,
       status: "failed",
-      error: access.lockReason || "WhatsApp messaging locked for this school plan",
+      error: access.lockReason || "WhatsApp API messaging locked for this school plan",
     };
   }
 
-  if (channel === "email" && !access.canSendEmail) {
+  if (channel === "sms" && !access.canSendSms) {
     return {
       success: false,
       logId: "",
       channel,
       status: "failed",
-      error: access.lockReason || "Email messaging locked for this school plan",
+      error: access.lockReason || "SMS API messaging locked for this school plan",
     };
+  }
+
+  // Quota enforcement
+  if (channel === "whatsapp" && access.limits.monthlyWhatsAppAllowance !== -1) {
+    if (access.monthlyUsage.whatsappSent >= access.limits.monthlyWhatsAppAllowance) {
+      return {
+        success: false,
+        logId: "",
+        channel,
+        status: "failed",
+        error: `Monthly WhatsApp quota (${access.limits.monthlyWhatsAppAllowance} messages) reached for this billing cycle. Upgrade plan for higher limits.`,
+      };
+    }
+  }
+
+  if (channel === "sms" && access.limits.monthlySmsAllowance !== -1) {
+    if (access.monthlyUsage.smsSent >= access.limits.monthlySmsAllowance) {
+      return {
+        success: false,
+        logId: "",
+        channel,
+        status: "failed",
+        error: `Monthly SMS quota (${access.limits.monthlySmsAllowance} messages) reached for this billing cycle. Upgrade plan for higher limits.`,
+      };
+    }
   }
 
   // 2. Fetch full global configuration (with decrypted secrets)
@@ -664,14 +697,16 @@ export async function dispatchCommunicationMessage(
     studentName,
     admissionNumber: payload.admissionNumber || "",
     className: payload.className || "",
+    sectionName: payload.sectionName || "",
     parentName: payload.parentName || "",
     recipient:
-      (channel === "whatsapp"
+      (channel === "whatsapp" || channel === "sms"
         ? payload.recipientPhone
         : channel === "email"
         ? payload.recipientEmail
         : payload.userId) || "Student App",
     channel,
+    sendMode: "api",
     templateId: payload.templateId,
     title: payload.title || "Notification",
     content,
@@ -692,7 +727,6 @@ export async function dispatchCommunicationMessage(
 
   try {
     if (channel === "in_app") {
-      // IN-APP: Always Free, 100% Guaranteed Native Notification
       const notifId = await createNotification(
         schoolId,
         {
@@ -717,57 +751,38 @@ export async function dispatchCommunicationMessage(
       finalStatus = "delivered";
       providerMessageId = notifId || `inapp_${Date.now()}`;
     } else if (channel === "whatsapp") {
-      // WHATSAPP: Twilio REST API
-      const recipientPhone = payload.recipientPhone?.replace(/[^0-9]/g, "");
-      if (!recipientPhone || recipientPhone.length < 10) {
-        throw new Error("Invalid or missing 10-digit mobile number");
+      const phoneRes = normalizePhoneNumber(payload.recipientPhone || "");
+      if (!phoneRes.isValid) {
+        throw new Error(phoneRes.error || "Invalid or missing mobile number");
       }
 
-      const formattedTo = recipientPhone.length === 10 ? `+91${recipientPhone}` : `+${recipientPhone}`;
-      const twilioAccountSid = fullConfig.twilio.accountSid;
-      const twilioAuthToken = fullConfig.twilio.authToken;
-      const twilioFrom = fullConfig.twilio.fromNumber.startsWith("whatsapp:")
-        ? fullConfig.twilio.fromNumber
-        : `whatsapp:${fullConfig.twilio.fromNumber}`;
+      const res = await sendTwilioWhatsApp(
+        phoneRes.normalized,
+        content,
+        fullConfig.twilio,
+        payload.templateId?.startsWith("HX") ? payload.templateId : undefined
+      );
 
-      if (twilioAccountSid && twilioAuthToken && !isMasked(twilioAuthToken)) {
-        const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${twilioAccountSid}/Messages.json`;
-        const bodyParams = new URLSearchParams();
-        bodyParams.append("From", twilioFrom);
-        bodyParams.append("To", `whatsapp:${formattedTo}`);
-        bodyParams.append("Body", content);
-
-        const authHeader = Buffer.from(`${twilioAccountSid}:${twilioAuthToken}`).toString("base64");
-        const res = await fetch(twilioUrl, {
-          method: "POST",
-          headers: {
-            Authorization: `Basic ${authHeader}`,
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-          body: bodyParams.toString(),
-        });
-
-        const twilioRes = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const errCode = twilioRes.code;
-          let userMsg = twilioRes.message || `Twilio dispatch failed (HTTP ${res.status})`;
-          if (errCode === 21608) {
-            userMsg = "Recipient has not joined Twilio WhatsApp Sandbox. Recipient must send join code first.";
-          } else if (errCode === 21211) {
-            userMsg = `Invalid phone number format: ${formattedTo}`;
-          } else if (errCode === 20003) {
-            userMsg = "Twilio authentication failed. Verify Account SID & Auth Token.";
-          }
-          throw new Error(userMsg);
-        }
-
-        finalStatus = "sent";
-        providerMessageId = twilioRes.sid;
-      } else {
-        throw new Error("Twilio WhatsApp credentials not configured by Super Admin");
+      if (!res.success) {
+        throw new Error(res.userFriendlyError || res.errorMessage || "Twilio WhatsApp dispatch failed");
       }
+
+      finalStatus = res.status;
+      providerMessageId = res.providerMessageId;
+    } else if (channel === "sms") {
+      const phoneRes = normalizePhoneNumber(payload.recipientPhone || "");
+      if (!phoneRes.isValid) {
+        throw new Error(phoneRes.error || "Invalid or missing mobile number for SMS");
+      }
+
+      const res = await sendTwilioSMS(phoneRes.normalized, content, fullConfig.twilio);
+      if (!res.success) {
+        throw new Error(res.userFriendlyError || res.errorMessage || "Twilio SMS dispatch failed");
+      }
+
+      finalStatus = res.status;
+      providerMessageId = res.providerMessageId;
     } else if (channel === "email") {
-      // EMAIL: Resend / SendGrid API
       const recipientEmail = payload.recipientEmail?.trim();
       if (!recipientEmail || !recipientEmail.includes("@")) {
         throw new Error("Invalid or missing recipient email address");
@@ -809,7 +824,7 @@ export async function dispatchCommunicationMessage(
   logEntry.status = finalStatus;
   logEntry.providerMessageId = providerMessageId;
   logEntry.errorReason = errorReason;
-  logEntry.sentAt = finalStatus === "sent" || finalStatus === "delivered" ? now : null;
+  logEntry.sentAt = finalStatus === "sent" || finalStatus === "delivered" || finalStatus === "queued" ? now : null;
   logEntry.deliveredAt = finalStatus === "delivered" ? now : null;
 
   try {
@@ -826,7 +841,7 @@ export async function dispatchCommunicationMessage(
   }
 
   return {
-    success: finalStatus === "sent" || finalStatus === "delivered",
+    success: finalStatus === "sent" || finalStatus === "delivered" || finalStatus === "queued",
     logId,
     channel,
     status: finalStatus,
@@ -878,4 +893,238 @@ export async function getAllPlatformCommunicationLogs(maxLogs = 100): Promise<Co
     console.warn("[CommunicationService] Error fetching all platform logs:", err);
   }
   return [];
+}
+
+/**
+ * Fetches all templates available to a school (System Defaults + School Custom Templates).
+ */
+export async function getSchoolTemplates(schoolId: string): Promise<CommunicationTemplate[]> {
+  const templates: CommunicationTemplate[] = [...DEFAULT_COMMUNICATION_TEMPLATES];
+
+  if (!schoolId) return templates;
+
+  try {
+    const adminDb = getSafeAdminDb();
+    if (adminDb) {
+      const snap = await adminDb
+        .collection("schools")
+        .doc(schoolId)
+        .collection("communication_templates")
+        .where("status", "!=", "archived")
+        .get();
+
+      if (!snap.empty) {
+        snap.docs.forEach((d) => {
+          templates.unshift({ ...(d.data() as CommunicationTemplate), id: d.id, schoolId });
+        });
+      }
+    }
+  } catch (err) {
+    console.warn("[CommunicationService] Error reading custom templates:", err);
+  }
+
+  return templates;
+}
+
+/**
+ * Saves or updates a custom template for a school.
+ */
+export async function saveSchoolTemplate(
+  schoolId: string,
+  template: Partial<CommunicationTemplate>
+): Promise<CommunicationTemplate> {
+  const adminDb = getSafeAdminDb();
+  const id = template.id || `tpl_cust_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const now = new Date().toISOString();
+
+  const toSave: CommunicationTemplate = {
+    id,
+    schoolId,
+    name: template.name || "Custom Notification Template",
+    category: template.category || "general",
+    channel: template.channel || "whatsapp",
+    titleTemplate: template.titleTemplate || "",
+    bodyTemplate: template.bodyTemplate || "",
+    variables: template.variables || [],
+    status: template.status || "draft",
+    whatsappTemplateSid: template.whatsappTemplateSid || undefined,
+    whatsappLanguage: template.whatsappLanguage || "en_US",
+    isSystemDefault: false,
+    createdAt: template.createdAt || now,
+    updatedAt: now,
+  };
+
+  if (adminDb) {
+    await adminDb.collection("schools").doc(schoolId).collection("communication_templates").doc(id).set(toSave, { merge: true });
+  }
+
+  return toSave;
+}
+
+/**
+ * Archives a custom template for a school.
+ */
+export async function archiveSchoolTemplate(schoolId: string, templateId: string): Promise<void> {
+  const adminDb = getSafeAdminDb();
+  if (adminDb) {
+    await adminDb
+      .collection("schools")
+      .doc(schoolId)
+      .collection("communication_templates")
+      .doc(templateId)
+      .update({ status: "archived", updatedAt: new Date().toISOString() });
+  }
+}
+
+/**
+ * Records a manual WhatsApp action (e.g. copied text or opened wa.me link).
+ */
+export async function recordManualWhatsAppAction(
+  schoolId: string,
+  logId: string,
+  action: "manual_copied" | "manual_opened" | "manual_sent"
+): Promise<void> {
+  const adminDb = getSafeAdminDb();
+  if (adminDb) {
+    await adminDb
+      .collection("schools")
+      .doc(schoolId)
+      .collection("communication_logs")
+      .doc(logId)
+      .update({ status: action, updatedAt: new Date().toISOString() })
+      .catch(() => {});
+  }
+}
+
+/**
+ * Dispatches a genuine test message for School Admin.
+ */
+export async function dispatchTestMessage(
+  schoolId: string,
+  channel: CommunicationChannel,
+  recipientPhone: string,
+  triggeredBy: { uid: string; name: string; role: string }
+): Promise<SendResult & { errorCode?: string; maskedPhone?: string }> {
+  const { normalizePhoneNumber } = await import("./phone-validation");
+  const phoneRes = normalizePhoneNumber(recipientPhone);
+  if (!phoneRes.isValid) {
+    return {
+      success: false,
+      logId: "",
+      channel,
+      status: "failed",
+      errorCode: "INVALID_PHONE_NUMBER",
+      error: phoneRes.error || "Invalid phone number format.",
+      maskedPhone: phoneRes.masked,
+    };
+  }
+
+  const access = await getSchoolCommunicationAccess(schoolId, triggeredBy);
+  if (!access.canTestMessage) {
+    return {
+      success: false,
+      logId: "",
+      channel,
+      status: "failed",
+      errorCode: "FEATURE_NOT_ENABLED",
+      error: access.lockReason || "Test message sending is not permitted on your plan.",
+      maskedPhone: phoneRes.masked,
+    };
+  }
+
+  if (channel === "whatsapp" && !access.canSendWhatsApp) {
+    return {
+      success: false,
+      logId: "",
+      channel,
+      status: "failed",
+      errorCode: "FEATURE_NOT_ENABLED",
+      error: access.lockReason || "WhatsApp API messaging is not included in your current plan.",
+      maskedPhone: phoneRes.masked,
+    };
+  }
+
+  if (channel === "sms" && !access.canSendSms) {
+    return {
+      success: false,
+      logId: "",
+      channel,
+      status: "failed",
+      errorCode: "FEATURE_NOT_ENABLED",
+      error: access.lockReason || "SMS API messaging is not included in your current plan.",
+      maskedPhone: phoneRes.masked,
+    };
+  }
+
+  if (access.limits.monthlyTestAllowance !== -1 && access.monthlyUsage.testsSent >= access.limits.monthlyTestAllowance) {
+    return {
+      success: false,
+      logId: "",
+      channel,
+      status: "failed",
+      errorCode: "QUOTA_EXCEEDED",
+      error: `Monthly test message allowance (${access.limits.monthlyTestAllowance}) reached.`,
+      maskedPhone: phoneRes.masked,
+    };
+  }
+
+  // Provider configuration validation
+  const fullConfig = await getGlobalCommunicationSettings(false);
+  if (!fullConfig.twilio?.accountSid || !fullConfig.twilio?.authToken) {
+    return {
+      success: false,
+      logId: "",
+      channel,
+      status: "failed",
+      errorCode: "TWILIO_NOT_CONFIGURED",
+      error: "Twilio provider is not configured. Please contact Super Admin to configure Twilio credentials.",
+      maskedPhone: phoneRes.masked,
+    };
+  }
+
+  if (channel === "whatsapp" && !fullConfig.twilio?.fromNumber) {
+    return {
+      success: false,
+      logId: "",
+      channel,
+      status: "failed",
+      errorCode: "SENDER_NOT_APPROVED",
+      error: "Twilio WhatsApp sender number is not configured in Super Admin settings.",
+      maskedPhone: phoneRes.masked,
+    };
+  }
+
+  if (channel === "sms" && !fullConfig.twilio?.smsFromNumber && !fullConfig.twilio?.fromNumber) {
+    return {
+      success: false,
+      logId: "",
+      channel,
+      status: "failed",
+      errorCode: "SENDER_NOT_APPROVED",
+      error: "Twilio SMS sender number or Messaging Service is not configured.",
+      maskedPhone: phoneRes.masked,
+    };
+  }
+
+  const testContent = `[TEST MESSAGE] Hello from ${access.schoolName || "SBCI School ERP"}! Your ${channel.toUpperCase()} integration is working properly. Timestamp: ${new Date().toLocaleTimeString()}`;
+
+  const sendResult = await dispatchCommunicationMessage(
+    {
+      schoolId,
+      studentId: "test_recipient",
+      studentName: "Authorized Test Recipient",
+      recipientPhone: phoneRes.normalized,
+      channel,
+      sendMode: "api",
+      title: "Test Message",
+      content: testContent,
+      triggerType: "test_message",
+    },
+    triggeredBy
+  );
+
+  return {
+    ...sendResult,
+    maskedPhone: phoneRes.masked,
+  };
 }

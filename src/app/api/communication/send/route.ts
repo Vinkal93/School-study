@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     };
 
     // Check school access
-    const access = await getSchoolCommunicationAccess(schoolId);
+    const access = await getSchoolCommunicationAccess(schoolId, authUser);
     if (!access.isGloballyEnabled) {
       return NextResponse.json(
         {

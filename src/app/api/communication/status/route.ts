@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getSchoolCommunicationAccess,
   getSchoolCommunicationLogs,
-  DEFAULT_COMMUNICATION_TEMPLATES,
+  getSchoolTemplates,
 } from "@/lib/services/communication.service";
 import { getSchoolAutomationRules } from "@/lib/services/communication-automation.service";
 import { requireSchoolAdmin } from "@/lib/auth/serverAuth";
@@ -22,10 +22,11 @@ export async function GET(req: NextRequest) {
       return authResult.errorResponse;
     }
 
-    const [access, logs, rules] = await Promise.all([
-      getSchoolCommunicationAccess(schoolId),
-      getSchoolCommunicationLogs(schoolId, undefined, undefined, 20),
+    const [access, logs, rules, templates] = await Promise.all([
+      getSchoolCommunicationAccess(schoolId, authResult.user),
+      getSchoolCommunicationLogs(schoolId, undefined, undefined, 50),
       getSchoolAutomationRules(schoolId),
+      getSchoolTemplates(schoolId),
     ]);
 
     // Calculate usage from recent logs
@@ -56,7 +57,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       access,
-      templates: DEFAULT_COMMUNICATION_TEMPLATES,
+      templates,
       rules,
       recentLogs: logs,
     });
