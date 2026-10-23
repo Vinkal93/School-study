@@ -206,7 +206,8 @@ service cloud.firestore {
     // 3. SUBSCRIPTIONS, ORDERS & INVOICES
     // ==========================================
     match /schoolSubscriptions/{schoolId} {
-      allow read, write: if true;
+      allow read: if isSuperAdmin() || isSchoolMember(schoolId);
+      allow write: if isSuperAdmin();
 
       match /history/{historyId} {
         allow read, write: if true;
@@ -495,7 +496,8 @@ service cloud.firestore {
     }
 
     match /schoolSubscriptions/{schoolId} {
-      allow read, write: if true;
+      allow read: if isSuperAdmin() || isSchoolMember(schoolId);
+      allow write: if isSuperAdmin();
     }
 
     match /schoolUsage/{schoolId} {
@@ -503,15 +505,18 @@ service cloud.firestore {
     }
 
     match /payments/{paymentId} {
-      allow read, write: if true;
+      allow read: if isSuperAdmin() || isSchoolMember(resource.data.get('schoolId', ''));
+      allow write: if isSuperAdmin();
     }
 
     match /invoices/{invoiceId} {
-      allow read, write: if true;
+      allow read: if isSuperAdmin() || isSchoolMember(resource.data.get('schoolId', ''));
+      allow write: if isSuperAdmin();
     }
 
     match /orders/{orderId} {
-      allow read, write: if true;
+      allow read: if isSuperAdmin() || isSchoolMember(resource.data.get('schoolId', ''));
+      allow write: if isSuperAdmin();
     }
 
     match /subscriptionNotifications/{id} {
@@ -530,7 +535,10 @@ service cloud.firestore {
     // 6. CMS & SITE SETTINGS
     // ==========================================
     match /siteSettings/{docId} {
-      allow read, write: if true;
+      // Public landing/branding settings can be read publicly; control settings require auth.
+      // communication_secrets is STRICTLY SERVER-ONLY and completely blocked from client reads/writes.
+      allow read: if (docId in ['branding', 'landing_page', 'footer', 'seo_metadata'] || isAuthenticated()) && docId != 'communication_secrets';
+      allow write: if isSuperAdmin() && docId != 'communication_secrets';
     }
 
     match /siteSettingsVersions/{versionId} {
@@ -662,10 +670,6 @@ service cloud.firestore {
       allow update, delete: if isSuperAdmin();
     }
 
-    match /siteSettings/{settingId} {
-      allow read: if true;
-      allow write: if isSuperAdmin();
-    }
 
     // ==========================================
     // 11. FEE MANAGEMENT & FINANCIAL LEDGERS
@@ -833,10 +837,38 @@ service cloud.firestore {
       );
     }
 
-    // Site Settings (including global feature_controls, emergency_controls)
-    match /siteSettings/{settingId} {
+    // Platform-wide communication delivery audit logs (Super Admin only)
+    match /communication_delivery_logs/{logId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    // Direct communication logs (tenant-isolated)
+    match /communicationLogs/{logId} {
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolAdmin(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
+      allow write: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
+    }
+
+    // Communication Templates (Super Admin managed)
+    match /communicationTemplates/{templateId} {
       allow read: if isAuthenticated();
       allow write: if isSuperAdmin();
+    }
+
+    // Fee Automation Rules (Tenant-isolated)
+    match /feeAutomationRules/{ruleId} {
+      allow read, write: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
     }
 
     // School Feature Overrides (Super Admin custom grants / restrictions per school)

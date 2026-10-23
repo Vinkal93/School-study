@@ -139,7 +139,8 @@ export function AddStudentWizardModal({
         photoUrl: formData.photoUrl,
       };
 
-      await createStudentWithAuth(schoolId, input);
+      const admission = await createStudentWithAuth(schoolId, input);
+      if (admission.feeSetupPending) toast.warning("Admission saved; invoice setup is pending. Retry from Generate Invoice.");
       toast.success(`Successfully enrolled ${formData.name}!`);
       onStudentCreated();
       onClose();

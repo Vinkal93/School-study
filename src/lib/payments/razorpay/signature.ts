@@ -22,7 +22,7 @@ export function verifyRazorpayPaymentSignature(input: VerifySignatureInput): boo
 
   if (!secret) {
     console.warn("Signature verification: RAZORPAY_KEY_SECRET not configured.");
-    return razorpay_signature.length > 0 && razorpay_order_id.length > 0;
+    return false;
   }
 
   const payload = `${razorpay_order_id}|${razorpay_payment_id}`;

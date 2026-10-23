@@ -1,72 +1,14 @@
 import { NextResponse } from "next/server";
-import { verifyRazorpaySignature } from "@/lib/payments/razorpay";
-import { fulfillCustomOfferRedemption } from "@/lib/billing/customOffers";
-
-/**
- * POST /api/billing/offers/verify
- * Cryptographically verifies Razorpay payment signature and completes atomic offer redemption.
- */
+import { requireBillingActor } from "@/lib/payments/server-access";
+import { POST as verifyPayment } from "../../verify/route";
 export async function POST(request: Request) {
   try {
+    const actor = await requireBillingActor(request);
+    if (actor.error) return actor.error;
     const body = await request.json();
-    const {
-      offerId,
-      schoolId,
-      userId = "school_admin",
-      razorpayOrderId,
-      razorpayPaymentId,
-      razorpaySignature,
-      amountPaise = 100,
-      paymentMethod = "Razorpay UPI",
-    } = body;
-
-    if (!offerId || !schoolId || !razorpayOrderId || !razorpayPaymentId) {
-      return NextResponse.json(
-        { error: "Missing required payment verification parameters." },
-        { status: 400 }
-      );
-    }
-
-    // 1. Verify Razorpay Signature (skip in test mode if test signature passed)
-    if (razorpaySignature && razorpaySignature !== "test_signature") {
-      const isValid = verifyRazorpaySignature(
-        razorpayOrderId,
-        razorpayPaymentId,
-        razorpaySignature
-      );
-      if (!isValid) {
-        return NextResponse.json(
-          { error: "Invalid payment signature. Payment verification failed." },
-          { status: 400 }
-        );
-      }
-    }
-
-    // 2. Fulfill Offer Redemption & Subscription Activation
-    const result = await fulfillCustomOfferRedemption(
-      offerId,
-      schoolId,
-      userId,
-      {
-        paymentId: razorpayPaymentId,
-        orderId: razorpayOrderId,
-        signature: razorpaySignature,
-        amountPaise,
-        paymentMethod,
-      }
-    );
-
-    return NextResponse.json({
-      success: true,
-      message: result.message,
-      offer: result.offer,
-      invoice: result.invoice,
-    });
-  } catch (error: any) {
-    console.error("POST /api/billing/offers/verify error:", error);
-    return NextResponse.json(
-      { error: error.message || "Failed to verify payment and activate offer." },
-      { status: 500 }
-    );
-  }
+    const orders = await actor.db.collection("orders").where("razorpayOrderId","==",String(body.razorpayOrderId || "")).get();
+    const order = orders.docs.find(d=>d.data().customOfferId === body.offerId);
+    if (!order) return NextResponse.json({error:"Stored offer order not found."},{status:404});
+    return verifyPayment(new Request(request.url,{method:"POST",headers:request.headers,body:JSON.stringify({orderId:order.id,razorpay_order_id:body.razorpayOrderId,razorpay_payment_id:body.razorpayPaymentId,razorpay_signature:body.razorpaySignature})}));
+  } catch { return NextResponse.json({error:"Offer verification unavailable."},{status:503}); }
 }

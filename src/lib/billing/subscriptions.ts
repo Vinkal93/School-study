@@ -79,7 +79,7 @@ export function computeSubscriptionStatus(
 export async function getSchoolSubscription(schoolId: string): Promise<SchoolSubscription> {
   if (!schoolId || schoolId === "system") throw new Error("A valid school is required.");
   const cached = memorySubscriptions.get(schoolId);
-  if (cached) return { ...cached, status: computeSubscriptionStatus(cached.expiresAt, cached.graceEndsAt, cached.status) };
+  if (cached && typeof window !== "undefined") return { ...cached, status: computeSubscriptionStatus(cached.expiresAt, cached.graceEndsAt, cached.status) };
   let subData: any = null, schoolData: any = null;
   if (typeof window === "undefined") {
     const { getSafeAdminDb } = await import("@/lib/firebase/admin");

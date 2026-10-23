@@ -4,12 +4,10 @@ import {
   getDoc,
   getDocs,
   setDoc,
-  updateDoc,
   query,
   where,
   orderBy,
   limit,
-  serverTimestamp,
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { getSafeAdminDb } from "@/lib/firebase/admin";
@@ -29,6 +27,12 @@ import {
   DEFAULT_COMMUNICATION_TEMPLATES,
   resolveTemplateVariables,
 } from "./communication-template.utils";
+import {
+  encryptSecret,
+  decryptSecret,
+  maskSecret,
+  isMasked,
+} from "./communication-crypto";
 
 // Collection Constants
 const GLOBAL_CONTROLS_DOC = "siteSettings/communication_controls";
@@ -129,6 +133,222 @@ export const DEFAULT_FEE_AUTOMATION_RULES: FeeAutomationRule[] = [
   },
 ];
 
+// Runtime fallback cache for dev / test environments when Admin SDK is unavailable
+let runtimeControlsCache: Partial<GlobalCommunicationSettings> | null = null;
+let runtimeEncryptedSecretsCache: Record<string, string> = {};
+
+/**
+ * Validates WhatsApp sender phone number format.
+ * Accepts E.164 formatted WhatsApp numbers: whatsapp:+[1-9][0-9]{7,14}
+ */
+export function validateWhatsAppSender(sender: string): {
+  isValid: boolean;
+  formatted: string;
+  isSandbox: boolean;
+  error?: string;
+} {
+  if (!sender || typeof sender !== "string") {
+    return { isValid: false, formatted: "", isSandbox: false, error: "Sender number is required" };
+  }
+
+  const trimmed = sender.trim();
+  const normalized = trimmed.startsWith("whatsapp:") ? trimmed : `whatsapp:${trimmed}`;
+  const phonePart = normalized.replace(/^whatsapp:/, "");
+
+  // Must follow E.164: + followed by 8 to 15 digits
+  const e164Regex = /^\+[1-9]\d{7,14}$/;
+  if (!e164Regex.test(phonePart)) {
+    return {
+      isValid: false,
+      formatted: normalized,
+      isSandbox: false,
+      error: `Invalid WhatsApp sender format "${sender}". Must be formatted as whatsapp:+[country_code][number] (e.g. whatsapp:+14155238886).`,
+    };
+  }
+
+  const isSandbox = phonePart === "+14155238886";
+
+  return {
+    isValid: true,
+    formatted: normalized,
+    isSandbox,
+  };
+}
+
+/**
+ * Validates optional SMS sender format.
+ */
+export function validateSmsSender(sender?: string | null): {
+  isValid: boolean;
+  formatted: string;
+  error?: string;
+} {
+  if (!sender || !sender.trim()) {
+    return { isValid: true, formatted: "" };
+  }
+
+  const trimmed = sender.trim();
+  const e164Regex = /^\+[1-9]\d{7,14}$/;
+  const alphaNumericRegex = /^[a-zA-Z0-9]{2,11}$/;
+
+  if (!e164Regex.test(trimmed) && !alphaNumericRegex.test(trimmed)) {
+    return {
+      isValid: false,
+      formatted: trimmed,
+      error: `Invalid SMS sender format "${sender}". Must be an E.164 phone number (e.g. +14155238886) or alphanumeric sender ID (2-11 alphanumeric characters).`,
+    };
+  }
+
+  return {
+    isValid: true,
+    formatted: trimmed,
+  };
+}
+
+/**
+ * Validates Twilio credentials by calling Twilio Accounts API.
+ * Saving credentials does NOT depend on successfully sending a WhatsApp message.
+ */
+export async function validateTwilioConnection(credentials: {
+  accountSid: string;
+  authToken: string;
+  fromNumber?: string;
+  smsFromNumber?: string;
+}): Promise<{
+  success: boolean;
+  statusCode: number;
+  errorCode?: string | null;
+  message: string;
+  details?: any;
+}> {
+  const accountSid = credentials.accountSid?.trim();
+  let authToken = credentials.authToken?.trim();
+  const fromNumber = credentials.fromNumber?.trim() || "whatsapp:+14155238886";
+  const smsFromNumber = credentials.smsFromNumber?.trim();
+
+  if (!accountSid) {
+    return {
+      success: false,
+      statusCode: 400,
+      errorCode: "MISSING_ACCOUNT_SID",
+      message: "Twilio Account SID is required.",
+      details: "Enter a valid Twilio Account SID starting with AC.",
+    };
+  }
+
+  if (!accountSid.startsWith("AC") || accountSid.length < 30) {
+    return {
+      success: false,
+      statusCode: 400,
+      errorCode: "INVALID_ACCOUNT_SID_FORMAT",
+      message: "Invalid Twilio Account SID format.",
+      details: "Twilio Account SID must start with 'AC' and be 34 characters long.",
+    };
+  }
+
+  // If token is masked or missing, load from stored secret
+  if (!authToken || isMasked(authToken)) {
+    const stored = await getGlobalCommunicationSettings(false);
+    authToken = stored.twilio.authToken;
+  }
+
+  if (!authToken || isMasked(authToken)) {
+    return {
+      success: false,
+      statusCode: 400,
+      errorCode: "MISSING_AUTH_TOKEN",
+      message: "Twilio Auth Token is required.",
+      details: "Enter your Twilio Auth Token from the Twilio Console.",
+    };
+  }
+
+  const senderValidation = validateWhatsAppSender(fromNumber);
+  if (!senderValidation.isValid) {
+    return {
+      success: false,
+      statusCode: 400,
+      errorCode: "INVALID_SENDER_FORMAT",
+      message: senderValidation.error || "Invalid WhatsApp sender format.",
+      details: senderValidation.error,
+    };
+  }
+
+  if (smsFromNumber) {
+    const smsValidation = validateSmsSender(smsFromNumber);
+    if (!smsValidation.isValid) {
+      return {
+        success: false,
+        statusCode: 400,
+        errorCode: "INVALID_SMS_SENDER_FORMAT",
+        message: smsValidation.error || "Invalid SMS sender format.",
+        details: smsValidation.error,
+      };
+    }
+  }
+
+  try {
+    const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}.json`;
+    const authHeader = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Basic ${authHeader}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      const twilioCode = data.code || res.status;
+      const twilioMsg = data.message || "Twilio authentication failed.";
+      return {
+        success: false,
+        statusCode: res.status === 401 ? 401 : 400,
+        errorCode: twilioCode === 20003 ? "AUTHENTICATION_FAILED" : "TWILIO_ERROR",
+        message: `Twilio Connection Failed: ${twilioMsg} (Code ${twilioCode})`,
+        details: `Twilio API returned HTTP ${res.status}. Check Account SID and Auth Token.`,
+      };
+    }
+
+    if (data.status === "suspended") {
+      return {
+        success: false,
+        statusCode: 403,
+        errorCode: "ACCOUNT_SUSPENDED",
+        message: "Twilio Account Suspended: Please check your billing status in Twilio Console.",
+        details: "Account status is 'suspended'.",
+      };
+    }
+
+    return {
+      success: true,
+      statusCode: 200,
+      errorCode: null,
+      message: "✓ Twilio Connected • WhatsApp Sender Ready",
+      details: {
+        accountSid: `${accountSid.slice(0, 6)}...${accountSid.slice(-4)}`,
+        accountName: data.friendly_name || "Twilio Account",
+        accountStatus: data.status || "active",
+        accountType: data.type || "Full",
+        sender: senderValidation.formatted,
+        senderType: senderValidation.isSandbox ? "Twilio WhatsApp Sandbox" : "Registered Business Sender",
+        smsSender: smsFromNumber || undefined,
+      },
+    };
+  } catch (netErr: any) {
+    return {
+      success: false,
+      statusCode: 504,
+      errorCode: "NETWORK_ERROR",
+      message: `Network Error: Unable to reach Twilio API (${netErr.message})`,
+      details: netErr.message,
+    };
+  }
+}
+
 /**
  * Retrieves authoritative global communication configuration.
  * Client safe flag masks sensitive credentials like Twilio AuthToken and Email API keys.
@@ -136,86 +356,73 @@ export const DEFAULT_FEE_AUTOMATION_RULES: FeeAutomationRule[] = [
 export async function getGlobalCommunicationSettings(clientSafe = true): Promise<GlobalCommunicationSettings> {
   try {
     const adminDb = getSafeAdminDb();
+    let controls: any = runtimeControlsCache || {};
+    let secrets: any = runtimeEncryptedSecretsCache || {};
+
     if (adminDb) {
-      const controlsSnap = await adminDb.doc(GLOBAL_CONTROLS_DOC).get();
-      const secretsSnap = clientSafe ? null : await adminDb.doc(GLOBAL_SECRETS_DOC).get();
-
-      const controls: any = controlsSnap.exists ? controlsSnap.data() : {};
-      const secrets: any = secretsSnap?.exists ? secretsSnap.data() : {};
-
-      const merged: GlobalCommunicationSettings = {
-        masterEnabled: controls.masterEnabled ?? DEFAULT_COMMUNICATION_SETTINGS.masterEnabled,
-        channels: {
-          ...DEFAULT_COMMUNICATION_SETTINGS.channels,
-          ...(controls.channels || {}),
-        },
-        twilio: {
-          accountSid: secrets?.twilioAccountSid || controls?.twilio?.accountSid || DEFAULT_COMMUNICATION_SETTINGS.twilio.accountSid,
-          authToken: clientSafe
-            ? (secrets?.twilioAuthToken || controls?.twilio?.authToken ? "••••••••••••••••" : "")
-            : (secrets?.twilioAuthToken || controls?.twilio?.authToken || DEFAULT_COMMUNICATION_SETTINGS.twilio.authToken),
-          fromNumber: controls?.twilio?.fromNumber || DEFAULT_COMMUNICATION_SETTINGS.twilio.fromNumber,
-          smsFromNumber: controls?.twilio?.smsFromNumber || DEFAULT_COMMUNICATION_SETTINGS.twilio.smsFromNumber,
-          isConfigured: Boolean(secrets?.twilioAccountSid || controls?.twilio?.accountSid || DEFAULT_COMMUNICATION_SETTINGS.twilio.accountSid),
-        },
-        email: {
-          provider: controls?.email?.provider || DEFAULT_COMMUNICATION_SETTINGS.email.provider,
-          apiKey: clientSafe
-            ? (secrets?.emailApiKey || controls?.email?.apiKey ? "••••••••••••••••" : "")
-            : (secrets?.emailApiKey || controls?.email?.apiKey || DEFAULT_COMMUNICATION_SETTINGS.email.apiKey),
-          senderEmail: controls?.email?.senderEmail || DEFAULT_COMMUNICATION_SETTINGS.email.senderEmail,
-          senderName: controls?.email?.senderName || DEFAULT_COMMUNICATION_SETTINGS.email.senderName,
-          isConfigured: Boolean(secrets?.emailApiKey || controls?.email?.apiKey || DEFAULT_COMMUNICATION_SETTINGS.email.apiKey),
-        },
-        planAccess: {
-          ...DEFAULT_COMMUNICATION_SETTINGS.planAccess,
-          ...(controls.planAccess || {}),
-        },
-        schoolOverrides: controls.schoolOverrides || {},
-        updatedAt: controls.updatedAt || new Date().toISOString(),
-        updatedBy: controls.updatedBy || "System",
-      };
-
-      return merged;
-    }
-
-    // Client fallback
-    const db = getFirebaseDb();
-    if (db) {
-      const snap = await getDoc(doc(db, "siteSettings", "communication_controls"));
-      let secrets: any = {};
       try {
-        const secSnap = await getDoc(doc(db, "siteSettings", "communication_secrets"));
-        if (secSnap.exists()) secrets = secSnap.data();
-      } catch {}
+        const controlsSnap = await adminDb.doc(GLOBAL_CONTROLS_DOC).get();
+        if (controlsSnap.exists) {
+          controls = controlsSnap.data() || {};
+        }
 
-      if (snap.exists() || Object.keys(secrets).length > 0) {
-        const data = snap.exists() ? snap.data() : {};
-        const accountSid = secrets?.twilioAccountSid || data.twilio?.accountSid || DEFAULT_COMMUNICATION_SETTINGS.twilio.accountSid;
-        const hasAuthToken = Boolean(secrets?.twilioAuthToken || data.twilio?.authToken);
-        return {
-          ...DEFAULT_COMMUNICATION_SETTINGS,
-          ...data,
-          twilio: {
-            ...DEFAULT_COMMUNICATION_SETTINGS.twilio,
-            ...(data.twilio || {}),
-            accountSid,
-            authToken: clientSafe
-              ? (hasAuthToken ? "••••••••••••••••" : "")
-              : (secrets?.twilioAuthToken || data.twilio?.authToken || DEFAULT_COMMUNICATION_SETTINGS.twilio.authToken),
-            isConfigured: Boolean(accountSid),
-          },
-          email: {
-            ...DEFAULT_COMMUNICATION_SETTINGS.email,
-            ...(data.email || {}),
-            apiKey: clientSafe
-              ? (secrets?.emailApiKey || data.email?.apiKey ? "••••••••••••••••" : "")
-              : (secrets?.emailApiKey || data.email?.apiKey || DEFAULT_COMMUNICATION_SETTINGS.email.apiKey),
-            isConfigured: Boolean(secrets?.emailApiKey || data.email?.apiKey || DEFAULT_COMMUNICATION_SETTINGS.email.apiKey),
-          },
-        };
+        const secretsSnap = await adminDb.doc(GLOBAL_SECRETS_DOC).get();
+        if (secretsSnap.exists) {
+          secrets = secretsSnap.data() || {};
+        }
+      } catch (dbReadErr) {
+        console.warn("[CommunicationService] AdminDb read notice:", dbReadErr);
       }
     }
+
+    // Decrypt encrypted secrets
+    const rawTwilioToken = secrets?.twilioAuthToken
+      ? decryptSecret(secrets.twilioAuthToken)
+      : (controls?.twilio?.authToken ? decryptSecret(controls.twilio.authToken) : (process.env.TWILIO_AUTH_TOKEN || ""));
+
+    const rawEmailKey = secrets?.emailApiKey
+      ? decryptSecret(secrets.emailApiKey)
+      : (controls?.email?.apiKey ? decryptSecret(controls.email.apiKey) : (process.env.EMAIL_API_KEY || ""));
+
+    const accountSid =
+      secrets?.twilioAccountSid ||
+      controls?.twilio?.accountSid ||
+      process.env.TWILIO_ACCOUNT_SID ||
+      "";
+
+    const isTwilioConfigured = Boolean(accountSid && rawTwilioToken);
+    const isEmailConfigured = Boolean(rawEmailKey || controls?.email?.provider !== "none");
+
+    const merged: GlobalCommunicationSettings = {
+      masterEnabled: controls.masterEnabled ?? DEFAULT_COMMUNICATION_SETTINGS.masterEnabled,
+      channels: {
+        ...DEFAULT_COMMUNICATION_SETTINGS.channels,
+        ...(controls.channels || {}),
+      },
+      twilio: {
+        accountSid,
+        authToken: clientSafe ? maskSecret(rawTwilioToken) : rawTwilioToken,
+        fromNumber: controls?.twilio?.fromNumber || process.env.TWILIO_WHATSAPP_FROM || DEFAULT_COMMUNICATION_SETTINGS.twilio.fromNumber,
+        smsFromNumber: controls?.twilio?.smsFromNumber || process.env.TWILIO_SMS_FROM || DEFAULT_COMMUNICATION_SETTINGS.twilio.smsFromNumber,
+        isConfigured: isTwilioConfigured,
+      },
+      email: {
+        provider: controls?.email?.provider || DEFAULT_COMMUNICATION_SETTINGS.email.provider,
+        apiKey: clientSafe ? maskSecret(rawEmailKey) : rawEmailKey,
+        senderEmail: controls?.email?.senderEmail || DEFAULT_COMMUNICATION_SETTINGS.email.senderEmail,
+        senderName: controls?.email?.senderName || DEFAULT_COMMUNICATION_SETTINGS.email.senderName,
+        isConfigured: isEmailConfigured,
+      },
+      planAccess: {
+        ...DEFAULT_COMMUNICATION_SETTINGS.planAccess,
+        ...(controls.planAccess || {}),
+      },
+      schoolOverrides: controls.schoolOverrides || {},
+      updatedAt: controls.updatedAt || new Date().toISOString(),
+      updatedBy: controls.updatedBy || "System",
+    };
+
+    return merged;
   } catch (err) {
     console.warn("[CommunicationService] Error reading communication controls:", err);
   }
@@ -225,16 +432,15 @@ export async function getGlobalCommunicationSettings(clientSafe = true): Promise
 
 /**
  * Super Admin updates global settings, plan permissions, or provider credentials.
- * Credentials are stored in server-only secrets doc.
+ * Credentials are encrypted at rest with AES-256-GCM and stored in server-only secrets doc.
  */
 export async function updateGlobalCommunicationSettings(
   payload: Partial<GlobalCommunicationSettings>,
   adminUser?: { uid: string; email: string; name: string }
 ): Promise<void> {
   const adminDb = getSafeAdminDb();
-  const db = getFirebaseDb();
-
   const now = new Date().toISOString();
+
   const publicData: Record<string, any> = {
     updatedAt: now,
     updatedBy: adminUser?.name || adminUser?.email || "Super Admin",
@@ -265,40 +471,55 @@ export async function updateGlobalCommunicationSettings(
     };
   }
 
-  // Secrets data
+  // Encrypted secrets data
   const secretsData: Record<string, any> = {
     updatedAt: now,
   };
-  if (payload.twilio?.accountSid) secretsData.twilioAccountSid = payload.twilio.accountSid;
-  if (payload.twilio?.authToken && !payload.twilio.authToken.includes("••••")) {
-    secretsData.twilioAuthToken = payload.twilio.authToken;
+  if (payload.twilio?.accountSid) {
+    secretsData.twilioAccountSid = payload.twilio.accountSid.trim();
   }
-  if (payload.email?.apiKey && !payload.email.apiKey.includes("••••")) {
-    secretsData.emailApiKey = payload.email.apiKey;
+  if (payload.twilio?.authToken && !isMasked(payload.twilio.authToken)) {
+    secretsData.twilioAuthToken = encryptSecret(payload.twilio.authToken.trim());
+  }
+  if (payload.email?.apiKey && !isMasked(payload.email.apiKey)) {
+    secretsData.emailApiKey = encryptSecret(payload.email.apiKey.trim());
   }
 
+  // Always keep runtime cache updated
+  runtimeControlsCache = {
+    ...(runtimeControlsCache || {}),
+    ...publicData,
+    twilio: {
+      ...((runtimeControlsCache as any)?.twilio || {}),
+      ...(publicData.twilio || {}),
+    },
+    email: {
+      ...((runtimeControlsCache as any)?.email || {}),
+      ...(publicData.email || {}),
+    },
+  };
+
+  runtimeEncryptedSecretsCache = {
+    ...runtimeEncryptedSecretsCache,
+    ...secretsData,
+  };
+
+  // Persist to Firestore via Admin SDK
   if (adminDb) {
-    await adminDb.doc(GLOBAL_CONTROLS_DOC).set(publicData, { merge: true });
-    if (Object.keys(secretsData).length > 1) {
-      await adminDb.doc(GLOBAL_SECRETS_DOC).set(secretsData, { merge: true });
-    }
-    return;
-  }
-
-  if (db) {
-    await setDoc(doc(db, "siteSettings", "communication_controls"), publicData, { merge: true });
-    if (Object.keys(secretsData).length > 1) {
-      await setDoc(doc(db, "siteSettings", "communication_secrets"), secretsData, { merge: true }).catch(() => {});
+    try {
+      await adminDb.doc(GLOBAL_CONTROLS_DOC).set(publicData, { merge: true });
+      if (Object.keys(secretsData).length > 1) {
+        await adminDb.doc(GLOBAL_SECRETS_DOC).set(secretsData, { merge: true });
+      }
+    } catch (saveErr) {
+      console.warn("[CommunicationService] Error saving settings to AdminDb:", saveErr);
+      throw saveErr;
     }
   }
 }
 
 /**
  * Evaluates real-time communication access for a specific school.
- * Considers:
- * 1. Global master switch & channel toggles
- * 2. School's subscription plan entitlement
- * 3. School manual override by Super Admin (takes highest precedence)
  */
 export async function getSchoolCommunicationAccess(schoolId: string): Promise<SchoolCommunicationAccess> {
   const globalSettings = await getGlobalCommunicationSettings(true);
@@ -317,24 +538,14 @@ export async function getSchoolCommunicationAccess(schoolId: string): Promise<Sc
         schoolPlanSlug = (sData.planSlug || sData.planId || "free").toLowerCase().replace(/^plan_/, "");
         schoolPlanName = sData.planName || schoolPlanSlug;
       }
-    } else if (schoolId) {
-      const db = getFirebaseDb();
-      if (db) {
-        const sSnap = await getDoc(doc(db, "schools", schoolId));
-        if (sSnap.exists()) {
-          const sData = sSnap.data() || {};
-          schoolName = sData.name || "School";
-          schoolPlanSlug = (sData.planSlug || sData.planId || "free").toLowerCase().replace(/^plan_/, "");
-          schoolPlanName = sData.planName || schoolPlanSlug;
-        }
-      }
     }
   } catch (err) {
     console.warn("[CommunicationService] Error resolving school plan:", err);
   }
 
   // 1. Plan baseline
-  const planChannels = globalSettings.planAccess[schoolPlanSlug] ||
+  const planChannels =
+    globalSettings.planAccess[schoolPlanSlug] ||
     globalSettings.planAccess.free || {
       whatsapp: false,
       email: false,
@@ -347,10 +558,16 @@ export async function getSchoolCommunicationAccess(schoolId: string): Promise<Sc
   const isOverridden = Boolean(override && typeof override.enabled === "boolean");
   const overrideEnabled = override?.enabled ?? true;
 
-  let canWhatsApp = globalSettings.channels.whatsapp && (override?.channels?.whatsapp ?? (planChannels.whatsapp && overrideEnabled));
-  let canEmail = globalSettings.channels.email && (override?.channels?.email ?? (planChannels.email && overrideEnabled));
-  let canInApp = globalSettings.channels.in_app; // In-app is always free if global master is on
-  let canAutomate = globalSettings.channels.automation && (override?.channels?.automation ?? (planChannels.automation && overrideEnabled));
+  let canWhatsApp =
+    globalSettings.channels.whatsapp &&
+    (override?.channels?.whatsapp ?? (planChannels.whatsapp && overrideEnabled));
+  let canEmail =
+    globalSettings.channels.email &&
+    (override?.channels?.email ?? (planChannels.email && overrideEnabled));
+  let canInApp = globalSettings.channels.in_app;
+  let canAutomate =
+    globalSettings.channels.automation &&
+    (override?.channels?.automation ?? (planChannels.automation && overrideEnabled));
 
   if (!globalSettings.masterEnabled) {
     canWhatsApp = false;
@@ -369,7 +586,6 @@ export async function getSchoolCommunicationAccess(schoolId: string): Promise<Sc
     lockReason = `WhatsApp & Email automation requires Growth or Professional Plan. Current: ${schoolPlanName}.`;
   }
 
-  // Monthly usage calculation
   const monthlyUsage = {
     totalSent: 0,
     whatsappSent: 0,
@@ -396,13 +612,8 @@ export async function getSchoolCommunicationAccess(schoolId: string): Promise<Sc
   };
 }
 
-
 /**
  * Dispatches a communication message through the Unified Notification Engine.
- * Supports:
- * - in_app: Writes to student's live notification feed (free, realtime, persistent)
- * - whatsapp: Twilio WhatsApp REST API
- * - email: Resend / SendGrid / REST API
  */
 export async function dispatchCommunicationMessage(
   payload: SendMessagePayload,
@@ -440,7 +651,7 @@ export async function dispatchCommunicationMessage(
     };
   }
 
-  // 2. Fetch full global configuration (including backend secrets)
+  // 2. Fetch full global configuration (with decrypted secrets)
   const fullConfig = await getGlobalCommunicationSettings(false);
 
   // 3. Prepare Log Entry
@@ -454,7 +665,12 @@ export async function dispatchCommunicationMessage(
     admissionNumber: payload.admissionNumber || "",
     className: payload.className || "",
     parentName: payload.parentName || "",
-    recipient: (channel === "whatsapp" ? payload.recipientPhone : channel === "email" ? payload.recipientEmail : payload.userId) || "Student App",
+    recipient:
+      (channel === "whatsapp"
+        ? payload.recipientPhone
+        : channel === "email"
+        ? payload.recipientEmail
+        : payload.userId) || "Student App",
     channel,
     templateId: payload.templateId,
     title: payload.title || "Notification",
@@ -482,7 +698,7 @@ export async function dispatchCommunicationMessage(
         {
           title: payload.title || "School Notification",
           message: content,
-          type: payload.triggerType === "admission" ? "general" : payload.triggerType === "fee_reminder" ? "general" : "general",
+          type: "general",
           targetAudience: "user",
           targetUserId: payload.userId || studentId,
           idempotencyKey: payload.idempotencyKey,
@@ -514,8 +730,7 @@ export async function dispatchCommunicationMessage(
         ? fullConfig.twilio.fromNumber
         : `whatsapp:${fullConfig.twilio.fromNumber}`;
 
-      if (twilioAccountSid && twilioAuthToken && !twilioAuthToken.includes("••••")) {
-        // Execute real Twilio WhatsApp API call
+      if (twilioAccountSid && twilioAuthToken && !isMasked(twilioAuthToken)) {
         const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${twilioAccountSid}/Messages.json`;
         const bodyParams = new URLSearchParams();
         bodyParams.append("From", twilioFrom);
@@ -532,15 +747,23 @@ export async function dispatchCommunicationMessage(
           body: bodyParams.toString(),
         });
 
-        const twilioRes = await res.json();
+        const twilioRes = await res.json().catch(() => ({}));
         if (!res.ok) {
-          throw new Error(twilioRes.message || `Twilio API error: ${res.status}`);
+          const errCode = twilioRes.code;
+          let userMsg = twilioRes.message || `Twilio dispatch failed (HTTP ${res.status})`;
+          if (errCode === 21608) {
+            userMsg = "Recipient has not joined Twilio WhatsApp Sandbox. Recipient must send join code first.";
+          } else if (errCode === 21211) {
+            userMsg = `Invalid phone number format: ${formattedTo}`;
+          } else if (errCode === 20003) {
+            userMsg = "Twilio authentication failed. Verify Account SID & Auth Token.";
+          }
+          throw new Error(userMsg);
         }
 
         finalStatus = "sent";
         providerMessageId = twilioRes.sid;
       } else {
-        // Informative error: Super Admin needs to configure Twilio
         throw new Error("Twilio WhatsApp credentials not configured by Super Admin");
       }
     } else if (channel === "email") {
@@ -550,7 +773,7 @@ export async function dispatchCommunicationMessage(
         throw new Error("Invalid or missing recipient email address");
       }
 
-      if (fullConfig.email.provider === "resend" && fullConfig.email.apiKey && !fullConfig.email.apiKey.includes("••••")) {
+      if (fullConfig.email.provider === "resend" && fullConfig.email.apiKey && !isMasked(fullConfig.email.apiKey)) {
         const res = await fetch("https://api.resend.com/emails", {
           method: "POST",
           headers: {
@@ -565,7 +788,7 @@ export async function dispatchCommunicationMessage(
           }),
         });
 
-        const resData = await res.json();
+        const resData = await res.json().catch(() => ({}));
         if (!res.ok) {
           throw new Error(resData.message || `Resend Email error: ${res.status}`);
         }
@@ -593,16 +816,10 @@ export async function dispatchCommunicationMessage(
     const adminDb = getSafeAdminDb();
     if (adminDb) {
       await adminDb.collection("schools").doc(schoolId).collection("communication_logs").doc(logId).set(logEntry);
-      // Also register in platform-wide audit logs
       await adminDb.collection("communication_delivery_logs").doc(logId).set({
         ...logEntry,
         schoolName: access.schoolName,
       });
-    } else {
-      const db = getFirebaseDb();
-      if (db) {
-        await setDoc(doc(db, "schools", schoolId, "communication_logs", logId), logEntry);
-      }
     }
   } catch (logErr) {
     console.warn("[CommunicationEngine] Failed to write delivery log:", logErr);
@@ -640,22 +857,6 @@ export async function getSchoolCommunicationLogs(
       const snap = await q.get();
       return snap.docs.map((d: any) => d.data() as CommunicationLogEntry);
     }
-
-    const db = getFirebaseDb();
-    if (db) {
-      const coll = collection(db, "schools", schoolId, "communication_logs");
-      let q = query(coll, orderBy("createdAt", "desc"), limit(maxLogs));
-      if (filterChannel && filterStatus) {
-        q = query(coll, where("channel", "==", filterChannel), where("status", "==", filterStatus), limit(maxLogs));
-      } else if (filterChannel) {
-        q = query(coll, where("channel", "==", filterChannel), limit(maxLogs));
-      } else if (filterStatus) {
-        q = query(coll, where("status", "==", filterStatus), limit(maxLogs));
-      }
-
-      const snap = await getDocs(q);
-      return snap.docs.map((d) => d.data() as CommunicationLogEntry);
-    }
   } catch (err) {
     console.warn("[CommunicationService] Error fetching communication logs:", err);
   }
@@ -664,7 +865,7 @@ export async function getSchoolCommunicationLogs(
 }
 
 /**
- * Retrieves all delivery logs across all schools for Super Admin visibility.
+ * Retrieves all delivery logs across all schools for Super Admin platform visibility.
  */
 export async function getAllPlatformCommunicationLogs(maxLogs = 100): Promise<CommunicationLogEntry[]> {
   try {
@@ -672,14 +873,6 @@ export async function getAllPlatformCommunicationLogs(maxLogs = 100): Promise<Co
     if (adminDb) {
       const snap = await adminDb.collection("communication_delivery_logs").orderBy("createdAt", "desc").limit(maxLogs).get();
       return snap.docs.map((d: any) => d.data() as CommunicationLogEntry);
-    }
-
-    const db = getFirebaseDb();
-    if (db) {
-      const coll = collection(db, "communication_delivery_logs");
-      const q = query(coll, orderBy("createdAt", "desc"), limit(maxLogs));
-      const snap = await getDocs(q);
-      return snap.docs.map((d) => d.data() as CommunicationLogEntry);
     }
   } catch (err) {
     console.warn("[CommunicationService] Error fetching all platform logs:", err);

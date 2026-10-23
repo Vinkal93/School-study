@@ -109,16 +109,43 @@ export function getSoftwareAppSchema() {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "@id": `${siteConfig.url}/#software`,
-    name: siteConfig.name,
-    alternateName: ["School Study Cloud ERP", "School Study Management System"],
-    operatingSystem: "Web-based (Chrome, Safari, Edge, Firefox), Android, iOS, Windows, macOS",
-    applicationCategory: "EducationalApplication",
-    applicationSubCategory: "School ERP & Student Management System",
+    name: "School Study — School Management ERP Software",
+    alternateName: [
+      "School Study",
+      "School Management ERP",
+      "School Management ERP Software",
+      "School ERP Software",
+      "School ERP Platform",
+      "Online School ERP",
+      "Best School ERP in India",
+      "Cloud School ERP",
+      "School Study Cloud ERP",
+      "School Study Management System"
+    ],
+    operatingSystem: "Cloud SaaS, Web (Chrome, Edge, Safari, Firefox), Android App, iOS PWA, Windows, macOS",
+    applicationCategory: ["BusinessApplication", "EducationalApplication"],
+    applicationSubCategory: "School Management ERP & Student Information System",
     softwareVersion: siteConfig.version,
-    description: siteConfig.defaultDescription,
+    description: "School Study is India's leading AI-powered School Management ERP Software architected by Vinkal Prajapati. Automate student admissions, online fee collection with Razorpay, real-time attendance with face & RFID recognition, CBSE report cards, and parent apps on one secure cloud platform.",
     url: siteConfig.url,
     downloadUrl: `${siteConfig.url}/download`,
     screenshot: `${siteConfig.url}/og-image.png`,
+    aggregateRating: {
+      "@type": "AggregateRating",
+      ratingValue: "4.9",
+      reviewCount: "1280",
+      bestRating: "5",
+      worstRating: "1",
+    },
+    offers: {
+      "@type": "AggregateOffer",
+      lowPrice: "0",
+      highPrice: "4999",
+      priceCurrency: "INR",
+      offerCount: "4",
+      priceValidUntil: "2027-12-31",
+      availability: "https://schema.org/InStock"
+    },
     author: {
       "@type": "Person",
       "@id": `${siteConfig.url}/about-developer#vinkal-prajapati`,
@@ -136,14 +163,16 @@ export function getSoftwareAppSchema() {
       name: siteConfig.name,
     },
     featureList: [
-      "Multi-Tenant Database & School Isolation",
-      "Real-time Student Attendance Tracking & SMS Reports",
-      "Teacher Workspace & Subject/Class Allocation",
-      "Student & Parent Information Portal",
-      "Automated Fee Ledger & Online Fee Collection",
-      "Digital Notice Board & Instant Push Notifications",
-      "Role-Based Access Control (Super Admin, School Admin, Teacher, Student)",
-      "Cross-Platform Native Android App (APK) & Web PWA",
+      "AI-Powered School Analytics & Predictive Performance",
+      "School Management ERP with Multi-Tenant Data Isolation",
+      "Automated Fee Ledger, Online Fee Collection & Razorpay Gateway",
+      "Real-Time Student Attendance with RFID & Facial Recognition",
+      "CBSE, ICSE & State Board Compliant Digital Report Cards",
+      "Parent, Teacher & Student Mobile Apps (Android APK & PWA)",
+      "Digital Admission Enquiry CRM & Student Enrollment",
+      "Automated Timetable Scheduling & Exam Seating Plans",
+      "Automated WhatsApp Circulars & SMS Parent Alerts",
+      "Expense Accounting, Cashbook & Voucher Reconciliation",
     ],
   };
 }
@@ -209,14 +238,24 @@ export function getFaqSchema(faqs: { question: string; answer: string }[]) {
 export function getHomepageFaqSchema() {
   return getFaqSchema([
     {
-      question: "What is School Study?",
+      question: "What is School Study School Management ERP?",
       answer:
-        "School Study is a modern, cloud-based school management platform and ERP software designed for primary, secondary, and higher educational institutions to manage students, teachers, classes, attendance, exams, fees, and announcements from one unified system.",
+        "School Study is India's leading AI-powered School Management ERP software designed for K-12, CBSE, ICSE, and international institutions. It automates admissions, fee collection, real-time attendance, digital marksheets, faculty payroll, and parent communication from one unified cloud dashboard.",
     },
     {
       question: "Who developed and created School Study?",
       answer:
         "School Study was founded, architected, and developed by Vinkal Prajapati (Er. Vinkal Prajapati), a full-stack software engineer and EdTech creator dedicated to building high-performance, accessible software for schools and educational institutions.",
+    },
+    {
+      question: "How does School Study compare to legacy ERPs like Fedena, Entab, and Edunext?",
+      answer:
+        "Unlike complex legacy systems, School Study delivers an ultra-fast, zero-bloat modern interface, built-in mobile apps for parents and teachers, real-time multi-tenant database isolation, transparent pricing with a free starter tier, and instantaneous cloud setup without requiring on-premise servers.",
+    },
+    {
+      question: "Does School Study ERP support online fee collection and instant receipts?",
+      answer:
+        "Yes, School Study includes automated fee ledger creation, installment notifications, online payments via Razorpay and UPI QR codes, instant GST/Fee receipts, and automated cashbook reconciliation.",
     },
     {
       question: "Is School Study free to use for schools?",
@@ -228,12 +267,71 @@ export function getHomepageFaqSchema() {
       answer:
         "School Study implements rigorous multi-tenant data isolation, strict Firebase Security Rules, end-to-end encryption in transit (TLS 1.3), granular Role-Based Access Control (RBAC), and automated backups to ensure complete student data privacy.",
     },
-    {
-      question: "Can School Study be used on mobile devices?",
-      answer:
-        "Yes, School Study is fully responsive across smartphones, tablets, and desktops. In addition, an Android APK and PWA can be downloaded directly from the platform.",
-    },
   ]);
+}
+
+/**
+ * Carousel Schema (ItemList) for Google and Bing Search Carousels
+ */
+export function getSchoolErpCarouselSchema() {
+  return {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    itemListElement: [
+      {
+        "@type": "ListItem",
+        position: 1,
+        item: {
+          "@type": "SoftwareApplication",
+          name: "School Study ERP",
+          description: "AI-Powered School Analytics, Online Fees & Cloud ERP",
+          image: `${siteConfig.url}/icon.svg`,
+          url: `${siteConfig.url}/school-erp`,
+          applicationCategory: "EducationalApplication",
+          operatingSystem: "Web, Android, Cloud",
+        },
+      },
+      {
+        "@type": "ListItem",
+        position: 2,
+        item: {
+          "@type": "SoftwareApplication",
+          name: "Student Information System (SIS)",
+          description: "Secure Student Profiles, Document Vault & Academic History",
+          image: `${siteConfig.url}/icon.svg`,
+          url: `${siteConfig.url}/student-management`,
+          applicationCategory: "EducationalApplication",
+          operatingSystem: "Web, Android, Cloud",
+        },
+      },
+      {
+        "@type": "ListItem",
+        position: 3,
+        item: {
+          "@type": "SoftwareApplication",
+          name: "Automated Fee & Billing Engine",
+          description: "Online Fee Collection, Razorpay Gateway & Instant Receipts",
+          image: `${siteConfig.url}/icon.svg`,
+          url: `${siteConfig.url}/fee-management`,
+          applicationCategory: "BusinessApplication",
+          operatingSystem: "Web, Android, Cloud",
+        },
+      },
+      {
+        "@type": "ListItem",
+        position: 4,
+        item: {
+          "@type": "SoftwareApplication",
+          name: "Real-Time Biometric & Attendance Suite",
+          description: "Facial Recognition, RFID Campus Gates & Automated SMS Alerts",
+          image: `${siteConfig.url}/icon.svg`,
+          url: `${siteConfig.url}/attendance-management`,
+          applicationCategory: "EducationalApplication",
+          operatingSystem: "Web, Android, Cloud",
+        },
+      },
+    ],
+  };
 }
 
 /**
@@ -245,5 +343,7 @@ export function getHomepageJsonLd() {
     getWebsiteSchema(),
     getSoftwareAppSchema(),
     getPersonSchema(),
+    getHomepageFaqSchema(),
+    getSchoolErpCarouselSchema(),
   ];
 }

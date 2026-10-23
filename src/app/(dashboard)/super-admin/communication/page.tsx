@@ -31,6 +31,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/hooks/use-auth";
 import type {
   GlobalCommunicationSettings,
   CommunicationLogEntry,
@@ -38,7 +39,15 @@ import type {
 } from "@/types/communication";
 
 function SuperAdminCommunicationContent() {
+  const { firebaseUser } = useAuth();
   const searchParams = useSearchParams();
+
+  const getAuthHeaders = async () => {
+    const token = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    return headers;
+  };
   const tabParam = searchParams.get("tab");
 
   const [settings, setSettings] = useState<GlobalCommunicationSettings | null>(null);
@@ -102,15 +111,17 @@ function SuperAdminCommunicationContent() {
     setTestingTwilio(true);
     setTwilioTestResult(null);
     try {
+      const headers = await getAuthHeaders();
       const res = await fetch("/api/super-admin/communication", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           action: "test_twilio",
           credentials: {
             accountSid: twilioSid.trim(),
             authToken: twilioToken.trim(),
             fromNumber: twilioFrom.trim(),
+            smsFromNumber: twilioSmsFrom.trim(),
           },
         }),
       });
@@ -138,7 +149,8 @@ function SuperAdminCommunicationContent() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/super-admin/communication");
+      const headers = await getAuthHeaders();
+      const res = await fetch("/api/super-admin/communication", { headers });
       const data = await res.json();
       if (data.success) {
         setSettings(data.settings);
@@ -167,15 +179,16 @@ function SuperAdminCommunicationContent() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [firebaseUser]);
 
   // Save Provider Credentials & Master Switches
   const handleSaveProviders = async () => {
     setIsSaving(true);
     try {
+      const headers = await getAuthHeaders();
       const res = await fetch("/api/super-admin/communication", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           settingsUpdate: {
             twilio: {
@@ -222,9 +235,10 @@ function SuperAdminCommunicationContent() {
         };
       }
 
+      const headers = await getAuthHeaders();
       const res = await fetch("/api/super-admin/communication", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ settingsUpdate: nextSettings }),
       });
 
@@ -242,9 +256,10 @@ function SuperAdminCommunicationContent() {
   const handleToggleSchoolOverride = async (schoolId: string, currentOverride: boolean | undefined) => {
     try {
       const nextState = currentOverride === false ? true : false;
+      const headers = await getAuthHeaders();
       const res = await fetch("/api/super-admin/communication", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           action: "override_school",
           schoolId,
@@ -268,9 +283,10 @@ function SuperAdminCommunicationContent() {
   const handleRetryMessage = async (log: CommunicationLogEntry) => {
     setRetryingLogId(log.id);
     try {
+      const headers = await getAuthHeaders();
       const res = await fetch("/api/communication/retry", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           logId: log.id,
           schoolId: log.schoolId,

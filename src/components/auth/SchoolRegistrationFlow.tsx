@@ -100,7 +100,7 @@ export function SchoolRegistrationFlow() {
 
       // 2. Sign in the new Admin account if not already signed in
       const auth = getFirebaseAuth();
-      if (!auth.currentUser) {
+      if (auth.currentUser?.uid !== adminUid) {
         await signInWithEmailAndPassword(auth, adminEmail.trim().toLowerCase(), adminPassword);
       }
 
@@ -134,7 +134,7 @@ export function SchoolRegistrationFlow() {
         const urlParams = new URLSearchParams(window.location.search);
         const redirectParam = urlParams.get("redirect");
         if (stored || redirectParam) {
-          redirectUrl = redirectParam || "/pricing?autoCheckout=true";
+          redirectUrl = redirectParam && redirectParam.startsWith("/") && !redirectParam.startsWith("//") && !redirectParam.includes("\\") ? redirectParam : "/pricing?autoCheckout=true";
         }
       } catch (e) {}
 

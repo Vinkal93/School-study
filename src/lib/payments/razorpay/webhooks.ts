@@ -17,7 +17,7 @@ export function verifyRazorpayWebhookSignature(
 
   if (!webhookSecret) {
     console.warn("Webhook verification: RAZORPAY_WEBHOOK_SECRET not configured.");
-    return signatureHeader.length > 0;
+    return false;
   }
 
   const expectedSignature = crypto

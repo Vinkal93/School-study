@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { X, Sparkles, CheckCircle2, ShieldCheck, CreditCard, Lock, Loader2, ArrowRight, Info } from "lucide-react";
 import type { CustomOfferRecord } from "@/types/reports";
 import { toast } from "sonner";
+import { loadRazorpayScript } from "@/lib/payments/clientCheckout";
 import { safeFetchJson } from "@/lib/utils/safeFetch";
 
 export interface SpecialOfferCheckoutModalProps {
@@ -40,6 +41,7 @@ export function SpecialOfferCheckoutModal({
 
     setSubmitting(true);
     try {
+      if (!await loadRazorpayScript()) throw new Error("Payment checkout could not load. Check your connection and retry.");
       // 1. Create Server Payment Order
       const res = await safeFetchJson("/api/billing/offers/checkout", {
         method: "POST",
@@ -57,29 +59,7 @@ export function SpecialOfferCheckoutModal({
 
       // Check for Razorpay SDK on window
       const Razorpay = (window as any).Razorpay;
-      if (!Razorpay) {
-        // Fallback for local testing / test mode signature verification
-        const verifyRes = await safeFetchJson("/api/billing/offers/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            offerId: offer.id,
-            schoolId,
-            userId,
-            razorpayOrderId: orderJson.orderId,
-            razorpayPaymentId: `pay_test_${Date.now()}`,
-            razorpaySignature: "test_signature",
-            amountPaise: offer.customPricePaise,
-          }),
-        });
-
-        if (!verifyRes.ok) throw new Error(verifyRes.error || "Verification failed.");
-
-        toast.success(verifyRes.data?.message || "Special offer activated successfully!");
-        onSuccess();
-        onClose();
-        return;
-      }
+      if (!Razorpay) throw new Error("Payment checkout is unavailable.");
 
       // 2. Launch Razorpay Gateway Modal
       const options = {

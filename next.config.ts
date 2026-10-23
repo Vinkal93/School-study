@@ -12,6 +12,10 @@ const nextConfig: NextConfig = {
 
   // Prevent serverless bundler crashes with firebase-admin and native modules
   serverExternalPackages: ["firebase-admin"],
+  turbopack: {
+    resolveAlias: {"@/lib/firebase/admin": {browser:"./src/lib/firebase/admin.browser.ts"}},
+  },
+
 
   // Enable gzip/brotli compression
   compress: true,

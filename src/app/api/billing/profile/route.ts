@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server";
-import { getFirebaseDb } from "@/lib/firebase/client";
-import { doc, setDoc, getDoc } from "firebase/firestore";
-import { createBillingAuditLog } from "@/lib/billing/audit";
+import { requireBillingActor, ownsBillingSchool } from "@/lib/payments/server-access";
+
+
 
 export async function PUT(request: Request) {
   try {
+    const actor = await requireBillingActor(request);
+    if (actor.error) return actor.error;
     const body = await request.json();
     const { schoolId, billingName, schoolName, email, phone, address, gstin, pan, actorId } = body;
 
     if (!schoolId) {
       return NextResponse.json({ error: "School ID is required." }, { status: 400 });
     }
+
+    if (!ownsBillingSchool(actor.user, schoolId)) return NextResponse.json({error:"School billing access denied."},{status:403});
 
     if (!email || !email.includes("@")) {
       return NextResponse.json({ error: "Valid billing email is required." }, { status: 400 });
@@ -24,7 +28,7 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "GSTIN must be exactly 15 characters long." }, { status: 400 });
     }
 
-    const db = getFirebaseDb();
+    const db = actor.db;
     if (!db) {
       return NextResponse.json({ error: "Database unavailable." }, { status: 503 });
     }
@@ -41,17 +45,7 @@ export async function PUT(request: Request) {
       updatedAt: new Date().toISOString(),
     };
 
-    const profRef = doc(db, "billingProfiles", schoolId);
-    await setDoc(profRef, profileData, { merge: true });
-
-    await createBillingAuditLog(
-      actorId || "school_admin",
-      "school_admin",
-      "BILLING_PROFILE_UPDATED",
-      "schoolSubscription",
-      schoolId,
-      { email, gstin, phone }
-    );
+    await db.collection("billingProfiles").doc(schoolId).set(profileData, {merge:true});
 
     return NextResponse.json({
       success: true,

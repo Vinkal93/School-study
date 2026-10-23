@@ -667,9 +667,7 @@ export async function getStudentFeeSummary(
   assignment.monthLedger.forEach((item) => {
     const isActuallyPaid =
       (item.paidAmountPaise > 0 && item.pendingAmountPaise <= 0) ||
-      (item.paidAmountPaise >= item.amountPaise && item.amountPaise > 0) ||
-      (Array.isArray(item.receiptNumbers) && item.receiptNumbers.length > 0) ||
-      (Array.isArray(item.paymentIds) && item.paymentIds.length > 0);
+      (item.paidAmountPaise >= item.amountPaise && item.amountPaise > 0 && item.pendingAmountPaise <= 0);
 
     if (isActuallyPaid) {
       paidMonths.push(item.month);
@@ -865,9 +863,7 @@ export async function provisionStudentFeeAssignment(
     const prevItem = existingAssignment?.monthLedger?.find((p) => p.month.toLowerCase().startsWith(m.toLowerCase()));
     const hasPreviousPayment = prevItem && (
       (prevItem.paidAmountPaise > 0 && prevItem.pendingAmountPaise <= 0) ||
-      (prevItem.paidAmountPaise >= monthAmountPaise && monthAmountPaise > 0) ||
-      (Array.isArray(prevItem.receiptNumbers) && prevItem.receiptNumbers.length > 0) ||
-      (Array.isArray(prevItem.paymentIds) && prevItem.paymentIds.length > 0)
+      (prevItem.paidAmountPaise >= monthAmountPaise && monthAmountPaise > 0 && prevItem.pendingAmountPaise <= 0)
     );
 
     if (hasPreviousPayment && prevItem) {

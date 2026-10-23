@@ -106,8 +106,6 @@ export async function getRefundableAmount(paymentId: string): Promise<RefundCalc
   };
 }
 
-import { getRazorpayClientAsync } from "@/lib/payments/razorpay";
-
 /**
  * Server-side Razorpay Gateway Refund Executor using central resolver.
  */
@@ -117,6 +115,7 @@ async function callRazorpayRefundApi(
   notes: Record<string, string>
 ): Promise<{ id: string; status: string }> {
   try {
+    const { getRazorpayClientAsync } = await import("@/lib/payments/razorpay");
     const client = await getRazorpayClientAsync();
     const result = await (client.payments as any).refund(razorpayPaymentId, {
       amount: amountPaise,

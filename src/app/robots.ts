@@ -42,6 +42,7 @@ export default function robots(): MetadataRoute.Robots {
           "/student-management",
           "/teacher-management",
           "/attendance-management",
+          "/fee-management",
           "/download",
           "/contact",
           "/llms.txt",
