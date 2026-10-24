@@ -334,11 +334,27 @@ export async function requireSchoolAdmin(
     };
   }
 
-  // Multi-Tenant Isolation: Admin can only access their own school
-  if (targetSchoolId && user.schoolId && user.schoolId !== targetSchoolId) {
+  // Tenant Assignment Check: School Admin MUST have an assigned school campus
+  if (!user.schoolId || !user.schoolId.trim()) {
     return {
       errorResponse: NextResponse.json(
-        { error: "Access Denied. You do not have authorization to access this school's data." },
+        {
+          error: "Tenant Configuration Error: School Administrator has no assigned school campus. Please contact Super Admin.",
+          code: "MISSING_SCHOOL_ASSIGNMENT",
+        },
+        { status: 403 }
+      ),
+    };
+  }
+
+  // Multi-Tenant Isolation: Admin can only access their own school
+  if (targetSchoolId && user.schoolId !== targetSchoolId) {
+    return {
+      errorResponse: NextResponse.json(
+        {
+          error: "Access Denied. You do not have authorization to access this school's data.",
+          code: "CROSS_TENANT_ACCESS_DENIED",
+        },
         { status: 403 }
       ),
     };
@@ -387,10 +403,25 @@ export async function requireTeacher(
     };
   }
 
-  if (targetSchoolId && user.schoolId && user.schoolId !== targetSchoolId) {
+  if (!user.schoolId || !user.schoolId.trim()) {
     return {
       errorResponse: NextResponse.json(
-        { error: "Access Denied. Cross-school access denied." },
+        {
+          error: "Tenant Configuration Error: Teacher has no assigned school campus. Please contact School Admin.",
+          code: "MISSING_SCHOOL_ASSIGNMENT",
+        },
+        { status: 403 }
+      ),
+    };
+  }
+
+  if (targetSchoolId && user.schoolId !== targetSchoolId) {
+    return {
+      errorResponse: NextResponse.json(
+        {
+          error: "Access Denied. Cross-school access denied.",
+          code: "CROSS_TENANT_ACCESS_DENIED",
+        },
         { status: 403 }
       ),
     };

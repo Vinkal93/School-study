@@ -150,6 +150,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(testResult, { status: testResult.statusCode });
     }
 
+    // ACTION: EXPLICIT REMOVAL OF TWILIO CREDENTIALS
+    if (action === "remove_twilio_credentials" || action === "remove_twilio") {
+      await updateGlobalCommunicationSettings({ action: "remove_twilio_credentials" }, adminUser);
+      return NextResponse.json({ success: true, message: "Twilio credentials successfully removed." });
+    }
+
     // ACTION: SCHOOL MANUAL OVERRIDE
     if (action === "override_school") {
       if (!schoolId || typeof schoolId !== "string") {

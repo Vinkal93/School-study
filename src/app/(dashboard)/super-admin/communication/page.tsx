@@ -160,7 +160,7 @@ function SuperAdminCommunicationContent() {
 
         // Sync provider form
         setTwilioSid(data.settings.twilio.accountSid || "");
-        setTwilioToken(data.settings.twilio.authToken || "");
+        setTwilioToken(""); // Leave blank so blank submit preserves existing token
         setTwilioFrom(data.settings.twilio.fromNumber || "whatsapp:+14155238886");
         setTwilioSmsFrom(data.settings.twilio.smsFromNumber || "");
         setEmailProvider(data.settings.email.provider || "none");
@@ -180,6 +180,37 @@ function SuperAdminCommunicationContent() {
   useEffect(() => {
     fetchData();
   }, [firebaseUser]);
+
+  // Explicit Remove Twilio Configuration
+  const handleRemoveTwilioCredentials = async () => {
+    if (!confirm("Are you sure you want to permanently remove stored Twilio gateway credentials? Automated WhatsApp and SMS messages will be stopped until new credentials are configured.")) {
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch("/api/super-admin/communication", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          action: "remove_twilio_credentials",
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Twilio credentials removed successfully.");
+        setTwilioSid("");
+        setTwilioToken("");
+        fetchData();
+      } else {
+        toast.error(data.error || "Failed to remove Twilio credentials.");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Network error");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Save Provider Credentials & Master Switches
   const handleSaveProviders = async () => {

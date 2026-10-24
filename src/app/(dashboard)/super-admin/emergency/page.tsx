@@ -191,7 +191,7 @@ export default function SuperAdminEmergencyControlCenter() {
               targetType: "school",
               school: {
                 id: schoolSnap.id,
-                name: sData.name || sData.schoolName || "Lord Buddha Public School",
+                name: sData.name || sData.schoolName || sData.id || "Unnamed School Campus",
                 code: sData.code || "",
                 email: sData.email || "No email",
                 phone: sData.phone || "No phone",
@@ -218,7 +218,7 @@ export default function SuperAdminEmergencyControlCenter() {
               targetType: "school",
               school: {
                 id: rawSearch,
-                name: firstUser.schoolName || firstUser.school || "Lord Buddha Public School",
+                name: firstUser.schoolName || firstUser.school || "Unnamed School Campus",
                 code: "",
                 email: "No email",
                 phone: "No phone",

@@ -47,16 +47,16 @@ function processPaymentSettings(input, existingData, envSecret = "") {
 }
 
 // Test 1: First time saving with keyId and keySecret
-const result1 = processPaymentSettings({ keyId: "rzp_live_SNtWUOzpKkEtBR", keySecret: "sample_secret_12345678" }, null);
-assert.equal(result1.keyId, "rzp_live_SNtWUOzpKkEtBR");
+const result1 = processPaymentSettings({ keyId: "rzp_live_mockTestKey12345678", keySecret: "sample_secret_12345678" }, null);
+assert.equal(result1.keyId, "rzp_live_mockTestKey12345678");
 assert.equal(result1.isSecretSet, true);
 assert.equal(result1.isLiveMode, true);
 
 console.log("✓ Test 1 passed: First time saving with keyId and keySecret");
 
 // Test 2: Updating keyId while keeping existing secret
-const result2 = processPaymentSettings({ keyId: "rzp_live_SNtWUOzpKkEtBR", keySecret: "" }, { keySecret: "existing_secret_123456" });
-assert.equal(result2.keyId, "rzp_live_SNtWUOzpKkEtBR");
+const result2 = processPaymentSettings({ keyId: "rzp_live_mockTestKey12345678", keySecret: "" }, { keySecret: "existing_secret_123456" });
+assert.equal(result2.keyId, "rzp_live_mockTestKey12345678");
 assert.equal(result2.isSecretSet, true);
 
 console.log("✓ Test 2 passed: Updating keyId keeping existing secret");
