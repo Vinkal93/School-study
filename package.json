@@ -82,5 +82,6 @@
     "dompurify": "^3.4.17",
     "follow-redirects": "^1.16.1",
     "source-map-js": "^1.2.2"
-  }
+  },
+  "packageManager": "npm@10.9.9"
 }
