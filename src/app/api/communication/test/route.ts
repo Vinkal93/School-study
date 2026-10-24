@@ -78,6 +78,7 @@ export async function POST(req: NextRequest) {
       role: authUser.role,
       schoolId: schoolId,
       impersonatedBy: authUser.impersonatedBy,
+      token: authUser.token,
     };
 
     // 4. Authoritative Entitlement Check (Single Source of Truth)

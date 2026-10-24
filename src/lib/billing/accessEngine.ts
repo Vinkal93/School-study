@@ -112,9 +112,9 @@ export function calculateSubscriptionState(
 /**
  * Reusable server-side function returning full calculated access summary for a school.
  */
-export async function getSchoolAccess(schoolId: string): Promise<SchoolAccessSummary & { controlMode?: string }> {
+export async function getSchoolAccess(schoolId: string, userToken?: string): Promise<SchoolAccessSummary & { controlMode?: string }> {
   const [sub, policy] = await Promise.all([
-    getSchoolSubscription(schoolId),
+    getSchoolSubscription(schoolId, userToken),
     getGlobalAccessPolicy(),
   ]);
 

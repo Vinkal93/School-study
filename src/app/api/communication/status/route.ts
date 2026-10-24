@@ -32,16 +32,47 @@ export async function GET(req: NextRequest) {
       getSchoolTemplates(schoolId).catch(() => []),
     ]);
 
-    if (!access) {
-      return NextResponse.json(
-        {
-          success: false,
-          errorCode: "ACCESS_RESOLUTION_FAILED",
-          error: "Failed to resolve communication entitlements for this school.",
-        },
-        { status: 500 }
-      );
-    }
+    const effectiveAccess = access || {
+      schoolId,
+      schoolName: "School",
+      isGloballyEnabled: true,
+      canWhatsAppApi: false,
+      canSendWhatsApp: false,
+      canManualWhatsApp: true,
+      canSmsApi: false,
+      canSendSms: false,
+      canEmail: true,
+      canInApp: true,
+      canAutomateFees: false,
+      canCustomTemplates: false,
+      canTestMessage: false,
+      maxDailyRecipients: 100,
+      monthlyQuota: 0,
+      limits: {
+        monthlyWhatsAppAllowance: 0,
+        monthlySmsAllowance: 0,
+        monthlyTestAllowance: 0,
+        maxDailyRecipients: 100,
+        maxTemplates: 5,
+        maxAutomationRules: 2,
+        quietHoursEnforced: true,
+      },
+      monthlyUsage: {
+        totalSent: 0,
+        whatsappSent: 0,
+        smsSent: 0,
+        emailSent: 0,
+        inAppSent: 0,
+        manualOpened: 0,
+        testsSent: 0,
+        failed: 0,
+        limit: 0,
+      },
+      currentTier: "Starter Plan",
+      subscriptionStatus: "ACTIVE",
+      isPlanLocked: false,
+      lockReason: undefined,
+    };
 
     // Calculate usage from recent logs
     let waSent = 0;
@@ -59,8 +90,8 @@ export async function GET(req: NextRequest) {
       }
     });
 
-    access.monthlyUsage = {
-      ...(access.monthlyUsage || {
+    effectiveAccess.monthlyUsage = {
+      ...(effectiveAccess.monthlyUsage || {
         totalSent: 0,
         whatsappSent: 0,
         smsSent: 0,
@@ -69,7 +100,7 @@ export async function GET(req: NextRequest) {
         manualOpened: 0,
         testsSent: 0,
         failed: 0,
-        limit: access.limits?.monthlyWhatsAppAllowance ?? 0,
+        limit: effectiveAccess.limits?.monthlyWhatsAppAllowance ?? 0,
       }),
       whatsappSent: waSent,
       emailSent,
@@ -80,7 +111,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      access,
+      access: effectiveAccess,
       templates,
       rules,
       recentLogs: logs,

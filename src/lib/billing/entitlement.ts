@@ -13,9 +13,9 @@ import { getActivePlan, getAllPlans } from "./plans";
  * Section 27 & Phase 12B: Authoritative Effective Entitlement Service.
  * Resolves: Security/Suspension -> Access Policy -> Manual Restrictions -> Subscription Status -> Plan Version -> Limits -> Limit Overrides -> Real Usage -> 3-Way Feature Access Modes.
  */
-export async function getEffectiveEntitlement(schoolId: string): Promise<EffectiveEntitlement> {
+export async function getEffectiveEntitlement(schoolId: string, userToken?: string): Promise<EffectiveEntitlement> {
   const [summary, usage, featureAccessModes, limitOverrides, accessOverrides, catalog] = await Promise.all([
-    getSchoolAccess(schoolId),
+    getSchoolAccess(schoolId, userToken),
     getSchoolUsage(schoolId),
     getEffectiveFeatureAccessModes(schoolId),
     getActiveLimitOverrides(schoolId),
@@ -161,7 +161,7 @@ export interface EffectiveSchoolEntitlements extends EffectiveEntitlement {
  */
 export async function resolveEffectiveSchoolEntitlements(
   schoolId: string,
-  userContext?: { uid?: string; role?: string; schoolId?: string | null; email?: string }
+  userContext?: { uid?: string; role?: string; schoolId?: string | null; email?: string; token?: string }
 ): Promise<EffectiveSchoolEntitlements> {
   // 1. School ID validation
   if (!schoolId || schoolId === "system" || typeof schoolId !== "string" || !schoolId.trim()) {
@@ -181,16 +181,12 @@ export async function resolveEffectiveSchoolEntitlements(
     }
   }
 
-  // 3. Clear memory cache for fresh resolution
-  const { clearSubscriptionCache, getSchoolSubscription } = await import("./subscriptions");
-  clearSubscriptionCache(schoolId);
-
-  // 4. Load base entitlement & subscription
+  // 3. Load base entitlement & subscription
   let entitlement: EffectiveEntitlement;
   try {
-    entitlement = await getEffectiveEntitlement(schoolId);
+    entitlement = await getEffectiveEntitlement(schoolId, userContext?.token);
   } catch (err: any) {
-    const isMissing = err.message?.includes("School subscription was not found") || err.message?.includes("not found");
+    const isMissing = err.code === "MISSING_SUBSCRIPTION" || err.message?.includes("School subscription was not found") || err.message?.includes("not found");
     const errorObj = {
       code: isMissing ? "MISSING_SUBSCRIPTION" : "ENTITLEMENT_LOOKUP_FAILED",
       message: err.message || "Failed to resolve school subscription.",

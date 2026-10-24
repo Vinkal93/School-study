@@ -42,6 +42,7 @@ export interface AuthenticatedUser {
     sessionId: string;
     allowedOperations?: string[];
   };
+  token?: string;
 }
 
 export interface AuthValidationResult {
@@ -311,6 +312,10 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
     };
     dbUser.role = (session.targetRole as AppRole) || "school_admin";
     dbUser.schoolId = session.targetSchoolId;
+  }
+
+  if (token) {
+    dbUser.token = token;
   }
 
   return {

@@ -92,7 +92,7 @@ export function getServiceAccount(): ServiceAccountCredentials | null {
       const path = require("path");
       const resolved = path.isAbsolute(filePath)
         ? filePath
-        : path.resolve(process.cwd(), filePath);
+        : path.resolve(/*turbopackIgnore: true*/ process.cwd(), filePath);
 
       if (fs.existsSync(resolved)) {
         const fileContent = fs.readFileSync(resolved, "utf-8");
