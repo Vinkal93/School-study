@@ -35,6 +35,7 @@ import {
   encryptSecret,
   decryptSecret,
   maskSecret,
+  maskAccountSid,
   isMasked,
 } from "./communication-crypto";
 import {
@@ -48,6 +49,53 @@ import {
   type VariableResolutionContext,
 } from "./communication-variables";
 import { normalizePhoneNumber, maskPhoneNumber } from "./phone-validation";
+
+
+// Server-side persistent backup helpers for encrypted credentials
+function getLocalSecretsPath(): string | null {
+  if (typeof window !== "undefined") return null;
+  try {
+    const fsMod = require("fs");
+    const pathMod = require("path");
+    const dir = pathMod.join(process.cwd(), ".data");
+    if (!fsMod.existsSync(dir)) {
+      try { fsMod.mkdirSync(dir, { recursive: true }); } catch {}
+    }
+    return pathMod.join(dir, "communication_secrets.enc");
+  } catch {
+    return null;
+  }
+}
+
+function loadLocalEncryptedSecrets(): Record<string, string> | null {
+  if (typeof window !== "undefined") return null;
+  try {
+    const fsMod = require("fs");
+    const filePath = getLocalSecretsPath();
+    if (filePath && fsMod.existsSync(filePath)) {
+      const content = fsMod.readFileSync(filePath, "utf-8");
+      if (content) {
+        const decrypted = decryptSecret(content);
+        if (decrypted) return JSON.parse(decrypted);
+      }
+    }
+  } catch {}
+  return null;
+}
+
+function saveLocalEncryptedSecrets(secrets: Record<string, string>): void {
+  if (typeof window !== "undefined") return;
+  try {
+    const fsMod = require("fs");
+    const filePath = getLocalSecretsPath();
+    if (filePath) {
+      const encrypted = encryptSecret(JSON.stringify(secrets));
+      if (encrypted) {
+        fsMod.writeFileSync(filePath, encrypted, "utf-8");
+      }
+    }
+  } catch {}
+}
 
 // Collection Constants
 const GLOBAL_CONTROLS_DOC = "siteSettings/communication_controls";
@@ -390,7 +438,7 @@ export async function getGlobalCommunicationSettings(clientSafe = true): Promise
   try {
     const adminDb = getSafeAdminDb();
     let controls: any = runtimeControlsCache || {};
-    let secrets: any = runtimeEncryptedSecretsCache || {};
+    let secrets: any = runtimeEncryptedSecretsCache || loadLocalEncryptedSecrets() || {};
 
     if (adminDb) {
       try {
@@ -402,6 +450,7 @@ export async function getGlobalCommunicationSettings(clientSafe = true): Promise
         const secretsSnap = await adminDb.doc(GLOBAL_SECRETS_DOC).get();
         if (secretsSnap.exists) {
           secrets = secretsSnap.data() || {};
+          saveLocalEncryptedSecrets(secrets);
         }
       } catch (dbReadErr) {
         console.warn("[CommunicationService] AdminDb read notice:", dbReadErr);
@@ -433,8 +482,8 @@ export async function getGlobalCommunicationSettings(clientSafe = true): Promise
         ...(controls.channels || {}),
       },
       twilio: {
-        accountSid,
-        authToken: clientSafe ? maskSecret(rawTwilioToken) : rawTwilioToken,
+        accountSid: clientSafe ? maskAccountSid(accountSid) : accountSid,
+        authToken: clientSafe ? (rawTwilioToken ? "CONFIGURED" : "NOT_CONFIGURED") : rawTwilioToken,
         fromNumber: controls?.twilio?.fromNumber || process.env.TWILIO_WHATSAPP_FROM || DEFAULT_COMMUNICATION_SETTINGS.twilio.fromNumber,
         smsFromNumber: controls?.twilio?.smsFromNumber || process.env.TWILIO_SMS_FROM || DEFAULT_COMMUNICATION_SETTINGS.twilio.smsFromNumber,
         isConfigured: isTwilioConfigured,
@@ -468,7 +517,7 @@ export async function getGlobalCommunicationSettings(clientSafe = true): Promise
  * Super Admin updates global settings, plan permissions, limits, or provider credentials.
  */
 export async function updateGlobalCommunicationSettings(
-  payload: Partial<GlobalCommunicationSettings>,
+  payload: Partial<GlobalCommunicationSettings> & { action?: string; clearTwilioCredentials?: boolean },
   adminUser?: { uid: string; email: string; name: string }
 ): Promise<void> {
   const adminDb = getSafeAdminDb();
@@ -485,13 +534,51 @@ export async function updateGlobalCommunicationSettings(
   if (payload.planLimits) publicData.planLimits = payload.planLimits;
   if (payload.schoolOverrides) publicData.schoolOverrides = payload.schoolOverrides;
 
-  // Clean twilio public metadata
-  if (payload.twilio) {
+  // Retrieve current existing credentials to preserve on partial edit
+  const currentSaved = await getGlobalCommunicationSettings(false);
+  const existingSid = runtimeEncryptedSecretsCache?.twilioAccountSid || currentSaved.twilio?.accountSid || "";
+  const existingEncryptedToken = runtimeEncryptedSecretsCache?.twilioAuthToken || (currentSaved.twilio?.authToken ? encryptSecret(currentSaved.twilio.authToken) : "");
+
+  const secretsData: Record<string, any> = {
+    updatedAt: now,
+  };
+
+  const isRemoveAction = payload.action === "remove_twilio_credentials" || payload.clearTwilioCredentials === true || (payload.twilio as any)?.clearCredentials === true;
+
+  if (isRemoveAction) {
     publicData.twilio = {
-      accountSid: payload.twilio.accountSid || "",
-      fromNumber: payload.twilio.fromNumber || "",
-      smsFromNumber: payload.twilio.smsFromNumber || "",
-      isConfigured: Boolean(payload.twilio.accountSid),
+      accountSid: "",
+      fromNumber: "",
+      smsFromNumber: "",
+      isConfigured: false,
+    };
+    secretsData.twilioAccountSid = "";
+    secretsData.twilioAuthToken = "";
+  } else if (payload.twilio) {
+    const providedSid = payload.twilio.accountSid?.trim();
+    const isSidMasked = isMasked(providedSid);
+    const effectiveSid = (!providedSid || isSidMasked) ? existingSid : providedSid;
+
+    const providedToken = payload.twilio.authToken?.trim();
+    const isTokenBlankOrMasked = !providedToken || isMasked(providedToken) || providedToken === "CONFIGURED";
+
+    if (effectiveSid) {
+      secretsData.twilioAccountSid = effectiveSid;
+    }
+    if (!isTokenBlankOrMasked) {
+      secretsData.twilioAuthToken = encryptSecret(providedToken);
+    } else if (existingEncryptedToken) {
+      secretsData.twilioAuthToken = existingEncryptedToken;
+    }
+
+    const hasSid = Boolean(effectiveSid);
+    const hasToken = Boolean(secretsData.twilioAuthToken || existingEncryptedToken);
+
+    publicData.twilio = {
+      accountSid: effectiveSid,
+      fromNumber: payload.twilio.fromNumber || runtimeControlsCache?.twilio?.fromNumber || currentSaved.twilio?.fromNumber || "",
+      smsFromNumber: payload.twilio.smsFromNumber || runtimeControlsCache?.twilio?.smsFromNumber || currentSaved.twilio?.smsFromNumber || "",
+      isConfigured: Boolean(hasSid && hasToken),
     };
   }
 
@@ -505,16 +592,6 @@ export async function updateGlobalCommunicationSettings(
     };
   }
 
-  // Encrypted secrets data
-  const secretsData: Record<string, any> = {
-    updatedAt: now,
-  };
-  if (payload.twilio?.accountSid) {
-    secretsData.twilioAccountSid = payload.twilio.accountSid.trim();
-  }
-  if (payload.twilio?.authToken && !isMasked(payload.twilio.authToken)) {
-    secretsData.twilioAuthToken = encryptSecret(payload.twilio.authToken.trim());
-  }
   if (payload.email?.apiKey && !isMasked(payload.email.apiKey)) {
     secretsData.emailApiKey = encryptSecret(payload.email.apiKey.trim());
   }
@@ -537,6 +614,8 @@ export async function updateGlobalCommunicationSettings(
     ...runtimeEncryptedSecretsCache,
     ...secretsData,
   };
+
+  saveLocalEncryptedSecrets(runtimeEncryptedSecretsCache);
 
   // Persist to Firestore via Admin SDK
   if (adminDb) {

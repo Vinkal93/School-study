@@ -199,7 +199,7 @@ export async function POST(request: Request) {
                       const uData = usnap.docs[0].data();
                       foundSchool = {
                         id: rawQuery,
-                        name: uData.schoolName || uData.school || "Lord Buddha Public School",
+                        name: uData.schoolName || uData.school || "Unnamed School Campus",
                         status: "active",
                       };
                     }

@@ -2,6 +2,7 @@ import crypto from "crypto";
 
 /**
  * Derives a 32-byte (256-bit) encryption key from environment configuration.
+ * Throws an actionable error if encryption environment variables are corrupted.
  */
 function getEncryptionKey(): Buffer {
   const secret =
@@ -9,6 +10,10 @@ function getEncryptionKey(): Buffer {
     process.env.NEXTAUTH_SECRET ||
     process.env.FIREBASE_PROJECT_ID ||
     "sbci-school-study-comm-secret-key-2026";
+
+  if (!secret || typeof secret !== "string") {
+    throw new Error("COMMUNICATION_ENCRYPTION_KEY is required but unavailable on server.");
+  }
 
   return crypto.createHash("sha256").update(secret).digest();
 }
@@ -23,7 +28,7 @@ const PREFIX = "enc:v1:";
 export function encryptSecret(plaintext: string): string {
   if (!plaintext || typeof plaintext !== "string") return "";
   const trimmed = plaintext.trim();
-  if (!trimmed || isMasked(trimmed)) return "";
+  if (!trimmed || isMasked(trimmed) || trimmed === "CONFIGURED") return "";
 
   // If already encrypted, return as is
   if (trimmed.startsWith(PREFIX)) return trimmed;
@@ -52,7 +57,7 @@ export function encryptSecret(plaintext: string): string {
 export function decryptSecret(ciphertext: string): string {
   if (!ciphertext || typeof ciphertext !== "string") return "";
   const trimmed = ciphertext.trim();
-  if (!trimmed || isMasked(trimmed)) return "";
+  if (!trimmed || isMasked(trimmed) || trimmed === "CONFIGURED") return "";
 
   // If not encrypted, return raw plaintext
   if (!trimmed.startsWith(PREFIX)) return trimmed;
@@ -89,6 +94,18 @@ export function maskSecret(secret?: string | null): string {
   const trimmed = secret.trim();
   if (!trimmed) return "";
   return "••••••••••••••••";
+}
+
+/**
+ * Safely masks a Twilio Account SID for UI display (e.g. AC••••••••••••••••••••••••••••34a1).
+ */
+export function maskAccountSid(accountSid?: string | null): string {
+  if (!accountSid || typeof accountSid !== "string") return "";
+  const trimmed = accountSid.trim();
+  if (trimmed.length < 8) return trimmed;
+  const prefix = trimmed.substring(0, 2); // e.g. "AC"
+  const suffix = trimmed.substring(trimmed.length - 4); // last 4 chars
+  return `${prefix}${"•".repeat(Math.max(4, trimmed.length - 6))}${suffix}`;
 }
 
 /**

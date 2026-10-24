@@ -141,6 +141,11 @@ export async function sendTwilioWhatsApp(
       bodyParams.append("Body", content);
     }
 
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+    if (siteUrl) {
+      bodyParams.append("StatusCallback", `${siteUrl}/api/communication/status`);
+    }
+
     const authHeader = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
     const res = await fetch(twilioUrl, {
       method: "POST",
@@ -225,6 +230,11 @@ export async function sendTwilioSMS(
     }
     bodyParams.append("To", formattedTo);
     bodyParams.append("Body", content);
+
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+    if (siteUrl) {
+      bodyParams.append("StatusCallback", `${siteUrl}/api/communication/status`);
+    }
 
     const authHeader = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
     const res = await fetch(twilioUrl, {

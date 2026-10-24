@@ -8,6 +8,8 @@ The repository owner manually merges a ready PR only after testing its latest pr
 
 Use `git switch -c codex/my-feature`, then commit and `git push -u origin codex/my-feature`. On each new clone, enable the tracked guard with `git config core.hooksPath .githooks`; it blocks direct pushes to main. GitHub branch protection is the authoritative remote guard, including if a local hook is skipped.
 
+Use the Node version in `.nvmrc` and npm 10.9.9 (declared in `packageManager`) when changing dependencies. Regenerate the lockfile with `npx --yes npm@10.9.9 install --package-lock-only --ignore-scripts`, then verify `npx --yes npm@10.9.9 ci --dry-run --ignore-scripts`. npm 11 can accept a lockfile that npm 10 rejects, so validation must use the CI npm version.
+
 Run `npm run typecheck` and `npm run test:release`. For a local build alongside a running dev server, set `NEXT_BUILD_DIR=.next-verification` before `npm run build`; do not start that build against production Firebase/payment secrets. CI installs dependencies from the tracked lockfile and uses build-only Firebase defaults, without private production credentials. Repository `CI_FIREBASE_*` variables can point to a separate testing project when needed; do not connect CI to live school records.
 
 ## Hosting configuration
