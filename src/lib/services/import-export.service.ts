@@ -183,7 +183,16 @@ export async function parseImportFile(fileBuffer: ArrayBuffer): Promise<Record<s
 
   const worksheet = workbook.Sheets[firstSheetName];
   const rawJson = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet, { defval: "" });
-  return rawJson;
+  // Prototype pollution guard
+  return rawJson.map((row) => {
+    const clean: Record<string, any> = {};
+    for (const [key, value] of Object.entries(row)) {
+      const lower = key.trim().toLowerCase();
+      if (lower === "__proto__" || lower === "constructor" || lower === "prototype") continue;
+      clean[key] = value;
+    }
+    return clean;
+  });
 }
 
 /**

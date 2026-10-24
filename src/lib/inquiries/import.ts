@@ -8,7 +8,14 @@ export async function parseInquiryImport(file: File) {
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "", raw: false });
   if (!rows.length || rows.length > 450) throw new Error("Import between 1 and 450 inquiries per file.");
   return rows.map((row, index) => {
-    const fields = Object.fromEntries(Object.entries(row).map(([key, value]) => [key.trim().toLowerCase(), String(value).trim()]));
+    const fields = Object.fromEntries(
+      Object.entries(row)
+        .filter(([key]) => {
+          const lower = key.trim().toLowerCase();
+          return lower !== "__proto__" && lower !== "constructor" && lower !== "prototype";
+        })
+        .map(([key, value]) => [key.trim().toLowerCase(), String(value).trim()])
+    );
     const name = fields.name || "";
     const email = fields.email || "";
     const phone = fields.phone || "";
