@@ -23,11 +23,25 @@ export async function GET(req: NextRequest) {
     }
 
     const [access, logs, rules, templates] = await Promise.all([
-      getSchoolCommunicationAccess(schoolId, authResult.user),
-      getSchoolCommunicationLogs(schoolId, undefined, undefined, 50),
-      getSchoolAutomationRules(schoolId),
-      getSchoolTemplates(schoolId),
+      getSchoolCommunicationAccess(schoolId, authResult.user).catch((err) => {
+        console.warn("[API:communication:status] Communication access resolution notice:", err);
+        return null;
+      }),
+      getSchoolCommunicationLogs(schoolId, undefined, undefined, 50).catch(() => []),
+      getSchoolAutomationRules(schoolId).catch(() => []),
+      getSchoolTemplates(schoolId).catch(() => []),
     ]);
+
+    if (!access) {
+      return NextResponse.json(
+        {
+          success: false,
+          errorCode: "ACCESS_RESOLUTION_FAILED",
+          error: "Failed to resolve communication entitlements for this school.",
+        },
+        { status: 500 }
+      );
+    }
 
     // Calculate usage from recent logs
     let waSent = 0;
@@ -46,7 +60,17 @@ export async function GET(req: NextRequest) {
     });
 
     access.monthlyUsage = {
-      ...access.monthlyUsage,
+      ...(access.monthlyUsage || {
+        totalSent: 0,
+        whatsappSent: 0,
+        smsSent: 0,
+        emailSent: 0,
+        inAppSent: 0,
+        manualOpened: 0,
+        testsSent: 0,
+        failed: 0,
+        limit: access.limits?.monthlyWhatsAppAllowance ?? 0,
+      }),
       whatsappSent: waSent,
       emailSent,
       inAppSent,

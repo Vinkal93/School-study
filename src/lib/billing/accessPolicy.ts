@@ -116,8 +116,9 @@ export async function getGlobalAccessPolicy(): Promise<GlobalAccessPolicy> {
   if (typeof window === "undefined") {
     const { getSafeAdminDb } = await import("@/lib/firebase/admin");
     const adminDb = getSafeAdminDb();
-    if (!adminDb) throw new Error("Private Firebase Admin configuration is required.");
-    const snap = await adminDb.collection(BILLING_COLLECTIONS.ACCESS_POLICIES).doc("global").get();
+    if (!adminDb) return DEFAULT_GLOBAL_ACCESS_POLICY;
+    const snap = await adminDb.collection(BILLING_COLLECTIONS.ACCESS_POLICIES).doc("global").get().catch(() => null);
+    if (!snap?.exists) return DEFAULT_GLOBAL_ACCESS_POLICY;
     return {...DEFAULT_GLOBAL_ACCESS_POLICY, ...(snap.data() || {}), id:"global"};
   }
   try {

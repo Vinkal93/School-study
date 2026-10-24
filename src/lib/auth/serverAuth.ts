@@ -36,6 +36,12 @@ export interface AuthenticatedUser {
   forceLogout?: boolean;
   requireReLogin?: boolean;
   forceLogoutAt?: number;
+  impersonatedBy?: {
+    uid: string;
+    email: string;
+    sessionId: string;
+    allowedOperations?: string[];
+  };
 }
 
 export interface AuthValidationResult {
@@ -259,6 +265,54 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
     };
   }
 
+  // 5. Server-Validated Super Admin Impersonation Session
+  const impHeader = request.headers.get("x-impersonation-session");
+  if (impHeader) {
+    const { verifyImpersonationToken } = await import("@/lib/auth/impersonation");
+    const impResult = verifyImpersonationToken(impHeader);
+    if (!impResult.isValid) {
+      return {
+        isAuthenticated: false,
+        errorResponse: NextResponse.json(
+          {
+            success: false,
+            errorCode: impResult.errorCode || "INVALID_IMPERSONATION",
+            error: impResult.error || "Invalid impersonation session.",
+          },
+          { status: 403 }
+        ),
+      };
+    }
+
+    const session = impResult.session!;
+    // Caller must be an authorized Super Admin
+    const isCallerSuperAdmin = dbUser.role === "super_admin" || isSuperAdminEmail(dbUser.email);
+    if (!isCallerSuperAdmin) {
+      return {
+        isAuthenticated: false,
+        errorResponse: NextResponse.json(
+          {
+            success: false,
+            errorCode: "FORBIDDEN_IMPERSONATION",
+            error: "Caller is not authorized to use an impersonation session.",
+          },
+          { status: 403 }
+        ),
+      };
+    }
+
+    // Attach verified impersonation context
+    // CRITICAL SECURITY GUARANTEE: Never assign Super Admin permissions to the impersonated context!
+    dbUser.impersonatedBy = {
+      uid: session.superAdminUid,
+      email: session.superAdminEmail,
+      sessionId: session.sessionId,
+      allowedOperations: session.allowedOperations,
+    };
+    dbUser.role = (session.targetRole as AppRole) || "school_admin";
+    dbUser.schoolId = session.targetSchoolId;
+  }
+
   return {
     isAuthenticated: true,
     user: dbUser,
@@ -319,8 +373,8 @@ export async function requireSchoolAdmin(
 
   const { user } = authResult;
 
-  // Super Admin can manage any school tenant
-  if (user.role === "super_admin") {
+  // Super Admin direct platform access (when NOT impersonating)
+  if (user.role === "super_admin" && !user.impersonatedBy) {
     return { user };
   }
 
@@ -328,7 +382,11 @@ export async function requireSchoolAdmin(
   if (user.role !== "admin" && user.role !== "school_admin") {
     return {
       errorResponse: NextResponse.json(
-        { error: "Access Denied. School Admin permissions required." },
+        {
+          success: false,
+          errorCode: "UNAUTHORIZED_ROLE",
+          error: "Access Denied. School Admin permissions required.",
+        },
         { status: 403 }
       ),
     };
@@ -339,7 +397,9 @@ export async function requireSchoolAdmin(
     return {
       errorResponse: NextResponse.json(
         {
+          success: false,
           error: "Tenant Configuration Error: School Administrator has no assigned school campus. Please contact Super Admin.",
+          errorCode: "MISSING_SCHOOL_ASSIGNMENT",
           code: "MISSING_SCHOOL_ASSIGNMENT",
         },
         { status: 403 }
@@ -352,7 +412,9 @@ export async function requireSchoolAdmin(
     return {
       errorResponse: NextResponse.json(
         {
+          success: false,
           error: "Access Denied. You do not have authorization to access this school's data.",
+          errorCode: "CROSS_TENANT_ACCESS_DENIED",
           code: "CROSS_TENANT_ACCESS_DENIED",
         },
         { status: 403 }

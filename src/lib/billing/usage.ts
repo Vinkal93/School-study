@@ -118,7 +118,7 @@ export async function getSchoolUsage(schoolId: string): Promise<SchoolUsage> {
   if (typeof window === "undefined") {
     const { getSafeAdminDb } = await import("@/lib/firebase/admin");
     const db = getSafeAdminDb();
-    if (!db || !schoolId) throw new Error("School usage database is unavailable.");
+    if (!db || !schoolId) return getDefaultSchoolUsage(schoolId || "school_default");
     const snap = await db.collection(USAGE_COLLECTION).doc(schoolId).get();
     if (snap.exists) return {...getDefaultSchoolUsage(schoolId),...snap.data(),schoolId} as SchoolUsage;
     const [students,teachers,classes,staff] = await Promise.all([

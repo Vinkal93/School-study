@@ -26,6 +26,10 @@ export function useSchoolCommunication(schoolId?: string) {
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
+      const impSession = typeof window !== "undefined" ? sessionStorage.getItem("school_study_impersonation_token") : null;
+      if (impSession) {
+        headers["x-impersonation-session"] = impSession;
+      }
 
       const res = await fetch(`/api/communication/status?schoolId=${encodeURIComponent(schoolId)}`, {
         headers,

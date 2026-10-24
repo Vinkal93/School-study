@@ -53,11 +53,31 @@ export async function POST(req: NextRequest) {
     }
 
     const authUser = authResult.user!;
+
+    // Check operation allowance if under impersonation
+    if (authUser.impersonatedBy) {
+      const { isOperationAllowed } = await import("@/lib/auth/impersonation");
+      const allowed = isOperationAllowed(authUser.impersonatedBy as any, "test_message");
+      if (!allowed) {
+        return NextResponse.json(
+          {
+            success: false,
+            errorCode: "UNAUTHORIZED_OPERATION",
+            error: "Test message sending is not permitted within this impersonation session scope.",
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     const triggeredBy = {
       uid: authUser.uid,
-      name: authUser.name || "School Admin",
+      name: authUser.impersonatedBy
+        ? `Super Admin Impersonating (${authUser.impersonatedBy.email})`
+        : authUser.name || "School Admin",
       role: authUser.role,
-      schoolId: authUser.schoolId,
+      schoolId: schoolId,
+      impersonatedBy: authUser.impersonatedBy,
     };
 
     // 4. Authoritative Entitlement Check (Single Source of Truth)
@@ -141,6 +161,23 @@ export async function POST(req: NextRequest) {
         },
         { status }
       );
+    }
+
+    if (authUser.impersonatedBy) {
+      const { logImpersonationEvent } = await import("@/lib/auth/impersonation");
+      await logImpersonationEvent({
+        sessionId: authUser.impersonatedBy.sessionId,
+        superAdminUid: authUser.impersonatedBy.uid,
+        superAdminEmail: authUser.impersonatedBy.email,
+        targetSchoolId: schoolId,
+        action: "message_dispatched",
+        resource: "communication_test",
+        details: {
+          channel,
+          destination: phoneRes.masked,
+          messageId: result.logId,
+        },
+      });
     }
 
     return NextResponse.json({
