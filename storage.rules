@@ -3,17 +3,24 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // Helper: Is user logged in?
+    // ==========================================
+    // SECURITY HELPER FUNCTIONS
+    // ==========================================
+
+    // Helper: Is caller authenticated?
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    // Helper: Check if caller is super_admin
+    // Helper: Check if caller is super_admin via trusted token claims
     function isSuperAdmin() {
-      return isAuthenticated() && request.auth.token.get('role', '') == 'super_admin';
+      return isAuthenticated() && (
+        request.auth.token.get('role', '') == 'super_admin' ||
+        request.auth.token.get('isSuperAdmin', false) == true
+      );
     }
 
-    // Helper: Check if caller belongs to target school
+    // Helper: Check if caller belongs to target school tenant
     function isSchoolMember(schoolId) {
       return isAuthenticated() && (
         isSuperAdmin() ||
@@ -21,30 +28,105 @@ service firebase.storage {
       );
     }
 
-    // Public uploads / profile avatars: Max 5MB, images only
+    // Helper: Check if caller is authorized School Admin for target school
+    function isSchoolAdmin(schoolId) {
+      return isAuthenticated() && (
+        isSuperAdmin() ||
+        (isSchoolMember(schoolId) && request.auth.token.get('role', '') in ['admin', 'school_admin'])
+      );
+    }
+
+    // Helper: Check if caller is authorized Teacher for target school
+    function isTeacher(schoolId) {
+      return isAuthenticated() && (
+        isSchoolAdmin(schoolId) ||
+        (isSchoolMember(schoolId) && request.auth.token.get('role', '') in ['teacher', 'TEACHER'])
+      );
+    }
+
+    // ==========================================
+    // 1. PUBLIC UPLOADS & USER AVATARS (Finding 10)
+    // ==========================================
+
+    // User-owned profile avatars: strictly isolated to user's UID to prevent cross-user overwrites
+    match /public/avatars/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAuthenticated()
+                   && (request.auth.uid == userId || isSuperAdmin())
+                   && request.resource.size < 5 * 1024 * 1024
+                   && request.resource.contentType.matches('image/(jpeg|png|webp|gif|jpg)');
+      allow delete: if isAuthenticated() && (request.auth.uid == userId || isSuperAdmin());
+    }
+
+    // Shared public platform assets: readable publicly, writable only by Super Admin
     match /public/{allPaths=**} {
       allow read: if true;
-      allow write: if isAuthenticated()
+      allow write: if isSuperAdmin()
                    && request.resource.size < 5 * 1024 * 1024
-                   && request.resource.contentType.matches('image/.*');
+                   && request.resource.contentType.matches('image/(jpeg|png|webp|svg\\+xml|jpg)');
     }
 
-    // School branding (logos, banners): Publicly readable, writable by authenticated users
+    // ==========================================
+    // 2. SCHOOL BRANDING (Finding 8)
+    // ==========================================
+
+    // School branding (logos, banners): Publicly readable, writable ONLY by School Admin or Super Admin
     match /schools/{schoolId}/branding/{allPaths=**} {
       allow read: if true;
-      allow write: if isAuthenticated()
+      allow write: if (isSchoolAdmin(schoolId) || isSuperAdmin())
                    && request.resource.size < 5 * 1024 * 1024
-                   && request.resource.contentType.matches('image/.*');
+                   && request.resource.contentType.matches('image/(jpeg|png|webp|svg\\+xml|jpg)');
+      allow delete: if isSchoolAdmin(schoolId) || isSuperAdmin();
     }
 
-    // Multi-tenant school documents & photos: Max 15MB, strictly isolated by schoolId
-    match /schools/{schoolId}/{allPaths=**} {
+    // ==========================================
+    // 3. ROLE-SPECIFIC & PATH-SPECIFIC SCHOOL STORAGE (Finding 9)
+    // ==========================================
+
+    // 3a. School admin private documents, accounting exports & backups
+    match /schools/{schoolId}/admin/{allPaths=**} {
+      allow read, write: if isSchoolAdmin(schoolId)
+                         && request.resource.size < 25 * 1024 * 1024;
+    }
+
+    // 3b. Teacher uploads (assignments, study materials, syllabi)
+    match /schools/{schoolId}/teachers/{teacherId}/{allPaths=**} {
       allow read: if isSchoolMember(schoolId);
-      allow write: if isSchoolMember(schoolId)
+      allow write: if (isSchoolAdmin(schoolId) || (isTeacher(schoolId) && request.auth.uid == teacherId))
+                   && request.resource.size < 25 * 1024 * 1024;
+    }
+
+    // 3c. Homework & curriculum repository
+    match /schools/{schoolId}/homework/{allPaths=**} {
+      allow read: if isSchoolMember(schoolId);
+      allow write: if isTeacher(schoolId)
+                   && request.resource.size < 25 * 1024 * 1024;
+    }
+
+    // 3d. Student private submissions & certificates
+    match /schools/{schoolId}/students/{studentId}/{allPaths=**} {
+      allow read: if isSchoolAdmin(schoolId) || isTeacher(schoolId) || (isSchoolMember(schoolId) && request.auth.uid == studentId);
+      allow write: if (isSchoolAdmin(schoolId) || (isSchoolMember(schoolId) && request.auth.uid == studentId))
                    && request.resource.size < 15 * 1024 * 1024;
     }
 
-    // Default Fallback
+    // 3e. General school files (circulars, official galleries, newsletters)
+    match /schools/{schoolId}/general/{allPaths=**} {
+      allow read: if isSchoolMember(schoolId);
+      allow write: if isSchoolAdmin(schoolId)
+                   && request.resource.size < 25 * 1024 * 1024;
+    }
+
+    // 3f. Tenant fallback under schools/{schoolId}
+    match /schools/{schoolId}/{allPaths=**} {
+      allow read: if isSchoolMember(schoolId);
+      allow write: if isSchoolAdmin(schoolId)
+                   && request.resource.size < 25 * 1024 * 1024;
+    }
+
+    // ==========================================
+    // 4. DEFAULT CATCH-ALL
+    // ==========================================
     match /{allPaths=**} {
       allow read, write: if isSuperAdmin();
     }

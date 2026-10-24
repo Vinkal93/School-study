@@ -13,20 +13,14 @@ service cloud.firestore {
     }
 
     // Helper: Is user Super Admin?
+    // Finding 1: Strict server-managed claims and authoritative user profile check only.
+    // Removed all insecure email regex/pattern wildcards.
     function isSuperAdmin() {
       return isAuthenticated() && (
-        // Check for Super Admin role in custom claims (set by backend on login)
+        // Check for Super Admin role in cryptographically verified token claims
         request.auth.token.get('role', '') == 'super_admin' ||
         request.auth.token.get('isSuperAdmin', false) == true ||
-        // Check email patterns for known Super Admin accounts
-        (request.auth.token.email != null && (
-          request.auth.token.email in ['vinkal93041@gmail.com', 'vinkal93@gmail.com', 'sbci224234@gmail.com', 'superadmin@schoolstudy.com', 'admin@schoolstudy.com'] ||
-          request.auth.token.email.matches('.*vinkal.*') ||
-          request.auth.token.email.matches('.*sbci.*') ||
-          request.auth.token.email.matches('.*superadmin.*') ||
-          request.auth.token.email.matches('.*super_admin.*')
-        )) ||
-        // Fallback: Check user document in Firestore
+        // Trusted server-managed identity document in Firestore
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'super_admin')
       );
@@ -69,15 +63,17 @@ service cloud.firestore {
       );
     }
 
-    // Helper: Is user updating their own profile without escalating role/school?
+    // Helper: Is user updating their own profile without escalating role/school/permissions?
     function isSelfProfileValid(userId) {
       return isAuthenticated() && request.auth.uid == userId && (
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'schoolId', 'status'])
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'role', 'schoolId', 'status', 'uid', 'isSuperAdmin', 'forceLogout', 'requireReLogin', 'permissions'
+        ])
       );
     }
 
     // ==========================================
-    // 1. USERS COLLECTION
+    // 1. USERS COLLECTION (Finding 2)
     // ==========================================
     match /users/{userId} {
       // User can read own doc; School Admin can read members of own school; Super Admin can read all
@@ -87,15 +83,33 @@ service cloud.firestore {
         (resource != null && isSchoolAdmin(resource.data.get('schoolId', '')))
       );
 
-      // Create: Allow profile creation upon registration
-      allow create: if true;
+      // Create: Authenticated, UID-bound, role-restricted, field-allowlisted profile creation
+      allow create: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (
+          request.auth.uid == userId &&
+          // Cannot self-assign administrative roles
+          request.resource.data.get('role', 'student') in ['student', 'parent', 'teacher'] &&
+          // Cannot self-assign status other than active/pending
+          request.resource.data.get('status', 'active') in ['active', 'pending'] &&
+          // UID must match path
+          request.resource.data.get('uid', userId) == userId &&
+          // Allowlisted profile fields
+          request.resource.data.keys().hasOnly([
+            'uid', 'email', 'name', 'phone', 'role', 'schoolId', 'status',
+            'createdAt', 'updatedAt', 'avatar', 'photoUrl', 'studentId',
+            'classId', 'sectionId', 'address', 'gender', 'dob', 'bloodGroup',
+            'parentName', 'parentPhone', 'guardianName', 'guardianPhone', 'rollNumber'
+          ])
+        )
+      );
 
       // Update: User can update own profile (without role escalation); Super Admin can update any; School Admin can manage student/teacher
       allow update: if isSuperAdmin() || isSelfProfileValid(userId) || (
         isAuthenticated() &&
         resource != null &&
         isSchoolAdmin(resource.data.get('schoolId', '')) &&
-        resource.data.get('role', '') in ['student', 'teacher']
+        resource.data.get('role', '') in ['student', 'teacher', 'parent']
       );
 
       // Delete: Super Admin only
@@ -103,14 +117,15 @@ service cloud.firestore {
     }
 
     // ==========================================
-    // 2. SCHOOLS & TENANT SUBCOLLECTIONS
+    // 2. SCHOOLS & TENANT SUBCOLLECTIONS (Finding 4, Finding 7)
     // ==========================================
     match /schools/{schoolId} {
-      // Read: Public metadata allowed for code check & branding; or School Member / Super Admin
-      allow read: if true;
+      // Read: Public metadata allowed for code check & public portal; or School Member / Super Admin
+      allow read: if isAuthenticated() && (isSchoolMember(schoolId) || isSuperAdmin()) ||
+                     (resource != null && resource.data.get('isPublic', true) == true);
 
-      // Create: Allow school registration
-      allow create: if true;
+      // Create: Authorized Super Admin or server-side onboarding only (Backend API uses Admin SDK)
+      allow create: if isSuperAdmin();
 
       // Update/Delete: School Admin for own school or Super Admin
       allow update, delete: if isSchoolAdmin(schoolId);
@@ -127,11 +142,16 @@ service cloud.firestore {
         allow write: if isSchoolAdmin(schoolId);
       }
 
-      // Notifications subcollection: School members can read; Admins & Teachers can create; School members can update read status
+      // Notifications subcollection: School members can read; Admins & Teachers can create; School members can ONLY update read status (Finding 7)
       match /notifications/{notificationId} {
         allow read: if isSchoolMember(schoolId);
         allow create: if isSchoolMember(schoolId) && (isSchoolAdmin(schoolId) || isTeacher(schoolId));
-        allow update: if isSchoolMember(schoolId);
+        allow update: if isSchoolMember(schoolId) && (
+          isSchoolAdmin(schoolId) ||
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'read', 'isRead', 'readAt', 'readBy', 'viewedAt', 'status', 'acknowledged'
+          ])
+        );
         allow delete: if isSchoolAdmin(schoolId);
       }
 
@@ -143,46 +163,72 @@ service cloud.firestore {
     }
 
     // ==========================================
-    // 2d. SCHOOL USAGE COLLECTION
+    // 2d. SCHOOL USAGE COLLECTION (Finding 5)
     // ==========================================
+    // School usage tracking is strictly read-only for school members and modifiable only by Super Admin / Server
     match /schoolUsage/{schoolId} {
-      allow read, write: if isAuthenticated() && (
+      allow read: if isAuthenticated() && (
         isSuperAdmin() ||
         isSchoolMember(schoolId)
       );
+      allow write: if isSuperAdmin();
     }
 
     // ==========================================
-    // 2b. TOP-LEVEL ATTENDANCE COLLECTION
+    // 2b. TOP-LEVEL ATTENDANCE COLLECTION (Finding 6)
     // ==========================================
     match /attendance/{recordId} {
       allow read: if isAuthenticated() && (
         isSuperAdmin() ||
         (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
       );
-      allow create, update: if isAuthenticated() && (
+      allow create: if isAuthenticated() && (
         isSuperAdmin() ||
-        isSchoolAdmin(request.resource.data.get('schoolId', '')) ||
-        isTeacher(request.resource.data.get('schoolId', ''))
+        (
+          request.resource.data.get('schoolId', '') is string &&
+          request.resource.data.get('schoolId', '') != '' &&
+          (isSchoolAdmin(request.resource.data.get('schoolId', '')) || isTeacher(request.resource.data.get('schoolId', '')))
+        )
       );
-      allow delete: if isSuperAdmin();
+      allow update: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (
+          resource != null &&
+          // Tenant ID immutability: schoolId cannot be changed
+          request.resource.data.get('schoolId', '') == resource.data.get('schoolId', '') &&
+          (isSchoolAdmin(resource.data.get('schoolId', '')) || isTeacher(resource.data.get('schoolId', '')))
+        )
+      );
+      allow delete: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', '')));
     }
 
     // ==========================================
-    // 2b-2. TOP-LEVEL EMPLOYEE ATTENDANCE COLLECTION
+    // 2b-2. TOP-LEVEL EMPLOYEE ATTENDANCE COLLECTION (Finding 6)
     // ==========================================
     match /employee_attendance/{recordId} {
       allow read: if isAuthenticated() && (
         isSuperAdmin() ||
         (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
       );
-      allow create, update: if isAuthenticated() && (
+      allow create: if isAuthenticated() && (
         isSuperAdmin() ||
-        isSchoolAdmin(request.resource.data.get('schoolId', ''))
+        (
+          request.resource.data.get('schoolId', '') is string &&
+          request.resource.data.get('schoolId', '') != '' &&
+          isSchoolAdmin(request.resource.data.get('schoolId', ''))
+        )
       );
-      allow delete: if isSuperAdmin();
+      allow update: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (
+          resource != null &&
+          // Tenant ID immutability: schoolId cannot be changed
+          request.resource.data.get('schoolId', '') == resource.data.get('schoolId', '') &&
+          isSchoolAdmin(resource.data.get('schoolId', ''))
+        )
+      );
+      allow delete: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', '')));
     }
-
 
     // ==========================================
     // 2c. TOP-LEVEL NOTICES COLLECTION
@@ -192,9 +238,20 @@ service cloud.firestore {
         isSuperAdmin() ||
         (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
       );
-      allow create, update: if isAuthenticated() && (
+      allow create: if isAuthenticated() && (
         isSuperAdmin() ||
-        isSchoolAdmin(request.resource.data.get('schoolId', ''))
+        (
+          request.resource.data.get('schoolId', '') is string &&
+          isSchoolAdmin(request.resource.data.get('schoolId', ''))
+        )
+      );
+      allow update: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (
+          resource != null &&
+          request.resource.data.get('schoolId', '') == resource.data.get('schoolId', '') &&
+          isSchoolAdmin(resource.data.get('schoolId', ''))
+        )
       );
       allow delete: if isAuthenticated() && (
         isSuperAdmin() ||
@@ -203,14 +260,16 @@ service cloud.firestore {
     }
 
     // ==========================================
-    // 3. SUBSCRIPTIONS, ORDERS & INVOICES
+    // 3. SUBSCRIPTIONS, ORDERS & INVOICES (Finding 3)
     // ==========================================
     match /schoolSubscriptions/{schoolId} {
       allow read: if isSuperAdmin() || isSchoolMember(schoolId);
       allow write: if isSuperAdmin();
 
+      // Subscription history: Strictly protected (Finding 3)
       match /history/{historyId} {
-        allow read, write: if true;
+        allow read: if isSuperAdmin() || isSchoolMember(schoolId);
+        allow write: if isSuperAdmin();
       }
     }
 
@@ -275,100 +334,260 @@ service cloud.firestore {
       allow write: if isSuperAdmin();
     }
 
-    // Fee Management Collections
+    // ==========================================
+    // 3b. FEE MANAGEMENT COLLECTIONS (Tenant-Isolated)
+    // ==========================================
     match /feeStructures/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
+      allow create, update, delete: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
     }
 
     match /studentFeeAssignments/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        resource.data.get('studentId', '') == request.auth.uid ||
+        isSuperAdmin()
+      );
+      allow create, update, delete: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
     }
 
     match /feePayments/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        resource.data.get('studentId', '') == request.auth.uid ||
+        isSuperAdmin()
+      );
+      allow create, update, delete: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
     }
 
     match /feeDiscounts/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
+      allow create, update, delete: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
     }
 
     match /feeSettings/{schoolId} {
-      allow read: if isAuthenticated();
-      allow write: if isSchoolAdmin(schoolId) || isSuperAdmin();
+      allow read: if isAuthenticated() && (isSchoolMember(schoolId) || isSuperAdmin());
+      allow write: if isAuthenticated() && (isSchoolAdmin(schoolId) || isSuperAdmin());
     }
 
-    // Fee Foundation & Double-Entry Accounting Collections (Phases 1-8)
+    // ==========================================
+    // 3c. DOUBLE-ENTRY ACCOUNTING & LEDGER (Tenant-Isolated)
+    // ==========================================
     match /feeDemands/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        resource.data.get('studentId', '') == request.auth.uid ||
+        isSuperAdmin()
+      );
+      allow write: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
     }
 
     match /financialPayments/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        resource.data.get('studentId', '') == request.auth.uid ||
+        isSuperAdmin()
+      );
+      allow write: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
     }
 
     match /paymentAllocations/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
+      allow write: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
     }
 
     match /financialRefunds/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
+      allow write: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
     }
 
     match /paymentReversals/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
+      allow write: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
     }
 
     match /feeAdjustments/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
+      allow write: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
     }
 
     match /studentLedgerEntries/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        resource.data.get('studentId', '') == request.auth.uid ||
+        isSuperAdmin()
+      );
+      allow write: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
     }
 
     match /chartOfAccounts/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolAdmin(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
+      allow write: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
     }
 
     match /accountingJournals/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolAdmin(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
+      allow write: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
+    }
+
+    match /journalEntries/{entryId} {
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolAdmin(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
+      allow write: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
     }
 
     match /cashBankAccounts/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolAdmin(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
+      allow write: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
     }
 
     match /cashBankTransactions/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolAdmin(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
+      allow write: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
     }
 
     match /financialStatements/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolAdmin(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
+      allow write: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
     }
 
-    // Inquiries and Parent Leads Collections
+    match /feeFollowUps/{followUpId} {
+      allow read, write: if isAuthenticated() && (
+        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
+        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
+        isSuperAdmin()
+      );
+    }
+
+    // ==========================================
+    // 3d. INQUIRIES & PARENT LEADS
+    // ==========================================
     match /inquiries/{id} {
       allow read: if isAuthenticated() && (
         isSuperAdmin() ||
         (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
       );
-      allow create: if true; // Public website contact and inquiry leads can create
+      allow create: if true; // Public website contact and inquiry leads
       allow update, delete: if isAuthenticated() && (
         isSuperAdmin() ||
         (resource != null && isSchoolAdmin(resource.data.get('schoolId', '')))
@@ -380,6 +599,10 @@ service cloud.firestore {
           (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
         );
       }
+
+      match /notes/{noteId} {
+        allow read, write: if isSuperAdmin();
+      }
     }
 
     match /contactInquiries/{id} {
@@ -387,51 +610,86 @@ service cloud.firestore {
         isSuperAdmin() ||
         (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
       );
-      allow create: if true;
+      allow create: if true; // Public contact form
       allow update, delete: if isSuperAdmin();
+
+      match /notes/{noteId} {
+        allow read, write: if isSuperAdmin();
+      }
     }
 
-    // Academic & School Collections (Top-level Fallbacks)
+    // ==========================================
+    // 3e. ACADEMIC & SCHOOL COLLECTIONS (TOP-LEVEL)
+    // ==========================================
     match /academicYears/{id} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
       allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
     }
 
     match /classes/{id} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
       allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
     }
 
     match /sections/{id} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
       allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
     }
 
     match /teachers/{id} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
       allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
     }
 
     match /students/{id} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        resource.data.get('studentId', '') == request.auth.uid ||
+        isSuperAdmin()
+      );
       allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
     }
 
     match /bells/{id} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
       allow write: if isSuperAdmin() || (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) || (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', '')));
     }
 
     match /homework/{id} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        isSchoolMember(resource.data.get('schoolId', '')) ||
+        isSuperAdmin()
+      );
       allow write: if isSuperAdmin() || (resource != null && isTeacher(resource.data.get('schoolId', ''))) || (request.resource != null && isTeacher(request.resource.data.get('schoolId', '')));
     }
 
     // ==========================================
-    // 4. PRICING PLANS & FEATURE DEFINITIONS
+    // 4. PRICING PLANS, FEATURE BLUEPRINTS & OVERRIDES
     // ==========================================
     match /plans/{planId} {
-      allow read: if true;
+      allow read: if true; // Public pricing page
       allow write: if isSuperAdmin();
     }
 
@@ -451,84 +709,94 @@ service cloud.firestore {
     }
 
     match /customOffers/{offerId} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
     }
 
     match /customPlanAccess/{accessId} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
     }
 
     match /accessOverrides/{overrideId} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
     }
 
     match /schoolFeatureOverrides/{overrideId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
     }
 
     match /featureControlAuditLogs/{logId} {
-      allow read: if true;
-      allow create: if true;
-      allow update, delete: if false;
+      allow read: if isSuperAdmin();
+      allow create: if isAuthenticated();
+      allow update, delete: if false; // Immutable
     }
 
     match /limitOverrides/{overrideId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
     }
 
     match /notifications/{notificationId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource != null && (
+          resource.data.get('userId', '') == request.auth.uid ||
+          (resource.data.get('schoolId', '') != '' && isSchoolMember(resource.data.get('schoolId', '')))
+        ))
+      );
+      allow create: if isSuperAdmin() || (
+        isAuthenticated() &&
+        request.resource.data.get('schoolId', '') != '' &&
+        (isSchoolAdmin(request.resource.data.get('schoolId', '')) || isTeacher(request.resource.data.get('schoolId', '')))
+      );
+      allow update: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource != null && resource.data.get('userId', '') == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'isRead', 'readAt', 'status']))
+      );
+      allow delete: if isSuperAdmin();
     }
 
     match /penalties/{penaltyId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+      );
+      allow write: if isSuperAdmin();
     }
 
     match /financialAdjustments/{finId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+      );
+      allow write: if isSuperAdmin();
     }
 
     match /subscriptionAdjustments/{adjId} {
-      allow read, write: if true;
-    }
-
-    match /schoolSubscriptions/{schoolId} {
-      allow read: if isSuperAdmin() || isSchoolMember(schoolId);
-      allow write: if isSuperAdmin();
-    }
-
-    match /schoolUsage/{schoolId} {
-      allow read, write: if true;
-    }
-
-    match /payments/{paymentId} {
-      allow read: if isSuperAdmin() || isSchoolMember(resource.data.get('schoolId', ''));
-      allow write: if isSuperAdmin();
-    }
-
-    match /invoices/{invoiceId} {
-      allow read: if isSuperAdmin() || isSchoolMember(resource.data.get('schoolId', ''));
-      allow write: if isSuperAdmin();
-    }
-
-    match /orders/{orderId} {
-      allow read: if isSuperAdmin() || isSchoolMember(resource.data.get('schoolId', ''));
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+      );
       allow write: if isSuperAdmin();
     }
 
     match /subscriptionNotifications/{id} {
-      allow read, write: if true;
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+      );
+      allow write: if isSuperAdmin();
     }
 
     // ==========================================
-    // 5. PAYMENT SETTINGS & CONFIGURATION
+    // 5. PAYMENT SETTINGS & SECRETS
     // ==========================================
     match /paymentSettings/{docId} {
-      allow read: if isSuperAdmin();
-      allow write: if isSuperAdmin();
+      allow read, write: if isSuperAdmin();
     }
 
     // ==========================================
@@ -542,13 +810,9 @@ service cloud.firestore {
     }
 
     match /siteSettingsVersions/{versionId} {
-      allow read: if isSuperAdmin();
-      allow write: if isSuperAdmin();
+      allow read, write: if isSuperAdmin();
     }
 
-    // ==========================================
-    // 6a. FEATURE SHOWCASES & ANNOUNCEMENT BANNERS
-    // ==========================================
     match /feature_showcases/{showcaseId} {
       allow read: if true;
       allow write: if isSuperAdmin();
@@ -558,11 +822,8 @@ service cloud.firestore {
       allow read, write: if isAuthenticated();
     }
 
-    // ==========================================
-    // 6b. EMERGENCY & SECURITY CONTROLS
-    // ==========================================
     match /schoolEmergency/{schoolId} {
-      allow read: if true;
+      allow read: if isAuthenticated() && (isSchoolMember(schoolId) || isSuperAdmin());
       allow write: if isSuperAdmin();
     }
 
@@ -572,42 +833,17 @@ service cloud.firestore {
     }
 
     // ==========================================
-    // 7. CONTACT INQUIRIES & CRM
-    // ==========================================
-    match /inquiries/{inquiryId} {
-      allow create: if true; // Public contact form submission
-      allow read, update, delete: if isSuperAdmin();
-
-      match /notes/{noteId} {
-        allow read, write: if isSuperAdmin();
-      }
-
-      match /activities/{activityId} {
-        allow create: if true;
-        allow read, update, delete: if isSuperAdmin();
-      }
-    }
-
-    match /contactInquiries/{inquiryId} {
-      allow create: if true; // Legacy contact form mirror
-      allow read, update, delete: if isSuperAdmin();
-
-      match /notes/{noteId} {
-        allow read, write: if isSuperAdmin();
-      }
-    }
-
-    // ==========================================
-    // 8. AUDIT & LOGGING (IMMUTABLE APPEND-ONLY)
+    // 7. AUDIT & LOGGING (IMMUTABLE APPEND-ONLY)
     // ==========================================
     match /audit_logs/{logId} {
-      allow read, create: if true;
+      allow read: if isSuperAdmin();
+      allow create: if isAuthenticated();
       allow update, delete: if false; // Immutable
     }
 
     match /login_logs/{logId} {
       allow read: if isSuperAdmin();
-      allow create: if true;
+      allow create: if isAuthenticated();
       allow update, delete: if false; // Immutable
     }
 
@@ -636,7 +872,7 @@ service cloud.firestore {
     }
 
     // ==========================================
-    // 9. BACKUP & CLOUD STORAGE
+    // 8. BACKUP & CLOUD STORAGE
     // ==========================================
     match /backup_configs/{docId} {
       allow read, write: if isSuperAdmin();
@@ -644,8 +880,8 @@ service cloud.firestore {
 
     match /backup_sync_logs/{logId} {
       allow read: if isSuperAdmin();
-      allow create: if true;
-      allow update, delete: if isSuperAdmin();
+      allow create: if isSuperAdmin();
+      allow update, delete: if false;
     }
 
     match /backup_snapshots/{snapId} {
@@ -653,7 +889,7 @@ service cloud.firestore {
     }
 
     // ==========================================
-    // 10. AI WORKSPACE & INTELLIGENCE
+    // 9. AI WORKSPACE & INTELLIGENCE
     // ==========================================
     match /ai_conversations/{convId} {
       allow read, delete, update: if isAuthenticated() && (resource == null || resource.data.get('userId', '') == request.auth.uid || isSuperAdmin());
@@ -670,179 +906,13 @@ service cloud.firestore {
       allow update, delete: if isSuperAdmin();
     }
 
-
     // ==========================================
-    // 11. FEE MANAGEMENT & FINANCIAL LEDGERS
+    // 10. COMMUNICATION ENGINE & AUTOMATION
     // ==========================================
-    match /feeSettings/{schoolId} {
-      allow read: if isAuthenticated() && (isSchoolMember(schoolId) || isSuperAdmin());
-      allow write: if isAuthenticated() && (isSchoolAdmin(schoolId) || isSuperAdmin());
-    }
-
-    match /feeStructures/{structureId} {
-      allow read: if isAuthenticated() && (
-        resource == null ||
-        isSchoolMember(resource.data.get('schoolId', '')) ||
-        isSuperAdmin()
-      );
-      allow create, update, delete: if isAuthenticated() && (
-        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
-        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
-        isSuperAdmin()
-      );
-    }
-
-    match /studentFeeAssignments/{assignmentId} {
-      allow read: if isAuthenticated() && (
-        resource == null ||
-        isSchoolMember(resource.data.get('schoolId', '')) ||
-        resource.data.get('studentId', '') == request.auth.uid ||
-        isSuperAdmin()
-      );
-      allow create, update, delete: if isAuthenticated() && (
-        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
-        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
-        isSuperAdmin()
-      );
-    }
-
-    match /feePayments/{paymentId} {
-      allow read: if isAuthenticated() && (
-        resource == null ||
-        isSchoolMember(resource.data.get('schoolId', '')) ||
-        resource.data.get('studentId', '') == request.auth.uid ||
-        isSuperAdmin()
-      );
-      allow create, update, delete: if isAuthenticated() && (
-        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
-        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
-        isSuperAdmin()
-      );
-    }
-
-    match /financialPayments/{paymentId} {
-      allow read: if isAuthenticated() && (
-        resource == null ||
-        isSchoolMember(resource.data.get('schoolId', '')) ||
-        resource.data.get('studentId', '') == request.auth.uid ||
-        isSuperAdmin()
-      );
-      allow create, update, delete: if isAuthenticated() && (
-        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
-        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
-        isSuperAdmin()
-      );
-    }
-
-    match /feeDemands/{demandId} {
-      allow read: if isAuthenticated() && (
-        resource == null ||
-        isSchoolMember(resource.data.get('schoolId', '')) ||
-        resource.data.get('studentId', '') == request.auth.uid ||
-        isSuperAdmin()
-      );
-      allow create, update, delete: if isAuthenticated() && (
-        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
-        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
-        isSuperAdmin()
-      );
-    }
-
-    match /paymentAllocations/{allocId} {
-      allow read: if isAuthenticated() && (
-        resource == null ||
-        isSchoolMember(resource.data.get('schoolId', '')) ||
-        isSuperAdmin()
-      );
-      allow create, update, delete: if isAuthenticated() && (
-        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
-        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
-        isSuperAdmin()
-      );
-    }
-
-    match /financialRefunds/{refundId} {
-      allow read: if isAuthenticated() && (
-        resource == null ||
-        isSchoolMember(resource.data.get('schoolId', '')) ||
-        isSuperAdmin()
-      );
-      allow create, update, delete: if isAuthenticated() && (
-        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
-        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
-        isSuperAdmin()
-      );
-    }
-
-    match /paymentReversals/{revId} {
-      allow read: if isAuthenticated() && (
-        resource == null ||
-        isSchoolMember(resource.data.get('schoolId', '')) ||
-        isSuperAdmin()
-      );
-      allow create, update, delete: if isAuthenticated() && (
-        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
-        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
-        isSuperAdmin()
-      );
-    }
-
-    match /feeAdjustments/{adjId} {
-      allow read: if isAuthenticated() && (
-        resource == null ||
-        isSchoolMember(resource.data.get('schoolId', '')) ||
-        isSuperAdmin()
-      );
-      allow create, update, delete: if isAuthenticated() && (
-        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
-        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
-        isSuperAdmin()
-      );
-    }
-
-    match /journalEntries/{entryId} {
-      allow read: if isAuthenticated() && (
-        resource == null ||
-        isSchoolAdmin(resource.data.get('schoolId', '')) ||
-        isSuperAdmin()
-      );
-      allow create, update, delete: if isAuthenticated() && (
-        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
-        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
-        isSuperAdmin()
-      );
-    }
-
-    match /feeDiscounts/{discountId} {
-      allow read, write: if isAuthenticated() && (
-        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
-        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
-        isSuperAdmin()
-      );
-    }
-
-    match /feeFollowUps/{followUpId} {
-      allow read, write: if isAuthenticated() && (
-        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
-        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
-        isSuperAdmin()
-      );
-    }
-
-    match /financeTransactions/{txnId} {
-      allow read, write: if isAuthenticated() && (
-        (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
-        (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
-        isSuperAdmin()
-      );
-    }
-
-    // Platform-wide communication delivery audit logs (Super Admin only)
     match /communication_delivery_logs/{logId} {
       allow read, write: if isSuperAdmin();
     }
 
-    // Direct communication logs (tenant-isolated)
     match /communicationLogs/{logId} {
       allow read: if isAuthenticated() && (
         resource == null ||
@@ -856,43 +926,17 @@ service cloud.firestore {
       );
     }
 
-    // Communication Templates (Super Admin managed)
     match /communicationTemplates/{templateId} {
       allow read: if isAuthenticated();
       allow write: if isSuperAdmin();
     }
 
-    // Fee Automation Rules (Tenant-isolated)
     match /feeAutomationRules/{ruleId} {
       allow read, write: if isAuthenticated() && (
         (request.resource != null && isSchoolAdmin(request.resource.data.get('schoolId', ''))) ||
         (resource != null && isSchoolAdmin(resource.data.get('schoolId', ''))) ||
         isSuperAdmin()
       );
-    }
-
-    // School Feature Overrides (Super Admin custom grants / restrictions per school)
-    match /schoolFeatureOverrides/{overrideId} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin();
-    }
-
-    // School Subscriptions (Plan entitlements per school)
-    match /schoolSubscriptions/{schoolId} {
-      allow read: if isAuthenticated() && (isSchoolMember(schoolId) || isSuperAdmin());
-      allow write: if isSuperAdmin();
-    }
-
-    // Access Overrides (Legacy & custom school capability overrides)
-    match /accessOverrides/{overrideId} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin();
-    }
-
-    // Subscription Plans (Pricing & feature entitlement blueprints)
-    match /plans/{planId} {
-      allow read: if isAuthenticated();
-      allow write: if isSuperAdmin();
     }
 
     match /billingProfiles/{schoolId} {
@@ -906,7 +950,9 @@ service cloud.firestore {
       allow write: if isSuperAdmin();
     }
 
-    // Fallback: Disallow anything unspecified
+    // ==========================================
+    // 11. DEFAULT CATCH-ALL (DENY-BY-DEFAULT)
+    // ==========================================
     match /{document=**} {
       allow read, write: if isSuperAdmin();
     }

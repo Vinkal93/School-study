@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getFirebaseDb, getFirebaseStorage } from "@/lib/firebase/client";
-import { doc, updateDoc, serverTimestamp, getDoc } from "firebase/firestore";
+import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import { COLLECTIONS } from "@/lib/utils/constants";
+import { requireSchoolAdmin } from "@/lib/auth/serverAuth";
 
 export async function POST(request: Request) {
   try {
@@ -15,6 +16,12 @@ export async function POST(request: Request) {
 
       if (!schoolId) {
         return NextResponse.json({ success: false, error: "schoolId is required." }, { status: 400 });
+      }
+
+      // Cryptographically verify identity and ensure tenant boundary
+      const authResult = await requireSchoolAdmin(request, schoolId);
+      if (authResult.errorResponse) {
+        return authResult.errorResponse;
       }
 
       const db = getFirebaseDb();
@@ -44,6 +51,12 @@ export async function POST(request: Request) {
 
     if (!schoolId) {
       return NextResponse.json({ success: false, error: "schoolId is required." }, { status: 400 });
+    }
+
+    // Cryptographically verify identity and ensure tenant boundary
+    const authResult = await requireSchoolAdmin(request, schoolId);
+    if (authResult.errorResponse) {
+      return authResult.errorResponse;
     }
 
     if (!file || !(file instanceof File)) {

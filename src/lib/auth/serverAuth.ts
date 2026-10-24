@@ -276,13 +276,11 @@ export const KNOWN_SUPER_ADMIN_EMAILS = [
 export function isSuperAdminEmail(email?: string | null): boolean {
   if (!email) return false;
   const lower = email.toLowerCase().trim();
-  return (
-    KNOWN_SUPER_ADMIN_EMAILS.includes(lower) ||
-    lower.includes("superadmin") ||
-    lower.includes("super_admin") ||
-    lower.includes("vinkal") ||
-    lower.includes("sbci")
-  );
+  const configured = (process.env.SUPER_ADMIN_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return KNOWN_SUPER_ADMIN_EMAILS.includes(lower) || configured.includes(lower);
 }
 
 /**
