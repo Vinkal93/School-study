@@ -60,7 +60,7 @@ export function ShareFeeModal({
   // Sync initial phone and mode
   useEffect(() => {
     if (student) {
-      setCustomPhone(student.phone || student.parentPhone || "");
+      setCustomPhone(String(student.phone ?? student.parentPhone ?? ""));
       setMode(initialMode);
     }
   }, [student, initialMode]);
@@ -129,7 +129,7 @@ export function ShareFeeModal({
 
   const handleWhatsApp = () => {
     if (!formattedMessage) return;
-    const link = generateWhatsAppLink(customPhone, formattedMessage);
+    const link = generateWhatsAppLink(String(customPhone || "").trim(), formattedMessage);
     if (!link) {
       toast.error("Please enter a valid phone number with country code.");
       return;
@@ -291,7 +291,7 @@ export function ShareFeeModal({
             <button
               type="button"
               onClick={handleWhatsApp}
-              disabled={loading || !formattedMessage || !customPhone.trim()}
+              disabled={loading || !formattedMessage || !String(customPhone || "").trim()}
               className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md active:scale-95 transition-all cursor-pointer disabled:opacity-50"
             >
               <MessageSquare className="h-4 w-4 fill-current" />

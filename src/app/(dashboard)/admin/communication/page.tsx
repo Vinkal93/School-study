@@ -151,6 +151,7 @@ function SchoolCommunicationHubContent() {
   const [showTestModal, setShowTestModal] = useState(false);
   const [testPhoneNumber, setTestPhoneNumber] = useState("");
   const [isSendingTest, setIsSendingTest] = useState(false);
+  const [testChannel, setTestChannel] = useState<"whatsapp" | "sms">("whatsapp");
 
   // Filter students based on selection
   const filteredStudents = useMemo(() => {
@@ -355,7 +356,7 @@ function SchoolCommunicationHubContent() {
         headers: await getAuthHeaders(),
         body: JSON.stringify({
           schoolId,
-          channel: composeChannel === "sms" ? "sms" : "whatsapp",
+          channel: testChannel,
           recipientPhone: testPhoneNumber.trim(),
         }),
       });
@@ -2088,6 +2089,42 @@ function SchoolCommunicationHubContent() {
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Verify your WhatsApp or SMS delivery by sending a genuine live test message to your personal mobile number.
             </p>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-500 mb-1.5">
+                Delivery Channel
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTestChannel("whatsapp")}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all ${
+                    testChannel === "whatsapp"
+                      ? "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                      : "border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                  }`}
+                >
+                  WhatsApp API
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTestChannel("sms")}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all ${
+                    testChannel === "sms"
+                      ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+                      : "border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                  }`}
+                >
+                  SMS Gateway
+                </button>
+              </div>
+            </div>
+
+            {testChannel === "whatsapp" && (
+              <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/40 p-3 text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
+                ℹ️ <strong>Sandbox Note:</strong> If testing with Twilio WhatsApp Sandbox, the recipient number must send your sandbox join keyword (e.g. <code>join &lt;code&gt;</code>) to your Twilio number first. Or select <strong>SMS Gateway</strong> for direct delivery to Indian numbers.
+              </div>
+            )}
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-500 mb-1">

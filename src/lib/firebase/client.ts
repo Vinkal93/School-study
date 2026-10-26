@@ -51,7 +51,7 @@ export function getFirebaseDb(): Firestore {
         // Prevents WebChannel 400 stream disconnects and bfcache drops while loading instantly from IndexedDB
         dbInstance = initializeFirestore(app, {
           ignoreUndefinedProperties: true,
-          experimentalForceLongPolling: true,
+          experimentalAutoDetectLongPolling: true,
           localCache: persistentLocalCache({
             tabManager: persistentMultipleTabManager(),
           }),
@@ -61,7 +61,7 @@ export function getFirebaseDb(): Firestore {
           // Fallback to memory cache if IndexedDB is restricted (e.g. private mode)
           dbInstance = initializeFirestore(app, {
             ignoreUndefinedProperties: true,
-            experimentalForceLongPolling: true,
+            experimentalAutoDetectLongPolling: true,
             localCache: memoryLocalCache(),
           });
         } catch {
