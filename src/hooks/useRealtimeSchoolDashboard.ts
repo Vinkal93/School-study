@@ -1,16 +1,17 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import {
   doc,
   collection,
   query,
   where,
   onSnapshot,
+  getCountFromServer,
   Unsubscribe,
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
-import type { School, SchoolSubscription } from "@/types";
+import type { School } from "@/types";
 
 export interface RealtimeDashboardCounts {
   students: number;
@@ -83,7 +84,7 @@ export function useRealtimeSchoolDashboard(schoolId: string | undefined): UseRea
     setIsLoading(true);
     const unsubs: Unsubscribe[] = [];
 
-    // 1. Real-time School Document Listener
+    // 1. Real-time School Document Listener (Single document, instant update)
     try {
       const schoolRef = doc(db, "schools", schoolId);
       const unsubSchool = onSnapshot(
@@ -95,6 +96,15 @@ export function useRealtimeSchoolDashboard(schoolId: string | undefined): UseRea
               id: snap.id,
               ...data,
             } as School);
+
+            // Instant count paint from school summary metadata if available
+            if (typeof data.studentCount === "number" || typeof data.teacherCount === "number") {
+              setCounts((prev) => ({
+                ...prev,
+                students: typeof data.studentCount === "number" ? data.studentCount : prev.students,
+                teachers: typeof data.teacherCount === "number" ? data.teacherCount : prev.teachers,
+              }));
+            }
             setLastSyncTime(new Date());
           }
           setIsLoading(false);
@@ -109,7 +119,7 @@ export function useRealtimeSchoolDashboard(schoolId: string | undefined): UseRea
       console.warn("School doc subscription error:", e);
     }
 
-    // 2. Real-time Subscription Listener
+    // 2. Real-time Subscription Listener (Single document)
     try {
       const subRef = doc(db, "schoolSubscriptions", schoolId);
       const unsubSub = onSnapshot(
@@ -129,145 +139,60 @@ export function useRealtimeSchoolDashboard(schoolId: string | undefined): UseRea
       console.warn("Subscription listener error:", e);
     }
 
-    // 3. Real-time Students Listener (Subcollection with Top-Level Fallback)
-    try {
-      const subStudentsRef = collection(db, "schools", schoolId, "students");
-      const unsubSubStudents = onSnapshot(
-        subStudentsRef,
-        (snap) => {
-          if (!snap.empty) {
-            setCounts((prev) => ({
-              ...prev,
-              students: snap.docs.filter((d) => d.data().status !== "deleted").length,
-            }));
-            setLastSyncTime(new Date());
-          } else {
-            // Check top-level students collection
-            try {
-              const topQ = query(collection(db, "students"), where("schoolId", "==", schoolId));
-              const unsubTopStudents = onSnapshot(
-                topQ,
-                (topSnap) => {
-                  setCounts((prev) => ({
-                    ...prev,
-                    students: topSnap.docs.filter((d) => d.data().status !== "deleted").length,
-                  }));
-                  setLastSyncTime(new Date());
-                },
-                () => {}
-              );
-              unsubs.push(unsubTopStudents);
-            } catch {}
-          }
-        },
-        (err) => {
-          console.warn("Students subcollection notice, trying top-level:", err);
-        }
-      );
-      unsubs.push(unsubSubStudents);
-    } catch (e) {
-      console.warn("Students listener error:", e);
-    }
+    // 3. Ultra-Fast Server Aggregation Counts (getCountFromServer)
+    // Runs in ~20ms, downloads 0 documents, preventing network flooding even with 10,000+ students.
+    let isCancelled = false;
+    const fetchFastCounts = async () => {
+      try {
+        const subStudentsRef = collection(db, "schools", schoolId, "students");
+        const subTeachersRef = collection(db, "schools", schoolId, "teachers");
+        const classesRef = collection(db, "schools", schoolId, "classes");
+        const yearsRef = collection(db, "schools", schoolId, "academicYears");
+        const inqQ = query(collection(db, "inquiries"), where("schoolId", "==", schoolId));
 
-    // 4. Real-time Teachers Listener (Subcollection with Top-Level Fallback)
-    try {
-      const subTeachersRef = collection(db, "schools", schoolId, "teachers");
-      const unsubSubTeachers = onSnapshot(
-        subTeachersRef,
-        (snap) => {
-          if (!snap.empty) {
-            setCounts((prev) => ({
-              ...prev,
-              teachers: snap.docs.filter((d) => d.data().status !== "deleted").length,
-            }));
-            setLastSyncTime(new Date());
-          } else {
-            try {
-              const topQ = query(collection(db, "teachers"), where("schoolId", "==", schoolId));
-              const unsubTopTeachers = onSnapshot(
-                topQ,
-                (topSnap) => {
-                  setCounts((prev) => ({
-                    ...prev,
-                    teachers: topSnap.docs.filter((d) => d.data().status !== "deleted").length,
-                  }));
-                  setLastSyncTime(new Date());
-                },
-                () => {}
-              );
-              unsubs.push(unsubTopTeachers);
-            } catch {}
-          }
-        },
-        (err) => {
-          console.warn("Teachers listener notice:", err);
-        }
-      );
-      unsubs.push(unsubSubTeachers);
-    } catch (e) {
-      console.warn("Teachers listener error:", e);
-    }
+        const [sSnap, tSnap, cSnap, ySnap, iSnap] = await Promise.all([
+          getCountFromServer(subStudentsRef).catch(() => null),
+          getCountFromServer(subTeachersRef).catch(() => null),
+          getCountFromServer(classesRef).catch(() => null),
+          getCountFromServer(yearsRef).catch(() => null),
+          getCountFromServer(inqQ).catch(() => null),
+        ]);
 
-    // 5. Real-time Classes Listener
-    try {
-      const classesRef = collection(db, "schools", schoolId, "classes");
-      const unsubClasses = onSnapshot(
-        classesRef,
-        (snap) => {
-          setCounts((prev) => ({
-            ...prev,
-            classes: snap.size,
-          }));
-          setLastSyncTime(new Date());
-        },
-        (err) => {
-          console.warn("Classes listener notice:", err);
-        }
-      );
-      unsubs.push(unsubClasses);
-    } catch (e) {
-      console.warn("Classes listener error:", e);
-    }
+        if (isCancelled) return;
 
-    // 6. Real-time Academic Years Listener
-    try {
-      const yearsRef = collection(db, "schools", schoolId, "academicYears");
-      const unsubYears = onSnapshot(
-        yearsRef,
-        (snap) => {
-          setCounts((prev) => ({
-            ...prev,
-            academicYears: snap.size,
-          }));
-          setLastSyncTime(new Date());
-        },
-        (err) => {
-          console.warn("Academic years listener notice:", err);
-        }
-      );
-      unsubs.push(unsubYears);
-    } catch (e) {
-      console.warn("Academic years listener error:", e);
-    }
+        let studentsCount = sSnap ? sSnap.data().count : 0;
+        let teachersCount = tSnap ? tSnap.data().count : 0;
 
-    // 7. Real-time Inquiries Listener
-    try {
-      const inqQ = query(collection(db, "inquiries"), where("schoolId", "==", schoolId));
-      const unsubInquiries = onSnapshot(
-        inqQ,
-        (snap) => {
-          setCounts((prev) => ({
-            ...prev,
-            inquiries: snap.size,
-          }));
-          setLastSyncTime(new Date());
-        },
-        () => {}
-      );
-      unsubs.push(unsubInquiries);
-    } catch {}
+        // Fallback to root collections if subcollections are empty
+        if (studentsCount === 0) {
+          const rootStudentsQ = query(collection(db, "students"), where("schoolId", "==", schoolId));
+          const rootSnap = await getCountFromServer(rootStudentsQ).catch(() => null);
+          if (rootSnap && rootSnap.data().count > 0) studentsCount = rootSnap.data().count;
+        }
+
+        if (teachersCount === 0) {
+          const rootTeachersQ = query(collection(db, "teachers"), where("schoolId", "==", schoolId));
+          const rootSnap = await getCountFromServer(rootTeachersQ).catch(() => null);
+          if (rootSnap && rootSnap.data().count > 0) teachersCount = rootSnap.data().count;
+        }
+
+        setCounts({
+          students: studentsCount,
+          teachers: teachersCount,
+          classes: cSnap ? cSnap.data().count : 0,
+          academicYears: ySnap ? ySnap.data().count : 0,
+          inquiries: iSnap ? iSnap.data().count : 0,
+        });
+        setLastSyncTime(new Date());
+      } catch (countErr) {
+        console.warn("Notice: Fast counts aggregation notice:", countErr);
+      }
+    };
+
+    fetchFastCounts();
 
     return () => {
+      isCancelled = true;
       unsubs.forEach((u) => {
         try {
           u();

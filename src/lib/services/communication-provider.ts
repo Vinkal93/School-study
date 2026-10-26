@@ -32,6 +32,11 @@ export function classifyProviderError(
   rawMessage?: string
 ): string {
   const code = Number(errorCode);
+  const msgLower = (rawMessage || "").toLowerCase();
+
+  if (msgLower.includes("contentsid") || code === 63016 || code === 63018) {
+    return "WhatsApp Template Required (ContentSid): Meta requires an approved template outside the 24-hour window. If testing with the Twilio WhatsApp Sandbox, the recipient must send your sandbox join keyword to your Twilio number first, or select SMS to test delivery immediately.";
+  }
   switch (code) {
     case 20003:
       return "Twilio Authentication Failed: Invalid Account SID or Auth Token. Verify credentials in Super Admin Settings.";
