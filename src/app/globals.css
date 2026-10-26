@@ -32,7 +32,6 @@ html {
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
   font-family: var(--font-sans), "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  cursor: url('/cursors/Normal.cur') 2 1, url('/cursors/Normal.png') 2 1, auto;
   font-size: 15px; /* Calibrates rem density so normal 100% zoom looks sleek, compact, and professional like Stripe/Linear without requiring user to zoom to 80% */
 }
 
@@ -53,7 +52,6 @@ body {
   overflow-x: hidden;
   min-height: 100vh;
   min-height: 100dvh;
-  cursor: url('/cursors/Normal.cur') 2 1, url('/cursors/Normal.png') 2 1, auto;
   /* Edge-to-edge: extend app background behind system bars */
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -81,78 +79,7 @@ a:active:not(:disabled),
   transition: opacity 0.1s ease;
 }
 
-/* Custom Cursors */
-a,
-button,
-[role="button"],
-label,
-input[type="checkbox"],
-input[type="radio"],
-input[type="submit"],
-input[type="button"],
-input[type="reset"],
-select,
-summary,
-.cursor-pointer {
-  cursor: url('/cursors/Link.cur') 5 0, url('/cursors/Link.png') 5 0, pointer !important;
-}
 
-input[type="text"],
-input[type="email"],
-input[type="password"],
-input[type="number"],
-input[type="search"],
-input[type="tel"],
-input[type="url"],
-textarea,
-[contenteditable="true"],
-.cursor-text {
-  cursor: url('/cursors/Text-Select.cur') 15 15, url('/cursors/Text-Select.png') 15 15, text !important;
-}
-
-:disabled,
-[disabled],
-.disabled,
-.cursor-not-allowed,
-[aria-disabled="true"] {
-  cursor: url('/cursors/Unavailable.cur') 0 0, url('/cursors/Unavailable.png') 0 0, not-allowed !important;
-}
-
-.cursor-help {
-  cursor: url('/cursors/Help.cur') 2 1, url('/cursors/Help.png') 2 1, help !important;
-}
-
-.cursor-move,
-.cursor-grab,
-.cursor-grabbing {
-  cursor: url('/cursors/Move.cur') 15 15, url('/cursors/Move.png') 15 15, move !important;
-}
-
-.cursor-crosshair {
-  cursor: url('/cursors/Precision-Select.cur') 15 15, url('/cursors/Precision-Select.png') 15 15, crosshair !important;
-}
-
-.cursor-ew-resize,
-.cursor-col-resize {
-  cursor: url('/cursors/Horizontal-Resize.cur') 15 15, url('/cursors/Horizontal-Resize.png') 15 15, ew-resize !important;
-}
-
-.cursor-ns-resize,
-.cursor-row-resize {
-  cursor: url('/cursors/Vertical-Resize.cur') 15 15, url('/cursors/Vertical-Resize.png') 15 15, ns-resize !important;
-}
-
-.cursor-nwse-resize {
-  cursor: url('/cursors/Diagonal-Resize-1.cur') 15 15, url('/cursors/Diagonal-Resize-1.png') 15 15, nwse-resize !important;
-}
-
-.cursor-nesw-resize {
-  cursor: url('/cursors/Diagonal-Resize-2.cur') 15 15, url('/cursors/Diagonal-Resize-2.png') 15 15, nesw-resize !important;
-}
-
-.cursor-default {
-  cursor: url('/cursors/Normal.cur') 2 1, url('/cursors/Normal.png') 2 1, auto !important;
-}
 
 /* Touch & tap target optimization for mobile */
 button,
@@ -225,7 +152,7 @@ textarea {
 }
 
 /* Custom macOS Cursor Suite for Desktop/PC (Loaded from /public/cursors) */
-@media (pointer: fine) {
+@media (hover: hover) and (pointer: fine) {
   html,
   body,
   .cursor-default {

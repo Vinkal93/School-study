@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { Search, Sparkles, ArrowRight, Code2, GraduationCap, Laptop } from "lucide-react";
 
@@ -15,9 +16,13 @@ export function DeveloperHero() {
       <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 text-center">
         {/* Avatar / Profile Emblem */}
         <div className="relative mx-auto mb-6 flex h-28 w-28 items-center justify-center rounded-3xl sm:h-32 sm:w-32">
-          <img
-            src="/images/developer.jpg"
-            alt="Vinkal Prajapati"
+          <Image
+            src="/images/developer.webp"
+            alt="Vinkal Prajapati - Founder & Full Stack Engineer"
+            width={128}
+            height={128}
+            priority
+            sizes="(max-width: 640px) 112px, 128px"
             className="h-full w-full rounded-3xl object-cover shadow-xl shadow-blue-500/20 border-2 border-blue-200 dark:border-blue-500/40"
           />
           {/* Subtle Online / Active Badge */}

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import {
   Sparkles,
@@ -37,13 +38,31 @@ import {
 } from "lucide-react";
 import { useTheme } from "@/context/theme-context";
 import { HeroSection2 } from "@/components/landing/HeroSection2";
-import { GlowyWavesHero } from "@/components/uitripled/glowy-waves-hero-shadcnui";
 import { NativeMarquee } from "@/components/uitripled/native-marquee-shadcnui";
-import { BentoGridBlock } from "@/components/uitripled/bento-grid-block-shadcnui";
-import { OurServicesSection } from "@/components/uitripled/our-services-section-shadcnui";
-import { FAQAccordionBlock } from "@/components/uitripled/faq-accordion-block-shadcnui";
-import { NewsletterSignupBlock } from "@/components/uitripled/newsletter-signup-block-shadcnui";
-import { ContactBlock } from "@/components/uitripled/contact-block-shadcnui";
+const BentoGridBlock = dynamic(
+  () => import("@/components/uitripled/bento-grid-block-shadcnui").then((mod) => mod.BentoGridBlock),
+  { ssr: true }
+);
+const OurServicesSection = dynamic(
+  () => import("@/components/uitripled/our-services-section-shadcnui").then((mod) => mod.OurServicesSection),
+  { ssr: true }
+);
+const FAQAccordionBlock = dynamic(
+  () => import("@/components/uitripled/faq-accordion-block-shadcnui").then((mod) => mod.FAQAccordionBlock),
+  { ssr: true }
+);
+const NewsletterSignupBlock = dynamic(
+  () => import("@/components/uitripled/newsletter-signup-block-shadcnui").then((mod) => mod.NewsletterSignupBlock),
+  { ssr: true }
+);
+const ContactBlock = dynamic(
+  () => import("@/components/uitripled/contact-block-shadcnui").then((mod) => mod.ContactBlock),
+  { ssr: true }
+);
+const DemoModal = dynamic(
+  () => import("@/components/landing/DemoModal").then((mod) => mod.DemoModal),
+  { ssr: false }
+);
 import { useAuth } from "@/hooks/use-auth";
 import { getRedirectByRole } from "@/lib/utils/redirect-by-role";
 
@@ -664,7 +683,7 @@ export function ModernLandingPage() {
                         <h4 className="text-xs font-bold text-slate-900 dark:text-white leading-tight">
                           Priya Sharma
                         </h4>
-                        <p className="text-[10px] text-slate-400">
+                        <p className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
                           Principal, Greenfield Public School
                         </p>
                       </div>
@@ -695,7 +714,7 @@ export function ModernLandingPage() {
                         <h4 className="text-xs font-bold text-slate-900 dark:text-white leading-tight">
                           Amit Verma
                         </h4>
-                        <p className="text-[10px] text-slate-400">
+                        <p className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
                           School Administrator, Sunrise Academy
                         </p>
                       </div>
@@ -726,7 +745,7 @@ export function ModernLandingPage() {
                         <h4 className="text-xs font-bold text-slate-900 dark:text-white leading-tight">
                           Neha Singh
                         </h4>
-                        <p className="text-[10px] text-slate-400">
+                        <p className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
                           Mathematics Teacher, Bright Future School
                         </p>
                       </div>
@@ -822,7 +841,7 @@ export function ModernLandingPage() {
                   <span className="text-lg font-black text-slate-900 dark:text-white tracking-tight leading-none block">
                     SchoolStudy
                   </span>
-                  <span className="text-[10px] text-slate-400 block mt-0.5">
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-0.5">
                     Smart Schools, Brighter Futures
                   </span>
                 </div>
@@ -890,7 +909,7 @@ export function ModernLandingPage() {
                 <li><Link href="/" className="hover:text-blue-600 transition-colors">Home</Link></li>
                 <li><Link href="/features" className="hover:text-blue-600 transition-colors">Features</Link></li>
                 <li><Link href="/pricing" className="hover:text-blue-600 transition-colors">Pricing</Link></li>
-                <li><Link href="/contact" className="hover:text-blue-600 transition-colors">Blogs</Link></li>
+                <li><Link href="/features#modules" className="hover:text-blue-600 transition-colors">Features &amp; Modules</Link></li>
                 <li><Link href="/contact" className="hover:text-blue-600 transition-colors">Contact</Link></li>
               </ul>
             </div>
@@ -918,7 +937,7 @@ export function ModernLandingPage() {
                 <li><Link href="/contact" className="hover:text-blue-600 transition-colors">Help Center</Link></li>
                 <li><Link href="/features" className="hover:text-blue-600 transition-colors">Documentation</Link></li>
                 <li><button type="button" onClick={() => setDemoModalOpen(true)} className="hover:text-blue-600 transition-colors">Video Tutorials</button></li>
-                <li><Link href="/contact" className="hover:text-blue-600 transition-colors">Privacy Policy</Link></li>
+                <li><Link href="/contact" className="hover:text-blue-600 transition-colors">Privacy &amp; Data Protection</Link></li>
                 <li><Link href="/contact" className="hover:text-blue-600 transition-colors">Terms of Service</Link></li>
               </ul>
             </div>
@@ -968,62 +987,7 @@ export function ModernLandingPage() {
       {/* ==========================================
           INTERACTIVE DEMO MODAL
       ========================================== */}
-      {demoModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div className="relative w-full max-w-3xl rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center">
-                  <Play className="h-4 w-4 fill-white" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                    SchoolStudy Platform Tour
-                  </h3>
-                  <p className="text-[11px] text-slate-400">
-                    A quick 2-minute overview of all major portals
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setDemoModalOpen(false)}
-                className="p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 transition-colors"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {/* Video Mockup Frame */}
-            <div className="aspect-video w-full rounded-2xl bg-slate-950 flex flex-col items-center justify-center text-center p-6 space-y-3 relative overflow-hidden border border-slate-800">
-              <div className="w-16 h-16 rounded-full bg-blue-600/90 text-white flex items-center justify-center shadow-lg hover:scale-110 transition-transform cursor-pointer">
-                <Play className="h-7 w-7 fill-white ml-1" />
-              </div>
-              <h4 className="text-sm font-bold text-white">Interactive Interactive Tour Demo</h4>
-              <p className="text-xs text-slate-400 max-w-sm">
-                Explore real-time roll call, fee receipt generation, timetable period bells, and full multi-tenant school administration.
-              </p>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setDemoModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              >
-                Close
-              </button>
-              <Link
-                href="/register"
-                onClick={() => setDemoModalOpen(false)}
-                className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors"
-              >
-                Start Free Onboarding
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
+      <DemoModal isOpen={demoModalOpen} onClose={() => setDemoModalOpen(false)} />
     </div>
   );
 }
