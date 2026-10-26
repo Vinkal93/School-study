@@ -1019,9 +1019,6 @@ export async function getActivePlan(planId: string): Promise<Plan | null> {
         const slugSnap = await getDocs(slugQuery);
         if (!slugSnap.empty) {
           const planDoc = slugSnap.docs[0];
-          const defaultPlan = DEFAULT_STATIC_PLANS.find(
-            (p) => p.id === normId || p.slug === normId || p.id === planId || p.slug === planId
-          );
           const plan = { id: planDoc.id, ...planDoc.data() } as Plan;
 
           if (plan.status === "ACTIVE" && !plan.isArchived) {
@@ -1030,9 +1027,6 @@ export async function getActivePlan(planId: string): Promise<Plan | null> {
           }
         }
       } else {
-        const defaultPlan = DEFAULT_STATIC_PLANS.find(
-          (p) => p.id === normId || p.slug === normId || p.id === planId || p.slug === planId
-        );
         const plan = { id: planSnap.id, ...planSnap.data() } as Plan;
 
         if (plan.status === "ACTIVE" && !plan.isArchived) {
@@ -1045,19 +1039,47 @@ export async function getActivePlan(planId: string): Promise<Plan | null> {
     }
   }
 
+  // Authoritative Static Fallback: Default system plans are always valid and guaranteed
+  const defaultPlan = DEFAULT_STATIC_PLANS.find(
+    (p) => p.id === normId || p.slug === normId || p.id === planId || p.slug === planId
+  );
+  if (defaultPlan) {
+    cachePlan(defaultPlan);
+    return defaultPlan;
+  }
 
   return null;
 }
 
 export async function getPlanVersion(planId: string, version: number): Promise<PlanVersion | null> {
+  const normId = normalizePlanId(planId);
+  const versionId = `${normId}_v${version}`;
+  const defaultVersion =
+    DEFAULT_STATIC_PLAN_VERSIONS[versionId] ||
+    DEFAULT_STATIC_PLAN_VERSIONS[normId] ||
+    DEFAULT_STATIC_PLAN_VERSIONS[planId] ||
+    null;
+
+  if (typeof window === "undefined") {
+    try {
+      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+      const adminDb = getSafeAdminDb();
+      if (adminDb) {
+        const snap = await adminDb.collection(BILLING_COLLECTIONS.PLAN_VERSIONS).doc(versionId).get();
+        if (snap.exists) return { id: snap.id, ...snap.data() } as PlanVersion;
+      }
+    } catch {}
+  }
+
   const db = getFirebaseDb();
-  if (!db) return null;
+  if (db) {
+    try {
+      const versionSnap = await getDoc(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, versionId));
+      if (versionSnap.exists()) return { id: versionSnap.id, ...versionSnap.data() } as PlanVersion;
+    } catch {}
+  }
 
-  const versionId = `${planId}_v${version}`;
-  const versionSnap = await getDoc(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, versionId));
-  if (!versionSnap.exists()) return null;
-
-  return { id: versionSnap.id, ...versionSnap.data() } as PlanVersion;
+  return defaultVersion;
 }
 
 export async function calculatePlanPrice(
@@ -1080,17 +1102,22 @@ export async function calculatePlanPrice(
 
 export async function getAllPlans(): Promise<Plan[]> {
   if (typeof window === "undefined") {
-    const { getSafeAdminDb } = await import("@/lib/firebase/admin");
-    const db = getSafeAdminDb();
-    if (!db) return [];
-    const snap = await db.collection(BILLING_COLLECTIONS.PLANS).get();
-    return snap.docs.map(d => ({id:d.id,...d.data()} as Plan)).filter(p => p.status === "ACTIVE" && p.publicVisible !== false && !p.isArchived).sort((a,b)=>(a.displayOrder||0)-(b.displayOrder||0));
+    try {
+      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+      const db = getSafeAdminDb();
+      if (db) {
+        const snap = await db.collection(BILLING_COLLECTIONS.PLANS).get();
+        if (!snap.empty) {
+          return snap.docs
+            .map((d) => ({ id: d.id, ...d.data() } as Plan))
+            .filter((p) => p.status === "ACTIVE" && p.publicVisible !== false && !p.isArchived)
+            .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+        }
+      }
+    } catch {}
   }
   const db = getFirebaseDb();
   if (db) {
-    if (typeof window === "undefined") {
-      // Catalog initialization is an explicit admin operation, never a read side effect.
-    }
     try {
       const snap = await getDocs(collection(db, BILLING_COLLECTIONS.PLANS));
       if (!snap.empty) {
@@ -1098,51 +1125,64 @@ export async function getAllPlans(): Promise<Plan[]> {
         const filtered = allPlans
           .filter((p) => p.status === "ACTIVE" && p.publicVisible !== false && !p.isArchived)
           .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
-        return filtered;
+        if (filtered.length > 0) return filtered;
       }
     } catch (err) {
       console.warn("getAllPlans error:", err);
     }
   }
-  return [];
+  return DEFAULT_STATIC_PLANS.filter((p) => p.status === "ACTIVE" && p.publicVisible !== false && !p.isArchived).sort(
+    (a, b) => (a.displayOrder || 0) - (b.displayOrder || 0)
+  );
 }
 
 export async function getAllPlansAdmin(): Promise<Plan[]> {
   if (typeof window === "undefined") {
-    const { getSafeAdminDb } = await import("@/lib/firebase/admin");
-    const db = getSafeAdminDb();
-    if (!db) return [];
-    const snap = await db.collection(BILLING_COLLECTIONS.PLANS).get();
-    return snap.docs.map(d => ({id:d.id,...d.data()} as Plan)).filter(p => true).sort((a,b)=>(a.displayOrder||0)-(b.displayOrder||0));
+    try {
+      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+      const db = getSafeAdminDb();
+      if (db) {
+        const snap = await db.collection(BILLING_COLLECTIONS.PLANS).get();
+        if (!snap.empty) {
+          return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Plan)).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+        }
+      }
+    } catch {}
   }
   const db = getFirebaseDb();
-  if (!db) return [];
-
-  if (typeof window === "undefined") {
-    // Catalog initialization is an explicit admin operation, never a read side effect.
-  }
-
-  try {
-    const snap = await getDocs(collection(db, BILLING_COLLECTIONS.PLANS));
-    const allPlans = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Plan[];
-    if (allPlans.length > 0) {
-      return allPlans.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+  if (db) {
+    try {
+      const snap = await getDocs(collection(db, BILLING_COLLECTIONS.PLANS));
+      const allPlans = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Plan[];
+      if (allPlans.length > 0) {
+        return allPlans.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+      }
+    } catch (err) {
+      console.warn("getAllPlansAdmin error:", err);
     }
-  } catch (err) {
-    console.warn("getAllPlansAdmin error:", err);
   }
-  return [];
+  return [...DEFAULT_STATIC_PLANS].sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
 }
 
 export async function getActivePlanVersion(planId: string): Promise<PlanVersion | null> {
   const normId = normalizePlanId(planId);
+  const defaultVersion =
+    DEFAULT_STATIC_PLAN_VERSIONS[normId] ||
+    DEFAULT_STATIC_PLAN_VERSIONS[planId] ||
+    DEFAULT_STATIC_PLAN_VERSIONS[`${normId}_v1`] ||
+    null;
+
   if (typeof window === "undefined") {
-    const { getSafeAdminDb } = await import("@/lib/firebase/admin");
-    const adminDb = getSafeAdminDb();
-    if (!adminDb) return null;
-    const snap = await adminDb.collection(BILLING_COLLECTIONS.PLAN_VERSIONS).where("planId", "==", normId).get();
-    const versions = snap.docs.map(d => ({ id: d.id, ...d.data() }) as PlanVersion);
-    return versions.filter(v => v.status === "ACTIVE").sort((a,b) => b.version-a.version)[0] || null;
+    try {
+      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+      const adminDb = getSafeAdminDb();
+      if (adminDb) {
+        const snap = await adminDb.collection(BILLING_COLLECTIONS.PLAN_VERSIONS).where("planId", "==", normId).get();
+        const versions = snap.docs.map(d => ({ id: d.id, ...d.data() }) as PlanVersion);
+        const active = versions.filter(v => v.status === "ACTIVE").sort((a,b) => b.version-a.version)[0];
+        if (active) return active;
+      }
+    } catch {}
   }
   const db = getFirebaseDb();
   if (db) {
@@ -1164,7 +1204,7 @@ export async function getActivePlanVersion(planId: string): Promise<PlanVersion 
     }
   }
 
-  return null;
+  return defaultVersion;
 }
 
 export async function getPlanVersions(planId: string): Promise<PlanVersion[]> {

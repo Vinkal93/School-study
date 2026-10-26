@@ -23,11 +23,56 @@ export async function GET(req: NextRequest) {
     }
 
     const [access, logs, rules, templates] = await Promise.all([
-      getSchoolCommunicationAccess(schoolId, authResult.user),
-      getSchoolCommunicationLogs(schoolId, undefined, undefined, 50),
-      getSchoolAutomationRules(schoolId),
-      getSchoolTemplates(schoolId),
+      getSchoolCommunicationAccess(schoolId, authResult.user).catch((err) => {
+        console.warn("[API:communication:status] Communication access resolution notice:", err);
+        return null;
+      }),
+      getSchoolCommunicationLogs(schoolId, undefined, undefined, 50).catch(() => []),
+      getSchoolAutomationRules(schoolId).catch(() => []),
+      getSchoolTemplates(schoolId).catch(() => []),
     ]);
+
+    const effectiveAccess = access || {
+      schoolId,
+      schoolName: "School",
+      isGloballyEnabled: true,
+      canWhatsAppApi: false,
+      canSendWhatsApp: false,
+      canManualWhatsApp: true,
+      canSmsApi: false,
+      canSendSms: false,
+      canEmail: true,
+      canInApp: true,
+      canAutomateFees: false,
+      canCustomTemplates: false,
+      canTestMessage: false,
+      maxDailyRecipients: 100,
+      monthlyQuota: 0,
+      limits: {
+        monthlyWhatsAppAllowance: 0,
+        monthlySmsAllowance: 0,
+        monthlyTestAllowance: 0,
+        maxDailyRecipients: 100,
+        maxTemplates: 5,
+        maxAutomationRules: 2,
+        quietHoursEnforced: true,
+      },
+      monthlyUsage: {
+        totalSent: 0,
+        whatsappSent: 0,
+        smsSent: 0,
+        emailSent: 0,
+        inAppSent: 0,
+        manualOpened: 0,
+        testsSent: 0,
+        failed: 0,
+        limit: 0,
+      },
+      currentTier: "Starter Plan",
+      subscriptionStatus: "ACTIVE",
+      isPlanLocked: false,
+      lockReason: undefined,
+    };
 
     // Calculate usage from recent logs
     let waSent = 0;
@@ -45,8 +90,18 @@ export async function GET(req: NextRequest) {
       }
     });
 
-    access.monthlyUsage = {
-      ...access.monthlyUsage,
+    effectiveAccess.monthlyUsage = {
+      ...(effectiveAccess.monthlyUsage || {
+        totalSent: 0,
+        whatsappSent: 0,
+        smsSent: 0,
+        emailSent: 0,
+        inAppSent: 0,
+        manualOpened: 0,
+        testsSent: 0,
+        failed: 0,
+        limit: effectiveAccess.limits?.monthlyWhatsAppAllowance ?? 0,
+      }),
       whatsappSent: waSent,
       emailSent,
       inAppSent,
@@ -56,7 +111,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      access,
+      access: effectiveAccess,
       templates,
       rules,
       recentLogs: logs,

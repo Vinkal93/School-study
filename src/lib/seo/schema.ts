@@ -130,13 +130,6 @@ export function getSoftwareAppSchema() {
     url: siteConfig.url,
     downloadUrl: `${siteConfig.url}/download`,
     screenshot: `${siteConfig.url}/og-image.png`,
-    aggregateRating: {
-      "@type": "AggregateRating",
-      ratingValue: "4.9",
-      reviewCount: "1280",
-      bestRating: "5",
-      worstRating: "1",
-    },
     offers: {
       "@type": "AggregateOffer",
       lowPrice: "0",

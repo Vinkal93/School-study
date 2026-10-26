@@ -29,7 +29,7 @@ const MONTH_OPTIONS = [
 ];
 
 export default function AdminFeeSettingsPage() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const effectiveSchoolId =
     profile?.schoolId ||
     (typeof window !== "undefined"
@@ -66,7 +66,11 @@ export default function AdminFeeSettingsPage() {
 
   useEffect(() => {
     async function loadSettings() {
-      if (!schoolId) return;
+      if (authLoading) return;
+      if (!schoolId) {
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       try {
         let s: FeeSettings;
@@ -104,7 +108,7 @@ export default function AdminFeeSettingsPage() {
       }
     }
     loadSettings();
-  }, [schoolId, profile?.schoolName]);
+  }, [schoolId, profile?.schoolName, authLoading]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();

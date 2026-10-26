@@ -1,7 +1,6 @@
-"use client";
-
+import type { Metadata } from "next";
 import Link from "next/link";
-import { GraduationCap, ArrowLeft, Shield, Sparkles } from "lucide-react";
+import { GraduationCap, ArrowLeft, Sparkles } from "lucide-react";
 import { ThemeToggle } from "@/components/common/theme-toggle";
 import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import {
@@ -17,10 +16,34 @@ import {
   DeveloperContact,
 } from "@/components/developer";
 import { Footer } from "@/components/footer";
+import { constructMetadata } from "@/lib/seo/metadata";
+import { getDeveloperProfilePageSchema } from "@/lib/seo/schema";
+
+export const metadata: Metadata = constructMetadata({
+  title: "About Vinkal Prajapati | Founder & Full Stack Engineer — School Study",
+  description:
+    "Meet Vinkal Prajapati, the founder, full-stack engineer, and educational technology architect behind the School Study SaaS platform.",
+  canonicalUrl: "/about-developer",
+  keywords: [
+    "Vinkal Prajapati",
+    "School Study Founder",
+    "School ERP Architect",
+    "Full Stack Developer India",
+    "Next.js Developer",
+    "Vinkal Prajapati Portfolio",
+  ],
+});
 
 export default function AboutDeveloperPage() {
+  const schema = getDeveloperProfilePageSchema();
+
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950 text-slate-900 dark:text-slate-100 font-sans selection:bg-blue-100 selection:text-blue-900 transition-colors duration-200">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+      />
+
       {/* ==========================================
           PAGE HEADER / NAVIGATION
       ========================================== */}

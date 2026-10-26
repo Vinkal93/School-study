@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
   distDir: process.env.NEXT_BUILD_DIR || ".next",
   images: {
     remotePatterns: [{ protocol: "https", hostname: "images.unsplash.com", pathname: "/**" }],
+    formats: ["image/avif", "image/webp"],
+    minimumCacheTTL: 2592000,
   },
   // Disable x-powered-by header for security and payload reduction
   poweredByHeader: false,
@@ -28,6 +30,8 @@ const nextConfig: NextConfig = {
       "tailwind-merge",
       "firebase",
       "next-themes",
+      "framer-motion",
+      "date-fns",
     ],
   },
 
@@ -39,6 +43,15 @@ const nextConfig: NextConfig = {
   // Production Security Headers
   async headers() {
     return [
+      {
+        source: "/images/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=2592000, stale-while-revalidate=86400" }],
+      },
+      {
+        source: "/cursors/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+
       ...["admin", "teacher", "student", "super-admin", "billing", "api", "setup-super-admin", "su"].map((segment) => ({
         source: `/${segment}/:path*`,
         headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],

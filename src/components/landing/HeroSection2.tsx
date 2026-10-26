@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import {
   Sparkles,
   ArrowRight,
@@ -101,6 +102,7 @@ export function HeroSection2({ onWatchVideoClick }: HeroSection2Props) {
 
               <button
                 type="button"
+                aria-label="Watch video walkthrough"
                 onClick={onWatchVideoClick}
                 className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 font-bold text-sm sm:text-base shadow-sm transition-all hover:scale-105 active:scale-95"
               >
@@ -361,11 +363,14 @@ export function HeroSection2({ onWatchVideoClick }: HeroSection2Props) {
 
             {/* 2. FOREGROUND LAYER: The School Girl PNG */}
             <div className="relative z-20 pointer-events-none mt-8 sm:mt-12 lg:mt-6 -mr-6 sm:-mr-12 lg:-mr-16 flex justify-center">
-              <img
-                src="/images/hero-student.png"
+              <Image
+                src="/images/hero-student.webp"
                 alt="School girl smiling and holding study books"
+                width={480}
+                height={450}
+                priority
+                sizes="(max-width: 640px) 280px, (max-width: 1024px) 380px, 480px"
                 className="w-[280px] sm:w-[380px] lg:w-[440px] xl:w-[480px] h-auto object-contain drop-shadow-[0_20px_35px_rgba(0,0,0,0.22)] select-none"
-                loading="eager"
               />
             </div>
 
@@ -449,7 +454,7 @@ export function HeroSection2({ onWatchVideoClick }: HeroSection2Props) {
               </div>
               <div className="text-left leading-tight">
                 <span>SBCI Computer</span>
-                <span className="block text-[10px] text-slate-400 font-normal">Institute</span>
+                <span className="block text-[10px] text-slate-600 dark:text-slate-400 font-medium">Institute</span>
               </div>
             </div>
 
@@ -460,7 +465,7 @@ export function HeroSection2({ onWatchVideoClick }: HeroSection2Props) {
               </div>
               <div className="text-left leading-tight">
                 <span>Bright Future</span>
-                <span className="block text-[10px] text-slate-400 font-normal">Public School</span>
+                <span className="block text-[10px] text-slate-600 dark:text-slate-400 font-medium">Public School</span>
               </div>
             </div>
 
@@ -471,7 +476,7 @@ export function HeroSection2({ onWatchVideoClick }: HeroSection2Props) {
               </div>
               <div className="text-left leading-tight">
                 <span>New Era</span>
-                <span className="block text-[10px] text-slate-400 font-normal">Coaching Classes</span>
+                <span className="block text-[10px] text-slate-600 dark:text-slate-400 font-medium">Coaching Classes</span>
               </div>
             </div>
 
@@ -482,7 +487,7 @@ export function HeroSection2({ onWatchVideoClick }: HeroSection2Props) {
               </div>
               <div className="text-left leading-tight">
                 <span>Sunrise</span>
-                <span className="block text-[10px] text-slate-400 font-normal">Academy</span>
+                <span className="block text-[10px] text-slate-600 dark:text-slate-400 font-medium">Academy</span>
               </div>
             </div>
 
@@ -493,7 +498,7 @@ export function HeroSection2({ onWatchVideoClick }: HeroSection2Props) {
               </div>
               <div className="text-left leading-tight">
                 <span>Modern</span>
-                <span className="block text-[10px] text-slate-400 font-normal">International School</span>
+                <span className="block text-[10px] text-slate-600 dark:text-slate-400 font-medium">International School</span>
               </div>
             </div>
           </div>

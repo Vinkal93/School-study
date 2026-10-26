@@ -637,7 +637,7 @@ export async function updateGlobalCommunicationSettings(
  */
 export async function getSchoolCommunicationAccess(
   schoolId: string,
-  userContext?: { uid?: string; role?: string; schoolId?: string | null; email?: string }
+  userContext?: { uid?: string; role?: string; schoolId?: string | null; email?: string; token?: string }
 ): Promise<SchoolCommunicationAccess> {
   const { resolveEffectiveSchoolEntitlements } = await import("@/lib/billing/entitlement");
   const entitlements = await resolveEffectiveSchoolEntitlements(schoolId, userContext);
@@ -1082,7 +1082,7 @@ export async function dispatchTestMessage(
   schoolId: string,
   channel: CommunicationChannel,
   recipientPhone: string,
-  triggeredBy: { uid: string; name: string; role: string }
+  triggeredBy: { uid: string; name: string; role: string; token?: string; impersonatedBy?: any }
 ): Promise<SendResult & { errorCode?: string; maskedPhone?: string }> {
   const { normalizePhoneNumber } = await import("./phone-validation");
   const phoneRes = normalizePhoneNumber(recipientPhone);

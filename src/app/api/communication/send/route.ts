@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
       uid: authUser.uid,
       name: authUser.name || "School Administration",
       role: authUser.role,
+      token: authUser.token,
     };
 
     // Check school access
