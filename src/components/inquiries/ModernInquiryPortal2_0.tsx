@@ -55,7 +55,7 @@ import { toast } from "sonner";
 import { writeBatch } from "firebase/firestore";
 import { parseInquiryImport } from "@/lib/inquiries/import";
 import { useAuth } from "@/hooks/use-auth";
-import { getFirebaseDb } from "@/lib/firebase/client";
+import { getFirebaseDb, getFirebaseAuth } from "@/lib/firebase/client";
 import { InquiryEventCalendar } from "@/components/ui/calendar-picker";
 import { cn } from "@/lib/utils/cn";
 import {
@@ -158,18 +158,59 @@ export function ModernInquiryPortal2_0({
     setLoading(true);
     setLoadError("");
     try {
+      if (portalType === "schoolAdmin" && !schoolId) {
+        setInquiries([]);
+        setSelectedInquiry(null);
+        setLoading(false);
+        return;
+      }
+
+      // 1. Authoritative API Route via ID Token (bypasses missing client claims)
+      try {
+        const auth = getFirebaseAuth();
+        const idToken = auth?.currentUser ? await auth.currentUser.getIdToken().catch(() => "") : "";
+        const apiUrl = portalType === "schoolAdmin"
+          ? `/api/school/inquiries?schoolId=${encodeURIComponent(schoolId || "")}`
+          : `/api/super-admin/inquiries`;
+
+        const res = await fetch(apiUrl, {
+          headers: {
+            ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+          },
+          cache: "no-store",
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.inquiries)) {
+            const list = data.inquiries.map((d: any) => normalizeInquiry(d.id || d._id, d));
+            setInquiries(list);
+            setSelectedInquiry(prev => list.find((i: Inquiry) => i.id === prev?.id) || list[0] || null);
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (apiErr) {
+        // Fall through to direct Firestore SDK
+      }
+
+      // 2. Direct Firestore SDK Fallback
       const db = getFirebaseDb();
-      if (!db || (portalType === "schoolAdmin" && !schoolId)) throw new Error("School context is unavailable.");
+      if (!db) throw new Error("Database is currently unavailable.");
       const ref = collection(db, "inquiries");
       const snap = await getDocs(portalType === "schoolAdmin" ? query(ref, where("schoolId", "==", schoolId)) : ref);
       const list = snap.docs.map(d => normalizeInquiry(d.id, d.data())).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setInquiries(list);
-      setSelectedInquiry(prev => list.find(i => i.id === prev?.id) || null);
-    } catch (err) {
+      setSelectedInquiry(prev => list.find(i => i.id === prev?.id) || list[0] || null);
+    } catch (err: any) {
+      console.warn("Notice: Inquiries load notice:", err);
+      // Only set error if we don't have existing inquiries
       setLoadError(err instanceof Error ? err.message : "Unable to load inquiries.");
       setInquiries([]);
       setSelectedInquiry(null);
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }, [portalType, schoolId]);
 
   const saveInquiry = async (id: string, changes: Record<string, unknown>, remove = false) => {

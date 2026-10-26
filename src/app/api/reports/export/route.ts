@@ -55,7 +55,9 @@ export async function POST(request: Request) {
               ? "reports_action_export_xlsx"
               : "reports_action_export_csv";
 
-          await requireEntitlement(schoolId, { feature: exportPermKey });
+          const authHeader = request.headers.get("authorization") || request.headers.get("Authorization") || "";
+          const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : undefined;
+          await requireEntitlement(schoolId, { feature: exportPermKey, userToken: token });
         } catch (entErr: any) {
           await createBillingAuditLog(
             actorId,

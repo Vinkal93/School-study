@@ -536,7 +536,7 @@ export const GRANULAR_PERMISSIONS: GranularPermissionDefinition[] = [
     featureKey: "advanced_reports",
     parentKey: "reports_tab_export",
     description: "Download official printable PDF reports with school header & watermark.",
-    defaultPlans: ["enterprise"],
+    defaultPlans: ["professional", "enterprise"],
     aliases: ["reports.export_pdf"],
   },
 
