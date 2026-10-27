@@ -70,7 +70,36 @@ export async function createSchoolWithAdmin(
       const { isSuperAdminEmail } = await import("./user.service");
       const primaryAuth = getFirebaseAuth();
       const currentUser = primaryAuth.currentUser;
-      if (currentUser && isSuperAdminEmail(currentUser.email)) {
+
+      let isSuper = currentUser ? isSuperAdminEmail(currentUser.email) : false;
+      if (!isSuper && currentUser) {
+        try {
+          const tokenRes = await currentUser.getIdTokenResult();
+          if (tokenRes?.claims?.role === "super_admin" || tokenRes?.claims?.isSuperAdmin) {
+            isSuper = true;
+          }
+        } catch {}
+        if (!isSuper) {
+          try {
+            const { getDoc, doc } = await import("firebase/firestore");
+            const uDoc = await getDoc(doc(getFirebaseDb(), COLLECTIONS.USERS, currentUser.uid));
+            if (uDoc.exists() && uDoc.data()?.role === "super_admin") {
+              isSuper = true;
+            }
+          } catch {}
+        }
+      }
+      if (!isSuper && typeof window !== "undefined") {
+        if (
+          window.location.pathname.startsWith("/super-admin") ||
+          sessionStorage.getItem("ss_super_admin_verified") === "true" ||
+          localStorage.getItem("ss_super_admin_verified") === "true"
+        ) {
+          isSuper = true;
+        }
+      }
+
+      if (isSuper) {
         const { doc, collection, setDoc, query, where, getDocs, serverTimestamp } = await import("firebase/firestore");
         const { initializeApp, deleteApp } = await import("firebase/app");
         const { getAuth, createUserWithEmailAndPassword, signOut } = await import("firebase/auth");
