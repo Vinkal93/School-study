@@ -8,6 +8,7 @@ import {
   where,
   onSnapshot,
   getCountFromServer,
+  getDoc,
   Unsubscribe,
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
@@ -139,6 +140,33 @@ export function useRealtimeSchoolDashboard(schoolId: string | undefined): UseRea
       console.warn("Subscription listener error:", e);
     }
 
+    // 2b. Real-time School Usage Listener (Synchronized single-source-of-truth)
+    try {
+      const usageRef = doc(db, "schoolUsage", schoolId);
+      const unsubUsage = onSnapshot(
+        usageRef,
+        (snap) => {
+          if (snap.exists()) {
+            const uData = snap.data();
+            setCounts((prev) => ({
+              ...prev,
+              students: typeof uData.students === "number" ? uData.students : prev.students,
+              teachers: typeof uData.teachers === "number" ? uData.teachers : prev.teachers,
+              classes: typeof uData.classes === "number" ? uData.classes : prev.classes,
+            }));
+            setLastSyncTime(new Date());
+          }
+        },
+        (err) => {
+          console.warn("Realtime schoolUsage listener notice:", err);
+        }
+      );
+      unsubs.push(unsubUsage);
+    } catch (e) {
+      console.warn("Usage listener error:", e);
+    }
+
+
     // 3. Ultra-Fast Server Aggregation Counts (getCountFromServer)
     // Runs in ~20ms, downloads 0 documents, preventing network flooding even with 10,000+ students.
     let isCancelled = false;
@@ -150,18 +178,33 @@ export function useRealtimeSchoolDashboard(schoolId: string | undefined): UseRea
         const yearsRef = collection(db, "schools", schoolId, "academicYears");
         const inqQ = query(collection(db, "inquiries"), where("schoolId", "==", schoolId));
 
-        const [sSnap, tSnap, cSnap, ySnap, iSnap] = await Promise.all([
+        const [sSnap, tSnap, cSnap, ySnap, iSnap, usageSnap] = await Promise.all([
           getCountFromServer(subStudentsRef).catch(() => null),
           getCountFromServer(subTeachersRef).catch(() => null),
           getCountFromServer(classesRef).catch(() => null),
           getCountFromServer(yearsRef).catch(() => null),
           getCountFromServer(inqQ).catch(() => null),
+          getDoc(doc(db, "schoolUsage", schoolId)).catch(() => null),
         ]);
 
         if (isCancelled) return;
 
         let studentsCount = sSnap ? sSnap.data().count : 0;
         let teachersCount = tSnap ? tSnap.data().count : 0;
+        let classesCount = cSnap ? cSnap.data().count : 0;
+
+        if (usageSnap && usageSnap.exists()) {
+          const uData = usageSnap.data();
+          if (typeof uData.students === "number") studentsCount = uData.students;
+          if (typeof uData.teachers === "number") teachersCount = uData.teachers;
+          if (typeof uData.classes === "number") classesCount = uData.classes;
+        } else {
+          // Reconcile in background if usage snapshot does not exist yet
+          try {
+            const { reconcileSchoolUsage } = await import("@/lib/billing/usage");
+            reconcileSchoolUsage(schoolId, "dashboard_auto_reconcile").catch(() => {});
+          } catch {}
+        }
 
         // Fallback to root collections if subcollections are empty
         if (studentsCount === 0) {
@@ -179,7 +222,7 @@ export function useRealtimeSchoolDashboard(schoolId: string | undefined): UseRea
         setCounts({
           students: studentsCount,
           teachers: teachersCount,
-          classes: cSnap ? cSnap.data().count : 0,
+          classes: classesCount,
           academicYears: ySnap ? ySnap.data().count : 0,
           inquiries: iSnap ? iSnap.data().count : 0,
         });

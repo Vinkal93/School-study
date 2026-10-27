@@ -104,11 +104,11 @@ export async function getSchoolOnboardingState(schoolId: string): Promise<FullOn
 
   const teachers = (teachersSnap?.docs
     .map((d) => ({ id: d.id, ...d.data() }))
-    .filter((t: any) => t.status !== "deleted") || []) as TeacherProfile[];
+    .filter((t: any) => t.status !== "deleted" && t.status !== "archived") || []) as TeacherProfile[];
 
   const students = (studentsSnap?.docs
     .map((d) => ({ id: d.id, ...d.data() }))
-    .filter((s: any) => s.status !== "deleted") || []) as StudentProfile[];
+    .filter((s: any) => s.status !== "deleted" && s.status !== "archived") || []) as StudentProfile[];
 
   // Calculate resume step
   const savedCurrentStep = school?.onboardingCurrentStep || school?.setupStep || 1;

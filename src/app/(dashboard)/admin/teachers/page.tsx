@@ -398,10 +398,9 @@ export default function AdminTeachersPage() {
   };
 
   const handleRestoreTeacher = async (teacher: TeacherProfile) => {
-    if (limitStatus && !limitStatus.allowed) {
+    if (isTeacherLimitReached) {
       toast.error(
-        limitStatus.message ||
-          `Teacher limit reached. Your plan allows ${limitStatus.limit} teachers. You already have ${limitStatus.current}.`
+        `Teacher limit reached. Your plan allows ${effectiveTeacherLimit} teachers. You already have ${effectiveTeacherCount}.`
       );
       return;
     }
@@ -479,6 +478,27 @@ export default function AdminTeachersPage() {
 
   const assignedCount = teachers.filter((t) => t.assignedClassId || t.assignedClassName).length;
 
+  const nonDeletedTeachers = useMemo(
+    () => teachers.filter((t) => t.status !== "deleted" && (t.status as any) !== "archived"),
+    [teachers]
+  );
+  const effectiveTeacherCount = teachers.length > 0 ? nonDeletedTeachers.length : (limitStatus?.current ?? 0);
+  const effectiveTeacherLimit = limitStatus?.limit ?? 20;
+  const isTeacherLimitReached = limitStatus && effectiveTeacherLimit !== -1 ? effectiveTeacherCount >= effectiveTeacherLimit : false;
+
+  // Auto-synchronize schoolUsage when teacher list is loaded and discrepancies exist
+  useEffect(() => {
+    if (!schoolId || !limitStatus || teachers.length === 0 || loading) return;
+    if (limitStatus.current !== nonDeletedTeachers.length) {
+      import("@/lib/billing/usage").then(({ reconcileSchoolUsage }) => {
+        reconcileSchoolUsage(schoolId, "teachers_page_auto_sync").then(() => {
+          appQueryClient.invalidateCache(`planLimit:${schoolId}:teachers`);
+          refetchLimit(true);
+        }).catch(() => {});
+      }).catch(() => {});
+    }
+  }, [schoolId, limitStatus, teachers.length, nonDeletedTeachers.length, loading, refetchLimit]);
+
   return (
     <EntitlementGate
       feature="teacher_management"
@@ -513,17 +533,16 @@ export default function AdminTeachersPage() {
                   toast.error("Teacher Management is not included in your current plan. Please upgrade to unlock.");
                   return;
                 }
-                if (limitStatus && !limitStatus.allowed) {
+                if (isTeacherLimitReached) {
                   toast.error(
-                    limitStatus.message ||
-                      `Teacher limit reached. Your plan allows ${limitStatus.limit} teachers. You already have ${limitStatus.current}.`
+                    `Teacher limit reached. Your plan allows ${effectiveTeacherLimit} teachers. You already have ${effectiveTeacherCount}.`
                   );
                   return;
                 }
                 handleOpenAddModal();
               }}
               className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white shadow-sm transition-all ${
-                limitStatus && !limitStatus.allowed
+                isTeacherLimitReached
                   ? "bg-slate-500 hover:bg-slate-600 opacity-90 cursor-pointer"
                   : "bg-blue-600 hover:bg-blue-700"
               }`}
@@ -535,14 +554,13 @@ export default function AdminTeachersPage() {
         </div>
 
         {/* Plan Capacity Limit Warning Banner */}
-        {limitStatus && !limitStatus.allowed && (
+        {isTeacherLimitReached && (
           <div className="rounded-2xl border border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/40 p-4 flex items-center justify-between gap-4 text-red-800 dark:text-red-300">
             <div className="flex items-center gap-3">
               <XCircle className="h-5 w-5 text-red-600 shrink-0" />
               <div className="text-xs sm:text-sm">
                 <span className="font-bold">
-                  {limitStatus.message ||
-                    `Teacher limit reached. Your plan allows ${limitStatus.limit} teachers. You already have ${limitStatus.current}.`}
+                  Teacher limit reached. Your plan allows ${effectiveTeacherLimit} teachers. You already have ${effectiveTeacherCount}.
                 </span>
               </div>
             </div>

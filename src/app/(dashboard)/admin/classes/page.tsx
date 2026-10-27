@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -106,6 +106,25 @@ export default function AdminClassesPage() {
   useEffect(() => {
     loadData();
   }, [schoolId]);
+
+  const nonDeletedClasses = useMemo(
+    () => classes.filter((c) => (c.status as any) !== "deleted"),
+    [classes]
+  );
+  const effectiveClassCount = classes.length > 0 ? nonDeletedClasses.length : (limitStatus?.current ?? 0);
+  const effectiveClassLimit = limitStatus?.limit ?? 50;
+  const isClassLimitReached = limitStatus && effectiveClassLimit !== -1 ? effectiveClassCount >= effectiveClassLimit : false;
+
+  useEffect(() => {
+    if (!schoolId || !limitStatus || classes.length === 0 || loading) return;
+    if (limitStatus.current !== nonDeletedClasses.length) {
+      import("@/lib/billing/usage").then(({ reconcileSchoolUsage }) => {
+        reconcileSchoolUsage(schoolId, "classes_page_auto_sync").then(() => {
+          checkPlanLimit(schoolId, "classes").then(setLimitStatus).catch(() => {});
+        }).catch(() => {});
+      }).catch(() => {});
+    }
+  }, [schoolId, limitStatus, classes.length, nonDeletedClasses.length, loading]);
 
   // Handle Class Creation / Edit
   const handleSaveClass = async (e: React.FormEvent) => {
@@ -340,7 +359,7 @@ export default function AdminClassesPage() {
         </div>
 
       {/* Plan Capacity Limit Warning Banner */}
-      {limitStatus && !limitStatus.allowed && (
+      {isClassLimitReached && (
         <div className="rounded-2xl border border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/40 p-4 flex items-center justify-between gap-4 text-red-800 dark:text-red-300">
           <div className="flex items-center gap-3">
             <div className="h-9 w-9 rounded-xl bg-red-100 dark:bg-red-900/60 flex items-center justify-center shrink-0">
@@ -348,8 +367,7 @@ export default function AdminClassesPage() {
             </div>
             <div>
               <p className="text-sm font-bold">
-                {limitStatus.message ||
-                  `Class limit reached. Your plan allows ${limitStatus.limit} classes. You already have ${limitStatus.current}.`}
+                Class limit reached. Your plan allows ${effectiveClassLimit} classes. You already have ${effectiveClassCount}.
               </p>
             </div>
           </div>
