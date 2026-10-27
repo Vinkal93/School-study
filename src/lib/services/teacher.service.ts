@@ -267,11 +267,35 @@ export async function updateTeacher(
   data: Partial<TeacherProfile>
 ): Promise<void> {
   const db = getFirebaseDb();
-  const teacherDocRef = doc(db, "schools", schoolId, "teachers", teacherId);
-  await updateDoc(teacherDocRef, {
+  if (!db || !schoolId || !teacherId) throw new Error("Missing parameters for teacher update.");
+
+  let canonicalId = teacherId;
+  const subRef = doc(db, "schools", schoolId, "teachers", canonicalId);
+  const rootRef = doc(db, "teachers", canonicalId);
+
+  let targetSubSnap = await getDoc(subRef).catch(() => null);
+  if (!targetSubSnap?.exists()) {
+    const rootSnap = await getDoc(rootRef).catch(() => null);
+    if (rootSnap?.exists()) canonicalId = rootSnap.id;
+  }
+
+  const payload = {
     ...data,
     updatedAt: serverTimestamp(),
-  });
+  };
+
+  await setDoc(doc(db, "schools", schoolId, "teachers", canonicalId), payload, { merge: true });
+  await setDoc(doc(db, "teachers", canonicalId), payload, { merge: true }).catch(() => {});
+
+  const effectiveUserId = (data as any).userId || targetSubSnap?.data()?.userId || canonicalId;
+  if (effectiveUserId && (data.name || data.email || data.phone || data.status)) {
+    const userUpdate: any = { updatedAt: serverTimestamp() };
+    if (data.name) userUpdate.name = data.name;
+    if (data.email) userUpdate.email = data.email;
+    if (data.phone) userUpdate.phone = data.phone;
+    if (data.status) userUpdate.status = data.status === "active" ? "active" : "disabled";
+    await updateDoc(doc(db, COLLECTIONS.USERS, effectiveUserId), userUpdate).catch(() => {});
+  }
 }
 
 export async function toggleTeacherStatus(
@@ -281,18 +305,33 @@ export async function toggleTeacherStatus(
   status: "active" | "inactive"
 ): Promise<void> {
   const db = getFirebaseDb();
-  const teacherDocRef = doc(db, "schools", schoolId, "teachers", teacherId);
-  const userDocRef = doc(db, COLLECTIONS.USERS, userId);
+  if (!db || !schoolId || !teacherId) throw new Error("Missing parameters for teacher status toggle.");
 
-  await updateDoc(teacherDocRef, {
+  let canonicalId = teacherId;
+  const subRef = doc(db, "schools", schoolId, "teachers", canonicalId);
+  const rootRef = doc(db, "teachers", canonicalId);
+
+  let targetSubSnap = await getDoc(subRef).catch(() => null);
+  if (!targetSubSnap?.exists()) {
+    const rootSnap = await getDoc(rootRef).catch(() => null);
+    if (rootSnap?.exists()) canonicalId = rootSnap.id;
+  }
+
+  const payload = {
     status,
     updatedAt: serverTimestamp(),
-  });
+  };
 
-  await updateDoc(userDocRef, {
-    status: status === "active" ? "active" : "disabled",
-    updatedAt: serverTimestamp(),
-  });
+  await setDoc(doc(db, "schools", schoolId, "teachers", canonicalId), payload, { merge: true });
+  await setDoc(doc(db, "teachers", canonicalId), payload, { merge: true }).catch(() => {});
+
+  const effectiveUserId = userId || targetSubSnap?.data()?.userId || canonicalId;
+  if (effectiveUserId) {
+    await updateDoc(doc(db, COLLECTIONS.USERS, effectiveUserId), {
+      status: status === "active" ? "active" : "disabled",
+      updatedAt: serverTimestamp(),
+    }).catch(() => {});
+  }
 }
 
 export async function assignTeacherToClass(
@@ -353,23 +392,36 @@ export async function assignTeacherToClass(
 export async function deleteTeacher(
   schoolId: string,
   teacherId: string,
-  userId: string
+  userId?: string
 ): Promise<void> {
   const db = getFirebaseDb();
-  const teacherDocRef = doc(db, "schools", schoolId, "teachers", teacherId);
-  const userDocRef = doc(db, COLLECTIONS.USERS, userId);
+  if (!db || !schoolId || !teacherId) throw new Error("Missing parameters for teacher delete.");
+
+  let canonicalId = teacherId;
+  const subRef = doc(db, "schools", schoolId, "teachers", canonicalId);
+  const rootRef = doc(db, "teachers", canonicalId);
+
+  let targetSubSnap = await getDoc(subRef).catch(() => null);
+  if (!targetSubSnap?.exists()) {
+    const rootSnap = await getDoc(rootRef).catch(() => null);
+    if (rootSnap?.exists()) canonicalId = rootSnap.id;
+  }
 
   const nowIso = new Date().toISOString();
-
-  await updateDoc(teacherDocRef, {
+  const payload = {
     status: "deleted",
     deletedAt: nowIso,
     updatedAt: serverTimestamp(),
-  });
+  };
 
-  if (userId) {
-    await updateDoc(userDocRef, {
+  await setDoc(doc(db, "schools", schoolId, "teachers", canonicalId), payload, { merge: true });
+  await setDoc(doc(db, "teachers", canonicalId), payload, { merge: true }).catch(() => {});
+
+  const effectiveUserId = userId || targetSubSnap?.data()?.userId || canonicalId;
+  if (effectiveUserId) {
+    await updateDoc(doc(db, COLLECTIONS.USERS, effectiveUserId), {
       status: "disabled",
+      disabledAt: nowIso,
       updatedAt: serverTimestamp(),
     }).catch(() => {});
   }
@@ -384,23 +436,36 @@ export async function deleteTeacher(
 export async function restoreTeacher(
   schoolId: string,
   teacherId: string,
-  userId: string
+  userId?: string
 ): Promise<void> {
   // Check plan limit before restoring
   await requirePlanLimit(schoolId, "teachers");
 
   const db = getFirebaseDb();
-  const teacherDocRef = doc(db, "schools", schoolId, "teachers", teacherId);
-  const userDocRef = doc(db, COLLECTIONS.USERS, userId);
+  if (!db || !schoolId || !teacherId) throw new Error("Missing parameters for teacher restore.");
 
-  await updateDoc(teacherDocRef, {
+  let canonicalId = teacherId;
+  const subRef = doc(db, "schools", schoolId, "teachers", canonicalId);
+  const rootRef = doc(db, "teachers", canonicalId);
+
+  let targetSubSnap = await getDoc(subRef).catch(() => null);
+  if (!targetSubSnap?.exists()) {
+    const rootSnap = await getDoc(rootRef).catch(() => null);
+    if (rootSnap?.exists()) canonicalId = rootSnap.id;
+  }
+
+  const payload = {
     status: "active",
     deletedAt: null,
     updatedAt: serverTimestamp(),
-  });
+  };
 
-  if (userId) {
-    await updateDoc(userDocRef, {
+  await setDoc(doc(db, "schools", schoolId, "teachers", canonicalId), payload, { merge: true });
+  await setDoc(doc(db, "teachers", canonicalId), payload, { merge: true }).catch(() => {});
+
+  const effectiveUserId = userId || targetSubSnap?.data()?.userId || canonicalId;
+  if (effectiveUserId) {
+    await updateDoc(doc(db, COLLECTIONS.USERS, effectiveUserId), {
       status: "active",
       updatedAt: serverTimestamp(),
     }).catch(() => {});

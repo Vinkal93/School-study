@@ -11,6 +11,45 @@ export interface ServiceAccountCredentials {
 
 let parsedServiceAccount: ServiceAccountCredentials | null | undefined = undefined;
 
+export function resetAdminAppCache(): void {
+  parsedServiceAccount = undefined;
+  _adminApp = null;
+}
+
+/**
+ * Normalizes a raw PEM private key string:
+ * - Unwraps quotes
+ * - Replaces escaped newlines (\\n, \r\n, \n)
+ * - Decodes Base64 if needed
+ */
+export function normalizePrivateKey(rawKey: string): string {
+  if (!rawKey) return "";
+  let key = rawKey.trim();
+
+  // Strip wrapping single or double quotes
+  while (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    key = key.slice(1, -1).trim();
+  }
+
+  // Handle literal escaped newlines and carriage returns
+  key = key.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\r\n/g, "\n");
+
+  // Auto-detect and decode Base64-encoded private key if standard header is missing
+  if (!key.includes("BEGIN PRIVATE KEY") && !key.includes("BEGIN RSA PRIVATE KEY")) {
+    try {
+      const decoded = Buffer.from(key, "base64").toString("utf-8");
+      if (decoded.includes("BEGIN PRIVATE KEY") || decoded.includes("BEGIN RSA PRIVATE KEY")) {
+        key = decoded.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\r\n/g, "\n");
+      }
+    } catch {}
+  }
+
+  return key;
+}
+
 /**
  * Resolves Firebase Service Account credentials from environment variables or credentials file.
  * Supports:
@@ -20,7 +59,8 @@ let parsedServiceAccount: ServiceAccountCredentials | null | undefined = undefin
  *  4. File path: FIREBASE_SERVICE_ACCOUNT_PATH or GOOGLE_APPLICATION_CREDENTIALS
  */
 export function getServiceAccount(): ServiceAccountCredentials | null {
-  if (parsedServiceAccount !== undefined) return parsedServiceAccount;
+  // Only use cached credential if it resolved successfully; do not permanently cache null
+  if (parsedServiceAccount) return parsedServiceAccount;
 
   const defaultProjectId =
     process.env.FIREBASE_PROJECT_ID ||
@@ -45,8 +85,8 @@ export function getServiceAccount(): ServiceAccountCredentials | null {
       if (parsed.client_email && parsed.private_key) {
         parsedServiceAccount = {
           projectId: parsed.project_id || defaultProjectId,
-          clientEmail: parsed.client_email,
-          privateKey: (parsed.private_key as string).replace(/\\n/g, "\n"),
+          clientEmail: parsed.client_email.trim(),
+          privateKey: normalizePrivateKey(parsed.private_key),
         };
         return parsedServiceAccount;
       }
@@ -64,24 +104,7 @@ export function getServiceAccount(): ServiceAccountCredentials | null {
     process.env.FIREBASE_ADMIN_PRIVATE_KEY;
 
   if (clientEmail && privateKey) {
-    let cleanedKey = privateKey.trim();
-    if (
-      (cleanedKey.startsWith('"') && cleanedKey.endsWith('"')) ||
-      (cleanedKey.startsWith("'") && cleanedKey.endsWith("'"))
-    ) {
-      cleanedKey = cleanedKey.slice(1, -1);
-    }
-    cleanedKey = cleanedKey.replace(/\\n/g, "\n");
-
-    // Auto-detect and decode Base64-encoded private key if not containing standard PEM header
-    if (!cleanedKey.includes("BEGIN PRIVATE KEY") && !cleanedKey.includes("BEGIN RSA PRIVATE KEY")) {
-      try {
-        const decoded = Buffer.from(cleanedKey, "base64").toString("utf-8");
-        if (decoded.includes("BEGIN PRIVATE KEY") || decoded.includes("BEGIN RSA PRIVATE KEY")) {
-          cleanedKey = decoded.replace(/\\n/g, "\n");
-        }
-      } catch {}
-    }
+    const cleanedKey = normalizePrivateKey(privateKey);
 
     parsedServiceAccount = {
       projectId: process.env.FIREBASE_PROJECT_ID || defaultProjectId,
@@ -99,8 +122,8 @@ export function getServiceAccount(): ServiceAccountCredentials | null {
       if (cfg.client_email && cfg.private_key) {
         parsedServiceAccount = {
           projectId: cfg.project_id || defaultProjectId,
-          clientEmail: cfg.client_email,
-          privateKey: (cfg.private_key as string).replace(/\\n/g, "\n"),
+          clientEmail: cfg.client_email.trim(),
+          privateKey: normalizePrivateKey(cfg.private_key),
         };
         return parsedServiceAccount;
       }
@@ -126,8 +149,8 @@ export function getServiceAccount(): ServiceAccountCredentials | null {
         if (parsed.client_email && parsed.private_key) {
           parsedServiceAccount = {
             projectId: parsed.project_id || defaultProjectId,
-            clientEmail: parsed.client_email,
-            privateKey: (parsed.private_key as string).replace(/\\n/g, "\n"),
+            clientEmail: parsed.client_email.trim(),
+            privateKey: normalizePrivateKey(parsed.private_key),
           };
           return parsedServiceAccount;
         }
@@ -137,14 +160,14 @@ export function getServiceAccount(): ServiceAccountCredentials | null {
     }
   }
 
-  parsedServiceAccount = null;
-  return parsedServiceAccount;
+  return null;
 }
 
 export function isFirebaseAdminConfigured(): boolean {
   return (
     getServiceAccount() !== null ||
-    !!process.env.GOOGLE_APPLICATION_CREDENTIALS
+    !!process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+    Boolean(process.env.FIRESTORE_EMULATOR_HOST && (process.env.FIREBASE_AUTH_EMULATOR_HOST || process.env.FIREBASE_EMULATOR_HUB))
   );
 }
 
@@ -157,6 +180,17 @@ export function getAdminApp(): App | null {
     const apps = getApps();
     if (apps.length > 0) {
       _adminApp = apps[0];
+      return _adminApp;
+    }
+
+    // Emulator support without credentials
+    if (process.env.FIRESTORE_EMULATOR_HOST || process.env.FIREBASE_AUTH_EMULATOR_HOST) {
+      _adminApp = initializeApp({
+        projectId:
+          process.env.FIREBASE_PROJECT_ID ||
+          process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
+          "school-study-c8991",
+      });
       return _adminApp;
     }
 
