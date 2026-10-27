@@ -73,10 +73,10 @@ export function ClassicSchoolAdminDashboard({
 
   const school = liveSchool || initialSchool || cachedSchool;
   const counts = {
-    teachers: liveCounts.teachers || initialCounts?.teachers || setupData?.teachers?.length || 0,
-    students: liveCounts.students || initialCounts?.students || setupData?.students?.length || 0,
-    classes: liveCounts.classes || initialCounts?.classes || setupData?.classes?.length || 0,
-    academicYears: liveCounts.academicYears || initialCounts?.academicYears || setupData?.academicYears?.length || 0,
+    teachers: setupData?.teachers?.length ?? (initialCounts?.teachers || liveCounts.teachers || 0),
+    students: setupData?.students?.length ?? (initialCounts?.students || liveCounts.students || 0),
+    classes: setupData?.classes?.length ?? (initialCounts?.classes || liveCounts.classes || 0),
+    academicYears: setupData?.academicYears?.length ?? (initialCounts?.academicYears || liveCounts.academicYears || 0),
   };
 
   const isLoading = (isSchoolLoading || isSetupLoading || isRealtimeLoading) && !school && !setupData && !initialSchool;

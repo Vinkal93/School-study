@@ -49,11 +49,33 @@ export default function SchoolAdminPage() {
     (liveSchool && liveSchool.id === schoolId ? liveSchool : null) ||
     (cachedSchool && cachedSchool.id === schoolId ? cachedSchool : null);
 
+  // Single authoritative source of truth for enrolled students:
+  // Strictly matches /admin/students (excluding deleted and archived)
+  const resolvedStudentCount =
+    typeof cachedSetupData?.students?.length === "number"
+      ? cachedSetupData.students.length
+      : liveCounts.students || 0;
+
+  const resolvedTeacherCount =
+    typeof cachedSetupData?.teachers?.length === "number"
+      ? cachedSetupData.teachers.length
+      : liveCounts.teachers || 0;
+
+  const resolvedClassCount =
+    typeof cachedSetupData?.classes?.length === "number"
+      ? cachedSetupData.classes.length
+      : liveCounts.classes || 0;
+
+  const resolvedAcademicYearsCount =
+    typeof cachedSetupData?.academicYears?.length === "number"
+      ? cachedSetupData.academicYears.length
+      : liveCounts.academicYears || 0;
+
   const counts = {
-    teachers: liveCounts.teachers || 0,
-    students: liveCounts.students || 0,
-    classes: liveCounts.classes || 0,
-    academicYears: liveCounts.academicYears || 0,
+    teachers: resolvedTeacherCount,
+    students: resolvedStudentCount,
+    classes: resolvedClassCount,
+    academicYears: resolvedAcademicYearsCount,
   };
 
   // Determine active UI presentation version

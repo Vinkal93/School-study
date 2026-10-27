@@ -33,6 +33,7 @@ export function SchoolRegistrationFlow() {
   const [step, setStep] = useState<number>(1);
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [adminConfigError, setAdminConfigError] = useState<boolean>(false);
 
   // Form State
   const [schoolName, setSchoolName] = useState<string>("");
@@ -150,7 +151,8 @@ export function SchoolRegistrationFlow() {
       } else if (errorMsg.includes("Missing or insufficient permissions") || errorMsg.includes("permission-denied")) {
         errorMsg = "Account setup permission error. If this email was used in a previous attempt, please choose a different email or sign in.";
       } else if (errorMsg.includes("Firebase Admin configuration") || errorMsg.includes("ADMIN_AUTH_NOT_CONFIGURED")) {
-        errorMsg = "School registration requires server Firebase Admin credentials. Please configure FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY on your hosting server.";
+        errorMsg = "School registration requires server Firebase Admin credentials. Please configure FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY in .env.local on localhost or in your hosting server.";
+        setAdminConfigError(true);
       }
       toast.error(errorMsg);
     } finally {
@@ -199,7 +201,18 @@ export function SchoolRegistrationFlow() {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {adminConfigError && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/40 p-4 text-xs text-amber-900 dark:text-amber-200">
+          <p className="font-bold text-sm text-amber-800 dark:text-amber-300">Server Configuration Required</p>
+          <p className="mt-1">
+            School registration requires server-side Firebase Admin credentials to provision administrative accounts.
+          </p>
+          <p className="mt-1.5 font-medium">
+            <strong>On localhost:</strong> Configure <code className="bg-amber-100 dark:bg-amber-900/60 px-1 py-0.5 rounded font-mono">FIREBASE_CLIENT_EMAIL</code> and <code className="bg-amber-100 dark:bg-amber-900/60 px-1 py-0.5 rounded font-mono">FIREBASE_PRIVATE_KEY</code> in <code className="bg-amber-100 dark:bg-amber-900/60 px-1 py-0.5 rounded font-mono">.env.local</code>.
+          </p>
+        </div>
+      )}
+      <form onSubmit={handleSubmit} className="space-y-4">
           {/* ==========================================
               STEP 1: School & Admin Profile
           ========================================== */}

@@ -63,7 +63,99 @@ export async function createSchoolWithAdmin(
     }
   }
 
-  throw new Error("School registration is unavailable. Configure the private Firebase Admin server before retrying.");
+  // 2. Super Admin fallback (If an authorized Super Admin is creating a school, use client SDK with active session)
+  if (typeof window !== "undefined") {
+    try {
+      const { getFirebaseAuth } = await import("@/lib/firebase/client");
+      const { isSuperAdminEmail } = await import("./user.service");
+      const primaryAuth = getFirebaseAuth();
+      const currentUser = primaryAuth.currentUser;
+      if (currentUser && isSuperAdminEmail(currentUser.email)) {
+        const { doc, collection, setDoc, query, where, getDocs, serverTimestamp } = await import("firebase/firestore");
+        const { initializeApp, deleteApp } = await import("firebase/app");
+        const { getAuth, createUserWithEmailAndPassword, signOut } = await import("firebase/auth");
+        const { firebaseClientConfig } = await import("@/lib/firebase/config");
+
+        const db = getFirebaseDb();
+        const upperCode = input.code.trim().toUpperCase();
+
+        const codeQuery = query(collection(db, COLLECTIONS.SCHOOLS), where("code", "==", upperCode));
+        const codeSnap = await getDocs(codeQuery);
+        if (!codeSnap.empty) {
+          throw new Error(`School code "${upperCode}" is already in use.`);
+        }
+
+        const secAppName = `sec-admin-create-${Date.now()}`;
+        const secApp = initializeApp(firebaseClientConfig, secAppName);
+        const secAuth = getAuth(secApp);
+        let adminUid = "";
+        try {
+          const cred = await createUserWithEmailAndPassword(secAuth, input.adminEmail.trim().toLowerCase(), input.adminPassword);
+          adminUid = cred.user.uid;
+          await signOut(secAuth);
+        } finally {
+          await deleteApp(secApp).catch(() => {});
+        }
+
+        const schoolRef = doc(collection(db, COLLECTIONS.SCHOOLS));
+        const schoolId = schoolRef.id;
+
+        await setDoc(doc(db, COLLECTIONS.USERS, adminUid), {
+          uid: adminUid,
+          name: input.adminName.trim(),
+          email: input.adminEmail.trim().toLowerCase(),
+          role: "school_admin",
+          schoolId,
+          status: "active",
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+
+        await setDoc(schoolRef, {
+          id: schoolId,
+          name: input.name.trim(),
+          code: upperCode,
+          address: input.address?.trim() || "",
+          city: input.city?.trim() || "India",
+          state: input.state?.trim() || "",
+          phone: input.phone?.trim() || "",
+          email: input.email?.trim() || "",
+          logoUrl: input.logoUrl || "",
+          status: "active",
+          setupCompleted: false,
+          setupStep: 1,
+          adminUid,
+          adminName: input.adminName.trim(),
+          adminEmail: input.adminEmail.trim().toLowerCase(),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+
+        const now = new Date();
+        await setDoc(doc(db, "schoolSubscriptions", schoolId), {
+          id: schoolId,
+          schoolId,
+          planId: "plan_free",
+          planVersionId: "plan_free_v1",
+          status: "ACTIVE",
+          billingCycle: "monthly",
+          startsAt: now.toISOString(),
+          expiresAt: new Date(now.getTime() + 30 * 86400000).toISOString(),
+          source: "super_admin_manual",
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        });
+
+        return { schoolId, adminUid };
+      }
+    } catch (fallbackErr: any) {
+      if (fallbackErr?.message && !fallbackErr.message.includes("isSuperAdminEmail")) {
+        throw fallbackErr;
+      }
+    }
+  }
+
+  throw new Error("School registration requires private Firebase Admin configuration. Please configure FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY in .env.local on localhost or in your hosting provider settings.");
 }
 
 /**

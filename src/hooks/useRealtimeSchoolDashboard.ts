@@ -98,14 +98,7 @@ export function useRealtimeSchoolDashboard(schoolId: string | undefined): UseRea
               ...data,
             } as School);
 
-            // Instant count paint from school summary metadata if available
-            if (typeof data.studentCount === "number" || typeof data.teacherCount === "number") {
-              setCounts((prev) => ({
-                ...prev,
-                students: typeof data.studentCount === "number" ? data.studentCount : prev.students,
-                teachers: typeof data.teacherCount === "number" ? data.teacherCount : prev.teachers,
-              }));
-            }
+// Authoritative live counts populated from schoolUsage and active rosters
             setLastSyncTime(new Date());
           }
           setIsLoading(false);
@@ -189,21 +182,54 @@ export function useRealtimeSchoolDashboard(schoolId: string | undefined): UseRea
 
         if (isCancelled) return;
 
-        let studentsCount = sSnap ? sSnap.data().count : 0;
-        let teachersCount = tSnap ? tSnap.data().count : 0;
-        let classesCount = cSnap ? cSnap.data().count : 0;
+        let studentsCount = 0;
+        let teachersCount = 0;
+        let classesCount = 0;
 
         if (usageSnap && usageSnap.exists()) {
           const uData = usageSnap.data();
           if (typeof uData.students === "number") studentsCount = uData.students;
           if (typeof uData.teachers === "number") teachersCount = uData.teachers;
           if (typeof uData.classes === "number") classesCount = uData.classes;
-        } else {
-          // Reconcile in background if usage snapshot does not exist yet
+        }
+
+        // Active students count (strictly excluding deleted and archived)
+        if (studentsCount === 0) {
           try {
-            const { reconcileSchoolUsage } = await import("@/lib/billing/usage");
-            reconcileSchoolUsage(schoolId, "dashboard_auto_reconcile").catch(() => {});
-          } catch {}
+            const activeStudentsQ = query(
+              subStudentsRef,
+              where("status", "in", ["active", "inactive", "tc_issued", "transferred", "pending"])
+            );
+            const activeSnap = await getCountFromServer(activeStudentsQ).catch(() => null);
+            if (activeSnap && typeof activeSnap.data().count === "number") {
+              studentsCount = activeSnap.data().count;
+            } else {
+              studentsCount = sSnap ? sSnap.data().count : 0;
+            }
+          } catch {
+            studentsCount = sSnap ? sSnap.data().count : 0;
+          }
+        }
+
+        if (teachersCount === 0) {
+          try {
+            const activeTeachersQ = query(
+              subTeachersRef,
+              where("status", "in", ["active", "inactive"])
+            );
+            const activeSnap = await getCountFromServer(activeTeachersQ).catch(() => null);
+            if (activeSnap && typeof activeSnap.data().count === "number") {
+              teachersCount = activeSnap.data().count;
+            } else {
+              teachersCount = tSnap ? tSnap.data().count : 0;
+            }
+          } catch {
+            teachersCount = tSnap ? tSnap.data().count : 0;
+          }
+        }
+
+        if (classesCount === 0) {
+          classesCount = cSnap ? cSnap.data().count : 0;
         }
 
         // Fallback to root collections if subcollections are empty
