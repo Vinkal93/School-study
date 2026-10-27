@@ -77,8 +77,6 @@ import { toast } from "sonner";
 import { useEntitlement } from "@/context/EntitlementContext";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
 import { Menu, Bell, SlidersHorizontal, Smartphone } from "lucide-react";
-import { AdminMobileNavDrawer } from "@/components/admin/mobile/AdminMobileNavDrawer";
-import { AdminMobileBottomNav } from "@/components/admin/mobile/AdminMobileBottomNav";
 import { StudentMobileCard } from "@/components/admin/mobile/StudentMobileCard";
 import { StudentFilterSheet, type StudentFiltersState } from "@/components/admin/mobile/StudentFilterSheet";
 import { StudentActionsSheet } from "@/components/admin/mobile/StudentActionsSheet";
@@ -1031,10 +1029,6 @@ export default function AdminStudentsPage() {
           </button>
 
           {/* 7. Bottom Navigation Bar (Screen 10) */}
-          <AdminMobileBottomNav
-            onOpenDrawer={() => setIsMobileDrawerOpen(true)}
-            onOpenAddStudent={() => setIsAddWizardOpen(true)}
-          />
         </div>
 
         {/* Desktop Container */}
@@ -2572,11 +2566,6 @@ export default function AdminStudentsPage() {
             CONNECTED MOBILE SHEETS & MODALS (Screens 1, 3, 4, 5, 6, 7, 8, 9)
         ========================================================= */}
         {/* Screen 1: Mobile Navigation Drawer */}
-        <AdminMobileNavDrawer
-          isOpen={isMobileDrawerOpen}
-          onClose={() => setIsMobileDrawerOpen(false)}
-          schoolName={profile?.schoolName || (profile as any)?.tenantSettings?.schoolName || "SBCI School"}
-        />
 
         {/* Screen 3: Filter Options Bottom Sheet */}
         <StudentFilterSheet

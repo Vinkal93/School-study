@@ -2,7 +2,19 @@ import { NextResponse } from "next/server";
 import { getSafeAdminDb, getSafeAdminAuth } from "@/lib/firebase/admin";
 export async function POST(request: Request) {
   const db = getSafeAdminDb(), auth = getSafeAdminAuth();
-  if (!db || !auth) return NextResponse.json({ error: "School registration requires private Firebase Admin configuration." }, { status: 503 });
+  if (!db || !auth) {
+    const env = typeof process !== "undefined" ? process.env : ({} as Record<string, string | undefined>);
+    return NextResponse.json({
+      error: "School registration requires private Firebase Admin configuration.",
+      code: "ADMIN_AUTH_NOT_CONFIGURED",
+      diagnostics: {
+        configured: false,
+        hasClientEmail: Boolean(env?.FIREBASE_CLIENT_EMAIL || env?.FIREBASE_ADMIN_CLIENT_EMAIL),
+        hasPrivateKey: Boolean(env?.FIREBASE_PRIVATE_KEY || env?.FIREBASE_ADMIN_PRIVATE_KEY),
+        projectId: env?.FIREBASE_PROJECT_ID || env?.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "school-study-c8991"
+      }
+    }, { status: 503 });
+  }
   let createdUid: string | undefined;
   try {
     const input = await request.json();

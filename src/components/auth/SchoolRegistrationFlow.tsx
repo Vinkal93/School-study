@@ -149,6 +149,8 @@ export function SchoolRegistrationFlow() {
         errorMsg = "This email is already registered. Please sign in or use a different email.";
       } else if (errorMsg.includes("Missing or insufficient permissions") || errorMsg.includes("permission-denied")) {
         errorMsg = "Account setup permission error. If this email was used in a previous attempt, please choose a different email or sign in.";
+      } else if (errorMsg.includes("Firebase Admin configuration") || errorMsg.includes("ADMIN_AUTH_NOT_CONFIGURED")) {
+        errorMsg = "School registration requires server Firebase Admin credentials. Please configure FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY on your hosting server.";
       }
       toast.error(errorMsg);
     } finally {

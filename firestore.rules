@@ -179,8 +179,9 @@ service cloud.firestore {
     // ==========================================
     match /attendance/{recordId} {
       allow read: if isAuthenticated() && (
+        resource == null ||
         isSuperAdmin() ||
-        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+        isSchoolMember(resource.data.get('schoolId', ''))
       );
       allow create: if isAuthenticated() && (
         isSuperAdmin() ||
@@ -207,8 +208,9 @@ service cloud.firestore {
     // ==========================================
     match /employee_attendance/{recordId} {
       allow read: if isAuthenticated() && (
+        resource == null ||
         isSuperAdmin() ||
-        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+        isSchoolMember(resource.data.get('schoolId', ''))
       );
       allow create: if isAuthenticated() && (
         isSuperAdmin() ||
@@ -235,8 +237,9 @@ service cloud.firestore {
     // ==========================================
     match /notices/{noticeId} {
       allow read: if isAuthenticated() && (
+        resource == null ||
         isSuperAdmin() ||
-        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+        isSchoolMember(resource.data.get('schoolId', ''))
       );
       allow create: if isAuthenticated() && (
         isSuperAdmin() ||
@@ -584,8 +587,9 @@ service cloud.firestore {
     // ==========================================
     match /inquiries/{id} {
       allow read: if isAuthenticated() && (
+        resource == null ||
         isSuperAdmin() ||
-        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+        isSchoolMember(resource.data.get('schoolId', ''))
       );
       allow create: if true; // Public website contact and inquiry leads
       allow update, delete: if isAuthenticated() && (
@@ -595,8 +599,9 @@ service cloud.firestore {
 
       match /activities/{activityId} {
         allow read, write: if isAuthenticated() && (
+          resource == null ||
           isSuperAdmin() ||
-          (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+          isSchoolMember(resource.data.get('schoolId', ''))
         );
       }
 
@@ -607,8 +612,9 @@ service cloud.firestore {
 
     match /contactInquiries/{id} {
       allow read: if isAuthenticated() && (
+        resource == null ||
         isSuperAdmin() ||
-        (resource != null && isSchoolMember(resource.data.get('schoolId', '')))
+        isSchoolMember(resource.data.get('schoolId', ''))
       );
       allow create: if true; // Public contact form
       allow update, delete: if isSuperAdmin();
