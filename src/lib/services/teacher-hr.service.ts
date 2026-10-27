@@ -24,6 +24,7 @@ import type {
   TeacherAuditLog,
 } from "@/types";
 import { createNotification } from "@/lib/services/notification.service";
+import { normalizeTeacherProfile } from "@/lib/services/teacher.service";
 
 /**
  * Fetches complete HR Profile for a specific teacher.
@@ -37,7 +38,7 @@ export async function getTeacherFullHR(
   try {
     const dSnap = await getDoc(doc(db, "schools", schoolId, "teachers", teacherId));
     if (!dSnap.exists()) return null;
-    return { id: dSnap.id, ...dSnap.data() } as TeacherProfile;
+    return normalizeTeacherProfile(dSnap.id, dSnap.data());
   } catch (err) {
     console.error("Failed to fetch teacher HR profile:", err);
     return null;

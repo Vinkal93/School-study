@@ -17,8 +17,19 @@ export async function requireFeeAccess(request: Request): Promise<FeeAuthResult>
   const adminDb = getSafeAdminDb();
 
   if (!adminAuth || !adminDb) {
+    const env = typeof process !== "undefined" ? process.env : ({} as Record<string, string | undefined>);
     return { isAuthenticated: false, errorResponse: NextResponse.json(
-      { error: "Fee server is not configured. Add private Firebase Admin credentials on the server and restart.", code: "FEE_SERVER_NOT_CONFIGURED" },
+      {
+        error: "Fee server is not configured. Add private Firebase Admin credentials on the server and restart.",
+        code: "FEE_SERVER_NOT_CONFIGURED",
+        diagnostics: {
+          configured: false,
+          hasClientEmail: Boolean(env?.FIREBASE_CLIENT_EMAIL || env?.FIREBASE_ADMIN_CLIENT_EMAIL),
+          hasPrivateKey: Boolean(env?.FIREBASE_PRIVATE_KEY || env?.FIREBASE_ADMIN_PRIVATE_KEY),
+          hasServiceAccountKey: Boolean(env?.FIREBASE_SERVICE_ACCOUNT_KEY || env?.FIREBASE_SERVICE_ACCOUNT_KEY_BASE64),
+          projectId: env?.FIREBASE_PROJECT_ID || env?.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "school-study-c8991"
+        }
+      },
       { status: 503 }
     ) };
   }

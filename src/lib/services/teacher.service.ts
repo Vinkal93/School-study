@@ -26,6 +26,53 @@ import type { TeacherProfile, CreateTeacherInput } from "@/types";
  * Fetches all teachers for a school.
  * Path: schools/{schoolId}/teachers
  */
+/**
+ * Authoritative Teacher Profile normalizer.
+ * Guarantees that arrays, strings, and enum states conform to expected shapes,
+ * completely preventing undefined .indexOf(), .join(), .includes() or .map() runtime exceptions.
+ */
+export function normalizeTeacherProfile(id: string, raw: any): TeacherProfile {
+  const data = raw || {};
+  let subjects: string[] = [];
+  if (Array.isArray(data.subjects)) {
+    subjects = data.subjects.map((s: any) => String(s || "").trim()).filter(Boolean);
+  } else if (typeof data.subjects === "string" && data.subjects.trim()) {
+    subjects = data.subjects.split(",").map((s: string) => s.trim()).filter(Boolean);
+  }
+
+  let assignedClasses: any[] = [];
+  if (Array.isArray(data.assignedClasses)) {
+    assignedClasses = data.assignedClasses.filter(Boolean);
+  } else if (data.assignedClasses && typeof data.assignedClasses === "object") {
+    assignedClasses = Object.values(data.assignedClasses).filter(Boolean);
+  }
+
+  return {
+    id,
+    schoolId: String(data.schoolId || ""),
+    userId: String(data.userId || ""),
+    teacherCode: String(data.teacherCode || data.code || data.employeeId || "").trim(),
+    name: String(data.name || data.fullName || "Teacher").trim(),
+    email: String(data.email || "").trim(),
+    phone: String(data.phone || "").trim(),
+    photoUrl: String(data.photoUrl || data.photo || data.avatar || "").trim(),
+    joiningDate: String(data.joiningDate || "").trim(),
+    assignedClassId: String(data.assignedClassId || "").trim(),
+    assignedClassName: String(data.assignedClassName || "").trim(),
+    assignedSectionId: String(data.assignedSectionId || "").trim(),
+    assignedSectionName: String(data.assignedSectionName || "").trim(),
+    assignedClasses,
+    subjects,
+    status: (data.status === "deleted" || data.status === "inactive") ? data.status : "active",
+    ...(data.salaryConfig ? { salaryConfig: data.salaryConfig } : {}),
+    ...(data.personalDetails ? { personalDetails: data.personalDetails } : {}),
+    ...(data.professionalDetails ? { professionalDetails: data.professionalDetails } : {}),
+    ...(data.performanceSummary ? { performanceSummary: data.performanceSummary } : {}),
+    createdAt: data.createdAt,
+    updatedAt: data.updatedAt,
+  } as TeacherProfile;
+}
+
 export async function getTeachers(schoolId: string): Promise<TeacherProfile[]> {
   try {
     const db = getFirebaseDb();
@@ -36,14 +83,7 @@ export async function getTeachers(schoolId: string): Promise<TeacherProfile[]> {
       snapshot = await getDocs(query(collection(db, "teachers"), where("schoolId", "==", schoolId)));
     }
 
-    const teachers = snapshot.docs.map((d) => {
-      const data = d.data();
-      return {
-        id: d.id,
-        ...data,
-        name: data.name || data.fullName || "Teacher",
-      };
-    }) as TeacherProfile[];
+    const teachers = snapshot.docs.map((d) => normalizeTeacherProfile(d.id, d.data()));
 
     teachers.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     return teachers;

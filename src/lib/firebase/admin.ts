@@ -73,12 +73,38 @@ export function getServiceAccount(): ServiceAccountCredentials | null {
     }
     cleanedKey = cleanedKey.replace(/\\n/g, "\n");
 
+    // Auto-detect and decode Base64-encoded private key if not containing standard PEM header
+    if (!cleanedKey.includes("BEGIN PRIVATE KEY") && !cleanedKey.includes("BEGIN RSA PRIVATE KEY")) {
+      try {
+        const decoded = Buffer.from(cleanedKey, "base64").toString("utf-8");
+        if (decoded.includes("BEGIN PRIVATE KEY") || decoded.includes("BEGIN RSA PRIVATE KEY")) {
+          cleanedKey = decoded.replace(/\\n/g, "\n");
+        }
+      } catch {}
+    }
+
     parsedServiceAccount = {
       projectId: process.env.FIREBASE_PROJECT_ID || defaultProjectId,
       clientEmail: clientEmail.trim(),
       privateKey: cleanedKey,
     };
     return parsedServiceAccount;
+  }
+
+  // 2b. Check runtime FIREBASE_CONFIG JSON if set by hosting platform
+  const firebaseConfigStr = process.env.FIREBASE_CONFIG;
+  if (firebaseConfigStr && firebaseConfigStr.trim().startsWith("{")) {
+    try {
+      const cfg = JSON.parse(firebaseConfigStr);
+      if (cfg.client_email && cfg.private_key) {
+        parsedServiceAccount = {
+          projectId: cfg.project_id || defaultProjectId,
+          clientEmail: cfg.client_email,
+          privateKey: (cfg.private_key as string).replace(/\\n/g, "\n"),
+        };
+        return parsedServiceAccount;
+      }
+    } catch {}
   }
 
   // 3. Check file path (FIREBASE_SERVICE_ACCOUNT_PATH or GOOGLE_APPLICATION_CREDENTIALS)
