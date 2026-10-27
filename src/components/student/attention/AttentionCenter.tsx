@@ -23,6 +23,16 @@ export function AttentionCenter({
   onViewAllClick,
   onItemAction,
 }: AttentionCenterProps) {
+  // Priority sorting logic (Section 10) - run unconditionally before any early returns to respect Rules of Hooks
+  const sortedItems = useMemo(() => {
+    if (!items || items.length === 0) return [];
+    return [...items].sort((a, b) => priorityWeight[b.priority] - priorityWeight[a.priority]);
+  }, [items]);
+
+  const visibleItems = useMemo(() => {
+    return sortedItems.slice(0, maxItems);
+  }, [sortedItems, maxItems]);
+
   // 1. Loading Skeleton State (Section 25)
   if (loading) {
     return <AttentionSkeleton />;
@@ -52,16 +62,6 @@ export function AttentionCenter({
       </div>
     );
   }
-
-  // Priority sorting logic (Section 10)
-  const sortedItems = useMemo(() => {
-    if (!items || items.length === 0) return [];
-    return [...items].sort((a, b) => priorityWeight[b.priority] - priorityWeight[a.priority]);
-  }, [items]);
-
-  const visibleItems = useMemo(() => {
-    return sortedItems.slice(0, maxItems);
-  }, [sortedItems, maxItems]);
 
   const hasMore = sortedItems.length > maxItems;
 

@@ -709,14 +709,6 @@ export default function SchoolDetailPage() {
     }
   };
 
-  if (loading || !school) {
-    return (
-      <div className="flex h-96 items-center justify-center">
-        <Spinner size="lg" />
-      </div>
-    );
-  }
-
   // Deduplicated unique classes
   const uniqueClasses = useMemo(() => {
     const map = new Map<string, SchoolClass>();
@@ -771,6 +763,14 @@ export default function SchoolDetailPage() {
       return true;
     });
   }, [students, uniqueClasses, studentClassFilter, studentSectionFilter, studentSearch]);
+
+  if (loading || !school) {
+    return (
+      <div className="flex h-96 items-center justify-center">
+        <Spinner size="lg" />
+      </div>
+    );
+  }
 
   // Filtered teachers
   const filteredTeachers = teachers.filter((t) => {

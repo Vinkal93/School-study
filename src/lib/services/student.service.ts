@@ -21,6 +21,7 @@ import { getAuth, createUserWithEmailAndPassword, signOut, deleteUser } from "fi
 import { getFirebaseDb, getFirebaseAuth } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/utils/constants";
 import { firebaseClientConfig } from "@/lib/firebase/config";
+import { configureAuthEmulator } from "@/lib/firebase/emulators";
 import {
   requireFeatureAccess,
   requirePlanLimit,
@@ -163,8 +164,8 @@ export async function getStudents(
     let students = snapshot.docs.map((d: any) => {
       const data = d.data();
       return {
-        id: d.id,
         ...data,
+        id: d.id,
         name: data.name || data.fullName || "Student",
         studentId: data.studentId !== undefined && data.studentId !== null ? String(data.studentId) : undefined,
         admissionNumber: data.admissionNumber !== undefined && data.admissionNumber !== null ? String(data.admissionNumber) : undefined,
@@ -218,8 +219,8 @@ export async function getStudentsByClassAndSection(
   const snapshot = await getDocs(q);
   let students = snapshot.docs
     .map((d) => ({
-      id: d.id,
       ...d.data(),
+      id: d.id,
     })) as StudentProfile[];
 
   // Only active enrolled students
@@ -286,7 +287,7 @@ export async function createStudentWithAuth(
   // 5. Create student Auth user via secondary app instance
   const secondaryAppName = `student-auth-${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
   const secondaryApp = initializeApp(firebaseClientConfig, secondaryAppName);
-  const secondaryAuth = getAuth(secondaryApp);
+  const secondaryAuth = configureAuthEmulator(getAuth(secondaryApp));
 
   let userId = "";
   let createdAuthUser: import("firebase/auth").User | undefined;
@@ -519,8 +520,8 @@ export async function getStudentById(
     if (snap.exists()) {
       const data = snap.data();
       return {
-        id: snap.id,
         ...data,
+        id: snap.id,
         name: data.name || data.fullName || "Student",
       } as StudentProfile;
     }
@@ -530,8 +531,8 @@ export async function getStudentById(
     if (rootSnap.exists()) {
       const data = rootSnap.data();
       return {
-        id: rootSnap.id,
         ...data,
+        id: rootSnap.id,
         name: data.name || data.fullName || "Student",
       } as StudentProfile;
     }
@@ -926,12 +927,15 @@ export async function bulkDeleteStudents(
 ): Promise<BulkDeleteStudentsResult> {
   const auth = getFirebaseAuth();
   const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => "") : "";
+  const impSession =
+    typeof window !== "undefined" ? sessionStorage.getItem("school_study_impersonation_token") : null;
 
   const res = await fetch("/api/admin/students/bulk-delete", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(impSession ? { "x-impersonation-session": impSession } : {}),
     },
     body: JSON.stringify(options),
   });

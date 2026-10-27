@@ -20,6 +20,7 @@ import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth"
 import { getFirebaseDb, getFirebaseStorage } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/utils/constants";
 import { firebaseClientConfig } from "@/lib/firebase/config";
+import { configureAuthEmulator } from "@/lib/firebase/emulators";
 import type { TeacherProfile, CreateTeacherInput } from "@/types";
 
 /**
@@ -174,7 +175,7 @@ export async function createTeacherWithAuth(
 
   const secondaryAppName = `teacher-auth-${Date.now()}`;
   const secondaryApp = initializeApp(firebaseClientConfig, secondaryAppName);
-  const secondaryAuth = getAuth(secondaryApp);
+  const secondaryAuth = configureAuthEmulator(getAuth(secondaryApp));
 
   let userId = "";
   try {
