@@ -576,29 +576,53 @@ export async function toggleStudentStatus(
 export async function deleteStudent(
   schoolId: string,
   studentId: string,
-  userId: string
+  userId?: string
 ): Promise<void> {
+  // 1. Authoritative Server-side call
+  try {
+    await bulkDeleteStudents({
+      studentIds: [studentId],
+      permanent: false,
+      targetSchoolId: schoolId,
+    });
+    return;
+  } catch (err: any) {
+    console.warn("[deleteStudent] Server route bulk-delete notice, attempting direct client fallback:", err);
+  }
+
+  // 2. Direct client fallback (offline or network fallback)
   const db = getFirebaseDb();
+  if (!db) throw new Error("Database offline.");
   const studentDocRef = doc(db, "schools", schoolId, "students", studentId);
-  const userDocRef = doc(db, COLLECTIONS.USERS, userId);
+  const rootStudentDocRef = doc(db, "students", studentId);
+  const userDocRef = userId ? doc(db, COLLECTIONS.USERS, userId) : null;
 
   const nowIso = new Date().toISOString();
 
-  // Soft delete: keep record for audit & history
-  await updateDoc(studentDocRef, {
-    status: "deleted",
-    deletedAt: nowIso,
-    updatedAt: serverTimestamp(),
-  });
-
-  if (userId) {
-    await updateDoc(userDocRef, {
-      status: "disabled",
+  await Promise.all([
+    updateDoc(studentDocRef, {
+      status: "archived",
+      statusChangeReason: "Administrative archive / deletion",
+      statusChangedDate: nowIso,
+      deletedAt: nowIso,
       updatedAt: serverTimestamp(),
-    }).catch(() => {});
-  }
+    }).catch(() => {}),
+    updateDoc(rootStudentDocRef, {
+      status: "archived",
+      statusChangeReason: "Administrative archive / deletion",
+      statusChangedDate: nowIso,
+      deletedAt: nowIso,
+      updatedAt: serverTimestamp(),
+    }).catch(() => {}),
+    userDocRef
+      ? updateDoc(userDocRef, {
+          status: "disabled",
+          disabledAt: nowIso,
+          updatedAt: serverTimestamp(),
+        }).catch(() => {})
+      : Promise.resolve(),
+  ]);
 
-  // Decrement active usage count atomically
   await decrementSchoolUsage(schoolId, "students", 1);
 }
 
@@ -608,29 +632,37 @@ export async function deleteStudent(
 export async function restoreStudent(
   schoolId: string,
   studentId: string,
-  userId: string
+  userId?: string
 ): Promise<void> {
-  // Check plan limit before restoring
   await requirePlanLimit(schoolId, "students");
 
   const db = getFirebaseDb();
+  if (!db) throw new Error("Database offline.");
   const studentDocRef = doc(db, "schools", schoolId, "students", studentId);
-  const userDocRef = doc(db, COLLECTIONS.USERS, userId);
+  const rootStudentDocRef = doc(db, "students", studentId);
+  const userDocRef = userId ? doc(db, COLLECTIONS.USERS, userId) : null;
 
-  await updateDoc(studentDocRef, {
-    status: "active",
-    deletedAt: null,
-    updatedAt: serverTimestamp(),
-  });
-
-  if (userId) {
-    await updateDoc(userDocRef, {
+  await Promise.all([
+    updateDoc(studentDocRef, {
       status: "active",
+      deletedAt: null,
+      statusChangeReason: "Administrative restore",
       updatedAt: serverTimestamp(),
-    }).catch(() => {});
-  }
+    }).catch(() => {}),
+    updateDoc(rootStudentDocRef, {
+      status: "active",
+      deletedAt: null,
+      statusChangeReason: "Administrative restore",
+      updatedAt: serverTimestamp(),
+    }).catch(() => {}),
+    userDocRef
+      ? updateDoc(userDocRef, {
+          status: "active",
+          updatedAt: serverTimestamp(),
+        }).catch(() => {})
+      : Promise.resolve(),
+  ]);
 
-  // Increment active usage count atomically
   await incrementSchoolUsage(schoolId, "students", 1);
 }
 
@@ -804,13 +836,32 @@ export interface BulkDeleteStudentsOptions {
   targetSchoolId?: string;
 }
 
+export interface StudentDeleteResultItem {
+  id: string;
+  canonicalId?: string;
+  studentId?: string;
+  admissionNumber?: string;
+  name?: string;
+  success: boolean;
+  action?: "archived" | "permanently_deleted" | "failed";
+  code?: "SUCCESS" | "NOT_FOUND" | "WRONG_SCHOOL" | "PERMISSION_DENIED" | "INVALID_ID";
+  message?: string;
+}
+
 export interface BulkDeleteStudentsResult {
   success: boolean;
   deletedCount: number;
+  permanentlyDeletedCount?: number;
+  safelyArchivedCount?: number;
   failedCount: number;
   activeFreedCount?: number;
   permanent?: boolean;
   message?: string;
+  results?: StudentDeleteResultItem[];
+  error?: {
+    code: string;
+    message: string;
+  };
 }
 
 /**

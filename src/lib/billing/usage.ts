@@ -168,6 +168,28 @@ export async function incrementSchoolUsage(
   resourceKey: ResourceLimitKey,
   amount: number = 1
 ): Promise<void> {
+  if (typeof window === "undefined") {
+    try {
+      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+      const adminDb = getSafeAdminDb();
+      if (adminDb) {
+        const { FieldValue } = await import("firebase-admin/firestore");
+        const usageRef = adminDb.collection(USAGE_COLLECTION).doc(schoolId);
+        await usageRef.set(
+          {
+            schoolId,
+            [resourceKey]: FieldValue.increment(amount),
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+        return;
+      }
+    } catch (adminErr) {
+      console.warn(`[usage] Admin incrementSchoolUsage fallback:`, adminErr);
+    }
+  }
+
   const db = getFirebaseDb();
   if (!db) return;
 
@@ -195,6 +217,30 @@ export async function decrementSchoolUsage(
   resourceKey: ResourceLimitKey,
   amount: number = 1
 ): Promise<void> {
+  if (typeof window === "undefined") {
+    try {
+      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+      const adminDb = getSafeAdminDb();
+      if (adminDb) {
+        const usageRef = adminDb.collection(USAGE_COLLECTION).doc(schoolId);
+        await adminDb.runTransaction(async (tx: any) => {
+          const snap = await tx.get(usageRef);
+          if (!snap.exists) return;
+          const data = snap.data() || {};
+          const currentVal = typeof data[resourceKey] === "number" ? data[resourceKey] : 0;
+          const newVal = Math.max(0, currentVal - amount);
+          tx.update(usageRef, {
+            [resourceKey]: newVal,
+            updatedAt: new Date().toISOString(),
+          });
+        });
+        return;
+      }
+    } catch (adminErr) {
+      console.warn(`[usage] Admin decrementSchoolUsage fallback:`, adminErr);
+    }
+  }
+
   const db = getFirebaseDb();
   if (!db) return;
 
