@@ -1,0 +1,225 @@
+/**
+ * School Study Design System 3.0 — Centralized Design Tokens
+ * Material 3 inspired professional SaaS token foundation.
+ * Supports native light and dark modes with fluid responsive density.
+ */
+
+:root {
+  /* =========================================================================
+     1. COLOR PALETTE: Primary, Neutral & Semantic Brand Tokens
+     ========================================================================= */
+  --primary: #2563eb;          /* Blue 600 */
+  --primary-hover: #1d4ed8;    /* Blue 700 */
+  --primary-focus: #3b82f6;    /* Blue 500 */
+  --primary-surface: #eff6ff;  /* Blue 50 */
+  --primary-foreground: #ffffff;
+
+  --secondary: #4f46e5;        /* Indigo 600 */
+  --secondary-surface: #eef2ff;
+
+  --success: #059669;          /* Emerald 600 */
+  --success-surface: #ecfdf5;  /* Emerald 50 */
+  --success-foreground: #064e3b;
+
+  --warning: #d97706;          /* Amber 600 */
+  --warning-surface: #fffbeb;  /* Amber 50 */
+  --warning-foreground: #78350f;
+
+  --danger: #dc2626;           /* Rose/Red 600 */
+  --danger-surface: #fef2f2;   /* Rose 50 */
+  --danger-foreground: #7f1d1d;
+
+  --info: #0284c7;             /* Sky 600 */
+  --info-surface: #f0f9ff;
+
+  /* =========================================================================
+     2. SURFACES & BACKGROUNDS (Material 3 Surface Hierarchy - Light)
+     ========================================================================= */
+  --surface-base: #f8fafc;     /* Slate 50 - Canvas Background */
+  --surface-card: #ffffff;     /* Surface Level 1 - Elevated Cards */
+  --surface-elevated: #ffffff; /* Surface Level 2 - Modals, Menus */
+  --surface-subtle: #f1f5f9;   /* Slate 100 - Inputs, Secondary Badges */
+
+  /* Text & Foreground */
+  --text-primary: #0f172a;     /* Slate 900 - Headings & Body */
+  --text-secondary: #475569;   /* Slate 600 - Captions & Subtitles */
+  --text-tertiary: #94a3b8;    /* Slate 400 - Placeholders & Disabled */
+
+  /* Borders & Dividers */
+  --border-subtle: #e2e8f0;    /* Slate 200 - Card Borders */
+  --border-strong: #cbd5e1;    /* Slate 300 - Input Borders */
+
+  /* Focus Ring */
+  --ring-color: rgba(37, 99, 235, 0.4);
+  --ring-offset: #ffffff;
+
+  /* =========================================================================
+     3. RADII (Material 3 Smooth Corner Scales)
+     ========================================================================= */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
+
+  /* =========================================================================
+     4. ELEVATION / SHADOWS (Material 3 Surface Elevation Levels)
+     ========================================================================= */
+  --shadow-level-1: 0 1px 3px 0 rgba(15, 23, 42, 0.05), 0 1px 2px -1px rgba(15, 23, 42, 0.05);
+  --shadow-level-2: 0 4px 6px -1px rgba(15, 23, 42, 0.07), 0 2px 4px -2px rgba(15, 23, 42, 0.05);
+  --shadow-level-3: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.04);
+  --shadow-level-4: 0 20px 25px -5px rgba(15, 23, 42, 0.1), 0 8px 10px -6px rgba(15, 23, 42, 0.05);
+
+  /* =========================================================================
+     5. Z-INDEX SYSTEM
+     ========================================================================= */
+  --z-base: 0;
+  --z-card: 1;
+  --z-dropdown: 20;
+  --z-sticky: 30;
+  --z-drawer: 40;
+  --z-header: 50;
+  --z-modal-backdrop: 9000;
+  --z-modal: 9999;
+  --z-toast: 10000;
+}
+
+/* =========================================================================
+   DARK MODE OVERRIDES (Material 3 Dark Theme Surface Elevations)
+   ========================================================================= */
+.dark {
+  --primary: #3b82f6;          /* Blue 500 */
+  --primary-hover: #60a5fa;    /* Blue 400 */
+  --primary-focus: #93c5fd;
+  --primary-surface: rgba(59, 130, 246, 0.12);
+  --primary-foreground: #ffffff;
+
+  --secondary: #6366f1;        /* Indigo 500 */
+  --secondary-surface: rgba(99, 102, 241, 0.12);
+
+  --success: #10b981;          /* Emerald 500 */
+  --success-surface: rgba(16, 185, 129, 0.12);
+  --success-foreground: #a7f3d0;
+
+  --warning: #f59e0b;          /* Amber 500 */
+  --warning-surface: rgba(245, 158, 11, 0.12);
+  --warning-foreground: #fde68a;
+
+  --danger: #ef4444;           /* Red 500 */
+  --danger-surface: rgba(239, 68, 68, 0.12);
+  --danger-foreground: #fecaca;
+
+  --info: #38bdf8;
+  --info-surface: rgba(56, 189, 248, 0.12);
+
+  /* Surfaces & Backgrounds - Dark */
+  --surface-base: #030712;     /* Gray 950 - Canvas */
+  --surface-card: #0f172a;     /* Slate 900 - Level 1 */
+  --surface-elevated: #1e293b; /* Slate 800 - Level 2 */
+  --surface-subtle: #1e293b;   /* Slate 800 - Inputs */
+
+  /* Text & Foreground - Dark */
+  --text-primary: #f8fafc;     /* Slate 50 */
+  --text-secondary: #94a3b8;   /* Slate 400 */
+  --text-tertiary: #64748b;    /* Slate 500 */
+
+  /* Borders & Dividers - Dark */
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.15);
+
+  /* Focus Ring */
+  --ring-color: rgba(96, 165, 250, 0.5);
+  --ring-offset: #0f172a;
+
+  /* Shadows - Dark (soft glow with ambient depth) */
+  --shadow-level-1: 0 1px 3px 0 rgba(0, 0, 0, 0.35);
+  --shadow-level-2: 0 4px 8px -1px rgba(0, 0, 0, 0.45);
+  --shadow-level-3: 0 10px 18px -3px rgba(0, 0, 0, 0.55);
+  --shadow-level-4: 0 20px 30px -5px rgba(0, 0, 0, 0.65);
+}
+
+/* =========================================================================
+   6. UTILITY CLASSES ALIGNED TO TOKENS
+   ========================================================================= */
+.m3-card {
+  background-color: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-level-1);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.m3-card:hover {
+  box-shadow: var(--shadow-level-2);
+  border-color: var(--border-strong);
+}
+
+.m3-input {
+  width: 100%;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background-color: var(--surface-card);
+  color: var(--text-primary);
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.m3-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--ring-color);
+}
+
+.m3-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.m3-button-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.125rem;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--primary-foreground);
+  background-color: var(--primary);
+  box-shadow: var(--shadow-level-1);
+  transition: background-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+}
+
+.m3-button-primary:hover {
+  background-color: var(--primary-hover);
+  box-shadow: var(--shadow-level-2);
+}
+
+.m3-button-primary:active {
+  transform: scale(0.98);
+}
+
+.m3-button-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.125rem;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  background-color: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  cursor: pointer;
+}
+
+.m3-button-secondary:hover {
+  background-color: var(--surface-subtle);
+  border-color: var(--border-strong);
+}
