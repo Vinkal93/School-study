@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { WholeSchoolPromotion } from "@/components/admin/WholeSchoolPromotion";
 import { useConfirm } from "@/components/common/ConfirmationContext";
 import { Checkbox } from "@/components/ui/Checkbox";
+import { EnterprisePageLayout } from "@/components/layout/EnterprisePageLayout";
 import {
   ArrowRight,
   GraduationCap,
@@ -243,44 +244,34 @@ export default function PromoteStudentsPage() {
   };
 
   return (
-    <div className="space-y-6 pb-12 max-w-7xl mx-auto">
-      {/* Top Header & Breadcrumbs */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
-            <Link href="/admin" className="hover:text-blue-600 transition">
-              Dashboard
-            </Link>
-            <span>/</span>
-            <Link href="/admin/students" className="hover:text-blue-600 transition">
-              Students
-            </Link>
-            <span>/</span>
-            <span className="text-slate-900 dark:text-slate-200 font-bold">
-              Promotion & Advancement
-            </span>
-          </div>
-          <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
-              <GraduationCap className="h-6 w-6" />
-            </div>
-            Student Promotion & Cohort Transfer
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            Advance students to the next academic grade, allocate roll numbers, and assign next-session fees.
-          </p>
+    <EnterprisePageLayout
+      breadcrumbs={[
+        { name: "Students", url: "/admin/students" },
+        { name: "Promotion & Advancement", url: "/admin/students/promote" },
+      ]}
+      title="Student Promotion & Cohort Transfer"
+      badge={
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-xs font-bold border border-blue-200/60 dark:border-blue-900/60">
+            <GraduationCap className="h-3.5 w-3.5" />
+            <span>Academic Transition</span>
+          </span>
+          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+            {students.length} Registered Students
+          </span>
         </div>
-
-        <div className="flex items-center gap-2.5">
-          <Link
-            href="/admin/students"
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition shadow-2xs"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            <span>Students Directory</span>
-          </Link>
-        </div>
-      </div>
+      }
+      description="Advance students to the next academic grade, allocate roll numbers, and assign next-session fees."
+      secondaryActions={
+        <Link
+          href="/admin/students"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition shadow-2xs"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          <span>Students Directory</span>
+        </Link>
+      }
+    >
 
       {/* =========================================================
           MODE SWITCHER / TAB SEGMENTATION (Design System 3.0)
@@ -645,6 +636,6 @@ export default function PromoteStudentsPage() {
           </div>
         </div>
       )}
-    </div>
+    </EnterprisePageLayout>
   );
 }
