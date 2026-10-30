@@ -41,184 +41,42 @@ export async function uploadSchoolLogo(
 export async function createSchoolWithAdmin(
   input: CreateSchoolInput
 ): Promise<{ schoolId: string; adminUid: string }> {
-  // 1. Attempt Server-Authoritative Registration (in browser)
-  if (typeof window !== "undefined") {
-    try {
-      const res = await fetch("/api/school/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.success && data.schoolId && data.adminUid) {
-        return { schoolId: data.schoolId, adminUid: data.adminUid };
-      }
-
-      // If validation error (400) or duplicate conflict (409), throw immediately
-      if (res.status === 400 || res.status === 409) {
-        const msg = (typeof data.error === "object" ? data.error?.message : data.error) || "Registration validation error.";
-        throw new Error(msg);
-      }
-
-      // If server returned 503 or explicitly signaled client fallback, log notice and attempt Super Admin fallback
-      if (res.status === 503 || data.fallbackToClient || data.code === "ADMIN_AUTH_NOT_CONFIGURED") {
-        console.warn("[school.service] Server registration unavailable, evaluating administrative client fallback.");
-      } else if (!res.ok) {
-        const msg = (typeof data.error === "object" ? data.error?.message : data.error) || "School registration failed.";
-        throw new Error(msg);
-      }
-    } catch (apiErr: any) {
-      // Re-throw genuine client validation and conflict errors
-      if (
-        apiErr?.message &&
-        !apiErr.message.includes("fetch") &&
-        !apiErr.message.includes("URL") &&
-        !apiErr.message.includes("unavailable") &&
-        !apiErr.message.includes("credentials") &&
-        !apiErr.message.includes("ADMIN_AUTH_NOT_CONFIGURED")
-      ) {
-        throw apiErr;
-      }
-    }
+  if (typeof window === "undefined") {
+    throw new Error("createSchoolWithAdmin must be called from client context.");
   }
 
-  // 2. Super Admin fallback (If an authorized Super Admin is creating a school, use client SDK with active session)
-  if (typeof window !== "undefined") {
-    try {
-      const { getFirebaseAuth } = await import("@/lib/firebase/client");
-      const { isSuperAdminEmail } = await import("./user.service");
-      const primaryAuth = getFirebaseAuth();
-      const currentUser = primaryAuth.currentUser;
+  const res = await fetch("/api/school/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
 
-      let isSuper = currentUser ? isSuperAdminEmail(currentUser.email) : false;
-      if (!isSuper && currentUser) {
-        try {
-          const tokenRes = await currentUser.getIdTokenResult();
-          if (tokenRes?.claims?.role === "super_admin" || tokenRes?.claims?.isSuperAdmin) {
-            isSuper = true;
-          }
-        } catch {}
-        if (!isSuper) {
-          try {
-            const { getDoc, doc } = await import("firebase/firestore");
-            const uDoc = await getDoc(doc(getFirebaseDb(), COLLECTIONS.USERS, currentUser.uid));
-            if (uDoc.exists() && uDoc.data()?.role === "super_admin") {
-              isSuper = true;
-            }
-          } catch {}
-        }
-      }
-      if (!isSuper && typeof window !== "undefined") {
-        if (
-          window.location.pathname.startsWith("/super-admin") ||
-          sessionStorage.getItem("ss_super_admin_verified") === "true" ||
-          localStorage.getItem("ss_super_admin_verified") === "true"
-        ) {
-          isSuper = true;
-        }
-      }
+  const data = await res.json().catch(() => ({}));
 
-      if (isSuper) {
-        const { doc, collection, setDoc, query, where, getDocs, serverTimestamp } = await import("firebase/firestore");
-        const { initializeApp, deleteApp } = await import("firebase/app");
-        const { getAuth, createUserWithEmailAndPassword, signOut } = await import("firebase/auth");
-        const { firebaseClientConfig } = await import("@/lib/firebase/config");
-
-        const db = getFirebaseDb();
-        const upperCode = input.code.trim().toUpperCase();
-
-        const codeQuery = query(collection(db, COLLECTIONS.SCHOOLS), where("code", "==", upperCode));
-        const codeSnap = await getDocs(codeQuery);
-        if (!codeSnap.empty) {
-          throw new Error(`School code "${upperCode}" is already in use.`);
-        }
-
-        const secAppName = `sec-admin-create-${Date.now()}`;
-        const secApp = initializeApp(firebaseClientConfig, secAppName);
-        const secAuth = getAuth(secApp);
-        let adminUid = "";
-        try {
-          const cred = await createUserWithEmailAndPassword(secAuth, input.adminEmail.trim().toLowerCase(), input.adminPassword);
-          adminUid = cred.user.uid;
-          await signOut(secAuth);
-        } finally {
-          await deleteApp(secApp).catch(() => {});
-        }
-
-        const schoolRef = doc(collection(db, COLLECTIONS.SCHOOLS));
-        const schoolId = schoolRef.id;
-
-        await setDoc(doc(db, COLLECTIONS.USERS, adminUid), {
-          uid: adminUid,
-          name: input.adminName.trim(),
-          email: input.adminEmail.trim().toLowerCase(),
-          role: "school_admin",
-          schoolId,
-          status: "active",
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-
-        await setDoc(schoolRef, {
-          id: schoolId,
-          name: input.name.trim(),
-          code: upperCode,
-          address: input.address?.trim() || "",
-          city: input.city?.trim() || "India",
-          state: input.state?.trim() || "",
-          phone: input.phone?.trim() || "",
-          email: input.email?.trim() || "",
-          logoUrl: input.logoUrl || "",
-          status: "active",
-          setupCompleted: false,
-          setupStep: 1,
-          adminUid,
-          adminName: input.adminName.trim(),
-          adminEmail: input.adminEmail.trim().toLowerCase(),
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-
-        const now = new Date();
-        await setDoc(doc(db, "schoolSubscriptions", schoolId), {
-          id: schoolId,
-          schoolId,
-          planId: "plan_free",
-          planVersionId: "plan_free_v1",
-          status: "ACTIVE",
-          billingCycle: "monthly",
-          startsAt: now.toISOString(),
-          expiresAt: new Date(now.getTime() + 30 * 86400000).toISOString(),
-          source: "super_admin_manual",
-          createdAt: now.toISOString(),
-          updatedAt: now.toISOString(),
-        });
-
-        await setDoc(doc(db, "schoolCodes", upperCode), {
-          schoolId,
-          createdAt: serverTimestamp(),
-        }).catch(() => {});
-
-        await setDoc(doc(db, "schoolUsage", schoolId), {
-          schoolId,
-          students: 0,
-          teachers: 0,
-          classes: 0,
-          staff: 1,
-          lastReconciledAt: now.toISOString(),
-          updatedAt: now.toISOString(),
-        }).catch(() => {});
-
-        return { schoolId, adminUid };
-      }
-    } catch (fallbackErr: any) {
-      if (fallbackErr?.message && !fallbackErr.message.includes("isSuperAdminEmail")) {
-        throw fallbackErr;
-      }
-    }
+  if (res.ok && data.success && data.schoolId && data.adminUid) {
+    return { schoolId: data.schoolId, adminUid: data.adminUid };
   }
 
-  throw new Error("School registration requires private Firebase Admin configuration. Please configure FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY in .env.local on localhost or in your hosting provider settings.");
+  // If validation error (400) or duplicate conflict (409), throw server message directly
+  if (res.status === 400 || res.status === 409) {
+    const msg =
+      (typeof data.error === "object" ? data.error?.message : data.error) ||
+      "Registration validation error.";
+    throw new Error(msg);
+  }
+
+  // If server admin credentials are not configured (503)
+  if (res.status === 503 || data.code === "ADMIN_AUTH_NOT_CONFIGURED") {
+    throw new Error(
+      "School registration requires private Firebase Admin configuration. Please configure FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY in .env.local on localhost or in your hosting provider settings."
+    );
+  }
+
+  const errorMsg =
+    (typeof data.error === "object" ? data.error?.message : data.error) ||
+    data.message ||
+    "Failed to register school. Please verify your connection and try again.";
+  throw new Error(errorMsg);
 }
 
 /**

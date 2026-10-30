@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSafeAdminDb, getSafeAdminAuth } from "@/lib/firebase/admin";
+import { getSafeAdminDb, getSafeAdminAuth, getFirebaseAdminDiagnostics } from "@/lib/firebase/admin";
 
 export async function POST(request: Request) {
   const requestId =
@@ -11,24 +11,19 @@ export async function POST(request: Request) {
 
   // If Firebase Admin credentials are not configured on server
   if (!db || !auth) {
-    const env = typeof process !== "undefined" ? process.env : ({} as Record<string, string | undefined>);
+    const diagnostics = await getFirebaseAdminDiagnostics(false);
     return NextResponse.json(
       {
         success: false,
         error: {
           code: "SERVICE_UNAVAILABLE",
-          message: "School registration is temporarily unavailable. Server Firebase Admin credentials must be configured.",
+          message:
+            "School registration requires private Firebase Admin configuration. Please configure FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY on your server.",
           requestId,
           retryable: false,
         },
         code: "ADMIN_AUTH_NOT_CONFIGURED",
-        fallbackToClient: true,
-        diagnostics: {
-          configured: false,
-          hasClientEmail: Boolean(env?.FIREBASE_CLIENT_EMAIL || env?.FIREBASE_ADMIN_CLIENT_EMAIL),
-          hasPrivateKey: Boolean(env?.FIREBASE_PRIVATE_KEY || env?.FIREBASE_ADMIN_PRIVATE_KEY),
-          projectId: env?.FIREBASE_PROJECT_ID || env?.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "school-study-c8991",
-        },
+        diagnostics,
       },
       { status: 503 }
     );
@@ -187,10 +182,12 @@ export async function POST(request: Request) {
         id: schoolRef.id,
         name: input.name.trim(),
         code,
+        address: String(input.address || "").trim(),
         city: String(input.city || "India").trim(),
         state: String(input.state || "").trim(),
         phone: String(input.phone || "").trim(),
         email: String(input.email || "").trim(),
+        logoUrl: String(input.logoUrl || "").trim(),
         status: "active",
         setupCompleted: false,
         setupStep: 1,

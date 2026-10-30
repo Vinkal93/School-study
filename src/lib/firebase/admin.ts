@@ -1,4 +1,8 @@
 // Server-only — this file must NEVER be imported in client components
+if (typeof window !== "undefined") {
+  throw new Error("SECURITY VIOLATION: Firebase Admin SDK cannot be imported into client-side code.");
+}
+
 import type { App } from "firebase-admin/app";
 import type { Auth } from "firebase-admin/auth";
 import type { Firestore } from "firebase-admin/firestore";
@@ -9,7 +13,36 @@ export interface ServiceAccountCredentials {
   privateKey: string;
 }
 
+export interface FirebaseAdminDiagnostics {
+  configured: boolean;
+  environmentScope: "development" | "preview" | "production";
+  detectedSource: string;
+  projectId: {
+    authoritative: string;
+    client: string;
+    isConsistent: boolean;
+  };
+  variables: {
+    hasClientEmail: boolean;
+    hasPrivateKey: boolean;
+    hasServiceAccountKey: boolean;
+    hasProjectId: boolean;
+    hasCredentialFile: boolean;
+  };
+  formatValidation: {
+    isClientEmailValid: boolean;
+    privateKeyFormat: "valid_pem" | "invalid_format" | "missing";
+  };
+  adminAppStatus: "initialized" | "not_initialized" | "failed";
+  connectivity: "connected" | "untested" | "error";
+  connectivityMessage?: string;
+  clientEmailMasked: string | null;
+  isEmulator: boolean;
+  instructions: string;
+}
+
 let parsedServiceAccount: ServiceAccountCredentials | null | undefined = undefined;
+let _adminApp: App | null = null;
 
 export function resetAdminAppCache(): void {
   parsedServiceAccount = undefined;
@@ -18,13 +51,17 @@ export function resetAdminAppCache(): void {
 
 /**
  * Normalizes a raw PEM private key string:
- * - Unwraps quotes
+ * - Unwraps outer quotes
  * - Replaces escaped newlines (\\n, \r\n, \n)
  * - Decodes Base64 if needed
+ * - Validates standard PEM markers
  */
 export function normalizePrivateKey(rawKey: string): string {
   if (!rawKey) return "";
   let key = rawKey.trim();
+
+  // Strip trailing semicolons or commas before stripping quotes
+  key = key.replace(/[;,]+$/, "").trim();
 
   // Strip wrapping single or double quotes
   while (
@@ -34,15 +71,29 @@ export function normalizePrivateKey(rawKey: string): string {
     key = key.slice(1, -1).trim();
   }
 
+  // Handle escaped quotes from shell or JSON stringification
+  key = key.replace(/\\"/g, '"').replace(/\\'/g, "'");
+
   // Handle literal escaped newlines and carriage returns
-  key = key.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\r\n/g, "\n");
+  key = key
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\\r/g, "\r");
+
+  // Remove trailing semicolons or trailing whitespace again
+  key = key.replace(/[;,]+$/, "").trim();
 
   // Auto-detect and decode Base64-encoded private key if standard header is missing
   if (!key.includes("BEGIN PRIVATE KEY") && !key.includes("BEGIN RSA PRIVATE KEY")) {
     try {
       const decoded = Buffer.from(key, "base64").toString("utf-8");
       if (decoded.includes("BEGIN PRIVATE KEY") || decoded.includes("BEGIN RSA PRIVATE KEY")) {
-        key = decoded.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\r\n/g, "\n");
+        key = decoded
+          .replace(/\\r\\n/g, "\n")
+          .replace(/\\n/g, "\n")
+          .replace(/\r\n/g, "\n")
+          .trim();
       }
     } catch {}
   }
@@ -51,25 +102,54 @@ export function normalizePrivateKey(rawKey: string): string {
 }
 
 /**
- * Resolves Firebase Service Account credentials from environment variables or credentials file.
+ * Validates if the normalized key adheres to standard RSA / PKCS8 PEM format
+ */
+export function isPrivateKeyFormatValid(key: string): boolean {
+  if (!key) return false;
+  const normalized = normalizePrivateKey(key);
+  const hasBegin =
+    normalized.includes("-----BEGIN PRIVATE KEY-----") ||
+    normalized.includes("-----BEGIN RSA PRIVATE KEY-----");
+  const hasEnd =
+    normalized.includes("-----END PRIVATE KEY-----") ||
+    normalized.includes("-----END RSA PRIVATE KEY-----");
+  return Boolean(hasBegin && hasEnd);
+}
+
+/**
+ * Resolves Firebase Service Account credentials from server-only environment variables or credentials file.
  * Supports:
- *  1. FIREBASE_SERVICE_ACCOUNT_KEY (JSON string or Base64 encoded JSON)
+ *  1. FIREBASE_SERVICE_ACCOUNT_KEY / FIREBASE_SERVICE_ACCOUNT (JSON string or Base64 encoded JSON)
  *  2. FIREBASE_SERVICE_ACCOUNT_KEY_BASE64 (Base64 string)
  *  3. Discrete variables: FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY (+ optional FIREBASE_PROJECT_ID)
  *  4. File path: FIREBASE_SERVICE_ACCOUNT_PATH or GOOGLE_APPLICATION_CREDENTIALS
+ * 
+ * STRICT SECURITY: Never reads from any NEXT_PUBLIC_ variable for private credentials.
  */
 export function getServiceAccount(): ServiceAccountCredentials | null {
   // Only use cached credential if it resolved successfully; do not permanently cache null
   if (parsedServiceAccount) return parsedServiceAccount;
 
-  const defaultProjectId =
+  const authoritativeProjectId =
     process.env.FIREBASE_PROJECT_ID ||
     process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
     "school-study-c8991";
 
-  // 1. Check FIREBASE_SERVICE_ACCOUNT_KEY or FIREBASE_SERVICE_ACCOUNT_KEY_BASE64
+  // Enforce project ID consistency
+  if (
+    process.env.FIREBASE_PROJECT_ID &&
+    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID &&
+    process.env.FIREBASE_PROJECT_ID !== process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
+  ) {
+    console.warn(
+      `[Firebase Admin] Notice: Server FIREBASE_PROJECT_ID (${process.env.FIREBASE_PROJECT_ID}) differs from NEXT_PUBLIC_FIREBASE_PROJECT_ID (${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}). Server operations will use ${process.env.FIREBASE_PROJECT_ID}.`
+    );
+  }
+
+  // 1. Check consolidated JSON variables
   const rawKey =
     process.env.FIREBASE_SERVICE_ACCOUNT_KEY ||
+    process.env.FIREBASE_SERVICE_ACCOUNT ||
     process.env.FIREBASE_SERVICE_ACCOUNT_KEY_BASE64;
 
   if (rawKey && rawKey.trim()) {
@@ -83,12 +163,17 @@ export function getServiceAccount(): ServiceAccountCredentials | null {
       }
       const parsed = JSON.parse(jsonString);
       if (parsed.client_email && parsed.private_key) {
-        parsedServiceAccount = {
-          projectId: parsed.project_id || defaultProjectId,
-          clientEmail: parsed.client_email.trim(),
-          privateKey: normalizePrivateKey(parsed.private_key),
-        };
-        return parsedServiceAccount;
+        const clientEmail = parsed.client_email.trim();
+        const privateKey = normalizePrivateKey(parsed.private_key);
+
+        if (clientEmail.includes("@") && isPrivateKeyFormatValid(privateKey)) {
+          parsedServiceAccount = {
+            projectId: parsed.project_id || authoritativeProjectId,
+            clientEmail,
+            privateKey,
+          };
+          return parsedServiceAccount;
+        }
       }
     } catch (e) {
       console.warn("Notice: Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY environment variable:", e);
@@ -96,22 +181,27 @@ export function getServiceAccount(): ServiceAccountCredentials | null {
   }
 
   // 2. Check discrete variables (FIREBASE_CLIENT_EMAIL & FIREBASE_PRIVATE_KEY)
-  const clientEmail =
+  const clientEmail = (
     process.env.FIREBASE_CLIENT_EMAIL ||
-    process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
-  const privateKey =
+    process.env.FIREBASE_ADMIN_CLIENT_EMAIL
+  )?.trim();
+
+  const privateKeyRaw = (
     process.env.FIREBASE_PRIVATE_KEY ||
-    process.env.FIREBASE_ADMIN_PRIVATE_KEY;
+    process.env.FIREBASE_ADMIN_PRIVATE_KEY
+  )?.trim();
 
-  if (clientEmail && privateKey) {
-    const cleanedKey = normalizePrivateKey(privateKey);
+  if (clientEmail && privateKeyRaw) {
+    const cleanedKey = normalizePrivateKey(privateKeyRaw);
 
-    parsedServiceAccount = {
-      projectId: process.env.FIREBASE_PROJECT_ID || defaultProjectId,
-      clientEmail: clientEmail.trim(),
-      privateKey: cleanedKey,
-    };
-    return parsedServiceAccount;
+    if (clientEmail.includes("@") && isPrivateKeyFormatValid(cleanedKey)) {
+      parsedServiceAccount = {
+        projectId: process.env.FIREBASE_PROJECT_ID || authoritativeProjectId,
+        clientEmail,
+        privateKey: cleanedKey,
+      };
+      return parsedServiceAccount;
+    }
   }
 
   // 2b. Check runtime FIREBASE_CONFIG JSON if set by hosting platform
@@ -120,12 +210,16 @@ export function getServiceAccount(): ServiceAccountCredentials | null {
     try {
       const cfg = JSON.parse(firebaseConfigStr);
       if (cfg.client_email && cfg.private_key) {
-        parsedServiceAccount = {
-          projectId: cfg.project_id || defaultProjectId,
-          clientEmail: cfg.client_email.trim(),
-          privateKey: normalizePrivateKey(cfg.private_key),
-        };
-        return parsedServiceAccount;
+        const clientEmail = cfg.client_email.trim();
+        const privateKey = normalizePrivateKey(cfg.private_key);
+        if (clientEmail.includes("@") && isPrivateKeyFormatValid(privateKey)) {
+          parsedServiceAccount = {
+            projectId: cfg.project_id || authoritativeProjectId,
+            clientEmail,
+            privateKey,
+          };
+          return parsedServiceAccount;
+        }
       }
     } catch {}
   }
@@ -147,12 +241,16 @@ export function getServiceAccount(): ServiceAccountCredentials | null {
         const fileContent = fs.readFileSync(resolved, "utf-8");
         const parsed = JSON.parse(fileContent);
         if (parsed.client_email && parsed.private_key) {
-          parsedServiceAccount = {
-            projectId: parsed.project_id || defaultProjectId,
-            clientEmail: parsed.client_email.trim(),
-            privateKey: normalizePrivateKey(parsed.private_key),
-          };
-          return parsedServiceAccount;
+          const clientEmail = parsed.client_email.trim();
+          const privateKey = normalizePrivateKey(parsed.private_key);
+          if (clientEmail.includes("@") && isPrivateKeyFormatValid(privateKey)) {
+            parsedServiceAccount = {
+              projectId: parsed.project_id || authoritativeProjectId,
+              clientEmail,
+              privateKey,
+            };
+            return parsedServiceAccount;
+          }
         }
       }
     } catch (e) {
@@ -163,19 +261,27 @@ export function getServiceAccount(): ServiceAccountCredentials | null {
   return null;
 }
 
+/**
+ * Checks whether Firebase Admin has valid server credentials configured.
+ */
 export function isFirebaseAdminConfigured(): boolean {
   return (
     getServiceAccount() !== null ||
     !!process.env.GOOGLE_APPLICATION_CREDENTIALS ||
-    Boolean(process.env.FIRESTORE_EMULATOR_HOST && (process.env.FIREBASE_AUTH_EMULATOR_HOST || process.env.FIREBASE_EMULATOR_HUB))
+    Boolean(
+      process.env.FIRESTORE_EMULATOR_HOST &&
+        (process.env.FIREBASE_AUTH_EMULATOR_HOST || process.env.FIREBASE_EMULATOR_HUB)
+    )
   );
 }
 
-let _adminApp: App | null = null;
+/**
+ * Retrieves or initializes the single Firebase Admin App instance for this process.
+ * Safely handles serverless function reuse and prevents duplicate initialization.
+ */
 export function getAdminApp(): App | null {
   if (_adminApp) return _adminApp;
   try {
-    // Dynamic require prevents top-level module evaluation crashes in Vercel serverless functions
     const { initializeApp, getApps, cert } = require("firebase-admin/app");
     const apps = getApps();
     if (apps.length > 0) {
@@ -208,7 +314,7 @@ export function getAdminApp(): App | null {
       return _adminApp;
     }
 
-    // Default initialization (fallback for GCP cloud run / app engine ADC or emulator)
+    // Fallback default initialization (for GCP / App Engine / Cloud Run ADC)
     _adminApp = initializeApp({
       projectId:
         process.env.FIREBASE_PROJECT_ID ||
@@ -222,6 +328,9 @@ export function getAdminApp(): App | null {
   }
 }
 
+/**
+ * Retrieves the Firebase Admin Auth service if configured.
+ */
 export function getSafeAdminAuth(): Auth | null {
   if (!isFirebaseAdminConfigured()) {
     return null;
@@ -236,6 +345,9 @@ export function getSafeAdminAuth(): Auth | null {
   }
 }
 
+/**
+ * Retrieves the Firebase Admin Firestore service if configured.
+ */
 export function getSafeAdminDb(): Firestore | null {
   if (!isFirebaseAdminConfigured()) {
     return null;
@@ -248,6 +360,111 @@ export function getSafeAdminDb(): Firestore | null {
   } catch (e) {
     return null;
   }
+}
+
+/**
+ * Diagnostic utility for reporting configuration health safely without exposing secrets.
+ */
+export async function getFirebaseAdminDiagnostics(probeConnectivity: boolean = false): Promise<FirebaseAdminDiagnostics> {
+  const isConfigured = isFirebaseAdminConfigured();
+  const serviceAccount = getServiceAccount();
+
+  const clientEmail = serviceAccount?.clientEmail || process.env.FIREBASE_CLIENT_EMAIL || process.env.FIREBASE_ADMIN_CLIENT_EMAIL || "";
+  const maskedEmail = clientEmail
+    ? clientEmail.replace(/^(.)(.*)(@.*)$/, (_, first, mid, rest) => `${first}***${rest}`)
+    : null;
+
+  let detectedSource = "none";
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY || process.env.FIREBASE_SERVICE_ACCOUNT || process.env.FIREBASE_SERVICE_ACCOUNT_KEY_BASE64) {
+    detectedSource = "FIREBASE_SERVICE_ACCOUNT_KEY";
+  } else if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+    detectedSource = "DISCRETE_VARS (FIREBASE_CLIENT_EMAIL & FIREBASE_PRIVATE_KEY)";
+  } else if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH || process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    detectedSource = "CREDENTIAL_FILE";
+  } else if (process.env.FIRESTORE_EMULATOR_HOST) {
+    detectedSource = "EMULATOR";
+  }
+
+  const rawKey = serviceAccount?.privateKey || process.env.FIREBASE_PRIVATE_KEY || process.env.FIREBASE_ADMIN_PRIVATE_KEY || "";
+  let privateKeyFormat: "valid_pem" | "invalid_format" | "missing" = "missing";
+  if (rawKey) {
+    privateKeyFormat = isPrivateKeyFormatValid(rawKey) ? "valid_pem" : "invalid_format";
+  }
+
+  const serverProjectId = process.env.FIREBASE_PROJECT_ID || serviceAccount?.projectId || "school-study-c8991";
+  const clientProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "school-study-c8991";
+  const isConsistent = !process.env.FIREBASE_PROJECT_ID || !process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || serverProjectId === clientProjectId;
+
+  const envScope: "development" | "preview" | "production" =
+    process.env.VERCEL_ENV === "production"
+      ? "production"
+      : process.env.VERCEL_ENV === "preview"
+      ? "preview"
+      : process.env.NODE_ENV === "production"
+      ? "production"
+      : "development";
+
+  let adminAppStatus: "initialized" | "not_initialized" | "failed" = "not_initialized";
+  if (isConfigured) {
+    try {
+      const app = getAdminApp();
+      adminAppStatus = app ? "initialized" : "failed";
+    } catch {
+      adminAppStatus = "failed";
+    }
+  }
+
+  let connectivity: "connected" | "untested" | "error" = "untested";
+  let connectivityMessage: string | undefined = undefined;
+
+  if (probeConnectivity && isConfigured) {
+    try {
+      const db = getSafeAdminDb();
+      if (db) {
+        const probePromise = db.collection("siteSettings").doc("system_health").get();
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Database probe timeout (3s)")), 3000)
+        );
+        await Promise.race([probePromise, timeoutPromise]);
+        connectivity = "connected";
+      }
+    } catch (probeErr: any) {
+      connectivity = "error";
+      connectivityMessage = probeErr?.message || "Failed to reach Firestore service.";
+    }
+  }
+
+  return {
+    configured: isConfigured,
+    environmentScope: envScope,
+    detectedSource,
+    projectId: {
+      authoritative: serverProjectId,
+      client: clientProjectId,
+      isConsistent,
+    },
+    variables: {
+      hasClientEmail: Boolean(process.env.FIREBASE_CLIENT_EMAIL || process.env.FIREBASE_ADMIN_CLIENT_EMAIL),
+      hasPrivateKey: Boolean(process.env.FIREBASE_PRIVATE_KEY || process.env.FIREBASE_ADMIN_PRIVATE_KEY),
+      hasServiceAccountKey: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_KEY || process.env.FIREBASE_SERVICE_ACCOUNT || process.env.FIREBASE_SERVICE_ACCOUNT_KEY_BASE64),
+      hasProjectId: Boolean(process.env.FIREBASE_PROJECT_ID),
+      hasCredentialFile: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_PATH || process.env.GOOGLE_APPLICATION_CREDENTIALS),
+    },
+    formatValidation: {
+      isClientEmailValid: Boolean(clientEmail && clientEmail.includes("@")),
+      privateKeyFormat,
+    },
+    adminAppStatus,
+    connectivity,
+    ...(connectivityMessage ? { connectivityMessage } : {}),
+    clientEmailMasked: maskedEmail,
+    isEmulator: Boolean(process.env.FIRESTORE_EMULATOR_HOST || process.env.FIREBASE_AUTH_EMULATOR_HOST),
+    instructions: !isConfigured
+      ? envScope === "development"
+        ? "To enable native Firebase Admin SDK features in local development, configure FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY in .env.local"
+        : "To enable native Firebase Admin SDK features on Vercel, configure FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY in Vercel Project Settings > Environment Variables."
+      : "Firebase Admin is successfully configured and active.",
+  };
 }
 
 // Resilient Lazy Proxies: Prevents module evaluation crashes during Next.js static build / serverless analysis
