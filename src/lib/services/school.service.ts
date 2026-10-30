@@ -53,11 +53,30 @@ export async function createSchoolWithAdmin(
       if (res.ok && data.success && data.schoolId && data.adminUid) {
         return { schoolId: data.schoolId, adminUid: data.adminUid };
       }
-      if (!res.ok && data.error && !data.fallbackToClient) {
-        throw new Error(data.error);
+
+      // If validation error (400) or duplicate conflict (409), throw immediately
+      if (res.status === 400 || res.status === 409) {
+        const msg = (typeof data.error === "object" ? data.error?.message : data.error) || "Registration validation error.";
+        throw new Error(msg);
+      }
+
+      // If server returned 503 or explicitly signaled client fallback, log notice and attempt Super Admin fallback
+      if (res.status === 503 || data.fallbackToClient || data.code === "ADMIN_AUTH_NOT_CONFIGURED") {
+        console.warn("[school.service] Server registration unavailable, evaluating administrative client fallback.");
+      } else if (!res.ok) {
+        const msg = (typeof data.error === "object" ? data.error?.message : data.error) || "School registration failed.";
+        throw new Error(msg);
       }
     } catch (apiErr: any) {
-      if (apiErr?.message && !apiErr.message.includes("fetch") && !apiErr.message.includes("URL")) {
+      // Re-throw genuine client validation and conflict errors
+      if (
+        apiErr?.message &&
+        !apiErr.message.includes("fetch") &&
+        !apiErr.message.includes("URL") &&
+        !apiErr.message.includes("unavailable") &&
+        !apiErr.message.includes("credentials") &&
+        !apiErr.message.includes("ADMIN_AUTH_NOT_CONFIGURED")
+      ) {
         throw apiErr;
       }
     }
@@ -174,6 +193,21 @@ export async function createSchoolWithAdmin(
           createdAt: now.toISOString(),
           updatedAt: now.toISOString(),
         });
+
+        await setDoc(doc(db, "schoolCodes", upperCode), {
+          schoolId,
+          createdAt: serverTimestamp(),
+        }).catch(() => {});
+
+        await setDoc(doc(db, "schoolUsage", schoolId), {
+          schoolId,
+          students: 0,
+          teachers: 0,
+          classes: 0,
+          staff: 1,
+          lastReconciledAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        }).catch(() => {});
 
         return { schoolId, adminUid };
       }

@@ -2,32 +2,77 @@ import { NextResponse } from "next/server";
 import { getSafeAdminDb, getSafeAdminAuth } from "@/lib/firebase/admin";
 
 export async function POST(request: Request) {
-  const db = getSafeAdminDb(), auth = getSafeAdminAuth();
+  const requestId =
+    request.headers.get("x-request-id") ||
+    `reg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+  const db = getSafeAdminDb();
+  const auth = getSafeAdminAuth();
+
+  // If Firebase Admin credentials are not configured on server
   if (!db || !auth) {
     const env = typeof process !== "undefined" ? process.env : ({} as Record<string, string | undefined>);
-    return NextResponse.json({
-      error: "School registration requires private Firebase Admin configuration.",
-      code: "ADMIN_AUTH_NOT_CONFIGURED",
-      diagnostics: {
-        configured: false,
-        hasClientEmail: Boolean(env?.FIREBASE_CLIENT_EMAIL || env?.FIREBASE_ADMIN_CLIENT_EMAIL),
-        hasPrivateKey: Boolean(env?.FIREBASE_PRIVATE_KEY || env?.FIREBASE_ADMIN_PRIVATE_KEY),
-        projectId: env?.FIREBASE_PROJECT_ID || env?.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "school-study-c8991"
-      }
-    }, { status: 503 });
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          code: "SERVICE_UNAVAILABLE",
+          message: "School registration is temporarily unavailable. Server Firebase Admin credentials must be configured.",
+          requestId,
+          retryable: false,
+        },
+        code: "ADMIN_AUTH_NOT_CONFIGURED",
+        fallbackToClient: true,
+        diagnostics: {
+          configured: false,
+          hasClientEmail: Boolean(env?.FIREBASE_CLIENT_EMAIL || env?.FIREBASE_ADMIN_CLIENT_EMAIL),
+          hasPrivateKey: Boolean(env?.FIREBASE_PRIVATE_KEY || env?.FIREBASE_ADMIN_PRIVATE_KEY),
+          projectId: env?.FIREBASE_PROJECT_ID || env?.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "school-study-c8991",
+        },
+      },
+      { status: 503 }
+    );
   }
 
   let createdUid: string | undefined;
 
   try {
     const input = await request.json().catch(() => ({}));
-    if (![input.name, input.code, input.adminName, input.adminEmail, input.adminPassword].every((v) => typeof v === "string" && v.trim())) {
-      return NextResponse.json({ error: "School and administrator details are required.", code: "INVALID_INPUT" }, { status: 400 });
+    if (
+      ![input.name, input.code, input.adminName, input.adminEmail, input.adminPassword].every(
+        (v) => typeof v === "string" && v.trim()
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "INVALID_INPUT",
+            message: "School and administrator details are required.",
+            requestId,
+            retryable: false,
+          },
+          code: "INVALID_INPUT",
+        },
+        { status: 400 }
+      );
     }
 
     const code = input.code.trim().toUpperCase();
     if (!/^[A-Z0-9_-]{2,30}$/.test(code) || input.adminPassword.length < 6) {
-      return NextResponse.json({ error: "Use a valid school code and a password of at least six characters.", code: "INVALID_CREDENTIALS" }, { status: 400 });
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "INVALID_CREDENTIALS",
+            message: "Use a valid school code (2-30 alphanumeric characters) and a password of at least 6 characters.",
+            requestId,
+            retryable: false,
+          },
+          code: "INVALID_CREDENTIALS",
+        },
+        { status: 400 }
+      );
     }
 
     // 1. Verify active zero-price registration plan exists
@@ -36,20 +81,53 @@ export async function POST(request: Request) {
       (plan as any).exists === true ||
       (typeof (plan as any).exists === "function" && (plan as any).exists())
     );
-    const versions = await db.collection("planVersions").where("planId", "==", "plan_free").where("status", "==", "ACTIVE").get();
-    const version = versions.docs.sort((a, b) => b.data().version - a.data().version)[0];
+    const versions = await db
+      .collection("planVersions")
+      .where("planId", "==", "plan_free")
+      .where("status", "==", "ACTIVE")
+      .get();
+    const version = versions.docs.sort(
+      (a, b) => (b.data().version || 0) - (a.data().version || 0)
+    )[0];
 
-    if (!isPlanDocExists || plan.data()?.status !== "ACTIVE" || !version || version.data().monthlyPrice !== 0 || version.data().annualPrice !== 0) {
-      return NextResponse.json({
-        error: "Publish an active free registration plan before accepting new schools.",
-        code: "FREE_PLAN_NOT_PUBLISHED",
-      }, { status: 503 });
+    if (
+      !isPlanDocExists ||
+      plan.data()?.status !== "ACTIVE" ||
+      !version ||
+      version.data().monthlyPrice !== 0 ||
+      version.data().annualPrice !== 0
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "FREE_PLAN_NOT_PUBLISHED",
+            message: "Publish an active free registration plan before accepting new schools.",
+            requestId,
+            retryable: false,
+          },
+          code: "FREE_PLAN_NOT_PUBLISHED",
+        },
+        { status: 503 }
+      );
     }
 
     // 2. Pre-verify school code availability
     const codeQuery = await db.collection("schools").where("code", "==", code).get();
     if (!codeQuery.empty) {
-      return NextResponse.json({ error: "School code is already registered.", code: "CODE_ALREADY_EXISTS" }, { status: 409 });
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "CODE_ALREADY_EXISTS",
+            message: `School code "${code}" is already registered. Please choose a different code.`,
+            requestId,
+            retryable: false,
+          },
+          code: "CODE_ALREADY_EXISTS",
+        },
+        { status: 409 }
+      );
     }
 
     const email = input.adminEmail.trim().toLowerCase();
@@ -69,7 +147,16 @@ export async function POST(request: Request) {
         authCreateErr?.message?.includes("already in use")
       ) {
         return NextResponse.json(
-          { error: "This email is already registered. Please sign in or use a different email.", code: "EMAIL_ALREADY_EXISTS" },
+          {
+            success: false,
+            error: {
+              code: "EMAIL_ALREADY_EXISTS",
+              message: "This email is already registered. Please sign in or use a different email.",
+              requestId,
+              retryable: false,
+            },
+            code: "EMAIL_ALREADY_EXISTS",
+          },
           { status: 409 }
         );
       }
@@ -140,20 +227,58 @@ export async function POST(request: Request) {
         createdAt: now,
         updatedAt: now,
       });
+      tx.set(db.collection("schoolUsage").doc(schoolRef.id), {
+        schoolId: schoolRef.id,
+        students: 0,
+        teachers: 0,
+        classes: 0,
+        staff: 1,
+        lastReconciledAt: now,
+        updatedAt: now,
+      });
     });
 
+    // 5. Non-blocking audit record
+    try {
+      const auditCol = db.collection("auditLogs");
+      if (typeof auditCol.doc === "function") {
+        auditCol.doc().set({
+          action: "SCHOOL_REGISTERED",
+          schoolId: schoolRef.id,
+          schoolCode: code,
+          adminEmail: email,
+          adminUid: user.uid,
+          requestId,
+          createdAt: now,
+          source: "registration_api",
+        });
+      }
+    } catch {}
+
     createdUid = undefined;
-    return NextResponse.json({ success: true, schoolId: schoolRef.id, adminUid: user.uid });
+
+    return NextResponse.json({
+      success: true,
+      schoolId: schoolRef.id,
+      adminUid: user.uid,
+      requestId,
+    });
   } catch (error: any) {
     if (createdUid) {
-      await auth.deleteUser(createdUid).catch(() =>
-        console.error("Registration compensation failed; administrator review required.")
+      await auth.deleteUser(createdUid).catch((delErr) =>
+        console.error(`[school-register] [${requestId}] Auth compensation failed:`, delErr)
       );
     }
     const isConflict = error?.message?.includes("already registered");
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "Registration failed.",
+        success: false,
+        error: {
+          code: isConflict ? "CODE_ALREADY_EXISTS" : "REGISTRATION_FAILED",
+          message: error instanceof Error ? error.message : "Registration failed.",
+          requestId,
+          retryable: !isConflict,
+        },
         code: isConflict ? "CODE_ALREADY_EXISTS" : "REGISTRATION_FAILED",
       },
       { status: isConflict ? 409 : 503 }
