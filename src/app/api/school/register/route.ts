@@ -1,10 +1,52 @@
 import { NextResponse } from "next/server";
 import { getSafeAdminDb, getSafeAdminAuth, getFirebaseAdminDiagnostics } from "@/lib/firebase/admin";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+// In-memory rate limiting map: ip -> array of timestamps
+const registrationRateLimitMap = new Map<string, number[]>();
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const MAX_REGISTRATIONS_PER_WINDOW = 10;
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const timestamps = registrationRateLimitMap.get(ip) || [];
+  const validTimestamps = timestamps.filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
+  if (validTimestamps.length >= MAX_REGISTRATIONS_PER_WINDOW) {
+    registrationRateLimitMap.set(ip, validTimestamps);
+    return false;
+  }
+  validTimestamps.push(now);
+  registrationRateLimitMap.set(ip, validTimestamps);
+  return true;
+}
+
 export async function POST(request: Request) {
   const requestId =
     request.headers.get("x-request-id") ||
     `reg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+  // Anti-abuse: Rate limit by client IP
+  const forwardedFor = request.headers.get("x-forwarded-for");
+  const clientIp = forwardedFor ? forwardedFor.split(",")[0].trim() : "unknown-ip";
+
+  if (!checkRateLimit(clientIp)) {
+    console.warn(`[school-register] [${requestId}] Rate limit exceeded for IP: ${clientIp}`);
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          code: "RATE_LIMIT_EXCEEDED",
+          message: "Too many registration attempts. Please wait 15 minutes before trying again.",
+          requestId,
+          retryable: true,
+        },
+        code: "RATE_LIMIT_EXCEEDED",
+      },
+      { status: 429 }
+    );
+  }
 
   const db = getSafeAdminDb();
   const auth = getSafeAdminAuth();
@@ -12,18 +54,26 @@ export async function POST(request: Request) {
   // If Firebase Admin credentials are not configured on server
   if (!db || !auth) {
     const diagnostics = await getFirebaseAdminDiagnostics(false);
+    console.error(`[school-register] [${requestId}] Firebase Admin not configured:`, {
+      environmentScope: diagnostics.environmentScope,
+      detectedSource: diagnostics.detectedSource,
+      variables: diagnostics.variables,
+      formatValidation: diagnostics.formatValidation,
+      adminAppStatus: diagnostics.adminAppStatus,
+    });
+
+    // STRICT SECURITY: Never expose internal server diagnostic data, email strings, or secrets in public payload
     return NextResponse.json(
       {
         success: false,
         error: {
-          code: "SERVICE_UNAVAILABLE",
+          code: "ADMIN_AUTH_NOT_CONFIGURED",
           message:
-            "School registration requires private Firebase Admin configuration. Please configure FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY on your server.",
+            "School registration requires private Firebase Admin configuration. Please configure FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY.",
           requestId,
           retryable: false,
         },
         code: "ADMIN_AUTH_NOT_CONFIGURED",
-        diagnostics,
       },
       { status: 503 }
     );
@@ -33,6 +83,8 @@ export async function POST(request: Request) {
 
   try {
     const input = await request.json().catch(() => ({}));
+
+    // Input schema validation
     if (
       ![input.name, input.code, input.adminName, input.adminEmail, input.adminPassword].every(
         (v) => typeof v === "string" && v.trim()
@@ -53,14 +105,42 @@ export async function POST(request: Request) {
       );
     }
 
-    const code = input.code.trim().toUpperCase();
-    if (!/^[A-Z0-9_-]{2,30}$/.test(code) || input.adminPassword.length < 6) {
+    const schoolName = String(input.name).trim();
+    const adminName = String(input.adminName).trim();
+    const adminEmail = String(input.adminEmail).trim().toLowerCase();
+    const code = String(input.code).trim().toUpperCase();
+    const password = String(input.adminPassword);
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (
+      schoolName.length < 2 ||
+      schoolName.length > 100 ||
+      adminName.length < 2 ||
+      adminName.length > 100 ||
+      !emailRegex.test(adminEmail)
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "INVALID_INPUT",
+            message: "Please provide valid school and administrator details.",
+            requestId,
+            retryable: false,
+          },
+          code: "INVALID_INPUT",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!/^[A-Z0-9_-]{2,30}$/.test(code) || password.length < 6 || password.length > 128) {
       return NextResponse.json(
         {
           success: false,
           error: {
             code: "INVALID_CREDENTIALS",
-            message: "Use a valid school code (2-30 alphanumeric characters) and a password of at least 6 characters.",
+            message: "Use a valid school code (2-30 alphanumeric characters) and a password between 6 and 128 characters.",
             requestId,
             retryable: false,
           },
@@ -92,6 +172,7 @@ export async function POST(request: Request) {
       version.data().monthlyPrice !== 0 ||
       version.data().annualPrice !== 0
     ) {
+      console.warn(`[school-register] [${requestId}] Registration free plan inactive or unpublished.`);
       return NextResponse.json(
         {
           success: false,
@@ -125,15 +206,13 @@ export async function POST(request: Request) {
       );
     }
 
-    const email = input.adminEmail.trim().toLowerCase();
-
     // 3. Provision administrator Auth account
     let user;
     try {
       user = await auth.createUser({
-        email,
-        password: input.adminPassword,
-        displayName: input.adminName.trim(),
+        email: adminEmail,
+        password,
+        displayName: adminName,
       });
     } catch (authCreateErr: any) {
       if (
@@ -180,7 +259,7 @@ export async function POST(request: Request) {
       tx.set(codeRef, { schoolId: schoolRef.id, createdAt: now });
       tx.set(schoolRef, {
         id: schoolRef.id,
-        name: input.name.trim(),
+        name: schoolName,
         code,
         address: String(input.address || "").trim(),
         city: String(input.city || "India").trim(),
@@ -192,8 +271,8 @@ export async function POST(request: Request) {
         setupCompleted: false,
         setupStep: 1,
         adminUid: user.uid,
-        adminName: input.adminName.trim(),
-        adminEmail: email,
+        adminName,
+        adminEmail,
         planId: "plan_free",
         subscriptionStatus: "TRIAL",
         subscriptionExpiresAt: end,
@@ -202,8 +281,8 @@ export async function POST(request: Request) {
       });
       tx.set(db.collection("users").doc(user.uid), {
         uid: user.uid,
-        name: input.adminName.trim(),
-        email,
+        name: adminName,
+        email: adminEmail,
         role: "school_admin",
         schoolId: schoolRef.id,
         status: "active",
@@ -243,7 +322,7 @@ export async function POST(request: Request) {
           action: "SCHOOL_REGISTERED",
           schoolId: schoolRef.id,
           schoolCode: code,
-          adminEmail: email,
+          adminEmail,
           adminUid: user.uid,
           requestId,
           createdAt: now,
@@ -252,6 +331,7 @@ export async function POST(request: Request) {
       }
     } catch {}
 
+    // Succeeded completely; clear rollback tracking
     createdUid = undefined;
 
     return NextResponse.json({
@@ -261,18 +341,35 @@ export async function POST(request: Request) {
       requestId,
     });
   } catch (error: any) {
+    // Robust cross-system compensation rollback with retry
     if (createdUid) {
-      await auth.deleteUser(createdUid).catch((delErr) =>
-        console.error(`[school-register] [${requestId}] Auth compensation failed:`, delErr)
-      );
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          await auth.deleteUser(createdUid);
+          break;
+        } catch (delErr) {
+          if (attempt === 3) {
+            console.error(`[school-register] [${requestId}] Auth compensation permanently failed for ${createdUid}:`, delErr);
+          } else {
+            await new Promise((resolve) => setTimeout(resolve, 150 * attempt));
+          }
+        }
+      }
     }
+
+    console.error(`[school-register] [${requestId}] Registration error:`, error?.message || error);
+
     const isConflict = error?.message?.includes("already registered");
+    const safeMessage = isConflict
+      ? `School code is already registered. Please choose a different code.`
+      : "Registration could not be completed at this time. Please try again.";
+
     return NextResponse.json(
       {
         success: false,
         error: {
           code: isConflict ? "CODE_ALREADY_EXISTS" : "REGISTRATION_FAILED",
-          message: error instanceof Error ? error.message : "Registration failed.",
+          message: safeMessage,
           requestId,
           retryable: !isConflict,
         },

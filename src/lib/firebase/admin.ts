@@ -49,19 +49,47 @@ export function resetAdminAppCache(): void {
   _adminApp = null;
 }
 
+export function cleanEnvString(val?: string | null): string {
+  if (!val) return "";
+  let v = val.trim().replace(/[;,]+$/, "").trim();
+  // Strip wrapping single or double quotes
+  while (
+    (v.startsWith('"') && v.endsWith('"')) ||
+    (v.startsWith("'") && v.endsWith("'"))
+  ) {
+    v = v.slice(1, -1).trim();
+  }
+  return v.replace(/[;,]+$/, "").trim();
+}
+
 /**
  * Normalizes a raw PEM private key string:
- * - Unwraps outer quotes
+ * - Unwraps outer and escaped quotes
  * - Replaces escaped newlines (\\n, \r\n, \n)
+ * - Auto-extracts from JSON if full service account was pasted into variable
  * - Decodes Base64 if needed
- * - Validates standard PEM markers
+ * - Safely extracts standard PEM block
+ * - Ensures valid trailing newline
  */
 export function normalizePrivateKey(rawKey: string): string {
   if (!rawKey) return "";
   let key = rawKey.trim();
 
+  // If entire JSON was pasted into private key variable by mistake, extract private_key field
+  if (key.startsWith("{") && key.includes("private_key")) {
+    try {
+      const parsed = JSON.parse(key);
+      if (parsed.private_key) {
+        key = String(parsed.private_key).trim();
+      }
+    } catch {}
+  }
+
   // Strip trailing semicolons or commas before stripping quotes
   key = key.replace(/[;,]+$/, "").trim();
+
+  // Unescape escaped quotes from shell or JSON stringification
+  key = key.replace(/\\"/g, '"').replace(/\\'/g, "'");
 
   // Strip wrapping single or double quotes
   while (
@@ -71,9 +99,6 @@ export function normalizePrivateKey(rawKey: string): string {
     key = key.slice(1, -1).trim();
   }
 
-  // Handle escaped quotes from shell or JSON stringification
-  key = key.replace(/\\"/g, '"').replace(/\\'/g, "'");
-
   // Handle literal escaped newlines and carriage returns
   key = key
     .replace(/\\r\\n/g, "\n")
@@ -81,8 +106,13 @@ export function normalizePrivateKey(rawKey: string): string {
     .replace(/\r\n/g, "\n")
     .replace(/\\r/g, "\r");
 
-  // Remove trailing semicolons or trailing whitespace again
-  key = key.replace(/[;,]+$/, "").trim();
+  // Strip wrapping quotes again in case they were around escaped newlines
+  while (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    key = key.slice(1, -1).trim();
+  }
 
   // Auto-detect and decode Base64-encoded private key if standard header is missing
   if (!key.includes("BEGIN PRIVATE KEY") && !key.includes("BEGIN RSA PRIVATE KEY")) {
@@ -96,6 +126,20 @@ export function normalizePrivateKey(rawKey: string): string {
           .trim();
       }
     } catch {}
+  }
+
+  // Extract the exact PEM block if there is extraneous prefix or suffix text
+  const pemMatch = key.match(/(-----BEGIN[ A-Z0-9_-]+PRIVATE KEY-----[\s\S]+?-----END[ A-Z0-9_-]+PRIVATE KEY-----)/);
+  if (pemMatch && pemMatch[1]) {
+    key = pemMatch[1].trim();
+  }
+
+  // Remove trailing semicolons or commas again
+  key = key.replace(/[;,]+$/, "").trim();
+
+  // Ensure trailing newline for OpenSSL PKCS8 compatibility
+  if (key && !key.endsWith("\n")) {
+    key += "\n";
   }
 
   return key;
@@ -113,7 +157,7 @@ export function isPrivateKeyFormatValid(key: string): boolean {
   const hasEnd =
     normalized.includes("-----END PRIVATE KEY-----") ||
     normalized.includes("-----END RSA PRIVATE KEY-----");
-  return Boolean(hasBegin && hasEnd);
+  return Boolean(hasBegin && hasEnd && normalized.length > 100);
 }
 
 /**
@@ -181,22 +225,23 @@ export function getServiceAccount(): ServiceAccountCredentials | null {
   }
 
   // 2. Check discrete variables (FIREBASE_CLIENT_EMAIL & FIREBASE_PRIVATE_KEY)
-  const clientEmail = (
+  const clientEmail = cleanEnvString(
     process.env.FIREBASE_CLIENT_EMAIL ||
     process.env.FIREBASE_ADMIN_CLIENT_EMAIL
-  )?.trim();
+  );
 
-  const privateKeyRaw = (
+  const privateKeyRaw = cleanEnvString(
     process.env.FIREBASE_PRIVATE_KEY ||
     process.env.FIREBASE_ADMIN_PRIVATE_KEY
-  )?.trim();
+  );
 
   if (clientEmail && privateKeyRaw) {
     const cleanedKey = normalizePrivateKey(privateKeyRaw);
 
     if (clientEmail.includes("@") && isPrivateKeyFormatValid(cleanedKey)) {
+      const explicitProjectId = cleanEnvString(process.env.FIREBASE_PROJECT_ID);
       parsedServiceAccount = {
-        projectId: process.env.FIREBASE_PROJECT_ID || authoritativeProjectId,
+        projectId: explicitProjectId || authoritativeProjectId,
         clientEmail,
         privateKey: cleanedKey,
       };
@@ -210,11 +255,11 @@ export function getServiceAccount(): ServiceAccountCredentials | null {
     try {
       const cfg = JSON.parse(firebaseConfigStr);
       if (cfg.client_email && cfg.private_key) {
-        const clientEmail = cfg.client_email.trim();
+        const clientEmail = cleanEnvString(cfg.client_email);
         const privateKey = normalizePrivateKey(cfg.private_key);
         if (clientEmail.includes("@") && isPrivateKeyFormatValid(privateKey)) {
           parsedServiceAccount = {
-            projectId: cfg.project_id || authoritativeProjectId,
+            projectId: cleanEnvString(cfg.project_id) || authoritativeProjectId,
             clientEmail,
             privateKey,
           };
@@ -225,9 +270,10 @@ export function getServiceAccount(): ServiceAccountCredentials | null {
   }
 
   // 3. Check file path (FIREBASE_SERVICE_ACCOUNT_PATH or GOOGLE_APPLICATION_CREDENTIALS)
-  const filePath =
+  const filePath = cleanEnvString(
     process.env.FIREBASE_SERVICE_ACCOUNT_PATH ||
-    process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    process.env.GOOGLE_APPLICATION_CREDENTIALS
+  );
 
   if (filePath && typeof window === "undefined") {
     try {
@@ -241,11 +287,11 @@ export function getServiceAccount(): ServiceAccountCredentials | null {
         const fileContent = fs.readFileSync(resolved, "utf-8");
         const parsed = JSON.parse(fileContent);
         if (parsed.client_email && parsed.private_key) {
-          const clientEmail = parsed.client_email.trim();
+          const clientEmail = cleanEnvString(parsed.client_email);
           const privateKey = normalizePrivateKey(parsed.private_key);
           if (clientEmail.includes("@") && isPrivateKeyFormatValid(privateKey)) {
             parsedServiceAccount = {
-              projectId: parsed.project_id || authoritativeProjectId,
+              projectId: cleanEnvString(parsed.project_id) || authoritativeProjectId,
               clientEmail,
               privateKey,
             };
@@ -293,8 +339,8 @@ export function getAdminApp(): App | null {
     if (process.env.FIRESTORE_EMULATOR_HOST || process.env.FIREBASE_AUTH_EMULATOR_HOST) {
       _adminApp = initializeApp({
         projectId:
-          process.env.FIREBASE_PROJECT_ID ||
-          process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
+          cleanEnvString(process.env.FIREBASE_PROJECT_ID) ||
+          cleanEnvString(process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID) ||
           "school-study-c8991",
       });
       return _adminApp;
@@ -314,14 +360,9 @@ export function getAdminApp(): App | null {
       return _adminApp;
     }
 
-    // Fallback default initialization (for GCP / App Engine / Cloud Run ADC)
-    _adminApp = initializeApp({
-      projectId:
-        process.env.FIREBASE_PROJECT_ID ||
-        process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
-        "school-study-c8991",
-    });
-    return _adminApp;
+    // Strictly DO NOT initialize an unauthenticated app without credentials.
+    // Return null so callers know Admin is not configured and getApps() is never poisoned.
+    return null;
   } catch (e) {
     console.warn("Notice: Failed to initialize Firebase Admin App:", e);
     return null;
@@ -341,6 +382,7 @@ export function getSafeAdminAuth(): Auth | null {
     const { getAuth } = require("firebase-admin/auth");
     return getAuth(app);
   } catch (e) {
+    console.error("[Firebase Admin] Safe Admin Auth error:", e);
     return null;
   }
 }
@@ -358,6 +400,7 @@ export function getSafeAdminDb(): Firestore | null {
     const { getFirestore } = require("firebase-admin/firestore");
     return getFirestore(app);
   } catch (e) {
+    console.error("[Firebase Admin] Safe Admin DB error:", e);
     return null;
   }
 }

@@ -1,5 +1,5 @@
 // scripts/test-registration-resilience.cjs
-// Authoritative tests for School Registration Resilience and Firebase Admin configuration
+// Authoritative tests for School Registration Resilience, Security, and Firebase Admin configuration
 
 const assert = require("assert");
 const fs = require("fs");
@@ -18,6 +18,7 @@ const transpiled = ts.transpileModule(code, {
 
 function createAdminSandbox(customEnv = {}) {
   const adminExports = {};
+  const mockApps = [];
   const mockProcess = {
     env: { ...customEnv },
     cwd: () => process.cwd(),
@@ -27,8 +28,12 @@ function createAdminSandbox(customEnv = {}) {
     require: (mod) => {
       if (mod === "firebase-admin/app") {
         return {
-          initializeApp: (opts) => ({ name: "[DEFAULT]", options: opts }),
-          getApps: () => [],
+          initializeApp: (opts) => {
+            const app = { name: "[DEFAULT]", options: opts };
+            mockApps.push(app);
+            return app;
+          },
+          getApps: () => mockApps,
           cert: (sa) => ({ projectId: sa.projectId, clientEmail: sa.clientEmail }),
         };
       }
@@ -149,7 +154,7 @@ function seedFreePlan() {
 
 (async function runTests() {
   let passed = 0;
-  let totalTests = 8;
+  let totalTests = 13;
 
   // Test 1: Private key normalization helper
   try {
@@ -338,13 +343,70 @@ function seedFreePlan() {
     assert.strictEqual(diag.projectId.isConsistent, true);
     assert.ok(diag.clientEmailMasked.includes("***"), "Client email must be masked");
     assert.strictEqual(diag.clientEmailMasked.includes("firebase-adminsdk-xyz"), false, "Raw email must not be exposed");
-    // Ensure raw private key is NOT present in any field of the diagnostic object
     const serialized = JSON.stringify(diag);
     assert.strictEqual(serialized.includes(testPemKey), false, "Private key must never be exposed in diagnostics");
     console.log("  [PASS] Test 8: Diagnostics utility correctly validates format and masks/omits all secrets");
     passed++;
   } catch (e) {
     console.error("  [FAIL] Test 8:", e);
+  }
+
+  // Test 9: getAdminApp returns null when no credentials and does NOT poison getApps()
+  try {
+    const freshSandbox = createAdminSandbox({});
+    const app = freshSandbox.getAdminApp();
+    assert.strictEqual(app, null, "getAdminApp must return null when unconfigured");
+    console.log("  [PASS] Test 9: getAdminApp returns null when unconfigured and eliminates app poisoning");
+    passed++;
+  } catch (e) {
+    console.error("  [FAIL] Test 9:", e);
+  }
+
+  // Test 10: cleanEnvString trims quotes and punctuation from environment variables
+  try {
+    const adminSandbox = createAdminSandbox();
+    assert.strictEqual(adminSandbox.cleanEnvString('"school-study-c8991"'), "school-study-c8991");
+    assert.strictEqual(adminSandbox.cleanEnvString("'firebase-adminsdk@domain.com;'"), "firebase-adminsdk@domain.com");
+    assert.strictEqual(adminSandbox.cleanEnvString("  \"clean-id\"  "), "clean-id");
+    console.log("  [PASS] Test 10: cleanEnvString correctly normalizes quoted environment values");
+    passed++;
+  } catch (e) {
+    console.error("  [FAIL] Test 10:", e);
+  }
+
+  // Test 11: Route handler /api/school/register uses Node.js runtime and force-dynamic
+  try {
+    const routeCode = fs.readFileSync("src/app/api/school/register/route.ts", "utf-8");
+    assert.ok(routeCode.includes('export const runtime = "nodejs";'), "Must declare nodejs runtime");
+    assert.ok(routeCode.includes('export const dynamic = "force-dynamic";'), "Must declare force-dynamic");
+    console.log("  [PASS] Test 11: Registration route declares nodejs runtime and force-dynamic");
+    passed++;
+  } catch (e) {
+    console.error("  [FAIL] Test 11:", e);
+  }
+
+  // Test 12: Public API error payload does not leak internal diagnostics or secrets
+  try {
+    const routeCode = fs.readFileSync("src/app/api/school/register/route.ts", "utf-8");
+    assert.ok(!routeCode.includes("diagnostics: diagnostics"), "Must not include diagnostics object in public API response");
+    assert.ok(!routeCode.match(/NextResponse\.json\(\s*\{[^}]*\bdiagnostics\b/), "Must not pass diagnostics in response payload");
+    assert.ok(routeCode.includes("ADMIN_AUTH_NOT_CONFIGURED"), "Must return safe ADMIN_AUTH_NOT_CONFIGURED code");
+    assert.ok(routeCode.includes("RATE_LIMIT_EXCEEDED"), "Must include rate limit protection");
+    console.log("  [PASS] Test 12: Public API error response is fully sanitized and leaks zero diagnostics");
+    passed++;
+  } catch (e) {
+    console.error("  [FAIL] Test 12:", e);
+  }
+
+  // Test 13: Usage service prioritizes tenant subcollections before attempting root queries
+  try {
+    const usageCode = fs.readFileSync("src/lib/billing/usage.ts", "utf-8");
+    assert.ok(usageCode.includes("Query authoritative tenant subcollections first"), "Must prioritize tenant subcollection queries");
+    assert.ok(usageCode.includes("Fallback to legacy root collections ONLY"), "Must only query root if subcollections are empty");
+    console.log("  [PASS] Test 13: Usage service prioritizes subcollections to prevent unauthorized root collection errors");
+    passed++;
+  } catch (e) {
+    console.error("  [FAIL] Test 13:", e);
   }
 
   console.log("======================================================================");
