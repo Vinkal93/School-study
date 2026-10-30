@@ -5,7 +5,9 @@ import { usePortalUI } from "@/context/portal-ui-context";
 import { useAppQuery } from "@/lib/cache";
 import { getSchoolById } from "@/lib/services/school.service";
 import { getSchoolSetupData } from "@/lib/services/setup.service";
-import type { School } from "@/types";
+import { getStudents } from "@/lib/services/student.service";
+import { getTeachers } from "@/lib/services/teacher.service";
+import type { School, StudentProfile, TeacherProfile } from "@/types";
 import { useEntitlement } from "@/context/EntitlementContext";
 import { useRealtimeSchoolDashboard } from "@/hooks/useRealtimeSchoolDashboard";
 import { ClassicSchoolAdminDashboard } from "@/components/admin/ClassicSchoolAdminDashboard";
@@ -38,6 +40,18 @@ export default function SchoolAdminPage() {
     { enabled: !!schoolId && isAllowed, staleTime: 60_000 }
   );
 
+  const { data: cachedStudents } = useAppQuery<StudentProfile[]>(
+    schoolId && isAllowed ? `students:${schoolId}` : null,
+    () => getStudents(schoolId),
+    { enabled: !!schoolId && isAllowed, staleTime: 30_000 }
+  );
+
+  const { data: cachedTeachers } = useAppQuery<TeacherProfile[]>(
+    schoolId && isAllowed ? `teachers:${schoolId}` : null,
+    () => getTeachers(schoolId),
+    { enabled: !!schoolId && isAllowed, staleTime: 30_000 }
+  );
+
   const { data: cachedSetupData } = useAppQuery(
     schoolId && isAllowed ? `schoolSetupData:${schoolId}` : null,
     () => getSchoolSetupData(schoolId),
@@ -52,12 +66,16 @@ export default function SchoolAdminPage() {
   // Single authoritative source of truth for enrolled students:
   // Strictly matches /admin/students (excluding deleted and archived)
   const resolvedStudentCount =
-    typeof cachedSetupData?.students?.length === "number"
+    Array.isArray(cachedStudents)
+      ? cachedStudents.filter((s) => s.status !== "deleted" && s.status !== "archived").length
+      : typeof cachedSetupData?.students?.length === "number"
       ? cachedSetupData.students.length
       : liveCounts.students || 0;
 
   const resolvedTeacherCount =
-    typeof cachedSetupData?.teachers?.length === "number"
+    Array.isArray(cachedTeachers)
+      ? cachedTeachers.filter((t) => t.status !== "deleted" && t.status !== "archived").length
+      : typeof cachedSetupData?.teachers?.length === "number"
       ? cachedSetupData.teachers.length
       : liveCounts.teachers || 0;
 

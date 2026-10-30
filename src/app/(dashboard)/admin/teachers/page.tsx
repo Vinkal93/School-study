@@ -50,11 +50,13 @@ import { toast } from "sonner";
 
 import { useEntitlement } from "@/context/EntitlementContext";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
+import { useConfirm } from "@/components/common/ConfirmationContext";
 
 export default function AdminTeachersPage() {
   const { profile } = useAuth();
   const schoolId = profile?.schoolId || "";
   const { canAccess } = useEntitlement();
+  const { confirm: confirmDialog } = useConfirm();
   const isAllowed = profile?.role === "super_admin" || canAccess("teacher_management");
 
   // 1. SWR Queries with Stale-While-Revalidate caching
@@ -374,11 +376,13 @@ export default function AdminTeachersPage() {
   };
 
   const handleDeleteTeacher = async (teacher: TeacherProfile) => {
-    if (
-      confirm(
-        `Are you sure you want to delete teacher "${teacher.name}" (${teacher.teacherCode})? Attendance and academic records will be preserved in archive.`
-      )
-    ) {
+    const ok = await confirmDialog({
+      title: "Delete Teacher",
+      message: `Are you sure you want to delete teacher "${teacher.name}" (${teacher.teacherCode})? Attendance and academic records will be preserved in archive.`,
+      confirmLabel: "Delete Teacher",
+      confirmVariant: "danger",
+    });
+    if (!ok) return;
       try {
         await deleteTeacher(schoolId, teacher.id, teacher.userId);
         setTeachersCache((prev) =>
@@ -394,7 +398,6 @@ export default function AdminTeachersPage() {
       } catch (err: any) {
         toast.error(err.message || "Failed to delete teacher.");
       }
-    }
   };
 
   const handleRestoreTeacher = async (teacher: TeacherProfile) => {

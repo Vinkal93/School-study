@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { traceClient } from "@/lib/debug-client";
+import { toast } from "sonner";
 
 // Speech Recognition type declarations (not in standard DOM lib)
 interface SpeechRecognition extends EventTarget {
@@ -339,9 +340,7 @@ export function AiWorkspace({
       ).webkitSpeechRecognition;
 
     if (!SpeechRecognitionConstructor) {
-      alert(
-        "Speech Recognition is not supported in this browser. Please use Chrome or Edge."
-      );
+      toast.error("Speech Recognition is not supported in this browser. Please use Chrome or Edge.");
       return;
     }
 

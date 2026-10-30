@@ -49,9 +49,11 @@ import type {
   TargetAudience,
 } from "@/types/offerPromotion";
 import { toast } from "sonner";
+import { useConfirm } from "@/components/common/ConfirmationContext";
 import { useSearchParams } from "next/navigation";
 
 export default function SuperAdminOffersPage() {
+  const { prompt: promptDialog } = useConfirm();
   const { profile } = useAuth();
   const searchParams = useSearchParams();
   const urlCreate = searchParams?.get("create") === "true";
@@ -385,7 +387,12 @@ export default function SuperAdminOffersPage() {
 
   // Duplicate Offer
   const handleDuplicate = async (offer: OfferPromotion) => {
-    const newCode = prompt(`Enter new coupon code for cloned offer:`, `${offer.code}_COPY`);
+    const newCode = await promptDialog({
+      title: "Duplicate Offer",
+      message: "Enter new coupon code for cloned offer:",
+      defaultValue: `${offer.code}_COPY`,
+      confirmLabel: "Clone Offer",
+    });
     if (!newCode) return;
 
     try {
