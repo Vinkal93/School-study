@@ -679,9 +679,23 @@ export async function restoreStudent(
   if (effectiveUserId) {
     await updateDoc(doc(db, COLLECTIONS.USERS, effectiveUserId), {
       status: "active",
+      deletedAt: null,
+      statusChangeReason: "Administrative restore",
       updatedAt: serverTimestamp(),
-    }).catch(() => {});
-  }
+    }).catch(() => {}),
+    updateDoc(rootStudentDocRef, {
+      status: "active",
+      deletedAt: null,
+      statusChangeReason: "Administrative restore",
+      updatedAt: serverTimestamp(),
+    }).catch(() => {}),
+    userDocRef
+      ? updateDoc(userDocRef, {
+          status: "active",
+          updatedAt: serverTimestamp(),
+        }).catch(() => {})
+      : Promise.resolve(),
+  ]);
 
   await incrementSchoolUsage(schoolId, "students", 1);
 }
