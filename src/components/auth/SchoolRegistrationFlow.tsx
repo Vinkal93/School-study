@@ -74,6 +74,8 @@ export function SchoolRegistrationFlow() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return;
+    setAdminConfigError(false);
     setIsLoading(true);
 
     try {
@@ -144,15 +146,17 @@ export function SchoolRegistrationFlow() {
         window.location.href = redirectUrl;
       }, 1500);
     } catch (err: any) {
-      console.error("Registration failed:", err);
       let errorMsg = err?.message || "Failed to register school. Please try again.";
       if (errorMsg.includes("already registered")) {
         errorMsg = "This email is already registered. Please sign in or use a different email.";
       } else if (errorMsg.includes("Missing or insufficient permissions") || errorMsg.includes("permission-denied")) {
         errorMsg = "Account setup permission error. If this email was used in a previous attempt, please choose a different email or sign in.";
-      } else if (errorMsg.includes("Firebase Admin configuration") || errorMsg.includes("ADMIN_AUTH_NOT_CONFIGURED")) {
-        errorMsg = "School registration requires server Firebase Admin credentials. Please configure FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY in .env.local on localhost or in your hosting server.";
+      } else if (err?.code === "ADMIN_AUTH_NOT_CONFIGURED") {
+        errorMsg = "School registration is temporarily unavailable. Please try again later or contact support.";
         setAdminConfigError(true);
+      }
+      if (err?.referenceCode) {
+        errorMsg += ' (Ref: ' + err.referenceCode + ')';
       }
       toast.error(errorMsg);
     } finally {
@@ -202,16 +206,11 @@ export function SchoolRegistrationFlow() {
         </div>
 
         {adminConfigError && (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/40 p-4 text-xs text-amber-900 dark:text-amber-200">
-          <p className="font-bold text-sm text-amber-800 dark:text-amber-300">Server Configuration Required</p>
-          <p className="mt-1">
-            School registration requires server-side Firebase Admin credentials to provision administrative accounts.
-          </p>
-          <p className="mt-1.5 font-medium">
-            <strong>On localhost:</strong> Configure <code className="bg-amber-100 dark:bg-amber-900/60 px-1 py-0.5 rounded font-mono">FIREBASE_CLIENT_EMAIL</code> and <code className="bg-amber-100 dark:bg-amber-900/60 px-1 py-0.5 rounded font-mono">FIREBASE_PRIVATE_KEY</code> in <code className="bg-amber-100 dark:bg-amber-900/60 px-1 py-0.5 rounded font-mono">.env.local</code>.
-          </p>
-        </div>
-      )}
+          <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/40 p-4 text-xs text-amber-900 dark:text-amber-200">
+            <p className="font-bold text-sm text-amber-800 dark:text-amber-300">Registration temporarily unavailable</p>
+            <p className="mt-1">Your details are still here. Please try again later or contact support with the reference shown in the error message.</p>
+          </div>
+        )}
       <form onSubmit={handleSubmit} className="space-y-4">
           {/* ==========================================
               STEP 1: School & Admin Profile

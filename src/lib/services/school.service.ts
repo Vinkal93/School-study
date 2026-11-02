@@ -57,26 +57,36 @@ export async function createSchoolWithAdmin(
     return { schoolId: data.schoolId, adminUid: data.adminUid };
   }
 
+  const refCode = data?.referenceCode || data?.error?.referenceCode;
+
   // If validation error (400) or duplicate conflict (409), throw server message directly
   if (res.status === 400 || res.status === 409) {
     const msg =
       (typeof data.error === "object" ? data.error?.message : data.error) ||
       "Registration validation error.";
-    throw new Error(msg);
+    const err = new Error(msg);
+    if (refCode) (err as any).referenceCode = refCode;
+    throw err;
   }
 
   // If server admin credentials are not configured (503)
-  if (res.status === 503 || data.code === "ADMIN_AUTH_NOT_CONFIGURED") {
-    throw new Error(
-      "School registration requires private Firebase Admin configuration. Please configure FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY in .env.local on localhost or in your hosting provider settings."
+  const errorCode = data?.error?.code || data?.code;
+  if (errorCode === "ADMIN_AUTH_NOT_CONFIGURED") {
+    const err = new Error(
+      "School registration is temporarily unavailable. Please try again later or contact support."
     );
+    (err as Error & { code: string }).code = errorCode;
+    if (refCode) (err as any).referenceCode = refCode;
+    throw err;
   }
 
   const errorMsg =
     (typeof data.error === "object" ? data.error?.message : data.error) ||
     data.message ||
     "Failed to register school. Please verify your connection and try again.";
-  throw new Error(errorMsg);
+  const genericErr = new Error(errorMsg);
+  if (refCode) (genericErr as any).referenceCode = refCode;
+  throw genericErr;
 }
 
 /**

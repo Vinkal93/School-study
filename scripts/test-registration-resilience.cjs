@@ -154,7 +154,34 @@ function seedFreePlan() {
 
 (async function runTests() {
   let passed = 0;
-  let totalTests = 13;
+  let totalTests = 14;
+
+  // Client error classification must preserve transient failures and support references.
+  try {
+    const service = ts.transpileModule(fs.readFileSync("src/lib/services/school.service.ts", "utf8"), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    async function checkFailure(body) {
+      const exports = {};
+      vm.runInNewContext(service, {
+        exports, require: () => ({}), window: {},
+        fetch: async () => ({ ok: false, status: 503, json: async () => body }),
+      });
+      try { await exports.createSchoolWithAdmin({}); }
+      catch (error) { return error; }
+      throw new Error("Expected registration to fail");
+    }
+    const config = await checkFailure({ error: { code: "ADMIN_AUTH_NOT_CONFIGURED", referenceCode: "ERR-TEST" } });
+    assert.strictEqual(config.code, "ADMIN_AUTH_NOT_CONFIGURED");
+    assert.strictEqual(config.referenceCode, "ERR-TEST");
+    assert.ok(!/FIREBASE_|env.local/.test(config.message));
+    const transient = await checkFailure({ error: { code: "TEMPORARILY_UNAVAILABLE", message: "Please retry shortly.", referenceCode: "ERR-RETRY" } });
+    assert.strictEqual(transient.message, "Please retry shortly.");
+    assert.notStrictEqual(transient.code, "ADMIN_AUTH_NOT_CONFIGURED");
+    assert.strictEqual(transient.referenceCode, "ERR-RETRY");
+    console.log("  [PASS] Client distinguishes missing configuration from transient 503 responses");
+    passed++;
+  } catch (error) { console.error("  [FAIL] Client registration errors:", error); }
 
   // Test 1: Private key normalization helper
   try {

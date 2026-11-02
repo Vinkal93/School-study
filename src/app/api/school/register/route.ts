@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSafeAdminDb, getSafeAdminAuth, getFirebaseAdminDiagnostics } from "@/lib/firebase/admin";
+import { captureApiException } from "@/lib/monitoring";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,6 +63,25 @@ export async function POST(request: Request) {
       adminAppStatus: diagnostics.adminAppStatus,
     });
 
+    const { referenceCode } = await captureApiException(
+      new Error("Firebase Admin SDK is not configured for registration."),
+      request,
+      {
+        errorCode: "ADMIN_AUTH_NOT_CONFIGURED",
+        module: "school-registration",
+        operation: "admin_init",
+        severity: "critical",
+        category: "system",
+        httpStatus: 503,
+        metadata: {
+          environmentScope: diagnostics.environmentScope,
+          detectedSource: diagnostics.detectedSource,
+          hasClientEmail: diagnostics.variables.hasClientEmail,
+          hasPrivateKey: diagnostics.variables.hasPrivateKey,
+        },
+      }
+    );
+
     // STRICT SECURITY: Never expose internal server diagnostic data, email strings, or secrets in public payload
     return NextResponse.json(
       {
@@ -69,11 +89,13 @@ export async function POST(request: Request) {
         error: {
           code: "ADMIN_AUTH_NOT_CONFIGURED",
           message:
-            "School registration requires private Firebase Admin configuration. Please configure FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY.",
+            "School registration is temporarily unavailable. Please try again later or contact support.",
           requestId,
+          referenceCode,
           retryable: false,
         },
         code: "ADMIN_AUTH_NOT_CONFIGURED",
+        referenceCode,
       },
       { status: 503 }
     );
@@ -364,6 +386,15 @@ export async function POST(request: Request) {
       ? `School code is already registered. Please choose a different code.`
       : "Registration could not be completed at this time. Please try again.";
 
+    const { referenceCode } = await captureApiException(error, request, {
+      errorCode: isConflict ? "CODE_ALREADY_EXISTS" : "REGISTRATION_FAILED",
+      module: "school-registration",
+      operation: "register_school",
+      severity: isConflict ? "medium" : "high",
+      category: "api",
+      httpStatus: isConflict ? 409 : 503,
+    });
+
     return NextResponse.json(
       {
         success: false,
@@ -371,9 +402,11 @@ export async function POST(request: Request) {
           code: isConflict ? "CODE_ALREADY_EXISTS" : "REGISTRATION_FAILED",
           message: safeMessage,
           requestId,
+          referenceCode,
           retryable: !isConflict,
         },
         code: isConflict ? "CODE_ALREADY_EXISTS" : "REGISTRATION_FAILED",
+        referenceCode,
       },
       { status: isConflict ? 409 : 503 }
     );

@@ -43,10 +43,16 @@ export interface FirebaseAdminDiagnostics {
 
 let parsedServiceAccount: ServiceAccountCredentials | null | undefined = undefined;
 let _adminApp: App | null = null;
+let _lastInitError: string | null = null;
 
 export function resetAdminAppCache(): void {
   parsedServiceAccount = undefined;
   _adminApp = null;
+  _lastInitError = null;
+}
+
+export function getLastAdminInitError(): string | null {
+  return _lastInitError;
 }
 
 export function cleanEnvString(val?: string | null): string {
@@ -63,11 +69,30 @@ export function cleanEnvString(val?: string | null): string {
 }
 
 /**
+ * Repairs PEM strings where line breaks were collapsed into spaces or irregular chunks.
+ * Strips whitespace inside the payload and re-chunks into standard RFC 7468 64-character lines.
+ */
+export function repairSpaceCollapsedPem(rawKey: string): string {
+  if (!rawKey) return "";
+  const match = rawKey.match(/(-----BEGIN[ A-Z0-9_-]+PRIVATE KEY-----)([\s\S]+?)(-----END[ A-Z0-9_-]+PRIVATE KEY-----)/);
+  if (!match) return rawKey;
+  const header = match[1];
+  const body = match[2];
+  const footer = match[3];
+
+  const cleanBody = body.replace(/[\s\r\n]+/g, "");
+  if (!cleanBody) return rawKey;
+  const chunkedBody = cleanBody.match(/.{1,64}/g)?.join("\n") || cleanBody;
+  return `${header}\n${chunkedBody}\n${footer}\n`;
+}
+
+/**
  * Normalizes a raw PEM private key string:
  * - Unwraps outer and escaped quotes
  * - Replaces escaped newlines (\\n, \r\n, \n)
  * - Auto-extracts from JSON if full service account was pasted into variable
  * - Decodes Base64 if needed
+ * - Safely repairs space-collapsed PEM bodies
  * - Safely extracts standard PEM block
  * - Ensures valid trailing newline
  */
@@ -132,6 +157,11 @@ export function normalizePrivateKey(rawKey: string): string {
   const pemMatch = key.match(/(-----BEGIN[ A-Z0-9_-]+PRIVATE KEY-----[\s\S]+?-----END[ A-Z0-9_-]+PRIVATE KEY-----)/);
   if (pemMatch && pemMatch[1]) {
     key = pemMatch[1].trim();
+  }
+
+  // Repair space-collapsed PEMs (e.g. pasted into cloud env vars where newlines became spaces)
+  if (key.includes("BEGIN") && key.includes("END")) {
+    key = repairSpaceCollapsedPem(key);
   }
 
   // Remove trailing semicolons or commas again
@@ -363,7 +393,8 @@ export function getAdminApp(): App | null {
     // Strictly DO NOT initialize an unauthenticated app without credentials.
     // Return null so callers know Admin is not configured and getApps() is never poisoned.
     return null;
-  } catch (e) {
+  } catch (e: any) {
+    _lastInitError = e?.message || String(e);
     console.warn("Notice: Failed to initialize Firebase Admin App:", e);
     return null;
   }
