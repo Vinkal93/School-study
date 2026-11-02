@@ -1410,11 +1410,45 @@ export async function updatePlan(
   await runTransaction(db, async tx => {
     const latest = await tx.get(planRef);
     const latestVersion = await tx.get(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, currentVersion.id));
-    if (!latest.exists() || !latestVersion.exists() || latest.data().version !== currentPlan.version || latest.data().updatedAt !== currentPlan.updatedAt || latestVersion.data().status !== "ACTIVE") {
+
+    if (!latest.exists()) {
+      throw new Error(`Plan "${planId}" not found.`);
+    }
+
+    const latestData = latest.data() || {};
+    const latestVer = latestData.version || 1;
+    const currentVer = currentPlan.version || 1;
+
+    const normalizeTs = (ts: any) => {
+      if (!ts) return "";
+      if (typeof ts?.toMillis === "function") return ts.toMillis();
+      if (typeof ts?.getTime === "function") return ts.getTime();
+      if (typeof ts === "object" && typeof ts.seconds === "number") {
+        return ts.seconds * 1000 + Math.floor((ts.nanoseconds || 0) / 1e6);
+      }
+      return String(ts);
+    };
+
+    const isVersionChanged = latestVer !== currentVer;
+    const isUpdatedChanged =
+      Boolean(latestData.updatedAt && currentPlan.updatedAt) &&
+      normalizeTs(latestData.updatedAt) !== normalizeTs(currentPlan.updatedAt);
+    const isVersionInactive = latestVersion.exists() && latestVersion.data()?.status !== "ACTIVE";
+
+    if (isVersionChanged || isUpdatedChanged || isVersionInactive) {
       throw new Error("This plan changed while editing. Reload before saving.");
     }
+
     if (pendingVersion) {
-      tx.update(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, currentVersion.id), { status: "ARCHIVED", effectiveUntil: nowIso });
+      if (latestVersion.exists()) {
+        tx.update(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, currentVersion.id), { status: "ARCHIVED", effectiveUntil: nowIso });
+      } else {
+        tx.set(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, currentVersion.id), {
+          ...currentVersion,
+          status: "ARCHIVED",
+          effectiveUntil: nowIso,
+        });
+      }
       tx.set(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, pendingVersion.id), pendingVersion);
     }
     tx.update(planRef, updatedPlanData);
@@ -1430,6 +1464,14 @@ export async function updatePlan(
       const adminDb = getSafeAdminDb();
       if (adminDb) {
         await adminDb.collection(BILLING_COLLECTIONS.PLANS).doc(planId).set(updatedPlanData, { merge: true });
+        if (pendingVersion) {
+          await adminDb.collection(BILLING_COLLECTIONS.PLAN_VERSIONS).doc(pendingVersion.id).set(pendingVersion);
+          await adminDb.collection(BILLING_COLLECTIONS.PLAN_VERSIONS).doc(currentVersion.id).set({
+            ...currentVersion,
+            status: "ARCHIVED",
+            effectiveUntil: nowIso,
+          }, { merge: true });
+        }
       }
     } catch (adminErr) {
       console.warn("adminDb plan update notice:", adminErr);

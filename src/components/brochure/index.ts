@@ -1,0 +1,15 @@
+export { BrochureDownloadButton } from "./BrochureDownloadButton";
+export { BrochureTableOfContents } from "./BrochureTableOfContents";
+export { BrochureHero } from "./BrochureHero";
+export { ProblemSolutionSection } from "./ProblemSolutionSection";
+export { PlatformOverviewSection } from "./PlatformOverviewSection";
+export { StudentAdmissionSection } from "./StudentAdmissionSection";
+export { SmartFeesSection } from "./SmartFeesSection";
+export { AttendanceSection } from "./AttendanceSection";
+export { AcademicExamSection } from "./AcademicExamSection";
+export { CommunicationSection } from "./CommunicationSection";
+export { ReportsAnalyticsSection } from "./ReportsAnalyticsSection";
+export { RolesSecuritySection } from "./RolesSecuritySection";
+export { WhySchoolStudySection } from "./WhySchoolStudySection";
+export { BrochureFinalCTA } from "./BrochureFinalCTA";
+export { BrochurePrintView } from "./BrochurePrintView";
