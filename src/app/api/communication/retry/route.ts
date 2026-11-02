@@ -1,17 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSafeAdminDb } from "@/lib/firebase/admin";
-import { getFirebaseDb } from "@/lib/firebase/client";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { dispatchCommunicationMessage } from "@/lib/services/communication.service";
+import { requireSchoolAdmin } from "@/lib/auth/serverAuth";
 import type { CommunicationLogEntry } from "@/types/communication";
 
 export async function POST(req: NextRequest) {
   try {
-    const { logId, schoolId, triggeredBy } = await req.json();
+    const { logId, schoolId } = await req.json().catch(() => ({}));
 
     if (!logId || !schoolId) {
       return NextResponse.json({ success: false, error: "Missing logId or schoolId" }, { status: 400 });
     }
+
+    const authResult = await requireSchoolAdmin(req, schoolId);
+    if (authResult.errorResponse) {
+      return authResult.errorResponse;
+    }
+
+    const authUser = authResult.user!;
+    const triggeredBy = {
+      uid: authUser.uid,
+      name: authUser.name || "School Administration",
+      role: authUser.role,
+    };
 
     let existingLog: CommunicationLogEntry | null = null;
     const adminDb = getSafeAdminDb();
@@ -19,12 +30,6 @@ export async function POST(req: NextRequest) {
     if (adminDb) {
       const snap = await adminDb.collection("schools").doc(schoolId).collection("communication_logs").doc(logId).get();
       if (snap.exists) existingLog = snap.data() as CommunicationLogEntry;
-    } else {
-      const db = getFirebaseDb();
-      if (db) {
-        const snap = await getDoc(doc(db, "schools", schoolId, "communication_logs", logId));
-        if (snap.exists()) existingLog = snap.data() as CommunicationLogEntry;
-      }
     }
 
     if (!existingLog) {
@@ -48,11 +53,7 @@ export async function POST(req: NextRequest) {
         content: existingLog.content,
         triggerType: existingLog.triggerType,
       },
-      triggeredBy || {
-        uid: "system_retry",
-        name: "Admin Retry Action",
-        role: "admin",
-      }
+      triggeredBy
     );
 
     return NextResponse.json({

@@ -1,10 +1,11 @@
 import { NextResponse, NextRequest } from "next/server";
-import { authenticateRequest } from "@/lib/auth/serverAuth";
+import { requireFeeAccess as authenticateRequest } from "@/lib/fees/server-access";
 import { processPaymentReversal } from "@/lib/services/fee-foundation.service";
 
 export async function POST(request: NextRequest) {
   try {
     const authResult = await authenticateRequest(request);
+    if (!authResult.isAuthenticated || !authResult.user) return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (!authResult.isAuthenticated || !authResult.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { schoolId: clientSchoolId, paymentId, reason } = body;
+    const { schoolId: clientSchoolId, paymentId, reason, idempotencyKey } = body;
 
     const targetSchoolId =
       authResult.user.role === "super_admin"
@@ -35,6 +36,7 @@ export async function POST(request: NextRequest) {
     const result = await processPaymentReversal(targetSchoolId, {
       paymentId,
       reason,
+      idempotencyKey,
       actorId: authResult.user.uid,
       actorName: authResult.user.name || authResult.user.email || "Staff Admin",
     });

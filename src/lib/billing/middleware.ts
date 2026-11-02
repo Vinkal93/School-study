@@ -16,7 +16,7 @@ export interface EntitlementRequirementOptions {
  */
 export async function requireEntitlement(
   schoolId: string,
-  options: EntitlementRequirementOptions & { userId?: string; userRole?: string; httpMethod?: string } = {}
+  options: EntitlementRequirementOptions & { userId?: string; userRole?: string; httpMethod?: string; userToken?: string } = {}
 ) {
   if (!schoolId) {
     const error: any = new Error("Unauthorized: School ID is required.");
@@ -55,7 +55,7 @@ export async function requireEntitlement(
   }
 
   // 3. Return effective entitlement state
-  return await getEffectiveEntitlement(schoolId);
+  return await getEffectiveEntitlement(schoolId, options.userToken);
 }
 
 /**

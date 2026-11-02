@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import React, { createContext, useContext, useEffect, useState, useRef, type ReactNode } from "react";
 import { doc, onSnapshot, collection, query, where } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -93,7 +93,13 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
   const { profile } = useAuth();
   const schoolId = profile?.schoolId || "";
   const role = profile?.role;
+  const isSuper = role === "super_admin";
+  const hasValidSchool = Boolean(schoolId && schoolId !== "system" && !isSuper);
 
+  const activeSchool = useRef(schoolId);
+  activeSchool.current = schoolId;
+  const requestSequence = useRef(0);
+  const [resolvedSchool, setResolvedSchool] = useState("");
   const [entitlement, setEntitlement] = useState<EffectiveEntitlement | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [globalFeatureStates, setGlobalFeatureStates] = useState<Record<string, GlobalFeatureState>>({});
@@ -101,7 +107,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
 
   const fetchEffectiveFeatures = async () => {
     try {
-      const url = schoolId
+      const url = hasValidSchool
         ? `/api/features/effective?schoolId=${encodeURIComponent(schoolId)}`
         : `/api/features/effective`;
       const res = await fetch(url);
@@ -120,7 +126,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
             });
           }
           if (Object.keys(states).length > 0) {
-            setGlobalFeatureStates((prev) => ({ ...prev, ...states }));
+            if (activeSchool.current === schoolId) setGlobalFeatureStates(states);
           }
           if (Array.isArray(data.overrides)) {
             setSchoolFeatureOverrides(data.overrides);
@@ -133,31 +139,36 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
   };
 
   const fetchEntitlement = async () => {
-    if (!schoolId) {
+    if (!hasValidSchool) {
       setLoading(false);
       return;
     }
 
+    const requestId = ++requestSequence.current;
     try {
       // CRITICAL: Clear stale in-memory subscription cache before re-fetching
       // Without this, plan changes from Super Admin are invisible to school admins
       clearSubscriptionCache(schoolId);
       const data = await getEffectiveEntitlement(schoolId);
+      if (activeSchool.current !== schoolId || requestId !== requestSequence.current) return;
       setEntitlement(data);
-      fetchEffectiveFeatures();
+      setResolvedSchool(schoolId);
     } catch (err) {
       console.warn("Failed to fetch effective entitlement:", err);
     } finally {
-      setLoading(false);
+      if (activeSchool.current === schoolId && requestId === requestSequence.current) setLoading(false);
     }
   };
 
   useEffect(() => {
+    setLoading(true);
+    setGlobalFeatureStates({});
+    setSchoolFeatureOverrides([]);
     // Initial fetch of authoritative feature states & overrides
     fetchEffectiveFeatures();
 
     const db = getFirebaseDb();
-    if (!db) return;
+    if (!db) { setLoading(false); return; }
 
     // Real-time listener on siteSettings/feature_controls for instant global toggle updates
     const featureControlsRef = doc(db, "siteSettings", "feature_controls");
@@ -199,8 +210,8 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       }
     );
 
-    // If no schoolId, still keep global listener
-    if (!schoolId) {
+    // Super admins and users without a valid school do not have a school subscription or school-level entitlement
+    if (!hasValidSchool) {
       setLoading(false);
       return () => unsubscribeFeatures();
     }
@@ -214,23 +225,6 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       subRef,
       (snap) => {
         clearSubscriptionCache(schoolId);
-        if (snap.exists()) {
-          const subData = snap.data();
-          const rawPlan = subData?.planId || "plan_starter";
-          let normalizedPlan = rawPlan.toLowerCase().trim();
-          if (!normalizedPlan.startsWith("plan_")) normalizedPlan = `plan_${normalizedPlan}`;
-
-          // Seed memory cache immediately with authoritative snapshot
-          const g = globalThis as any;
-          if (!g.__BILLING_SUBSCRIPTIONS_MAP__) g.__BILLING_SUBSCRIPTIONS_MAP__ = new Map();
-          g.__BILLING_SUBSCRIPTIONS_MAP__.set(schoolId, {
-            ...subData,
-            id: schoolId,
-            schoolId,
-            planId: normalizedPlan,
-            status: subData?.status || "ACTIVE",
-          });
-        }
         appQueryClient.invalidateCache(`schoolProfile:${schoolId}`);
         appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
         appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
@@ -249,23 +243,6 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       schoolRef,
       (snap) => {
         clearSubscriptionCache(schoolId);
-        if (snap.exists()) {
-          const sData = snap.data();
-          const rawPlan = sData?.planId || sData?.plan || "plan_starter";
-          let normalizedPlan = rawPlan.toLowerCase().trim();
-          if (!normalizedPlan.startsWith("plan_")) normalizedPlan = `plan_${normalizedPlan}`;
-
-          const g = globalThis as any;
-          if (!g.__BILLING_SUBSCRIPTIONS_MAP__) g.__BILLING_SUBSCRIPTIONS_MAP__ = new Map();
-          const existing = g.__BILLING_SUBSCRIPTIONS_MAP__.get(schoolId) || {};
-          g.__BILLING_SUBSCRIPTIONS_MAP__.set(schoolId, {
-            ...existing,
-            id: schoolId,
-            schoolId,
-            planId: normalizedPlan,
-            status: sData?.subscriptionStatus || existing?.status || "ACTIVE",
-          });
-        }
         appQueryClient.invalidateCache(`schoolProfile:${schoolId}`);
         appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
         appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
@@ -383,7 +360,10 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       window.addEventListener("storage", handleStorageEvent);
     }
 
+    const expiryTimer = setInterval(() => fetchEntitlement(), 30_000);
     return () => {
+      clearInterval(expiryTimer);
+      ++requestSequence.current;
       unsubscribeFeatures();
       unsubscribeSub();
       unsubscribeSchool();
@@ -395,7 +375,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
         window.removeEventListener("storage", handleStorageEvent);
       }
     };
-  }, [schoolId]);
+  }, [schoolId, role]);
 
   const findSchoolOverride = (key: string): SchoolFeatureOverride | undefined => {
     if (!schoolId || !schoolFeatureOverrides.length) return undefined;
@@ -468,6 +448,11 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       return true;
     }
 
+    if (loading || resolvedSchool !== schoolId || !entitlement) return false;
+    if (entitlement.accessMode === "NO_ACCESS" || entitlement.subscriptionStatus === "SUSPENDED" || entitlement.subscriptionStatus === "CANCELLED") return false;
+    if ((entitlement.accessMode === "RESTRICTED_ACCESS" || entitlement.accessMode === "GRACE_ACCESS") &&
+        entitlement.featureAccessModes?.[canonical] !== "FULL_ACCESS") return false;
+
     // 1. SUPER ADMIN EXPLICIT SCHOOL OVERRIDES (Highest Tenant-Level Priority)
     // If Super Admin granted this school access via an override, grant access immediately!
     const explicitOverride = findSchoolOverride(featureKey);
@@ -481,7 +466,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     }
 
     // Fail-closed while loading or if not authenticated with a school
-    if (loading || !entitlement) {
+    if (loading || resolvedSchool !== schoolId || !entitlement) {
       return false;
     }
 
@@ -530,7 +515,6 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
 
     // 5. Base Entitlement checks
     if (!entitlement) return true; // Default fallback while loading
-    if (entitlement.accessMode === "NO_ACCESS") return false;
     if (isFullControlOverride) return true;
 
     if (entitlement.features[canonical] !== undefined) {
@@ -567,6 +551,11 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       return "FULL_ACCESS";
     }
 
+    if (loading || resolvedSchool !== schoolId || !entitlement) return "HIDDEN";
+    if (entitlement.accessMode === "NO_ACCESS" || entitlement.subscriptionStatus === "SUSPENDED" || entitlement.subscriptionStatus === "CANCELLED") return "HIDDEN";
+    if ((entitlement.accessMode === "RESTRICTED_ACCESS" || entitlement.accessMode === "GRACE_ACCESS") &&
+        entitlement.featureAccessModes?.[canonical] !== "FULL_ACCESS") return "HIDDEN";
+
     // 1. SUPER ADMIN EXPLICIT SCHOOL OVERRIDES
     const explicitOverride = findSchoolOverride(featureKey);
     if (explicitOverride) {
@@ -579,7 +568,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     }
 
     // Fail-closed while loading or if not authenticated with a school
-    if (loading || !entitlement) {
+    if (loading || resolvedSchool !== schoolId || !entitlement) {
       return "HIDDEN";
     }
 
@@ -672,7 +661,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       return isIncluded ? "FULL_ACCESS" : "HIDDEN";
     }
 
-    return "FULL_ACCESS";
+    return "HIDDEN";
   };
 
   const getRequiredPlanForFeature = (featureKey: string): string => {
@@ -692,15 +681,15 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     <EntitlementContext.Provider
       value={{
         entitlement,
-        loading,
-        accessMode: entitlement?.accessMode || "FULL_ACCESS",
-        canAccess,
-        canAccessFeature: canAccess,
-        canAccessAction: canAccess,
-        getFeatureAccessMode,
-        getCapabilityAccessMode: getFeatureAccessMode,
-        getRequiredPlanForFeature,
-        getRequiredPlanForCapability: getRequiredPlanForFeature,
+        loading: isSuper ? false : (loading || resolvedSchool !== schoolId),
+        accessMode: isSuper ? "FULL_ACCESS" : (entitlement?.accessMode || "NO_ACCESS"),
+        canAccess: (key: string) => (isSuper ? true : canAccess(key)),
+        canAccessFeature: (key: string) => (isSuper ? true : canAccess(key)),
+        canAccessAction: (key: string) => (isSuper ? true : canAccess(key)),
+        getFeatureAccessMode: (key: string) => (isSuper ? "FULL_ACCESS" : getFeatureAccessMode(key)),
+        getCapabilityAccessMode: (key: string) => (isSuper ? "FULL_ACCESS" : getFeatureAccessMode(key)),
+        getRequiredPlanForFeature: (key: string) => (isSuper ? "Included" : getRequiredPlanForFeature(key)),
+        getRequiredPlanForCapability: (key: string) => (isSuper ? "Included" : getRequiredPlanForFeature(key)),
         refreshEntitlement: fetchEntitlement,
         globalFeatureStates,
         schoolFeatureOverrides,

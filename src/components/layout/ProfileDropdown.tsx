@@ -34,8 +34,10 @@ export function ProfileDropdown({ school }: ProfileDropdownProps) {
   const { profile, firebaseUser, signOut } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const triggerButtonRef = useRef<HTMLButtonElement>(null);
   const router = useRouter();
 
   // Close on outside click and Escape key
@@ -163,6 +165,7 @@ export function ProfileDropdown({ school }: ProfileDropdownProps) {
           TRIGGER BUTTON
       ========================================== */}
       <button
+        ref={triggerButtonRef}
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
         aria-expanded={isOpen}
@@ -369,23 +372,22 @@ export function ProfileDropdown({ school }: ProfileDropdownProps) {
             </button>
           </div>
 
-          {/* Sign Out Button with Confirmation Modal */}
+          {/* Sign Out Button (Closes dropdown immediately and triggers portaled modal) */}
           <div className="p-1.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30">
-            <LogoutConfirmDialog
-              onLogoutSuccess={() => setIsOpen(false)}
-              trigger={
-                <button
-                  type="button"
-                  className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <LogOut className="h-4 w-4" />
-                    <span>Sign Out</span>
-                  </div>
-                  <span className="text-[10px] text-rose-400 font-mono">ESC</span>
-                </button>
-              }
-            />
+            <button
+              type="button"
+              onClick={() => {
+                setIsOpen(false);
+                setShowLogoutModal(true);
+              }}
+              className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-2.5">
+                <LogOut className="h-4 w-4" />
+                <span>Sign Out</span>
+              </div>
+              <span className="text-[10px] text-rose-400 font-mono">ESC</span>
+            </button>
           </div>
         </div>
       )}
@@ -394,6 +396,18 @@ export function ProfileDropdown({ school }: ProfileDropdownProps) {
       <HelpCenterModal
         isOpen={showHelpModal}
         onClose={() => setShowHelpModal(false)}
+      />
+
+      {/* Global Portaled Logout Confirmation Modal */}
+      <LogoutConfirmDialog
+        isOpen={showLogoutModal}
+        onClose={() => {
+          setShowLogoutModal(false);
+          triggerButtonRef.current?.focus();
+        }}
+        onLogoutSuccess={() => {
+          setShowLogoutModal(false);
+        }}
       />
     </div>
   );

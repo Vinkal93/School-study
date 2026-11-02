@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, Trash2, Loader2, X, ShieldAlert, Archive, Check } from "lucide-react";
 
 export interface BulkDeleteStudentsModalProps {
@@ -34,6 +35,21 @@ export function BulkDeleteStudentsModal({
   const [isPermanent, setIsPermanent] = useState<boolean>(isArchivedView);
   const [confirmationInput, setConfirmationInput] = useState("");
 
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Lock body scroll
+  useEffect(() => {
+    if (!isOpen) return;
+    const origOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = origOverflow;
+    };
+  }, [isOpen]);
+
   // Reset confirmation input when modal opens/closes
   useEffect(() => {
     if (isOpen) {
@@ -52,7 +68,7 @@ export function BulkDeleteStudentsModal({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, isDeleting, onClose]);
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
   const isConfirmationSatisfied = !isLargeBatch || confirmationInput.trim().toUpperCase() === "DELETE";
 
@@ -61,9 +77,9 @@ export function BulkDeleteStudentsModal({
     await onConfirm(isPermanent);
   };
 
-  return (
+  const modal = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4 animate-in fade-in duration-150"
       onClick={() => {
         if (!isDeleting) onClose();
       }}
@@ -272,4 +288,6 @@ export function BulkDeleteStudentsModal({
       </div>
     </div>
   );
+
+  return typeof document !== "undefined" ? createPortal(modal, document.body) : null;
 }

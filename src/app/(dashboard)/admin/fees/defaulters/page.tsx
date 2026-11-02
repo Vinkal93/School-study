@@ -1,4 +1,7 @@
 "use client";
+import { useFeeSession } from "@/components/fees/FeeSessionProvider";
+
+import { feeFetch } from "@/lib/fees/client-request";
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
@@ -43,6 +46,7 @@ import { FeeFollowUpModal } from "@/components/fees/FeeFollowUpModal";
 import { toast } from "sonner";
 
 export default function AdminFeeDefaultersPage() {
+  const { academicYearId } = useFeeSession();
   const { profile } = useAuth();
   const effectiveSchoolId =
     profile?.schoolId ||
@@ -50,7 +54,7 @@ export default function AdminFeeDefaultersPage() {
       ? localStorage.getItem("currentSchoolId") || ""
       : "");
   const schoolId = effectiveSchoolId;
-  const schoolName = (profile as any)?.schoolName || "Lord Buddha Public School";
+  const schoolName = (profile as any)?.schoolName || "School";
 
   const [defaulters, setDefaulters] = useState<StudentFeeAssignment[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
@@ -84,12 +88,12 @@ export default function AdminFeeDefaultersPage() {
     setLoading(true);
     try {
       const [analyticsRes, legacyList, clsList] = await Promise.all([
-        fetch(
-          `/api/fees/foundation/analytics/defaulters?schoolId=${encodeURIComponent(schoolId)}&className=${encodeURIComponent(selectedClass)}`
+        feeFetch(
+          `/api/fees/foundation/analytics/defaulters?schoolId=${encodeURIComponent(schoolId)}&className=${encodeURIComponent(selectedClass)}&academicYearId=${encodeURIComponent(academicYearId)}`
         )
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
-        getDefaultersList(schoolId, selectedClass),
+        getDefaultersList(schoolId, selectedClass, academicYearId),
         getClassesWithSections(schoolId),
       ]);
 
@@ -97,6 +101,7 @@ export default function AdminFeeDefaultersPage() {
       if (!rawDefaulters || !Array.isArray(rawDefaulters) || rawDefaulters.length === 0) {
         try {
           const directDef = await getFeeDefaulters(schoolId, {
+            academicYearId,
             className: selectedClass !== "all" ? selectedClass : undefined,
           });
           if (directDef && directDef.defaulters.length > 0) {
@@ -116,7 +121,7 @@ export default function AdminFeeDefaultersPage() {
           admissionNumber: d.admissionNumber,
           className: d.className,
           sectionName: d.sectionName,
-          academicYearId: "ay_2026_27",
+          academicYearId,
           feeStructureId: "",
           feeStructureIds: [],
           frequency: "monthly",
@@ -157,7 +162,7 @@ export default function AdminFeeDefaultersPage() {
 
   useEffect(() => {
     fetchData();
-  }, [schoolId, selectedClass]);
+  }, [schoolId, selectedClass, academicYearId]);
 
   // Pure real defaulters mapping with zero mock fallback
   const displayDefaulters = useMemo(() => {
@@ -832,7 +837,7 @@ export default function AdminFeeDefaultersPage() {
                                       phone: d.phone,
                                       parentPhone: d.parentPhone,
                                       feeStructureIds: [],
-                                      academicYearId: "2026-2027",
+                                      academicYearId,
                                       schoolId,
                                       updatedAt: new Date().toISOString(),
                                     });

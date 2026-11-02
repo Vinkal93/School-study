@@ -1,5 +1,5 @@
 import { NextResponse, NextRequest } from "next/server";
-import { authenticateRequest } from "@/lib/auth/serverAuth";
+import { requireFeeAccess as authenticateRequest } from "@/lib/fees/server-access";
 import {
   getJournalEntries,
   syncPhase1to5JournalEntries,
@@ -9,6 +9,7 @@ import {
 export async function GET(request: NextRequest) {
   try {
     const authResult = await authenticateRequest(request);
+    if (!authResult.isAuthenticated || !authResult.user) return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { searchParams } = new URL(request.url);
     const clientSchoolId = searchParams.get("schoolId");
 
@@ -50,6 +51,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const authResult = await authenticateRequest(request);
+    if (!authResult.isAuthenticated || !authResult.user) return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const body = await request.json();
     const { schoolId: clientSchoolId, action, academicYearId = "ay_2026_27", entry } = body;
 
@@ -82,7 +84,13 @@ export async function POST(request: NextRequest) {
     // Action 2: Manual Journal Voucher Creation
     if (entry) {
       const created = await postJournalEntry(targetSchoolId, {
-        ...entry,
+        voucherType: entry.voucherType,
+        date: entry.date,
+        referenceType: "MANUAL",
+        referenceId: entry.referenceId || crypto.randomUUID(),
+        referenceNumber: entry.referenceNumber,
+        narration: entry.narration,
+        lines: entry.lines,
         academicYearId: entry.academicYearId || academicYearId,
         createdBy: actor.id,
         createdByName: actor.name,

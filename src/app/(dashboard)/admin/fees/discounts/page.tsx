@@ -1,6 +1,9 @@
 "use client";
+import { useFeeSession } from "@/components/fees/FeeSessionProvider";
 
-import { useEffect, useState, useMemo } from "react";
+import { feeFetch } from "@/lib/fees/client-request";
+
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
 import {
@@ -25,6 +28,7 @@ import { formatINR, paiseToRupees } from "@/lib/services/fee-foundation.service"
 import { toast } from "sonner";
 
 export default function AdminFeeDiscountsPage() {
+  const { academicYearId } = useFeeSession();
   const { profile } = useAuth();
   const effectiveSchoolId =
     profile?.schoolId ||
@@ -49,6 +53,8 @@ export default function AdminFeeDiscountsPage() {
   const [amountRupees, setAmountRupees] = useState("");
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const pending = useRef(false);
+  const requestKey = useRef<{ fingerprint: string; key: string } | null>(null);
 
   // History State
   const [adjustments, setAdjustments] = useState<FeeAdjustment[]>([]);
@@ -65,15 +71,15 @@ export default function AdminFeeDiscountsPage() {
         toast.error("Failed to load students list.");
       })
       .finally(() => setLoadingStudents(false));
-  }, [schoolId]);
+  }, [schoolId, academicYearId]);
 
   // 2. Fetch Adjustments History
   const fetchAdjustments = async () => {
     if (!schoolId) return;
     setLoadingAdjustments(true);
     try {
-      const res = await fetch(
-        `/api/fees/foundation/adjustments?schoolId=${encodeURIComponent(schoolId)}`
+      const res = await feeFetch(
+        `/api/fees/foundation/adjustments?schoolId=${encodeURIComponent(schoolId)}&academicYearId=${encodeURIComponent(academicYearId)}`
       );
       const data = await res.json();
       if (data.success) {
@@ -88,96 +94,21 @@ export default function AdminFeeDiscountsPage() {
 
   useEffect(() => {
     fetchAdjustments();
-  }, [schoolId]);
+  }, [schoolId, academicYearId]);
 
-  // 3. Fetch Student Demands when student changes
+  // Discounts always target a real invoice, never a synthetic legacy row.
   useEffect(() => {
-    if (!schoolId || !selectedStudent) {
-      setDemands([]);
-      setSelectedDemandId("");
-      return;
-    }
-
+    let cancelled = false;
+    setDemands([]); setSelectedDemandId("");
+    if (!schoolId || !selectedStudent) return;
     setLoadingDemands(true);
-    fetch(
-      `/api/fees/foundation/demands?schoolId=${encodeURIComponent(schoolId)}&studentId=${encodeURIComponent(selectedStudent.id)}&academicYearId=all`
-    )
-      .then((r) => r.json())
-      .then(async (data) => {
-        let unpaid = (data?.demands || []).filter(
-          (d: FeeDemand) => d.balanceAmountPaise > 0
-        );
-
-        if (unpaid.length === 0) {
-          const assign = await getStudentFeeAssignment(schoolId, selectedStudent.id).catch(() => null);
-          if (assign?.monthLedger && Array.isArray(assign.monthLedger)) {
-            unpaid = assign.monthLedger
-              .filter((m: any) => (m.pendingAmountPaise ?? m.amountPaise) > 0 && m.amountPaise > 0)
-              .map((m: any, idx: number) => ({
-                id: `${assign.id}_${idx}`,
-                demandNumber: `DEM-${(assign.admissionNumber || assign.id).slice(-4)}-${idx}`,
-                schoolId,
-                studentId: selectedStudent.id,
-                studentName: selectedStudent.name,
-                admissionNumber: selectedStudent.admissionNumber || selectedStudent.studentId,
-                className: selectedStudent.className,
-                sectionName: selectedStudent.sectionName || "A",
-                academicYearId: assign.academicYearId || "ay_2026_27",
-                period: m.month,
-                dueDate: m.dueDate,
-                grossAmountPaise: m.amountPaise,
-                netAmountPaise: m.amountPaise - (m.discountPaise || 0),
-                paidAmountPaise: m.paidAmountPaise || 0,
-                balanceAmountPaise: m.pendingAmountPaise ?? Math.max(0, m.amountPaise - (m.paidAmountPaise || 0)),
-                status: "PENDING",
-              } as any));
-          }
-        }
-
-        setDemands(unpaid);
-        if (unpaid.length > 0) {
-          setSelectedDemandId(unpaid[0].id);
-        } else {
-          setSelectedDemandId("");
-        }
-      })
-      .catch(async (err) => {
-        console.warn("Failed to fetch demands for student, fallback to studentFeeAssignment:", err);
-        try {
-          const assign = await getStudentFeeAssignment(schoolId, selectedStudent.id).catch(() => null);
-          if (assign?.monthLedger && Array.isArray(assign.monthLedger)) {
-            const unpaid = assign.monthLedger
-              .filter((m: any) => (m.pendingAmountPaise ?? m.amountPaise) > 0 && m.amountPaise > 0)
-              .map((m: any, idx: number) => ({
-                id: `${assign.id}_${idx}`,
-                demandNumber: `DEM-${(assign.admissionNumber || assign.id).slice(-4)}-${idx}`,
-                schoolId,
-                studentId: selectedStudent.id,
-                studentName: selectedStudent.name,
-                admissionNumber: selectedStudent.admissionNumber || selectedStudent.studentId,
-                className: selectedStudent.className,
-                sectionName: selectedStudent.sectionName || "A",
-                academicYearId: assign.academicYearId || "ay_2026_27",
-                period: m.month,
-                dueDate: m.dueDate,
-                grossAmountPaise: m.amountPaise,
-                netAmountPaise: m.amountPaise - (m.discountPaise || 0),
-                paidAmountPaise: m.paidAmountPaise || 0,
-                balanceAmountPaise: m.pendingAmountPaise ?? Math.max(0, m.amountPaise - (m.paidAmountPaise || 0)),
-                status: "PENDING",
-              } as any));
-            setDemands(unpaid);
-            if (unpaid.length > 0) {
-              setSelectedDemandId(unpaid[0].id);
-              return;
-            }
-          }
-        } catch (e) {}
-        setDemands([]);
-        setSelectedDemandId("");
-      })
-      .finally(() => setLoadingDemands(false));
-  }, [schoolId, selectedStudent]);
+    feeFetch(`/api/fees/foundation/demands?schoolId=${encodeURIComponent(schoolId)}&studentId=${encodeURIComponent(selectedStudent.id)}&academicYearId=${encodeURIComponent(academicYearId)}`)
+      .then(async response => { const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || "Invoices unavailable."); return data.demands as FeeDemand[]; })
+      .then(list => { if (cancelled) return; const unpaid = list.filter(d => d.status !== "CANCELLED" && d.balanceAmountPaise > 0); setDemands(unpaid); setSelectedDemandId(unpaid[0]?.id || ""); })
+      .catch(error => { if (!cancelled) toast.error(error.message); })
+      .finally(() => { if (!cancelled) setLoadingDemands(false); });
+    return () => { cancelled = true; };
+  }, [schoolId, selectedStudent, academicYearId]);
 
   // Filter students based on search
   const filteredStudents = useMemo(() => {
@@ -199,6 +130,7 @@ export default function AdminFeeDiscountsPage() {
 
   const handleApply = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (pending.current) return;
     if (!selectedStudent) {
       toast.error("Please search and select a student first.");
       return;
@@ -226,9 +158,12 @@ export default function AdminFeeDiscountsPage() {
       return;
     }
 
+    const fingerprint = JSON.stringify([selectedDemandId, discountType, amt, reason.trim()]);
+    if (requestKey.current?.fingerprint !== fingerprint) requestKey.current = { fingerprint, key: crypto.randomUUID() };
+    pending.current = true;
     setSubmitting(true);
     try {
-      const res = await fetch("/api/fees/foundation/adjustments", {
+      const res = await feeFetch("/api/fees/foundation/adjustments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -239,6 +174,7 @@ export default function AdminFeeDiscountsPage() {
           demandId: selectedDemandId,
           type: discountType,
           amountRupees: amt,
+          idempotencyKey: requestKey.current.key,
           reason: reason.trim(),
           approvedBy: profile?.name || "Administrator",
         }),
@@ -254,12 +190,13 @@ export default function AdminFeeDiscountsPage() {
       );
       setAmountRupees("");
       setReason("");
+      requestKey.current = null;
       fetchAdjustments();
 
       // Refresh student's unpaid demands
       if (selectedStudent) {
-        fetch(
-          `/api/fees/foundation/demands?schoolId=${encodeURIComponent(schoolId)}&studentId=${encodeURIComponent(selectedStudent.id)}&academicYearId=all`
+        feeFetch(
+          `/api/fees/foundation/demands?schoolId=${encodeURIComponent(schoolId)}&studentId=${encodeURIComponent(selectedStudent.id)}&academicYearId=${encodeURIComponent(academicYearId)}`
         )
           .then((r) => r.json())
           .then((d) => {
@@ -273,6 +210,7 @@ export default function AdminFeeDiscountsPage() {
     } catch (err: any) {
       toast.error(err.message || "Failed to apply discount.");
     } finally {
+      pending.current = false;
       setSubmitting(false);
     }
   };
@@ -377,7 +315,7 @@ export default function AdminFeeDiscountsPage() {
                   >
                     {demands.map((d) => (
                       <option key={d.id} value={d.id}>
-                        {d.period || "Fee Demand"} ({d.feeHeadName || "Tuition"}) — Due: {formatINR(d.balanceAmountPaise)}
+                        {`${d.academicYearId} · ${d.period}` || "Fee Demand"} ({d.feeHeadName || "Tuition"}) — Due: {formatINR(d.balanceAmountPaise)}
                       </option>
                     ))}
                   </select>

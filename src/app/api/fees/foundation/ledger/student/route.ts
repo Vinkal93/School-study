@@ -1,5 +1,5 @@
 import { NextResponse, NextRequest } from "next/server";
-import { authenticateRequest } from "@/lib/auth/serverAuth";
+import { requireFeeAccess as authenticateRequest } from "@/lib/fees/server-access";
 import {
   getStudentLedger,
   getStudentStatement,
@@ -8,6 +8,7 @@ import {
 export async function GET(request: NextRequest) {
   try {
     const authResult = await authenticateRequest(request);
+    if (!authResult.isAuthenticated || !authResult.user) return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { searchParams } = new URL(request.url);
     const clientSchoolId = searchParams.get("schoolId");
 

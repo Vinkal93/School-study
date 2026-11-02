@@ -1,6 +1,4 @@
 import Razorpay from "razorpay";
-import { doc, getDoc } from "firebase/firestore";
-import { getFirebaseDb } from "@/lib/firebase/client";
 
 export interface RazorpayCredentials {
   keyId: string;
@@ -24,7 +22,6 @@ export interface RazorpayConfigStatus {
  * Priority Resolution Order:
  * 1. Environment variables (Local .env.local or Vercel Environment Variables)
  * 2. Firebase Admin SDK server-side Firestore lookup (`paymentSettings/razorpay`)
- * 3. Fallback Firestore Client SDK / REST API
  */
 export async function loadRazorpayCredentials(): Promise<RazorpayCredentials> {
   const envKeyId = (process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "").trim();
@@ -36,50 +33,16 @@ export async function loadRazorpayCredentials(): Promise<RazorpayCredentials> {
   let webhookSecret = envWebhookSecret;
   let isLiveMode = keyId.startsWith("rzp_live_");
 
-  // Tier A: Check Super Admin Dynamic Firestore configuration via Client SDK
-  if (!keyId || !keySecret) {
-    try {
-      const db = getFirebaseDb();
-      if (db) {
-        const docRef = doc(db, "paymentSettings", "razorpay");
-        const snap = await getDoc(docRef);
-        if (snap.exists()) {
-          const data = snap.data() as Partial<RazorpayCredentials>;
-          if (!keyId && data?.keyId?.trim()) keyId = data.keyId.trim();
-          if (!keySecret && data?.keySecret?.trim()) keySecret = data.keySecret.trim();
-          if (!webhookSecret && data?.webhookSecret?.trim()) webhookSecret = data.webhookSecret.trim();
-          if (typeof data?.isLiveMode === "boolean") isLiveMode = data.isLiveMode;
-        }
-      }
-    } catch (err) {
-      // Non-blocking fallback
-    }
-  }
-
-  // Tier B: Direct Firestore REST API (Works on Vercel serverless without node native modules)
-  if (!keyId || !keySecret) {
-    try {
-      const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || "school-study-c8991";
-      const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "";
-      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/paymentSettings/razorpay${apiKey ? `?key=${apiKey}` : ""}`;
-      const res = await fetch(url, { cache: "no-store" });
-      if (res.ok) {
-        const json = await res.json();
-        const fields = json?.fields;
-        if (fields) {
-          const restKeyId = fields.keyId?.stringValue?.trim();
-          const restKeySecret = fields.keySecret?.stringValue?.trim();
-          const restWebhook = fields.webhookSecret?.stringValue?.trim();
-          const restLive = fields.isLiveMode?.booleanValue;
-
-          if (!keyId && restKeyId) keyId = restKeyId;
-          if (!keySecret && restKeySecret) keySecret = restKeySecret;
-          if (!webhookSecret && restWebhook) webhookSecret = restWebhook;
-          if (typeof restLive === "boolean") isLiveMode = restLive;
-        }
-      }
-    } catch (restErr) {
-      // Non-blocking fallback
+  if (typeof window !== "undefined") throw new Error("Payment secrets are server-only.");
+  if (!keyId || !keySecret || !webhookSecret) {
+    const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+    const db = getSafeAdminDb();
+    if (db) {
+      const snap = await db.collection("paymentSettings").doc("razorpay").get();
+      const data = snap.exists ? snap.data() : null;
+      keyId ||= data?.keyId?.trim() || "";
+      keySecret ||= data?.keySecret?.trim() || "";
+      webhookSecret ||= data?.webhookSecret?.trim() || "";
     }
   }
 

@@ -20,12 +20,60 @@ import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth"
 import { getFirebaseDb, getFirebaseStorage } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/utils/constants";
 import { firebaseClientConfig } from "@/lib/firebase/config";
+import { configureAuthEmulator } from "@/lib/firebase/emulators";
 import type { TeacherProfile, CreateTeacherInput } from "@/types";
 
 /**
  * Fetches all teachers for a school.
  * Path: schools/{schoolId}/teachers
  */
+/**
+ * Authoritative Teacher Profile normalizer.
+ * Guarantees that arrays, strings, and enum states conform to expected shapes,
+ * completely preventing undefined .indexOf(), .join(), .includes() or .map() runtime exceptions.
+ */
+export function normalizeTeacherProfile(id: string, raw: any): TeacherProfile {
+  const data = raw || {};
+  let subjects: string[] = [];
+  if (Array.isArray(data.subjects)) {
+    subjects = data.subjects.map((s: any) => String(s || "").trim()).filter(Boolean);
+  } else if (typeof data.subjects === "string" && data.subjects.trim()) {
+    subjects = data.subjects.split(",").map((s: string) => s.trim()).filter(Boolean);
+  }
+
+  let assignedClasses: any[] = [];
+  if (Array.isArray(data.assignedClasses)) {
+    assignedClasses = data.assignedClasses.filter(Boolean);
+  } else if (data.assignedClasses && typeof data.assignedClasses === "object") {
+    assignedClasses = Object.values(data.assignedClasses).filter(Boolean);
+  }
+
+  return {
+    id,
+    schoolId: String(data.schoolId || ""),
+    userId: String(data.userId || ""),
+    teacherCode: String(data.teacherCode || data.code || data.employeeId || "").trim(),
+    name: String(data.name || data.fullName || "Teacher").trim(),
+    email: String(data.email || "").trim(),
+    phone: String(data.phone || "").trim(),
+    photoUrl: String(data.photoUrl || data.photo || data.avatar || "").trim(),
+    joiningDate: String(data.joiningDate || "").trim(),
+    assignedClassId: String(data.assignedClassId || "").trim(),
+    assignedClassName: String(data.assignedClassName || "").trim(),
+    assignedSectionId: String(data.assignedSectionId || "").trim(),
+    assignedSectionName: String(data.assignedSectionName || "").trim(),
+    assignedClasses,
+    subjects,
+    status: (data.status === "deleted" || data.status === "inactive") ? data.status : "active",
+    ...(data.salaryConfig ? { salaryConfig: data.salaryConfig } : {}),
+    ...(data.personalDetails ? { personalDetails: data.personalDetails } : {}),
+    ...(data.professionalDetails ? { professionalDetails: data.professionalDetails } : {}),
+    ...(data.performanceSummary ? { performanceSummary: data.performanceSummary } : {}),
+    createdAt: data.createdAt,
+    updatedAt: data.updatedAt,
+  } as TeacherProfile;
+}
+
 export async function getTeachers(schoolId: string): Promise<TeacherProfile[]> {
   try {
     const db = getFirebaseDb();
@@ -36,14 +84,7 @@ export async function getTeachers(schoolId: string): Promise<TeacherProfile[]> {
       snapshot = await getDocs(query(collection(db, "teachers"), where("schoolId", "==", schoolId)));
     }
 
-    const teachers = snapshot.docs.map((d) => {
-      const data = d.data();
-      return {
-        id: d.id,
-        ...data,
-        name: data.name || data.fullName || "Teacher",
-      };
-    }) as TeacherProfile[];
+    const teachers = snapshot.docs.map((d) => normalizeTeacherProfile(d.id, d.data()));
 
     teachers.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     return teachers;
@@ -134,7 +175,7 @@ export async function createTeacherWithAuth(
 
   const secondaryAppName = `teacher-auth-${Date.now()}`;
   const secondaryApp = initializeApp(firebaseClientConfig, secondaryAppName);
-  const secondaryAuth = getAuth(secondaryApp);
+  const secondaryAuth = configureAuthEmulator(getAuth(secondaryApp));
 
   let userId = "";
   try {
@@ -227,11 +268,35 @@ export async function updateTeacher(
   data: Partial<TeacherProfile>
 ): Promise<void> {
   const db = getFirebaseDb();
-  const teacherDocRef = doc(db, "schools", schoolId, "teachers", teacherId);
-  await updateDoc(teacherDocRef, {
+  if (!db || !schoolId || !teacherId) throw new Error("Missing parameters for teacher update.");
+
+  let canonicalId = teacherId;
+  const subRef = doc(db, "schools", schoolId, "teachers", canonicalId);
+  const rootRef = doc(db, "teachers", canonicalId);
+
+  let targetSubSnap = await getDoc(subRef).catch(() => null);
+  if (!targetSubSnap?.exists()) {
+    const rootSnap = await getDoc(rootRef).catch(() => null);
+    if (rootSnap?.exists()) canonicalId = rootSnap.id;
+  }
+
+  const payload = {
     ...data,
     updatedAt: serverTimestamp(),
-  });
+  };
+
+  await setDoc(doc(db, "schools", schoolId, "teachers", canonicalId), payload, { merge: true });
+  await setDoc(doc(db, "teachers", canonicalId), payload, { merge: true }).catch(() => {});
+
+  const effectiveUserId = (data as any).userId || targetSubSnap?.data()?.userId || canonicalId;
+  if (effectiveUserId && (data.name || data.email || data.phone || data.status)) {
+    const userUpdate: any = { updatedAt: serverTimestamp() };
+    if (data.name) userUpdate.name = data.name;
+    if (data.email) userUpdate.email = data.email;
+    if (data.phone) userUpdate.phone = data.phone;
+    if (data.status) userUpdate.status = data.status === "active" ? "active" : "disabled";
+    await updateDoc(doc(db, COLLECTIONS.USERS, effectiveUserId), userUpdate).catch(() => {});
+  }
 }
 
 export async function toggleTeacherStatus(
@@ -241,18 +306,33 @@ export async function toggleTeacherStatus(
   status: "active" | "inactive"
 ): Promise<void> {
   const db = getFirebaseDb();
-  const teacherDocRef = doc(db, "schools", schoolId, "teachers", teacherId);
-  const userDocRef = doc(db, COLLECTIONS.USERS, userId);
+  if (!db || !schoolId || !teacherId) throw new Error("Missing parameters for teacher status toggle.");
 
-  await updateDoc(teacherDocRef, {
+  let canonicalId = teacherId;
+  const subRef = doc(db, "schools", schoolId, "teachers", canonicalId);
+  const rootRef = doc(db, "teachers", canonicalId);
+
+  let targetSubSnap = await getDoc(subRef).catch(() => null);
+  if (!targetSubSnap?.exists()) {
+    const rootSnap = await getDoc(rootRef).catch(() => null);
+    if (rootSnap?.exists()) canonicalId = rootSnap.id;
+  }
+
+  const payload = {
     status,
     updatedAt: serverTimestamp(),
-  });
+  };
 
-  await updateDoc(userDocRef, {
-    status: status === "active" ? "active" : "disabled",
-    updatedAt: serverTimestamp(),
-  });
+  await setDoc(doc(db, "schools", schoolId, "teachers", canonicalId), payload, { merge: true });
+  await setDoc(doc(db, "teachers", canonicalId), payload, { merge: true }).catch(() => {});
+
+  const effectiveUserId = userId || targetSubSnap?.data()?.userId || canonicalId;
+  if (effectiveUserId) {
+    await updateDoc(doc(db, COLLECTIONS.USERS, effectiveUserId), {
+      status: status === "active" ? "active" : "disabled",
+      updatedAt: serverTimestamp(),
+    }).catch(() => {});
+  }
 }
 
 export async function assignTeacherToClass(
@@ -313,23 +393,36 @@ export async function assignTeacherToClass(
 export async function deleteTeacher(
   schoolId: string,
   teacherId: string,
-  userId: string
+  userId?: string
 ): Promise<void> {
   const db = getFirebaseDb();
-  const teacherDocRef = doc(db, "schools", schoolId, "teachers", teacherId);
-  const userDocRef = doc(db, COLLECTIONS.USERS, userId);
+  if (!db || !schoolId || !teacherId) throw new Error("Missing parameters for teacher delete.");
+
+  let canonicalId = teacherId;
+  const subRef = doc(db, "schools", schoolId, "teachers", canonicalId);
+  const rootRef = doc(db, "teachers", canonicalId);
+
+  let targetSubSnap = await getDoc(subRef).catch(() => null);
+  if (!targetSubSnap?.exists()) {
+    const rootSnap = await getDoc(rootRef).catch(() => null);
+    if (rootSnap?.exists()) canonicalId = rootSnap.id;
+  }
 
   const nowIso = new Date().toISOString();
-
-  await updateDoc(teacherDocRef, {
+  const payload = {
     status: "deleted",
     deletedAt: nowIso,
     updatedAt: serverTimestamp(),
-  });
+  };
 
-  if (userId) {
-    await updateDoc(userDocRef, {
+  await setDoc(doc(db, "schools", schoolId, "teachers", canonicalId), payload, { merge: true });
+  await setDoc(doc(db, "teachers", canonicalId), payload, { merge: true }).catch(() => {});
+
+  const effectiveUserId = userId || targetSubSnap?.data()?.userId || canonicalId;
+  if (effectiveUserId) {
+    await updateDoc(doc(db, COLLECTIONS.USERS, effectiveUserId), {
       status: "disabled",
+      disabledAt: nowIso,
       updatedAt: serverTimestamp(),
     }).catch(() => {});
   }
@@ -344,23 +437,36 @@ export async function deleteTeacher(
 export async function restoreTeacher(
   schoolId: string,
   teacherId: string,
-  userId: string
+  userId?: string
 ): Promise<void> {
   // Check plan limit before restoring
   await requirePlanLimit(schoolId, "teachers");
 
   const db = getFirebaseDb();
-  const teacherDocRef = doc(db, "schools", schoolId, "teachers", teacherId);
-  const userDocRef = doc(db, COLLECTIONS.USERS, userId);
+  if (!db || !schoolId || !teacherId) throw new Error("Missing parameters for teacher restore.");
 
-  await updateDoc(teacherDocRef, {
+  let canonicalId = teacherId;
+  const subRef = doc(db, "schools", schoolId, "teachers", canonicalId);
+  const rootRef = doc(db, "teachers", canonicalId);
+
+  let targetSubSnap = await getDoc(subRef).catch(() => null);
+  if (!targetSubSnap?.exists()) {
+    const rootSnap = await getDoc(rootRef).catch(() => null);
+    if (rootSnap?.exists()) canonicalId = rootSnap.id;
+  }
+
+  const payload = {
     status: "active",
     deletedAt: null,
     updatedAt: serverTimestamp(),
-  });
+  };
 
-  if (userId) {
-    await updateDoc(userDocRef, {
+  await setDoc(doc(db, "schools", schoolId, "teachers", canonicalId), payload, { merge: true });
+  await setDoc(doc(db, "teachers", canonicalId), payload, { merge: true }).catch(() => {});
+
+  const effectiveUserId = userId || targetSubSnap?.data()?.userId || canonicalId;
+  if (effectiveUserId) {
+    await updateDoc(doc(db, COLLECTIONS.USERS, effectiveUserId), {
       status: "active",
       updatedAt: serverTimestamp(),
     }).catch(() => {});

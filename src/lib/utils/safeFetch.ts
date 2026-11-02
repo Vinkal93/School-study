@@ -16,7 +16,13 @@ export async function safeFetchJson<T = any>(
   options?: RequestInit
 ): Promise<SafeFetchResult<T>> {
   try {
-    const res = await fetch(url, options);
+    const headers = new Headers(options?.headers);
+    if (typeof window !== "undefined" && url.startsWith("/api/billing/") && !headers.has("Authorization")) {
+      const { getFirebaseAuth } = await import("@/lib/firebase/client");
+      const user = getFirebaseAuth().currentUser;
+      if (user) headers.set("Authorization", `Bearer ${await user.getIdToken()}`);
+    }
+    const res = await fetch(url, { ...options, headers });
     const text = await res.text();
     let data: any = null;
 

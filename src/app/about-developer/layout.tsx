@@ -8,8 +8,8 @@ import {
 } from "@/lib/seo";
 
 export const metadata: Metadata = constructMetadata({
-  title: `${developerConfig.name} — Founder, Software Architect & Developer of School Study`,
-  description: `Official profile and biography of ${developerConfig.name} (Er. Vinkal Prajapati), founder and lead architect behind School Study. Explore his engineering principles, EdTech innovations, tech stack, and portfolio.`,
+  title: `${developerConfig.name} — Web Developer & School Study Founder`,
+  description: `Meet ${developerConfig.name}, Indian web developer, educator and digital creator, and founder of School Study school management software. Explore his work and projects.`,
   canonicalUrl: "/about-developer",
   keywords: [
     developerConfig.name,

@@ -2,11 +2,22 @@ import { withSentryConfig } from "@sentry/nextjs/config";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Keep local verification builds separate from the running development server.
+  distDir: process.env.NEXT_BUILD_DIR || ".next",
+  images: {
+    remotePatterns: [{ protocol: "https", hostname: "images.unsplash.com", pathname: "/**" }],
+    formats: ["image/avif", "image/webp"],
+    minimumCacheTTL: 2592000,
+  },
   // Disable x-powered-by header for security and payload reduction
   poweredByHeader: false,
 
   // Prevent serverless bundler crashes with firebase-admin and native modules
   serverExternalPackages: ["firebase-admin"],
+  turbopack: {
+    resolveAlias: {"@/lib/firebase/admin": {browser:"./src/lib/firebase/admin.browser.ts"}},
+  },
+
 
   // Enable gzip/brotli compression
   compress: true,
@@ -19,6 +30,8 @@ const nextConfig: NextConfig = {
       "tailwind-merge",
       "firebase",
       "next-themes",
+      "framer-motion",
+      "date-fns",
     ],
   },
 
@@ -30,6 +43,19 @@ const nextConfig: NextConfig = {
   // Production Security Headers
   async headers() {
     return [
+      {
+        source: "/images/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=2592000, stale-while-revalidate=86400" }],
+      },
+      {
+        source: "/cursors/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+
+      ...["admin", "teacher", "student", "super-admin", "billing", "api", "setup-super-admin", "su"].map((segment) => ({
+        source: `/${segment}/:path*`,
+        headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+      })),
       {
         source: "/:path*",
         headers: [
@@ -62,20 +88,7 @@ const nextConfig: NextConfig = {
     ];
   },
 
-  // Sentry tunnel rewrite: proxy /monitoring to Sentry's ingestion API
-  // This bypasses ad-blockers and works with Turbopack (unlike the webpack plugin's tunnelRoute)
-  async rewrites() {
-    return [
-      {
-        source: "/monitoring",
-        destination: "https://o4512044365447168.ingest.de.sentry.io/api/4512111626616912/envelope/",
-      },
-      {
-        source: "/monitoring/:path*",
-        destination: "https://o4512044365447168.ingest.de.sentry.io/api/4512111626616912/:path*",
-      },
-    ];
-  },
+
 };
 
 export default withSentryConfig(nextConfig, {

@@ -1,6 +1,7 @@
+import { findFeatureByKey } from "@/lib/features/adminFeatureRegistry";
 /**
  * GRANULAR CAPABILITY SCHEMA & HIERARCHICAL REGISTRY
- * 
+ *
  * Defines hierarchical module -> page -> tab -> section -> action -> export -> limit mappings.
  * Supports backward compatibility with legacy high-level feature keys and dot-notation keys.
  */
@@ -535,7 +536,7 @@ export const GRANULAR_PERMISSIONS: GranularPermissionDefinition[] = [
     featureKey: "advanced_reports",
     parentKey: "reports_tab_export",
     description: "Download official printable PDF reports with school header & watermark.",
-    defaultPlans: ["enterprise"],
+    defaultPlans: ["professional", "enterprise"],
     aliases: ["reports.export_pdf"],
   },
 
@@ -890,6 +891,118 @@ export const GRANULAR_PERMISSIONS: GranularPermissionDefinition[] = [
     defaultPlans: ["professional", "enterprise"],
     aliases: ["inquiries.delete"],
   },
+  // ==========================================
+  // MODULE: COMMUNICATION & NOTIFICATIONS
+  // ==========================================
+  {
+    id: "communication_hub",
+    name: "Communication Center Module",
+    category: "module",
+    featureKey: "communication_hub",
+    description: "Multi-tenant notification dispatch: WhatsApp, SMS, In-App alerts, and Fee Reminders.",
+    defaultPlans: ["starter", "professional", "enterprise"],
+    aliases: ["communication", "communication_hub", "notifications"],
+  },
+  {
+    id: "communication_manual_whatsapp",
+    name: "Manual WhatsApp Messaging",
+    category: "action",
+    featureKey: "communication_hub",
+    parentKey: "communication_hub",
+    description: "Compose personalized messages with dynamic variables and open directly in WhatsApp without API costs.",
+    defaultPlans: ["starter", "professional", "enterprise"],
+    aliases: ["communication.manualWhatsApp", "communication.manual_whatsapp", "manual_whatsapp", "manualWhatsApp"],
+  },
+  {
+    id: "communication_whatsapp_api",
+    name: "WhatsApp Cloud API Sending",
+    category: "action",
+    featureKey: "communication_hub",
+    parentKey: "communication_hub",
+    description: "Official WhatsApp Business API automated direct delivery to parents and students.",
+    defaultPlans: ["professional", "enterprise"],
+    aliases: ["communication.whatsappApi", "communication.whatsapp_api", "whatsappApi", "whatsapp_api"],
+  },
+  {
+    id: "communication_sms_api",
+    name: "SMS API Direct Dispatch",
+    category: "action",
+    featureKey: "communication_hub",
+    parentKey: "communication_hub",
+    description: "Direct SMS delivery to verified E.164 numbers subject to regulatory approvals.",
+    defaultPlans: ["professional", "enterprise"],
+    aliases: ["communication.smsApi", "communication.sms_api", "smsApi", "sms_api"],
+  },
+  {
+    id: "communication_custom_templates",
+    name: "Custom Communication Templates",
+    category: "action",
+    featureKey: "communication_hub",
+    parentKey: "communication_hub",
+    description: "Create, edit, duplicate, and archive custom notification templates per school.",
+    defaultPlans: ["professional", "enterprise"],
+    aliases: ["communication.customTemplates", "communication.custom_templates", "customTemplates", "custom_templates"],
+  },
+  {
+    id: "communication_bulk_sending",
+    name: "Bulk Multi-Recipient Messaging",
+    category: "action",
+    featureKey: "communication_hub",
+    parentKey: "communication_hub",
+    description: "Broadcast personalized circulars and reminders to entire classes or filtered recipients.",
+    defaultPlans: ["professional", "enterprise"],
+    aliases: ["communication.bulkSending", "communication.bulk_sending", "bulkSending", "bulk_sending"],
+  },
+  {
+    id: "communication_fee_reminders",
+    name: "Fee Due and Overdue Reminders",
+    category: "action",
+    featureKey: "communication_hub",
+    parentKey: "communication_hub",
+    description: "Targeted fee balance notices with personalized dues and invoice amounts.",
+    defaultPlans: ["starter", "professional", "enterprise"],
+    aliases: ["communication.feeReminders", "communication.fee_reminders", "feeReminders", "fee_reminders"],
+  },
+  {
+    id: "communication_automated_reminders",
+    name: "Automated Scheduled Triggers",
+    category: "action",
+    featureKey: "communication_hub",
+    parentKey: "communication_hub",
+    description: "Automated recurring reminder rules evaluated directly against live fee invoices.",
+    defaultPlans: ["professional", "enterprise"],
+    aliases: ["communication.automatedReminders", "communication.automated_reminders", "automatedReminders", "automated_reminders"],
+  },
+  {
+    id: "communication_delivery_tracking",
+    name: "Real-Time Delivery Tracking",
+    category: "action",
+    featureKey: "communication_hub",
+    parentKey: "communication_hub",
+    description: "Live delivery receipts, provider message IDs, read status, and failure error codes.",
+    defaultPlans: ["starter", "professional", "enterprise"],
+    aliases: ["communication.deliveryTracking", "communication.delivery_tracking", "deliveryTracking", "delivery_tracking"],
+  },
+  {
+    id: "communication_scheduling",
+    name: "Message Delivery Scheduling",
+    category: "action",
+    featureKey: "communication_hub",
+    parentKey: "communication_hub",
+    description: "Schedule circulars and reminders for future release at optimal engagement times.",
+    defaultPlans: ["professional", "enterprise"],
+    aliases: ["communication.scheduling", "scheduling"],
+  },
+  {
+    id: "communication_test_messages",
+    name: "Verified Test Message Dispatch",
+    category: "action",
+    featureKey: "communication_hub",
+    parentKey: "communication_hub",
+    description: "Dispatch real test messages to school admin mobile numbers to preview formatting.",
+    defaultPlans: ["starter", "professional", "enterprise"],
+    aliases: ["communication.testMessages", "communication.test_messages", "testMessages", "test_messages"],
+  },
   {
     id: "inquiries_action_export",
     name: "Export Inquiries List",
@@ -925,7 +1038,7 @@ export function canonicalizeCapabilityKey(key: string): string {
   );
   if (featMatch) return featMatch.id;
 
-  return cleanKey;
+  return findFeatureByKey(cleanKey)?.key || cleanKey;
 }
 
 /**
@@ -948,7 +1061,8 @@ export function getDefaultGranularPermissionsForPlan(planSlug: string): Record<s
 export function getParentFeatureKey(key: string): string {
   const canonical = canonicalizeCapabilityKey(key);
   const found = GRANULAR_PERMISSIONS.find((p) => p.id === canonical);
-  return found ? found.featureKey : key;
+  const item = findFeatureByKey(canonical);
+  return found ? found.featureKey : item?.parentId || item?.key || key;
 }
 
 /**
@@ -957,7 +1071,7 @@ export function getParentFeatureKey(key: string): string {
 export function getParentCapabilityKey(key: string): string | undefined {
   const canonical = canonicalizeCapabilityKey(key);
   const found = GRANULAR_PERMISSIONS.find((p) => p.id === canonical);
-  return found?.parentKey || (found && found.category !== "module" ? found.featureKey : undefined);
+  return found?.parentKey || (found && found.category !== "module" ? found.featureKey : findFeatureByKey(canonical)?.parentId || undefined);
 }
 
 /**

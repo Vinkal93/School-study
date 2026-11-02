@@ -284,11 +284,14 @@ export function useAdminDashboardAnalytics(schoolId: string | undefined): AdminD
         });
 
         stuList.forEach((s) => {
-          if (s.createdAt) {
-            const m = s.createdAt.slice(0, 7);
-            if (growthMonthMap[m] !== undefined) {
-              growthMonthMap[m] += 1;
-            }
+          const ms = toTimestampNumber(s.createdAt);
+          if (ms > 0) {
+            try {
+              const m = new Date(ms).toISOString().slice(0, 7);
+              if (growthMonthMap[m] !== undefined) {
+                growthMonthMap[m] += 1;
+              }
+            } catch {}
           }
         });
 

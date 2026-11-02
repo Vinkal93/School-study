@@ -21,35 +21,41 @@ export function FooterBottomBar() {
     .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
 
   return (
-    <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-slate-200/80 pt-8 text-xs text-slate-700 sm:flex-row dark:border-slate-800/80 dark:text-slate-300">
+    <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-slate-200/80 pt-8 text-xs text-slate-700 lg:flex-row dark:border-slate-800/80 dark:text-slate-300">
       {/* Copyright */}
-      <div className="flex flex-col sm:flex-row items-center gap-3 text-center sm:text-left font-medium">
+      <div className="flex min-w-0 max-w-full flex-col items-center gap-3 text-center font-medium xl:flex-row xl:text-left">
         {footerConfig?.showCopyright !== false && (
           <span>{renderedCopyright}</span>
         )}
 
-        <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+        <nav aria-label="Footer policies" className="flex max-w-full flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[11px] text-slate-500 dark:text-slate-400">
           {footerConfig?.showLegal !== false && legalLinks.length > 0 && (
             <>
-              {legalLinks.map((l, idx) => (
-                <React.Fragment key={l.id || l.label}>
-                  {idx > 0 && <span>•</span>}
-                  <Link href={l.url} className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-                    {l.label}
-                  </Link>
-                </React.Fragment>
+              {legalLinks.map((l) => (
+                <Link
+                  key={l.id || l.label}
+                  href={l.url}
+                  className="shrink-0 whitespace-nowrap transition-colors hover:text-blue-600 dark:hover:text-blue-400"
+                >
+                  {l.label}
+                </Link>
               ))}
-              <span>•</span>
             </>
           )}
+          <Link
+            href="/cookies"
+            className="shrink-0 whitespace-nowrap transition-colors hover:text-blue-600 dark:hover:text-blue-400"
+          >
+            Cookie Policy
+          </Link>
           <button
             type="button"
             onClick={() => resetConsent()}
-            className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer"
+            className="shrink-0 cursor-pointer whitespace-nowrap transition-colors hover:text-blue-600 dark:hover:text-blue-400"
           >
             Cookie Preferences
           </button>
-        </div>
+        </nav>
       </div>
 
       {/* Crafted Badge & Developer Credit */}

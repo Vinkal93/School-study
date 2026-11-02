@@ -100,7 +100,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               if (!isNaN(loginTimestamp) && Date.now() - loginTimestamp > SESSION_MAX_DURATION_MS) {
                 console.warn("User session expired after 30 days.");
                 localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
-                sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
+                const impToken = typeof window !== "undefined" ? sessionStorage.getItem("school_study_impersonation_token") : null;
+    if (impToken) {
+      fetch("/api/auth/impersonate", {
+        method: "DELETE",
+        headers: { "x-impersonation-session": impToken },
+      }).catch(() => {});
+      sessionStorage.removeItem("school_study_impersonation_token");
+    }
+    sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
                 sessionStorage.removeItem("ss_super_admin_verified");
                 localStorage.removeItem("ss_super_admin_verified");
                 await signOutUser();
@@ -266,7 +274,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setOriginalProfile(null);
         setImpersonatedUser(null);
         setBootstrapState("UNAUTHENTICATED");
-        sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
+        const impToken = typeof window !== "undefined" ? sessionStorage.getItem("school_study_impersonation_token") : null;
+    if (impToken) {
+      fetch("/api/auth/impersonate", {
+        method: "DELETE",
+        headers: { "x-impersonation-session": impToken },
+      }).catch(() => {});
+      sessionStorage.removeItem("school_study_impersonation_token");
+    }
+    sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
         try {
           localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
           sessionStorage.removeItem("ss_super_admin_verified");
@@ -468,7 +484,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(userProfile));
         } catch {}
         setImpersonatedUser(null);
-        sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
+        const impToken = typeof window !== "undefined" ? sessionStorage.getItem("school_study_impersonation_token") : null;
+    if (impToken) {
+      fetch("/api/auth/impersonate", {
+        method: "DELETE",
+        headers: { "x-impersonation-session": impToken },
+      }).catch(() => {});
+      sessionStorage.removeItem("school_study_impersonation_token");
+    }
+    sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
         try {
           const nowTime = Date.now();
           localStorage.setItem(SESSION_LOGIN_TIME_KEY, String(nowTime));
@@ -519,7 +543,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
       localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
-      sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
+      const impToken = typeof window !== "undefined" ? sessionStorage.getItem("school_study_impersonation_token") : null;
+    if (impToken) {
+      fetch("/api/auth/impersonate", {
+        method: "DELETE",
+        headers: { "x-impersonation-session": impToken },
+      }).catch(() => {});
+      sessionStorage.removeItem("school_study_impersonation_token");
+    }
+    sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
       sessionStorage.removeItem("ss_super_admin_verified");
       localStorage.removeItem("ss_super_admin_verified");
       sessionStorage.removeItem("ss_super_admin_auth");
@@ -563,7 +595,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!isNaN(loginTime) && Date.now() - loginTime > SESSION_MAX_DURATION_MS) {
             console.warn("Active session expired after 30 days.");
             localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
-            sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
+            const impToken = typeof window !== "undefined" ? sessionStorage.getItem("school_study_impersonation_token") : null;
+    if (impToken) {
+      fetch("/api/auth/impersonate", {
+        method: "DELETE",
+        headers: { "x-impersonation-session": impToken },
+      }).catch(() => {});
+      sessionStorage.removeItem("school_study_impersonation_token");
+    }
+    sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
             sessionStorage.removeItem("ss_super_admin_verified");
             localStorage.removeItem("ss_super_admin_verified");
             await signOutUser();
@@ -596,10 +636,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [firebaseUser, router]);
 
-  const impersonateUser = useCallback((targetUser: AppUser) => {
+  const impersonateUser = useCallback(async (targetUser: AppUser) => {
     try {
       sessionStorage.setItem(IMPERSONATION_STORAGE_KEY, JSON.stringify(targetUser));
       setImpersonatedUser(targetUser);
+
+      // Acquire cryptographically signed server impersonation session token
+      try {
+        const token = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
+        const res = await fetch("/api/auth/impersonate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            targetUserId: targetUser.uid,
+            targetUserEmail: targetUser.email,
+            targetRole: targetUser.role,
+            targetSchoolId: targetUser.schoolId,
+            allowedOperations: ["read", "write", "test_message", "communication"],
+          }),
+        });
+        const data = await res.json();
+        if (data.success && data.token) {
+          sessionStorage.setItem("school_study_impersonation_token", data.token);
+        }
+      } catch (impErr) {
+        console.warn("Server impersonation session acquisition notice:", impErr);
+      }
       toast.success(`🎭 Live Impression Mode active: Viewing portal as ${targetUser.name} (${targetUser.role})`);
 
       if (targetUser.role === "school_admin") {
@@ -614,14 +679,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       toast.error("Failed to start impersonation mode.");
     }
-  }, [router]);
+  }, [firebaseUser, router]);
 
   const stopImpersonating = useCallback(() => {
+    const impToken = typeof window !== "undefined" ? sessionStorage.getItem("school_study_impersonation_token") : null;
+    if (impToken) {
+      fetch("/api/auth/impersonate", {
+        method: "DELETE",
+        headers: { "x-impersonation-session": impToken },
+      }).catch(() => {});
+      sessionStorage.removeItem("school_study_impersonation_token");
+    }
     sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
     setImpersonatedUser(null);
     toast.info("Exited Live Impression Mode. Returned to Super Admin Portal.");
     router.push("/super-admin");
-  }, [router]);
+  }, [firebaseUser, router]);
 
   const refreshProfile = useCallback(async (): Promise<AppUser | null> => {
     const auth = getFirebaseAuth();

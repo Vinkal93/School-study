@@ -1,4 +1,5 @@
 "use client";
+import { useFeeSession } from "@/components/fees/FeeSessionProvider";
 
 import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
@@ -66,7 +67,7 @@ export default function AdminFeeDashboardPage() {
       ? localStorage.getItem("currentSchoolId") || ""
       : "");
   const schoolId = effectiveSchoolId;
-  const schoolName = profile?.schoolName || "Lord Buddha Public School";
+  const schoolName = profile?.schoolName || "School";
 
   const [loading, setLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -76,7 +77,7 @@ export default function AdminFeeDashboardPage() {
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
 
   // Filter States
-  const [selectedYear, setSelectedYear] = useState<string>("");
+  const { academicYearId: selectedYear, setAcademicYearId: setSelectedYear } = useFeeSession();
   const [selectedMonth, setSelectedMonth] = useState("all");
   const [selectedClass, setSelectedClass] = useState("all");
   const [selectedSection, setSelectedSection] = useState("all");
@@ -192,7 +193,7 @@ export default function AdminFeeDashboardPage() {
         if (years.length > 0) {
           const currentYear = years.find((y) => y.isCurrent) || years[0];
           if (currentYear && !selectedYear) {
-            setSelectedYear(currentYear.id);
+            setSelectedYear(previous => previous || currentYear.id);
             setSelectedMonth("all");
           }
         } else if (!selectedYear) {

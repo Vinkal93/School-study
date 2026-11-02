@@ -10,6 +10,7 @@ import {
 } from "firebase/firestore";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
 import { firebaseClientConfig } from "./config";
+import { configureAuthEmulator, configureFirestoreEmulator, configureStorageEmulator } from "./emulators";
 
 let appInstance: FirebaseApp | null = null;
 let authInstance: Auth | null = null;
@@ -29,7 +30,7 @@ export function getFirebaseApp(): FirebaseApp {
 
 export function getFirebaseAuth(): Auth {
   if (!authInstance) {
-    authInstance = getAuth(getFirebaseApp());
+    authInstance = configureAuthEmulator(getAuth(getFirebaseApp()));
     if (typeof window !== "undefined") {
       const isIframe = window.self !== window.top || window.location.search.includes("preview=true");
       if (isIframe) {
@@ -51,7 +52,7 @@ export function getFirebaseDb(): Firestore {
         // Prevents WebChannel 400 stream disconnects and bfcache drops while loading instantly from IndexedDB
         dbInstance = initializeFirestore(app, {
           ignoreUndefinedProperties: true,
-          experimentalForceLongPolling: true,
+          experimentalAutoDetectLongPolling: true,
           localCache: persistentLocalCache({
             tabManager: persistentMultipleTabManager(),
           }),
@@ -61,7 +62,7 @@ export function getFirebaseDb(): Firestore {
           // Fallback to memory cache if IndexedDB is restricted (e.g. private mode)
           dbInstance = initializeFirestore(app, {
             ignoreUndefinedProperties: true,
-            experimentalForceLongPolling: true,
+            experimentalAutoDetectLongPolling: true,
             localCache: memoryLocalCache(),
           });
         } catch {
@@ -78,12 +79,12 @@ export function getFirebaseDb(): Firestore {
       }
     }
   }
-  return dbInstance;
+  return configureFirestoreEmulator(dbInstance);
 }
 
 export function getFirebaseStorage(): FirebaseStorage {
   if (!storageInstance) {
-    storageInstance = getStorage(getFirebaseApp());
+    storageInstance = configureStorageEmulator(getStorage(getFirebaseApp()));
   }
   return storageInstance;
 }

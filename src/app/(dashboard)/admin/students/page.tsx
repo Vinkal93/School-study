@@ -77,8 +77,6 @@ import { toast } from "sonner";
 import { useEntitlement } from "@/context/EntitlementContext";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
 import { Menu, Bell, SlidersHorizontal, Smartphone } from "lucide-react";
-import { AdminMobileNavDrawer } from "@/components/admin/mobile/AdminMobileNavDrawer";
-import { AdminMobileBottomNav } from "@/components/admin/mobile/AdminMobileBottomNav";
 import { StudentMobileCard } from "@/components/admin/mobile/StudentMobileCard";
 import { StudentFilterSheet, type StudentFiltersState } from "@/components/admin/mobile/StudentFilterSheet";
 import { StudentActionsSheet } from "@/components/admin/mobile/StudentActionsSheet";
@@ -456,6 +454,7 @@ export default function AdminStudentsPage() {
         `Student "${name}" enrolled! ID: ${created.studentId}, Roll No: ${created.rollNumber}`
       );
       setIsAddModalOpen(false);
+      if (created.feeSetupPending) toast.warning("Admission saved. Invoice setup is pending; open Fee Management → Generate Invoice to retry.");
 
       // Prompt to dispatch welcome notification & credentials
       setCommRecipients([
@@ -542,9 +541,9 @@ export default function AdminStudentsPage() {
   };
 
   const handleRestoreStudent = async (stu: StudentProfile) => {
-    if (limitStatus && !limitStatus.allowed) {
+    if (isStudentLimitReached) {
       toast.error(
-        `Student limit reached (${limitStatus.current}/${limitStatus.limit}). Upgrade plan to restore more students.`
+        `Student limit reached (${effectiveStudentCount}/${effectiveStudentLimit}). Upgrade plan to restore more students.`
       );
       return;
     }
@@ -734,7 +733,13 @@ export default function AdminStudentsPage() {
         targetSchoolId: schoolId,
       });
 
-      toast.success(res.message || `Successfully deleted ${res.deletedCount} students.`);
+      if (res.failedCount > 0 && res.deletedCount > 0) {
+        toast.warning(
+          res.message || `Processed ${res.deletedCount} student(s), but ${res.failedCount} student(s) failed verification.`
+        );
+      } else {
+        toast.success(res.message || `Successfully processed ${res.deletedCount} student(s).`);
+      }
       handleClearSelection();
       setIsBulkDeleteModalOpen(false);
 
@@ -831,6 +836,23 @@ export default function AdminStudentsPage() {
     () => filteredStudents.filter((s) => normalizeGender(s.gender) === "female").length,
     [filteredStudents]
   );
+
+  const effectiveStudentCount = students.length > 0 ? nonDeletedStudents.length : (limitStatus?.current ?? 0);
+  const effectiveStudentLimit = limitStatus?.limit ?? 500;
+  const isStudentLimitReached = limitStatus && effectiveStudentLimit !== -1 ? effectiveStudentCount >= effectiveStudentLimit : false;
+
+  // Auto-synchronize schoolUsage when student list is loaded and discrepancies exist
+  useEffect(() => {
+    if (!schoolId || !limitStatus || students.length === 0 || loading) return;
+    if (limitStatus.current !== nonDeletedStudents.length) {
+      import("@/lib/billing/usage").then(({ reconcileSchoolUsage }) => {
+        reconcileSchoolUsage(schoolId, "students_page_auto_sync").then(() => {
+          appQueryClient.invalidateCache(`planLimit:${schoolId}:students`);
+          refetchLimit(true);
+        }).catch(() => {});
+      }).catch(() => {});
+    }
+  }, [schoolId, limitStatus, students.length, nonDeletedStudents.length, loading, refetchLimit]);
 
   return (
     <EntitlementGate
@@ -1030,10 +1052,6 @@ export default function AdminStudentsPage() {
           </button>
 
           {/* 7. Bottom Navigation Bar (Screen 10) */}
-          <AdminMobileBottomNav
-            onOpenDrawer={() => setIsMobileDrawerOpen(true)}
-            onOpenAddStudent={() => setIsAddWizardOpen(true)}
-          />
         </div>
 
         {/* Desktop Container */}
@@ -1098,10 +1116,9 @@ export default function AdminStudentsPage() {
                 toast.error("Student Management is not included in your current plan. Please upgrade to unlock.");
                 return;
               }
-              if (limitStatus && !limitStatus.allowed) {
+              if (isStudentLimitReached) {
                 toast.error(
-                  limitStatus.message ||
-                    `Student limit reached. Your plan allows ${limitStatus.limit} students. You already have ${limitStatus.current}.`
+                  `Student limit reached. Your plan allows ${effectiveStudentLimit} students. You already have ${effectiveStudentCount}.`
                 );
                 return;
               }
@@ -1109,7 +1126,7 @@ export default function AdminStudentsPage() {
               setIsAddModalOpen(true);
             }}
             className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white shadow-sm transition-all ${
-              limitStatus && !limitStatus.allowed
+              isStudentLimitReached
                 ? "bg-slate-500 hover:bg-slate-600 opacity-90 cursor-pointer"
                 : "bg-blue-600 hover:bg-blue-700"
             }`}
@@ -1121,14 +1138,13 @@ export default function AdminStudentsPage() {
       </div>
 
       {/* Plan Capacity Limit Warning Banner */}
-      {limitStatus && !limitStatus.allowed && (
+      {isStudentLimitReached && (
         <div className="rounded-2xl border border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/40 p-4 flex items-center justify-between gap-4 text-red-800 dark:text-red-300">
           <div className="flex items-center gap-3">
             <XCircle className="h-5 w-5 text-red-600 shrink-0" />
             <div className="text-xs sm:text-sm">
               <span className="font-bold">
-                {limitStatus.message ||
-                  `Student limit reached. Your plan allows ${limitStatus.limit} students. You already have ${limitStatus.current}.`}
+                Student limit reached. Your plan allows ${effectiveStudentLimit} students. You already have ${effectiveStudentCount}.
               </span>
             </div>
           </div>
@@ -1476,7 +1492,7 @@ export default function AdminStudentsPage() {
                       className={`shrink-0 inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold capitalize ${
                         s.status === "active"
                           ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
-                          : s.status === "deleted"
+                          : (s.status === "deleted" || s.status === "archived")
                           ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
                           : "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800"
                       }`}
@@ -1516,7 +1532,7 @@ export default function AdminStudentsPage() {
 
                   {/* Action Buttons: Full-width symmetric grid */}
                   <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80">
-                    {s.status === "deleted" ? (
+                    {(s.status === "deleted" || s.status === "archived") ? (
                       <button
                         type="button"
                         onClick={() => handleRestoreStudent(s)}
@@ -1778,14 +1794,14 @@ export default function AdminStudentsPage() {
                           className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
                             s.status === "active"
                               ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400"
-                              : s.status === "deleted"
+                              : (s.status === "deleted" || s.status === "archived")
                               ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
                               : "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"
                           }`}
                         >
                           {s.status === "active" ? (
                             <CheckCircle2 className="h-3 w-3" />
-                          ) : s.status === "deleted" ? (
+                          ) : (s.status === "deleted" || s.status === "archived") ? (
                             <RotateCcw className="h-3 w-3 text-gray-500" />
                           ) : (
                             <XCircle className="h-3 w-3" />
@@ -1795,7 +1811,7 @@ export default function AdminStudentsPage() {
                       </td>
                       <td className="py-4 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          {s.status === "deleted" ? (
+                          {(s.status === "deleted" || s.status === "archived") ? (
                             <button
                               onClick={() => handleRestoreStudent(s)}
                               className="inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300"
@@ -2571,11 +2587,6 @@ export default function AdminStudentsPage() {
             CONNECTED MOBILE SHEETS & MODALS (Screens 1, 3, 4, 5, 6, 7, 8, 9)
         ========================================================= */}
         {/* Screen 1: Mobile Navigation Drawer */}
-        <AdminMobileNavDrawer
-          isOpen={isMobileDrawerOpen}
-          onClose={() => setIsMobileDrawerOpen(false)}
-          schoolName={profile?.schoolName || (profile as any)?.tenantSettings?.schoolName || "SBCI School"}
-        />
 
         {/* Screen 3: Filter Options Bottom Sheet */}
         <StudentFilterSheet

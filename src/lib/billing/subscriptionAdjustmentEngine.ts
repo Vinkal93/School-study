@@ -560,6 +560,18 @@ export async function revokeAccessOverride(
 }
 
 export async function getActiveAccessOverrides(schoolId: string): Promise<AccessOverrideRecord[]> {
+  if (typeof window === "undefined") {
+    const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+    const db = getSafeAdminDb();
+    if (!db) return [];
+    try {
+      const snap = await db.collection(BILLING_COLLECTIONS.ACCESS_OVERRIDES).where("schoolId","==",schoolId).get();
+      const now = new Date().toISOString();
+      return snap.docs.map(d => ({id:d.id,...d.data()} as AccessOverrideRecord)).filter(o => o.status === "ACTIVE" && (!o.endAt || o.endAt > now));
+    } catch {
+      return [];
+    }
+  }
   const db = getFirebaseDb();
   if (!db) return [];
 
@@ -660,6 +672,18 @@ export async function revokeLimitOverride(
 }
 
 export async function getActiveLimitOverrides(schoolId: string): Promise<LimitOverrideRecord[]> {
+  if (typeof window === "undefined") {
+    const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+    const db = getSafeAdminDb();
+    if (!db) return [];
+    try {
+      const snap = await db.collection(BILLING_COLLECTIONS.LIMIT_OVERRIDES).where("schoolId","==",schoolId).get();
+      const now = new Date().toISOString();
+      return snap.docs.map(d => ({id:d.id,...d.data()} as LimitOverrideRecord)).filter(o => o.status === "ACTIVE" && o.endAt > now);
+    } catch {
+      return [];
+    }
+  }
   const db = getFirebaseDb();
   if (!db) return [];
 

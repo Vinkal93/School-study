@@ -19,7 +19,7 @@ export function FeatureGate({
   showNotice = false,
   inlineNotice,
 }: FeatureGateProps) {
-  const { canAccess, loading } = useEntitlement();
+  const { canAccess, loading, getFeatureAccessMode } = useEntitlement();
 
   if (loading) return null;
 
@@ -28,6 +28,8 @@ export function FeatureGate({
   if (allowed) {
     return <>{children}</>;
   }
+
+  if (getFeatureAccessMode(featureKey) === "HIDDEN") return null;
 
   if (fallback) {
     return <>{fallback}</>;

@@ -184,26 +184,45 @@ function UsersManagementContent() {
     return 0;
   };
 
-  const getRelativeActiveTime = (user: AppUser) => {
-    const lastActive = (user as any).lastActiveAt || (user as any).lastLoginAt || user.updatedAt;
-    const ms = getTimestampMs(lastActive);
-    if (!ms) return "Never";
-
-    const diffMins = Math.floor((Date.now() - ms) / (1000 * 60));
-    if (diffMins < 2) return "Just now";
-    if (diffMins < 60) return `${diffMins}m ago`;
-    const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `${diffHours}h ago`;
-    const diffDays = Math.floor(diffHours / 24);
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return new Date(ms).toLocaleDateString();
+  const isOnlineNow = (user: AppUser) => {
+    // Only genuine presence heartbeat within 5 minutes indicates Online Now
+    const lastPresence = (user as any).lastActiveAt || (user as any).lastActive;
+    const ms = getTimestampMs(lastPresence);
+    if (!ms) return false;
+    return Date.now() - ms <= 5 * 60 * 1000;
   };
 
-  const isOnlineNow = (user: AppUser) => {
-    const lastActive = (user as any).lastActiveAt || (user as any).lastLoginAt;
-    const ms = getTimestampMs(lastActive);
-    if (!ms) return false;
-    return Date.now() - ms <= 15 * 60 * 1000;
+  const getRelativeActiveTime = (user: AppUser) => {
+    // 1. Check genuine application activity / heartbeat
+    const activeAt = (user as any).lastActiveAt || (user as any).lastActive;
+    const activeMs = getTimestampMs(activeAt);
+    if (activeMs) {
+      const diffMins = Math.floor((Date.now() - activeMs) / (1000 * 60));
+      if (diffMins <= 5) return "Online";
+      if (diffMins < 60) return `Active ${diffMins}m ago`;
+      const diffHours = Math.floor(diffMins / 60);
+      if (diffHours < 24) return `Active ${diffHours}h ago`;
+      const diffDays = Math.floor(diffHours / 24);
+      if (diffDays < 7) return `Active ${diffDays}d ago`;
+      return `Active ${new Date(activeMs).toLocaleDateString()}`;
+    }
+
+    // 2. Fallback to last successful sign-in
+    const loginAt = (user as any).lastLoginAt || (user as any).lastSignInTime;
+    const loginMs = getTimestampMs(loginAt);
+    if (loginMs) {
+      const diffMins = Math.floor((Date.now() - loginMs) / (1000 * 60));
+      if (diffMins < 2) return "Signed in just now";
+      if (diffMins < 60) return `Signed in ${diffMins}m ago`;
+      const diffHours = Math.floor(diffMins / 60);
+      if (diffHours < 24) return `Signed in ${diffHours}h ago`;
+      const diffDays = Math.floor(diffHours / 24);
+      if (diffDays < 7) return `Signed in ${diffDays}d ago`;
+      return `Signed in ${new Date(loginMs).toLocaleDateString()}`;
+    }
+
+    // 3. Never signed in / no recorded activity (NEVER show "Just now"!)
+    return "Never signed in";
   };
 
   // Scope-Filtered Users (Matching all active filters EXCEPT roleFilter, for dynamic role pills)
@@ -262,7 +281,7 @@ function UsersManagementContent() {
 
       // 4. Last Active Filter
       if (lastActiveFilter !== "all") {
-        const getLastActive = (item: any) => item.lastActiveAt || item.lastLoginAt || item.updatedAt;
+        const getLastActive = (item: any) => item.lastActiveAt || item.lastLoginAt || 0;
         const ms = getTimestampMs(getLastActive(u));
         const now = Date.now();
         if (lastActiveFilter === "online") {

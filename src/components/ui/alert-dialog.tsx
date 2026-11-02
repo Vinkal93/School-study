@@ -1,6 +1,7 @@
 "use client";
 
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils/cn";
 
 interface AlertDialogContextType {
@@ -78,30 +79,59 @@ export interface AlertDialogContentProps {
 
 export function AlertDialogContent({ children, className, size = "default" }: AlertDialogContentProps) {
   const { open, setOpen } = useContext(AlertDialogContext);
+  const [mounted, setMounted] = useState(false);
 
-  if (!open) return null;
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+  // Lock body scroll and handle Escape key
+  useEffect(() => {
+    if (!open) return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open, setOpen]);
+
+  if (!open || !mounted) return null;
+
+  const content = (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 overflow-y-auto">
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in"
+        className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs transition-opacity animate-in fade-in duration-150"
         onClick={() => setOpen(false)}
       />
 
       {/* Dialog Box */}
       <div
         role="alertdialog"
+        aria-modal="true"
         className={cn(
-          "relative z-50 w-full rounded-2xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-800 transition-all animate-in zoom-in-95",
-          size === "sm" ? "max-w-sm" : "max-w-md",
+          "relative z-50 w-full rounded-2xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-800 transition-all animate-in zoom-in-95 duration-150 my-auto",
+          size === "sm" ? "max-w-sm" : size === "lg" ? "max-w-lg" : "max-w-md",
           className
         )}
+        onClick={(e) => e.stopPropagation()}
       >
         {children}
       </div>
     </div>
   );
+
+  return typeof document !== "undefined" ? createPortal(content, document.body) : null;
 }
 
 export function AlertDialogMedia({

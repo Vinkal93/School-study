@@ -7,22 +7,25 @@ import {
   Building2,
   Users,
   GraduationCap,
-  BookOpen,
   Shield,
-  CreditCard,
   Banknote,
   Receipt,
-  FileText,
   SlidersHorizontal,
   Loader2,
   X,
   ArrowRight,
   CornerDownLeft,
-  CheckCircle2,
   Sparkles,
   Layers,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { getFirebaseDb } from "@/lib/firebase/client";
+import { collection, getDocs, query as firestoreQuery, where, limit } from "firebase/firestore";
+import {
+  SCHOOL_ADMIN_NAV_ITEMS,
+  SUPER_ADMIN_NAV_ITEMS,
+  type NavigationShortcut,
+} from "@/lib/search/navigation-items";
 
 interface GlobalSearchModalProps {
   isOpen: boolean;
@@ -51,8 +54,8 @@ export function GlobalSearchModal({
   initialCategory = "all",
 }: GlobalSearchModalProps) {
   const router = useRouter();
-  const { profile: currentUser } = useAuth();
-  const [query, setQuery] = useState("");
+  const { profile: currentUser, firebaseUser } = useAuth();
+  const [queryText, setQueryText] = useState("");
   const [selectedCategory, setSelectedCategory] = useState(initialCategory);
   const [results, setResults] = useState<UnifiedSearchResultItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -61,6 +64,7 @@ export function GlobalSearchModal({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const isSuperAdmin = currentUser?.role === "super_admin";
+  const schoolId = currentUser?.schoolId || "";
 
   // Category Options based on Role
   const superAdminCategories = useMemo(
@@ -95,7 +99,7 @@ export function GlobalSearchModal({
     if (isOpen) {
       setTimeout(() => inputRef.current?.focus(), 50);
     } else {
-      setQuery("");
+      setQueryText("");
       setResults([]);
       setSelectedIndex(0);
       setSelectedCategory("all");
@@ -103,36 +107,85 @@ export function GlobalSearchModal({
     }
   }, [isOpen]);
 
-  // Debounced Search
+  // Synchronous Client-Side Navigation Matching (0ms instant feedback)
+  const navShortcuts = useMemo(() => {
+    const q = queryText.toLowerCase().trim();
+    if (!q) return [];
+    if (selectedCategory !== "all" && selectedCategory !== "navigation") return [];
+
+    const pool = isSuperAdmin ? SUPER_ADMIN_NAV_ITEMS : SCHOOL_ADMIN_NAV_ITEMS;
+    return pool
+      .filter((nav) => {
+        const matchTitle = nav.title.toLowerCase().includes(q);
+        const matchSub = nav.subtitle.toLowerCase().includes(q);
+        const matchKey = nav.keywords.some((k) => k.includes(q) || q.includes(k));
+        return matchTitle || matchSub || matchKey;
+      })
+      .map(
+        (nav): UnifiedSearchResultItem => ({
+          id: nav.id,
+          type: "navigation",
+          category: "navigation",
+          name: nav.title,
+          subtitle: nav.subtitle,
+          badge: "Page",
+          badgeColor: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+          url: nav.url,
+        })
+      );
+  }, [queryText, selectedCategory, isSuperAdmin]);
+
+  // Debounced Search Engine (Server API + Direct Client Firestore Fallback)
   useEffect(() => {
-    if (!query.trim() || !currentUser?.uid) {
+    const q = queryText.toLowerCase().trim();
+    let cancelled = false;
+    if (!q || !isOpen || !currentUser?.uid) {
       setResults([]);
       setLoading(false);
       return;
     }
 
+    // Immediately display navigation matches while async search queries execute
+    setResults(navShortcuts);
+
     const timer = setTimeout(async () => {
       setLoading(true);
+      const combined = new Map<string, UnifiedSearchResultItem>();
+
+      // Add instant navigation items
+      navShortcuts.forEach((item) => combined.set(`${item.type}_${item.id}`, item));
+
       try {
+        let token = "";
+        try {
+          if (firebaseUser) token = await firebaseUser.getIdToken();
+        } catch {}
+
+        const headers: Record<string, string> = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+
         const endpoint = isSuperAdmin
-          ? `/api/super-admin/search?performerUid=${currentUser.uid}&q=${encodeURIComponent(
-              query
-            )}&category=${selectedCategory}`
-          : `/api/admin/search?performerUid=${currentUser.uid}&q=${encodeURIComponent(
-              query
+          ? `/api/super-admin/search?performerUid=${encodeURIComponent(
+              currentUser?.uid || ""
+            )}&q=${encodeURIComponent(q)}&category=${selectedCategory}`
+          : `/api/admin/search?performerUid=${encodeURIComponent(
+              currentUser?.uid || ""
+            )}&schoolId=${encodeURIComponent(schoolId)}&q=${encodeURIComponent(
+              q
             )}&category=${selectedCategory}`;
 
-        const res = await fetch(endpoint);
-        const data = await res.json();
-        if (res.ok) {
-          const rawResults = data.results || [];
-          // Normalize results
-          const normalized: UnifiedSearchResultItem[] = rawResults.map((item: any) => ({
+        const res = await fetch(endpoint, { headers, cache: "no-store" }).catch(() => null);
+
+        let serverItems: UnifiedSearchResultItem[] = [];
+        if (res && res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const raw = Array.isArray(data.results) ? data.results : [];
+          serverItems = raw.map((item: any) => ({
             id: item.id,
             type: item.type || "item",
             category: item.category,
-            name: item.name || item.title,
-            subtitle: item.subtitle,
+            name: item.name || item.title || "Record",
+            subtitle: item.subtitle || "",
             schoolName: item.schoolName,
             schoolCode: item.schoolCode,
             badge: item.badge,
@@ -141,19 +194,159 @@ export function GlobalSearchModal({
             url: item.url,
             metadata: item.metadata,
           }));
-
-          setResults(normalized);
-          setSelectedIndex(0);
         }
+
+        serverItems.forEach((item) => combined.set(`${item.type}_${item.id}`, item));
+
+        // If server returned few/no items (e.g. offline client or local dev), execute client Firestore queries
+        if ((!res || res.status === 503) && firebaseUser) {
+          const db = getFirebaseDb();
+          if (db) {
+            if (isSuperAdmin) {
+              // Super Admin Client-Side Fallback: Query schools & users
+              if (selectedCategory === "all" || selectedCategory === "schools") {
+                const sSnap = await getDocs(firestoreQuery(collection(db, "schools"), limit(50))).catch(() => null);
+                if (sSnap) {
+                  sSnap.docs.forEach((d) => {
+                    const data = d.data();
+                    const name = String(data.name || "");
+                    const code = String(data.code || "");
+                    const city = String(data.city || "");
+                    if (name.toLowerCase().includes(q) || code.toLowerCase().includes(q) || city.toLowerCase().includes(q)) {
+                      combined.set(`school_${d.id}`, {
+                        id: d.id,
+                        type: "school",
+                        category: "schools",
+                        name,
+                        subtitle: `Code: ${code || "N/A"} · ${city || "School"}`,
+                        schoolName: name,
+                        schoolCode: code,
+                        badge: "School",
+                        badgeColor: "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300",
+                        url: `/super-admin/schools/${d.id}`,
+                      });
+                    }
+                  });
+                }
+              }
+
+              if (selectedCategory === "all" || selectedCategory === "users" || selectedCategory === "school_admins" || selectedCategory === "teachers" || selectedCategory === "students") {
+                const uSnap = await getDocs(firestoreQuery(collection(db, "users"), limit(80))).catch(() => null);
+                if (uSnap) {
+                  uSnap.docs.forEach((d) => {
+                    const data = d.data();
+                    const name = String(data.name || "");
+                    const email = String(data.email || "");
+                    const role = String(data.role || "user");
+                    if (selectedCategory === "school_admins" && role !== "school_admin") return;
+                    if (selectedCategory === "teachers" && role !== "teacher") return;
+                    if (selectedCategory === "students" && role !== "student") return;
+                    if (name.toLowerCase().includes(q) || email.toLowerCase().includes(q)) {
+                      combined.set(`user_${d.id}`, {
+                        id: d.id,
+                        type: role,
+                        category: "users",
+                        name: name || email,
+                        subtitle: `${email} · Role: ${role}`,
+                        badge: role.toUpperCase(),
+                        badgeColor: "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
+                        url: `/super-admin/users/${d.id}`,
+                      });
+                    }
+                  });
+                }
+              }
+            } else if (schoolId) {
+              // School Admin Client-Side Fallback: Query students & teachers & receipts for this school
+              if (selectedCategory === "all" || selectedCategory === "students") {
+                const stuSnap = await getDocs(firestoreQuery(collection(db, "schools", schoolId, "students"), limit(60))).catch(() => null);
+                if (stuSnap) {
+                  stuSnap.docs.forEach((d) => {
+                    const s = d.data();
+                    const name = String(s.name || "");
+                    const adm = String(s.admissionNumber || s.studentId || "");
+                    const cls = String(s.className || "");
+                    const sec = String(s.sectionName || "");
+                    const phone = String(s.guardianPhone || s.phone || "");
+                    if (name.toLowerCase().includes(q) || adm.toLowerCase().includes(q) || cls.toLowerCase().includes(q) || phone.includes(q)) {
+                      combined.set(`student_${d.id}`, {
+                        id: d.id,
+                        type: "student",
+                        category: "students",
+                        name,
+                        subtitle: `Class ${cls}${sec ? `-${sec}` : ""} · Reg: ${adm || d.id}${phone ? ` · 📞 ${phone}` : ""}`,
+                        badge: "Student",
+                        badgeColor: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+                        url: `/admin/students`,
+                      });
+                    }
+                  });
+                }
+              }
+
+              if (selectedCategory === "all" || selectedCategory === "teachers") {
+                const teaSnap = await getDocs(firestoreQuery(collection(db, "schools", schoolId, "teachers"), limit(30))).catch(() => null);
+                if (teaSnap) {
+                  teaSnap.docs.forEach((d) => {
+                    const t = d.data();
+                    const name = String(t.name || "");
+                    const desig = String(t.designation || "Teacher");
+                    const emp = String(t.employeeId || "");
+                    if (name.toLowerCase().includes(q) || desig.toLowerCase().includes(q) || emp.toLowerCase().includes(q)) {
+                      combined.set(`teacher_${d.id}`, {
+                        id: d.id,
+                        type: "teacher",
+                        category: "teachers",
+                        name,
+                        subtitle: `${desig}${emp ? ` · ID: ${emp}` : ""}`,
+                        badge: "Teacher",
+                        badgeColor: "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
+                        url: `/admin/teachers`,
+                      });
+                    }
+                  });
+                }
+              }
+
+              if (selectedCategory === "all" || selectedCategory === "fees") {
+                const feeSnap = await getDocs(firestoreQuery(collection(db, "financialPayments"), where("schoolId", "==", schoolId), limit(40))).catch(() => null);
+                if (feeSnap) {
+                  feeSnap.docs.forEach((d) => {
+                    const p = d.data();
+                    const rec = String(p.receiptNumber || "");
+                    const stu = String(p.studentName || "");
+                    const amt = p.amountPaidPaise ? p.amountPaidPaise / 100 : p.amount || 0;
+                    if (rec.toLowerCase().includes(q) || stu.toLowerCase().includes(q)) {
+                      combined.set(`receipt_${d.id}`, {
+                        id: d.id,
+                        type: "receipt",
+                        category: "fees",
+                        name: `Receipt #${rec}`,
+                        subtitle: `Student: ${stu} · ₹${amt.toFixed(2)}`,
+                        badge: "Fee Receipt",
+                        badgeColor: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
+                        url: `/admin/fees/paid-slip`,
+                      });
+                    }
+                  });
+                }
+              }
+            }
+          }
+        }
+
+        if (cancelled) return;
+        setResults(Array.from(combined.values()));
+        setSelectedIndex(0);
       } catch (err) {
         console.warn("Global search error:", err);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    }, 180);
+    }, 120);
 
-    return () => clearTimeout(timer);
-  }, [query, selectedCategory, currentUser?.uid, isSuperAdmin]);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [queryText, selectedCategory, currentUser?.uid, isSuperAdmin, schoolId, firebaseUser, navShortcuts, isOpen]);
 
   // Keyboard navigation
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -233,7 +426,7 @@ export function GlobalSearchModal({
 
           <button
             onClick={onClose}
-            className="rounded-lg p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+            className="rounded-lg p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200 cursor-pointer"
           >
             <X className="h-4 w-4" />
           </button>
@@ -245,8 +438,8 @@ export function GlobalSearchModal({
           <input
             ref={inputRef}
             type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            value={queryText}
+            onChange={(e) => setQueryText(e.target.value)}
             placeholder={
               isSuperAdmin
                 ? "Search across schools, users, teachers, students, emails, codes..."
@@ -257,12 +450,12 @@ export function GlobalSearchModal({
 
           {loading && <Loader2 className="h-4 w-4 animate-spin text-blue-600 shrink-0 mr-2" />}
 
-          {/* Filter Icon Button */}
+          {/* Filter Button */}
           <button
             type="button"
             onClick={() => setShowFilterDropdown((prev) => !prev)}
             title="Filter search category"
-            className={`flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition ${
+            className={`flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer ${
               selectedCategory !== "all" || showFilterDropdown
                 ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/60 dark:text-blue-300"
                 : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
@@ -275,7 +468,7 @@ export function GlobalSearchModal({
           </button>
         </div>
 
-        {/* Category Pills Bar (Toggled or Always visible for convenience) */}
+        {/* Category Pills Bar */}
         <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-100 bg-slate-50/50 px-4 py-2 dark:border-slate-800 dark:bg-slate-800/30">
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1">
             Filter:
@@ -288,7 +481,7 @@ export function GlobalSearchModal({
                 key={cat.id}
                 type="button"
                 onClick={() => setSelectedCategory(cat.id)}
-                className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
                   isSelected
                     ? "bg-blue-600 text-white shadow-xs"
                     : "bg-white text-slate-600 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700"
@@ -303,7 +496,7 @@ export function GlobalSearchModal({
 
         {/* Results Body */}
         <div className="max-h-[380px] overflow-y-auto p-2">
-          {query.trim().length === 0 ? (
+          {queryText.trim().length === 0 ? (
             <div className="py-12 text-center text-xs text-slate-400 dark:text-slate-500">
               <p className="font-semibold text-slate-700 dark:text-slate-300">
                 {isSuperAdmin
@@ -322,7 +515,7 @@ export function GlobalSearchModal({
             </div>
           ) : results.length === 0 ? (
             <div className="py-12 text-center text-xs text-slate-400">
-              No matching records found for &quot;<strong className="text-slate-700 dark:text-slate-200">{query}</strong>&quot;
+              No matching records found for &quot;<strong className="text-slate-700 dark:text-slate-200">{queryText}</strong>&quot;
               {selectedCategory !== "all" ? ` in ${selectedCategory}` : ""}.
             </div>
           ) : (
@@ -331,7 +524,7 @@ export function GlobalSearchModal({
                 const isSelected = selectedIndex === idx;
                 return (
                   <div
-                    key={`${item.id}_${idx}`}
+                    key={`${item.type}_${item.id}_${idx}`}
                     onClick={() => handleSelect(item)}
                     onMouseEnter={() => setSelectedIndex(idx)}
                     className={`flex items-center justify-between gap-3 rounded-xl p-3 cursor-pointer transition ${

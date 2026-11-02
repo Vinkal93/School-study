@@ -148,6 +148,7 @@ export interface FeeDemand {
   concessionAmountPaise: number; // Specific scholarship/concession
   lateFeePaise: number; // Computed overdue penalty
   finePaise: number; // Manually added penalty
+  fineReliefPaise?: number; // Cumulative penalty relief already recorded as adjustment credits
   netAmountPaise: number; // gross - discount - concession + lateFee + fine
   paidAmountPaise: number; // Total payments allocated to this invoice
   balanceAmountPaise: number; // net - paid (Never negative)

@@ -236,6 +236,7 @@ export default function AddNewStudentPage() {
       });
 
       toast.success(`Student "${name}" enrolled successfully!`);
+      if (result.feeSetupPending) toast.warning("Admission saved. Invoice setup is pending; open Fee Management → Generate Invoice to retry.");
 
       setCreatedStudentResult({
         studentId: result.studentId,

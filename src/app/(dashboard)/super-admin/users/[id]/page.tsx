@@ -491,8 +491,10 @@ export default function UserProfileInspectorPage() {
                     <Building2 className="h-3.5 w-3.5 text-blue-500" />
                     {school.name} ({school.code || school.id.slice(0, 6)})
                   </span>
-                ) : (
+                ) : user.role === "super_admin" ? (
                   <span className="text-purple-600 font-medium">Platform Global Account</span>
+                ) : (
+                  <span className="text-amber-600 font-medium">Unassigned School Campus (Missing Tenant ID)</span>
                 )}
               </div>
             </div>
@@ -603,7 +605,7 @@ export default function UserProfileInspectorPage() {
               <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Affiliated School</span>
               <div className="mt-2 flex items-center justify-between">
                 <span className="text-lg font-bold text-gray-900 dark:text-white truncate">
-                  {school ? school.name : "Platform Global"}
+                  {school ? school.name : user.role === "super_admin" ? "Platform Global" : "Unassigned School Campus"}
                 </span>
                 <Building2 className="h-5 w-5 text-indigo-600" />
               </div>
@@ -832,7 +834,9 @@ export default function UserProfileInspectorPage() {
                 </>
               ) : (
                 <div className="py-6 text-center text-xs text-gray-500">
-                  This user is a Platform Global account and is not restricted to any individual school tenant.
+                  {user.role === "super_admin"
+                    ? "This user is a Platform Global account and is not restricted to any individual school tenant."
+                    : "⚠️ Tenant Isolation Warning: This user account has no assigned school campus. Tenant data access is blocked until assigned to a school campus."}
                 </div>
               )}
             </div>

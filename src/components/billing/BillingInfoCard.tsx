@@ -3,6 +3,9 @@
 import React, { useState } from "react";
 import { Building2, Edit, Mail, Phone, MapPin, Receipt, ShieldCheck, Check, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/hooks/use-auth";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { getFirebaseDb } from "@/lib/firebase/client";
 
 export interface BillingProfileData {
   schoolId?: string;
@@ -27,6 +30,7 @@ export function BillingInfoCard({
   profile,
   onProfileUpdated,
 }: BillingInfoCardProps) {
+  const { profile: signedInProfile } = useAuth();
   const [showEditModal, setShowEditModal] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -60,20 +64,15 @@ export function BillingInfoCard({
 
     setSaving(true);
     try {
-      const res = await fetch("/api/billing/profile", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ schoolId, ...form }),
-      });
-
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to update billing details.");
+      const db = getFirebaseDb();
+      if (!db || !signedInProfile || (signedInProfile.role !== "super_admin" && signedInProfile.schoolId !== schoolId)) throw new Error("School billing access is unavailable.");
+      await setDoc(doc(db, "billingProfiles", schoolId), { ...form, schoolId, gstin: form.gstin.trim().toUpperCase(), pan: form.pan.trim().toUpperCase(), updatedAt: serverTimestamp() }, { merge: true });
 
       toast.success("Billing details updated successfully.");
       setShowEditModal(false);
       onProfileUpdated();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to update billing details.");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to update billing details.");
     } finally {
       setSaving(false);
     }

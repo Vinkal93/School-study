@@ -13,15 +13,35 @@ import { COLLECTIONS } from "@/lib/utils/constants";
 import type { AppUser, StudentProfile, TeacherProfile, School } from "@/types";
 
 /**
- * Normalizes timestamps to ISO strings or milliseconds.
+ * Normalizes timestamps to ISO strings or returns null if missing or invalid.
+ * Never defaults missing timestamps to current time (which would cause false 'Just now' activity).
  */
-function normalizeDate(val: any): string {
-  if (!val) return new Date().toISOString();
-  if (typeof val === "string") return val;
-  if (val.toDate && typeof val.toDate === "function") return val.toDate().toISOString();
-  if (val.toMillis && typeof val.toMillis === "function") return new Date(val.toMillis()).toISOString();
-  if (typeof val === "number") return new Date(val).toISOString();
-  return new Date().toISOString();
+function normalizeDate(val: any): string | null {
+  if (!val) return null;
+  if (typeof val === "string") {
+    const parsed = Date.parse(val);
+    return isNaN(parsed) ? null : new Date(parsed).toISOString();
+  }
+  if (val.toDate && typeof val.toDate === "function") {
+    try {
+      const d = val.toDate();
+      return d instanceof Date && !isNaN(d.getTime()) ? d.toISOString() : null;
+    } catch {
+      return null;
+    }
+  }
+  if (val.toMillis && typeof val.toMillis === "function") {
+    try {
+      const ms = val.toMillis();
+      return typeof ms === "number" && !isNaN(ms) ? new Date(ms).toISOString() : null;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof val === "number") {
+    return !isNaN(val) && val > 0 ? new Date(val).toISOString() : null;
+  }
+  return null;
 }
 
 /**
@@ -50,8 +70,10 @@ export async function getComprehensiveGlobalUsers(): Promise<AppUser[]> {
       const user: AppUser = {
         uid,
         ...data,
-        createdAt: normalizeDate(data.createdAt),
+        createdAt: normalizeDate(data.createdAt) || (data.createdAt ? String(data.createdAt) : null),
         updatedAt: normalizeDate(data.updatedAt),
+        lastActiveAt: normalizeDate(data.lastActiveAt),
+        lastLoginAt: normalizeDate(data.lastLoginAt),
         accountStatus: data.accountStatus || (data.hasAuth === false ? "portal_not_created" : "active"),
       };
       usersMap.set(uid, user);

@@ -18,6 +18,7 @@ import {
   UserX,
 } from "lucide-react";
 import type { StudentProfile } from "@/types";
+import { toast } from "sonner";
 
 interface StudentActionsSheetProps {
   isOpen: boolean;
@@ -55,7 +56,7 @@ export function StudentActionsSheet({
   const handleWhatsApp = () => {
     const rawPhone = student.guardianPhone || student.phone;
     if (!rawPhone) {
-      alert("No phone number found for this student.");
+      toast.error("No phone number found for this student.");
       return;
     }
     const cleanPhone = rawPhone.replace(/[^0-9]/g, "");

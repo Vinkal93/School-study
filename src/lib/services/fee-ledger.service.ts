@@ -14,7 +14,7 @@ import { postedPayment, normalizePaymentMethod } from "@/lib/fees/finance-core";
  *     Running Balance = Prev + Debit - Credit
  */
 
-import { getFirebaseDb } from "@/lib/firebase/client";
+import { getFirebaseDb } from "@/lib/fees/firestore";
 import {
   collection,
   query,
@@ -23,7 +23,7 @@ import {
   doc,
   getDoc,
   orderBy,
-} from "firebase/firestore";
+} from "@/lib/fees/firestore";
 import type {
   FeeDemand,
   FinancialPayment,
@@ -186,7 +186,7 @@ export async function getStudentLedger(
       where("studentId", "==", studentId)
     )
   );
-  let payments = paymentsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as FinancialPayment));
+  let payments = paymentsSnap.docs.map((d) => ({ ...d.data(), id: d.id, amountPaise: d.data().amountPaise ?? d.data().amountPaidPaise ?? d.data().netAmountPaise ?? 0 } as FinancialPayment));
   const seenPayIds = new Set(payments.map((p) => p.id));
   const seenReceipts = new Set(payments.map((p) => p.receiptNumber).filter(Boolean));
 
@@ -205,7 +205,7 @@ export async function getStudentLedger(
       if (rec && seenReceipts.has(rec)) continue;
       seenPayIds.add(d.id);
       if (rec) seenReceipts.add(rec);
-      payments.push({ id: d.id, ...data } as FinancialPayment);
+      payments.push({ ...data, id: d.id, amountPaise: data.amountPaise ?? data.amountPaidPaise ?? data.netAmountPaise ?? 0 } as FinancialPayment);
     }
   } catch {}
 
@@ -243,6 +243,7 @@ export async function getStudentLedger(
         collectedBy: data.collectedBy || "",
         collectedByName: data.collectedByName || "",
         status: (data.status || "SUCCESS") as FinancialPayment["status"],
+        refundedAmountPaise: data.refundedAmountPaise || 0,
         remarks: data.remarks || "",
         allocatedTotalPaise: data.amountPaidPaise || 0,
         unallocatedPaise: 0,
@@ -288,6 +289,7 @@ export async function getStudentLedger(
           collectedBy: data.collectedBy || "",
           collectedByName: data.collectedByName || "",
           status: (data.status || "SUCCESS") as FinancialPayment["status"],
+        refundedAmountPaise: data.refundedAmountPaise || 0,
           remarks: data.remarks || "",
           allocatedTotalPaise: data.amountPaidPaise || 0,
           unallocatedPaise: 0,
@@ -705,7 +707,7 @@ export async function getAccountLedger(
     where("schoolId", "==", schoolId)
   );
   const paySnap = await getDocs(payQuery);
-  let payments = paySnap.docs.map((d) => ({ id: d.id, ...d.data() } as FinancialPayment));
+  let payments = paySnap.docs.map((d) => ({ ...d.data(), id: d.id, amountPaise: d.data().amountPaise ?? d.data().amountPaidPaise ?? d.data().netAmountPaise ?? 0 } as FinancialPayment));
   const seenPayIds = new Set(payments.map((p) => p.id));
   const seenReceipts = new Set(payments.map((p) => p.receiptNumber).filter(Boolean));
 
@@ -719,7 +721,7 @@ export async function getAccountLedger(
       if (rec && seenReceipts.has(rec)) continue;
       seenPayIds.add(d.id);
       if (rec) seenReceipts.add(rec);
-      payments.push({ id: d.id, ...data } as FinancialPayment);
+      payments.push({ ...data, id: d.id, amountPaise: data.amountPaise ?? data.amountPaidPaise ?? data.netAmountPaise ?? 0 } as FinancialPayment);
     }
   } catch {}
 
@@ -757,6 +759,7 @@ export async function getAccountLedger(
         collectedBy: data.collectedBy || "",
         collectedByName: data.collectedByName || "",
         status: (data.status || "SUCCESS") as FinancialPayment["status"],
+        refundedAmountPaise: data.refundedAmountPaise || 0,
         remarks: data.remarks || "",
         allocatedTotalPaise: data.amountPaidPaise || 0,
         unallocatedPaise: 0,
@@ -797,6 +800,7 @@ export async function getAccountLedger(
           collectedBy: data.collectedBy || "",
           collectedByName: data.collectedByName || "",
           status: (data.status || "SUCCESS") as FinancialPayment["status"],
+        refundedAmountPaise: data.refundedAmountPaise || 0,
           remarks: data.remarks || "",
           allocatedTotalPaise: data.amountPaidPaise || 0,
           unallocatedPaise: 0,
@@ -854,6 +858,15 @@ export async function getAccountLedger(
   };
 
   const rawEvents: RawAccountEvent[] = [];
+  const expenseSnapshot = await getDocs(query(collection(db, "schoolExpenses"), where("schoolId", "==", schoolId)));
+  for (const document of expenseSnapshot.docs) {
+    const expense = document.data();
+    if (!matchAcademicYear(expense.academicYearId, options.academicYearId)) continue;
+    const method = normalizePaymentMethod(expense.paymentMethod || "CASH");
+    if (accountType !== "ALL" && method !== normalizePaymentMethod(accountType)) continue;
+    const date = expense.expenseDate || expense.createdAt;
+    rawEvents.push({ id: `expense_${document.id}`, timestamp: Date.parse(date) || 0, date, reference: expense.voucherNumber || document.id, accountType: method, type: "EXPENSE", description: `Expense: ${expense.payeeName || ""} · ${expense.description || expense.category || ""}`, inflowDebitPaise: 0, outflowCreditPaise: expense.amountPaise, paymentMethod: method, referenceNumber: expense.referenceNumber, remarks: expense.description });
+  }
 
   for (const p of payments) {
     if (!postedPayment(p.status)) continue;
@@ -1013,7 +1026,7 @@ export async function getMultiAccountSummary(
   schoolId: string,
   options: LedgerFilterOptions = {}
 ): Promise<CashBankMultiAccountSummary> {
-  const accountTypes: PaymentMethod[] = ["CASH", "UPI", "BANK_TRANSFER", "CHEQUE", "CARD"];
+  const accountTypes: PaymentMethod[] = ["CASH", "UPI", "BANK_TRANSFER", "CHEQUE", "CARD", "ONLINE", "OTHER"];
 
   const results = await Promise.all([
     getAccountLedger(schoolId, "ALL", options),

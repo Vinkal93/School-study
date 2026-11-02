@@ -17,10 +17,11 @@ import {
   type Timestamp,
 } from "firebase/firestore";
 import { initializeApp, getApps, deleteApp } from "firebase/app";
-import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
+import { getAuth, createUserWithEmailAndPassword, signOut, deleteUser } from "firebase/auth";
 import { getFirebaseDb, getFirebaseAuth } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/utils/constants";
 import { firebaseClientConfig } from "@/lib/firebase/config";
+import { configureAuthEmulator } from "@/lib/firebase/emulators";
 import {
   requireFeatureAccess,
   requirePlanLimit,
@@ -163,8 +164,8 @@ export async function getStudents(
     let students = snapshot.docs.map((d: any) => {
       const data = d.data();
       return {
-        id: d.id,
         ...data,
+        id: d.id,
         name: data.name || data.fullName || "Student",
         studentId: data.studentId !== undefined && data.studentId !== null ? String(data.studentId) : undefined,
         admissionNumber: data.admissionNumber !== undefined && data.admissionNumber !== null ? String(data.admissionNumber) : undefined,
@@ -218,8 +219,8 @@ export async function getStudentsByClassAndSection(
   const snapshot = await getDocs(q);
   let students = snapshot.docs
     .map((d) => ({
-      id: d.id,
       ...d.data(),
+      id: d.id,
     })) as StudentProfile[];
 
   // Only active enrolled students
@@ -240,12 +241,23 @@ export async function getStudentsByClassAndSection(
 export async function createStudentWithAuth(
   schoolId: string,
   input: CreateStudentInput
-): Promise<{ studentId: string; userId: string; admissionNumber: string; rollNumber: number }> {
+): Promise<{ studentId: string; userId: string; admissionNumber: string; rollNumber: number; feeSetupPending?: boolean }> {
   const db = getFirebaseDb();
+  if (!db || !schoolId || schoolId === "system") throw new Error("A school database is required.");
+  let academicYearId = input.academicYearId;
+  if (!academicYearId || ["all", "ay_current", "current"].includes(academicYearId)) {
+    const years = await getDocs(collection(db, "schools", schoolId, "academicYears"));
+    const current = years.docs.filter(d => d.data().isCurrent === true);
+    if (current.length !== 1) throw new Error("Select one current academic session before admission.");
+    academicYearId = current[0].id;
+  }
+  const [year, classroom] = await Promise.all([getDoc(doc(db,"schools",schoolId,"academicYears",academicYearId)), getDoc(doc(db,"schools",schoolId,"classes",input.classId))]);
+  if (!year.exists() || !classroom.exists()) throw new Error("Admission class and academic session must belong to this school.");
+  if (!input.name?.trim() || !input.email?.trim() || input.password?.length < 6) throw new Error("Student name, email and a password of at least six characters are required.");
 
   // 1. Authoritative Backend Check: Feature Access & Plan Limit
   await requireFeatureAccess(schoolId, "student_management");
-  await requirePlanLimit(schoolId, "students");
+  const admissionLimit = await requirePlanLimit(schoolId, "students");
 
   // 2. Authoritative Unique User ID (e.g. STU564534)
   const { generateAuthoritativeId, reserveUserIdentity } = await import("./identity.service");
@@ -255,7 +267,7 @@ export async function createStudentWithAuth(
     : autoStudentId;
 
   // 3. Class-wise Sequential Roll Number (1, 2, 3...)
-  const assignedRoll = (typeof input.rollNumber === "number" && input.rollNumber > 0)
+  let assignedRoll = (typeof input.rollNumber === "number" && input.rollNumber > 0)
     ? input.rollNumber
     : await generateNextRollNumber(schoolId, input.classId);
 
@@ -275,9 +287,11 @@ export async function createStudentWithAuth(
   // 5. Create student Auth user via secondary app instance
   const secondaryAppName = `student-auth-${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
   const secondaryApp = initializeApp(firebaseClientConfig, secondaryAppName);
-  const secondaryAuth = getAuth(secondaryApp);
+  const secondaryAuth = configureAuthEmulator(getAuth(secondaryApp));
 
   let userId = "";
+  let createdAuthUser: import("firebase/auth").User | undefined;
+  let admissionCommitted = false;
   try {
     const userCredential = await createUserWithEmailAndPassword(
       secondaryAuth,
@@ -285,24 +299,7 @@ export async function createStudentWithAuth(
       input.password
     );
     userId = userCredential.user.uid;
-    await signOut(secondaryAuth);
-  } catch (authError: any) {
-    if (getApps().some((app) => app.name === secondaryAppName)) {
-      await deleteApp(secondaryApp);
-    }
-    if (authError.code === "auth/email-already-in-use") {
-      throw new Error(`Email "${input.email}" is already registered. Please use another email.`);
-    }
-    if (authError.code === "auth/weak-password") {
-      throw new Error("Password must be at least 6 characters.");
-    }
-    throw new Error(authError.message || "Failed to create student user account.");
-  } finally {
-    if (getApps().some((app) => app.name === secondaryAppName)) {
-      await deleteApp(secondaryApp);
-    }
-  }
-
+    createdAuthUser = userCredential.user;
   // 6. Create Student Document in schools/{schoolId}/students/{studentDocId}
   const studentDocRef = doc(collection(db, "schools", schoolId, "students"));
   const studentDocId = studentDocRef.id;
@@ -330,42 +327,36 @@ export async function createStudentWithAuth(
     bloodGroup: input.bloodGroup || "",
     classId: input.classId,
     className: normalizeClassName(input.className),
-    sectionId: input.sectionId,
+    sectionId: input.sectionId || "",
     sectionName: normalizeSectionName(input.sectionName),
-    academicYearId: input.academicYearId || "ay_current",
+    academicYearId,
     admissionDate: input.admissionDate || new Date().toISOString().split("T")[0],
     status: "active",
     deletedAt: null,
   };
 
-  await setDoc(studentDocRef, {
-    ...studentData,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+  const schoolRef = doc(db,"schools",schoolId);
+  const usageRef = doc(db,"schoolUsage",schoolId);
+  const userDocRef = doc(db,COLLECTIONS.USERS,userId);
+  await runTransaction(db, async tx => {
+    const [school, usage] = await Promise.all([tx.get(schoolRef),tx.get(usageRef)]);
+    if (!school.exists()) throw new Error("School not found.");
+    const current = Math.max(Number(usage.data()?.students || 0), admissionLimit.current);
+    if (admissionLimit.limit !== -1 && current >= admissionLimit.limit) throw new Error("Student capacity reached. Upgrade the plan before admission.");
+    const group = encodeURIComponent(`${academicYearId}_${input.classId}_${input.sectionId || ""}`);
+    const rollReservations = { ...(school.data()?.admissionRollReservations || {}) };
+    const reserved = { ...(rollReservations[group] || {}) };
+    if (input.rollNumber && reserved[String(assignedRoll)]) throw new Error("Roll number was assigned by another admission.");
+    while (reserved[String(assignedRoll)]) assignedRoll++;
+    reserved[String(assignedRoll)] = studentDocId;
+    rollReservations[group] = reserved;
+    tx.update(schoolRef,{admissionRollReservations:rollReservations});
+    tx.set(usageRef,{schoolId,students:current+1,updatedAt:new Date().toISOString()},{merge:true});
+    tx.set(studentDocRef,{...studentData,rollNumber:assignedRoll,createdAt:serverTimestamp(),updatedAt:serverTimestamp()});
+    tx.set(userDocRef,{uid:userId,name:input.name.trim(),email:input.email.trim().toLowerCase(),role:"student",schoolId,userId:cleanAdmNo,studentId:autoStudentId,studentProfileId:studentDocId,admissionNumber:cleanAdmNo,status:"active",createdAt:serverTimestamp(),updatedAt:serverTimestamp()});
   });
-
-  // Dual-write to top-level students collection
-  await setDoc(doc(db, "students", studentDocId), {
-    ...studentData,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  }).catch(() => {});
-
-  // 7. Create User document in users/{userId}
-  const userDocRef = doc(db, COLLECTIONS.USERS, userId);
-  await setDoc(userDocRef, {
-    uid: userId,
-    name: input.name.trim(),
-    email: input.email.trim().toLowerCase(),
-    role: "student",
-    schoolId: schoolId,
-    userId: cleanAdmNo,
-    studentId: autoStudentId,
-    admissionNumber: cleanAdmNo,
-    status: "active",
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  admissionCommitted = true;
+  await setDoc(doc(db,"students",studentDocId),{...studentData,rollNumber:assignedRoll,createdAt:serverTimestamp(),updatedAt:serverTimestamp()}).catch(() => {});
 
   // Register in authoritative unique identity registry
   await reserveUserIdentity(cleanAdmNo, {
@@ -378,25 +369,15 @@ export async function createStudentWithAuth(
     createdAt: new Date().toISOString(),
   }).catch((e) => console.warn("Identity reservation notice:", e?.message));
 
-  // 8. Atomically increment school usage counter
-  await incrementSchoolUsage(schoolId, "students", 1);
-
-  // 9. Automatically provision Student Fee Assignment based on class fee structure & admission date
+  let feeSetupPending = false;
   try {
-    await provisionStudentFeeAssignment(
-      schoolId,
-      {
-        id: studentDocId,
-        name: input.name.trim(),
-        admissionNumber: cleanAdmNo,
-        className: input.className,
-        sectionName: input.sectionName,
-        admissionDate: input.admissionDate || new Date().toISOString().split("T")[0],
-      },
-      input.academicYearId || "ay_current"
-    );
-  } catch (feeErr) {
-    console.warn("Automatic fee assignment notice (non-fatal):", feeErr);
+    const { feeFetch } = await import("@/lib/fees/client-request");
+    const response = await feeFetch("/api/fees/foundation/demands", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({schoolId,studentId:studentDocId,academicYearId}) });
+    const result = await response.json();
+    if (!response.ok || !result.success) throw new Error(result.error || "Invoice setup failed.");
+  } catch (error) {
+    feeSetupPending = true;
+    console.warn("Admission saved; invoice generation must be retried from Generate Invoice:",error);
   }
 
   return {
@@ -404,7 +385,16 @@ export async function createStudentWithAuth(
     userId,
     admissionNumber: cleanAdmNo,
     rollNumber: assignedRoll,
+    feeSetupPending,
   };
+  } catch (error) {
+    if (createdAuthUser && !admissionCommitted) await deleteUser(createdAuthUser).catch(() => console.error("Student Auth rollback failed; administrator review is required."));
+    throw error;
+  } finally {
+    await signOut(secondaryAuth).catch(() => {});
+    if (getApps().some(app => app.name === secondaryAppName)) await deleteApp(secondaryApp).catch(() => {});
+  }
+
 }
 
 /**
@@ -530,8 +520,8 @@ export async function getStudentById(
     if (snap.exists()) {
       const data = snap.data();
       return {
-        id: snap.id,
         ...data,
+        id: snap.id,
         name: data.name || data.fullName || "Student",
       } as StudentProfile;
     }
@@ -541,8 +531,8 @@ export async function getStudentById(
     if (rootSnap.exists()) {
       const data = rootSnap.data();
       return {
-        id: rootSnap.id,
         ...data,
+        id: rootSnap.id,
         name: data.name || data.fullName || "Student",
       } as StudentProfile;
     }
@@ -561,19 +551,34 @@ export async function toggleStudentStatus(
   schoolId: string,
   studentId: string,
   userId: string,
-  status: "active" | "inactive"
+  status: "active" | "inactive" | "tc"
 ): Promise<void> {
   const db = getFirebaseDb();
-  const studentDocRef = doc(db, "schools", schoolId, "students", studentId);
-  const userDocRef = doc(db, COLLECTIONS.USERS, userId);
+  if (!db || !schoolId || !studentId) throw new Error("Missing parameters for status toggle.");
 
-  await updateDoc(studentDocRef, {
+  let canonicalId = studentId;
+  const subRef = doc(db, "schools", schoolId, "students", canonicalId);
+  const rootRef = doc(db, "students", canonicalId);
+
+  let targetSubSnap = await getDoc(subRef).catch(() => null);
+  if (!targetSubSnap?.exists()) {
+    const rootSnap = await getDoc(rootRef).catch(() => null);
+    if (rootSnap?.exists()) canonicalId = rootSnap.id;
+  }
+
+  const nowIso = new Date().toISOString();
+  const payload = {
     status,
+    statusChangedDate: nowIso,
     updatedAt: serverTimestamp(),
-  });
+  };
 
-  if (userId) {
-    await updateDoc(userDocRef, {
+  await setDoc(doc(db, "schools", schoolId, "students", canonicalId), payload, { merge: true });
+  await setDoc(doc(db, "students", canonicalId), payload, { merge: true }).catch(() => {});
+
+  const effectiveUserId = userId || canonicalId;
+  if (effectiveUserId) {
+    await updateDoc(doc(db, COLLECTIONS.USERS, effectiveUserId), {
       status: status === "active" ? "active" : "disabled",
       updatedAt: serverTimestamp(),
     }).catch(() => {});
@@ -587,29 +592,53 @@ export async function toggleStudentStatus(
 export async function deleteStudent(
   schoolId: string,
   studentId: string,
-  userId: string
+  userId?: string
 ): Promise<void> {
+  // 1. Authoritative Server-side call
+  try {
+    await bulkDeleteStudents({
+      studentIds: [studentId],
+      permanent: false,
+      targetSchoolId: schoolId,
+    });
+    return;
+  } catch (err: any) {
+    console.warn("[deleteStudent] Server route bulk-delete notice, attempting direct client fallback:", err);
+  }
+
+  // 2. Direct client fallback (offline or network fallback)
   const db = getFirebaseDb();
+  if (!db) throw new Error("Database offline.");
   const studentDocRef = doc(db, "schools", schoolId, "students", studentId);
-  const userDocRef = doc(db, COLLECTIONS.USERS, userId);
+  const rootStudentDocRef = doc(db, "students", studentId);
+  const userDocRef = userId ? doc(db, COLLECTIONS.USERS, userId) : null;
 
   const nowIso = new Date().toISOString();
 
-  // Soft delete: keep record for audit & history
-  await updateDoc(studentDocRef, {
-    status: "deleted",
-    deletedAt: nowIso,
-    updatedAt: serverTimestamp(),
-  });
-
-  if (userId) {
-    await updateDoc(userDocRef, {
-      status: "disabled",
+  await Promise.all([
+    updateDoc(studentDocRef, {
+      status: "archived",
+      statusChangeReason: "Administrative archive / deletion",
+      statusChangedDate: nowIso,
+      deletedAt: nowIso,
       updatedAt: serverTimestamp(),
-    }).catch(() => {});
-  }
+    }).catch(() => {}),
+    updateDoc(rootStudentDocRef, {
+      status: "archived",
+      statusChangeReason: "Administrative archive / deletion",
+      statusChangedDate: nowIso,
+      deletedAt: nowIso,
+      updatedAt: serverTimestamp(),
+    }).catch(() => {}),
+    userDocRef
+      ? updateDoc(userDocRef, {
+          status: "disabled",
+          disabledAt: nowIso,
+          updatedAt: serverTimestamp(),
+        }).catch(() => {})
+      : Promise.resolve(),
+  ]);
 
-  // Decrement active usage count atomically
   await decrementSchoolUsage(schoolId, "students", 1);
 }
 
@@ -619,30 +648,76 @@ export async function deleteStudent(
 export async function restoreStudent(
   schoolId: string,
   studentId: string,
-  userId: string
+  userId?: string
 ): Promise<void> {
-  // Check plan limit before restoring
   await requirePlanLimit(schoolId, "students");
 
   const db = getFirebaseDb();
-  const studentDocRef = doc(db, "schools", schoolId, "students", studentId);
-  const userDocRef = doc(db, COLLECTIONS.USERS, userId);
+  if (!db || !schoolId || !studentId) throw new Error("Database offline.");
 
-  await updateDoc(studentDocRef, {
+  let canonicalId = studentId;
+  const subRef = doc(db, "schools", schoolId, "students", canonicalId);
+  const rootRef = doc(db, "students", canonicalId);
+
+  let targetSubSnap = await getDoc(subRef).catch(() => null);
+  if (!targetSubSnap?.exists()) {
+    const rootSnap = await getDoc(rootRef).catch(() => null);
+    if (rootSnap?.exists()) canonicalId = rootSnap.id;
+  }
+
+  const payload = {
     status: "active",
     deletedAt: null,
+    statusChangeReason: "Administrative restore",
     updatedAt: serverTimestamp(),
-  });
+  };
 
-  if (userId) {
-    await updateDoc(userDocRef, {
+  await setDoc(doc(db, "schools", schoolId, "students", canonicalId), payload, { merge: true });
+  await setDoc(doc(db, "students", canonicalId), payload, { merge: true }).catch(() => {});
+
+  const effectiveUserId = userId || canonicalId;
+  if (effectiveUserId) {
+    await updateDoc(doc(db, COLLECTIONS.USERS, effectiveUserId), {
       status: "active",
       updatedAt: serverTimestamp(),
     }).catch(() => {});
   }
 
-  // Increment active usage count atomically
   await incrementSchoolUsage(schoolId, "students", 1);
+}
+
+/**
+ * Restores multiple soft-deleted or archived students in bulk.
+ */
+export async function bulkRestoreStudents(
+  schoolId: string,
+  studentIds: string[]
+): Promise<{ success: boolean; restoredCount: number; failedCount: number; results: any[] }> {
+  if (!studentIds || studentIds.length === 0) {
+    return { success: true, restoredCount: 0, failedCount: 0, results: [] };
+  }
+
+  const results: any[] = [];
+  let restoredCount = 0;
+  let failedCount = 0;
+
+  for (const id of studentIds) {
+    try {
+      await restoreStudent(schoolId, id);
+      restoredCount++;
+      results.push({ id, success: true });
+    } catch (err: any) {
+      failedCount++;
+      results.push({ id, success: false, error: err?.message || "Failed to restore" });
+    }
+  }
+
+  return {
+    success: failedCount === 0,
+    restoredCount,
+    failedCount,
+    results,
+  };
 }
 
 /**
@@ -815,13 +890,32 @@ export interface BulkDeleteStudentsOptions {
   targetSchoolId?: string;
 }
 
+export interface StudentDeleteResultItem {
+  id: string;
+  canonicalId?: string;
+  studentId?: string;
+  admissionNumber?: string;
+  name?: string;
+  success: boolean;
+  action?: "archived" | "permanently_deleted" | "failed";
+  code?: "SUCCESS" | "NOT_FOUND" | "WRONG_SCHOOL" | "PERMISSION_DENIED" | "INVALID_ID";
+  message?: string;
+}
+
 export interface BulkDeleteStudentsResult {
   success: boolean;
   deletedCount: number;
+  permanentlyDeletedCount?: number;
+  safelyArchivedCount?: number;
   failedCount: number;
   activeFreedCount?: number;
   permanent?: boolean;
   message?: string;
+  results?: StudentDeleteResultItem[];
+  error?: {
+    code: string;
+    message: string;
+  };
 }
 
 /**
@@ -833,12 +927,15 @@ export async function bulkDeleteStudents(
 ): Promise<BulkDeleteStudentsResult> {
   const auth = getFirebaseAuth();
   const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => "") : "";
+  const impSession =
+    typeof window !== "undefined" ? sessionStorage.getItem("school_study_impersonation_token") : null;
 
   const res = await fetch("/api/admin/students/bulk-delete", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(impSession ? { "x-impersonation-session": impSession } : {}),
     },
     body: JSON.stringify(options),
   });

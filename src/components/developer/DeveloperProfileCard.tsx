@@ -1,5 +1,7 @@
 "use client";
 
+import Image from "next/image";
+
 import { Search, Mail, Phone, GraduationCap, Code2, Sparkles, UserCheck } from "lucide-react";
 
 export function DeveloperProfileCard() {
@@ -17,9 +19,12 @@ export function DeveloperProfileCard() {
             {/* Left side: Avatar Image + Bio Details */}
             <div className="flex flex-col items-center gap-6 text-center md:flex-row md:text-left">
               <div className="relative flex-shrink-0">
-                <img
-                  src="/images/developer.jpg"
-                  alt="Vinkal Prajapati"
+                <Image
+                  src="/images/developer.webp"
+                  alt="Vinkal Prajapati - Founder & Full Stack Engineer"
+                  width={112}
+                  height={112}
+                  sizes="112px"
                   className="h-28 w-28 rounded-3xl object-cover shadow-xl shadow-blue-500/20 border-2 border-white/20 dark:border-slate-700"
                 />
               </div>

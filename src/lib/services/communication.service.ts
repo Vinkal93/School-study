@@ -4,12 +4,11 @@ import {
   getDoc,
   getDocs,
   setDoc,
-  updateDoc,
+  deleteDoc,
   query,
   where,
   orderBy,
   limit,
-  serverTimestamp,
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { getSafeAdminDb } from "@/lib/firebase/admin";
@@ -23,12 +22,80 @@ import type {
   SchoolCommunicationAccess,
   SendMessagePayload,
   SendResult,
+  WhatsAppSendMode,
+  CommunicationPlanLimits,
 } from "@/types/communication";
+import { DEFAULT_COMMUNICATION_PLAN_LIMITS } from "@/types/communication";
 import { createNotification } from "./notification.service";
 import {
   DEFAULT_COMMUNICATION_TEMPLATES,
   resolveTemplateVariables,
 } from "./communication-template.utils";
+import {
+  encryptSecret,
+  decryptSecret,
+  maskSecret,
+  maskAccountSid,
+  isMasked,
+} from "./communication-crypto";
+import {
+  sendTwilioWhatsApp,
+  sendTwilioSMS,
+  fetchTwilioMessageStatus,
+  classifyProviderError,
+} from "./communication-provider";
+import {
+  resolveTemplateContent,
+  type VariableResolutionContext,
+} from "./communication-variables";
+import { normalizePhoneNumber, maskPhoneNumber } from "./phone-validation";
+
+
+// Server-side persistent backup helpers for encrypted credentials
+function getLocalSecretsPath(): string | null {
+  if (typeof window !== "undefined") return null;
+  try {
+    const fsMod = require("fs");
+    const pathMod = require("path");
+    const dir = pathMod.join(process.cwd(), ".data");
+    if (!fsMod.existsSync(dir)) {
+      try { fsMod.mkdirSync(dir, { recursive: true }); } catch {}
+    }
+    return pathMod.join(dir, "communication_secrets.enc");
+  } catch {
+    return null;
+  }
+}
+
+function loadLocalEncryptedSecrets(): Record<string, string> | null {
+  if (typeof window !== "undefined") return null;
+  try {
+    const fsMod = require("fs");
+    const filePath = getLocalSecretsPath();
+    if (filePath && fsMod.existsSync(filePath)) {
+      const content = fsMod.readFileSync(filePath, "utf-8");
+      if (content) {
+        const decrypted = decryptSecret(content);
+        if (decrypted) return JSON.parse(decrypted);
+      }
+    }
+  } catch {}
+  return null;
+}
+
+function saveLocalEncryptedSecrets(secrets: Record<string, string>): void {
+  if (typeof window !== "undefined") return;
+  try {
+    const fsMod = require("fs");
+    const filePath = getLocalSecretsPath();
+    if (filePath) {
+      const encrypted = encryptSecret(JSON.stringify(secrets));
+      if (encrypted) {
+        fsMod.writeFileSync(filePath, encrypted, "utf-8");
+      }
+    }
+  } catch {}
+}
 
 // Collection Constants
 const GLOBAL_CONTROLS_DOC = "siteSettings/communication_controls";
@@ -38,6 +105,7 @@ export const DEFAULT_COMMUNICATION_SETTINGS: GlobalCommunicationSettings = {
   masterEnabled: true,
   channels: {
     whatsapp: true,
+    sms: true,
     email: true,
     in_app: true,
     automation: true,
@@ -57,13 +125,14 @@ export const DEFAULT_COMMUNICATION_SETTINGS: GlobalCommunicationSettings = {
     isConfigured: Boolean(process.env.EMAIL_API_KEY || process.env.EMAIL_PROVIDER),
   },
   planAccess: {
-    free: { whatsapp: false, email: false, in_app: true, automation: false },
-    base: { whatsapp: false, email: false, in_app: true, automation: false },
-    starter: { whatsapp: false, email: true, in_app: true, automation: false },
-    growth: { whatsapp: true, email: true, in_app: true, automation: true },
-    professional: { whatsapp: true, email: true, in_app: true, automation: true },
-    enterprise: { whatsapp: true, email: true, in_app: true, automation: true },
+    free: { whatsapp: false, sms: false, email: false, in_app: true, automation: false },
+    base: { whatsapp: false, sms: false, email: false, in_app: true, automation: false },
+    starter: { whatsapp: false, sms: false, email: true, in_app: true, automation: false },
+    growth: { whatsapp: true, sms: true, email: true, in_app: true, automation: true },
+    professional: { whatsapp: true, sms: true, email: true, in_app: true, automation: true },
+    enterprise: { whatsapp: true, sms: true, email: true, in_app: true, automation: true },
   },
+  planLimits: DEFAULT_COMMUNICATION_PLAN_LIMITS,
   schoolOverrides: {},
   updatedAt: new Date().toISOString(),
 };
@@ -80,8 +149,13 @@ export const DEFAULT_FEE_AUTOMATION_RULES: FeeAutomationRule[] = [
     channels: ["whatsapp", "in_app"],
     titleTemplate: "Upcoming Fee Reminder",
     bodyTemplate:
-      "Dear {{parent_name}}, gentle reminder that fee of ₹{{amount}} for {{student_name}} (Class: {{class_name}}) is due on {{due_date}}. Please pay on time. - {{school_name}}",
+      "Dear {{parent_name}}, gentle reminder that fee of {{fee_amount}} for {{student_name}} (Class: {{class_name}}) is due on {{due_date}}. Please pay on time. - {{school_name}}",
     enabled: true,
+    minOutstandingAmount: 100,
+    quietHoursStart: 21,
+    quietHoursEnd: 8,
+    maxRemindersPerInvoice: 2,
+    excludeWaivedOrDisputed: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -94,8 +168,13 @@ export const DEFAULT_FEE_AUTOMATION_RULES: FeeAutomationRule[] = [
     channels: ["whatsapp"],
     titleTemplate: "Fee Due Today",
     bodyTemplate:
-      "Dear {{parent_name}}, today is the due date for {{student_name}}'s school fee of ₹{{amount}}. Kindly clear today to avoid late fees. - {{school_name}}",
+      "Dear {{parent_name}}, today is the due date for {{student_name}}'s school fee of {{outstanding_amount}}. Kindly clear today to avoid late fees. - {{school_name}}",
     enabled: true,
+    minOutstandingAmount: 100,
+    quietHoursStart: 21,
+    quietHoursEnd: 8,
+    maxRemindersPerInvoice: 1,
+    excludeWaivedOrDisputed: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -108,8 +187,13 @@ export const DEFAULT_FEE_AUTOMATION_RULES: FeeAutomationRule[] = [
     channels: ["whatsapp", "email", "in_app"],
     titleTemplate: "Overdue Fee Notice",
     bodyTemplate:
-      "Dear {{parent_name}}, the fee of ₹{{amount}} for {{student_name}} is now OVERDUE. Please clear the outstanding balance immediately. - {{school_name}}",
+      "Dear {{parent_name}}, the fee of {{outstanding_amount}} for {{student_name}} is now OVERDUE. Please clear the outstanding balance immediately. - {{school_name}}",
     enabled: true,
+    minOutstandingAmount: 200,
+    quietHoursStart: 21,
+    quietHoursEnd: 8,
+    maxRemindersPerInvoice: 3,
+    excludeWaivedOrDisputed: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -122,100 +206,306 @@ export const DEFAULT_FEE_AUTOMATION_RULES: FeeAutomationRule[] = [
     channels: ["whatsapp", "in_app"],
     titleTemplate: "Late Fee Applied Notice",
     bodyTemplate:
-      "Attention: Late fee penalty has been applied to {{student_name}}'s outstanding fee. Total balance: ₹{{amount}}. Settle immediately at school office. - {{school_name}}",
+      "Attention: Late fee penalty has been applied to {{student_name}}'s outstanding fee. Total balance: {{outstanding_amount}}. Settle immediately at school office. - {{school_name}}",
     enabled: false,
+    minOutstandingAmount: 500,
+    quietHoursStart: 21,
+    quietHoursEnd: 8,
+    maxRemindersPerInvoice: 2,
+    excludeWaivedOrDisputed: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
 ];
 
+// Runtime fallback cache for dev / test environments when Admin SDK is unavailable
+let runtimeControlsCache: Partial<GlobalCommunicationSettings> | null = null;
+let runtimeEncryptedSecretsCache: Record<string, string> = {};
+
+/**
+ * Validates WhatsApp sender phone number format.
+ */
+export function validateWhatsAppSender(sender: string): {
+  isValid: boolean;
+  formatted: string;
+  isSandbox: boolean;
+  error?: string;
+} {
+  if (!sender || typeof sender !== "string") {
+    return { isValid: false, formatted: "", isSandbox: false, error: "Sender number is required" };
+  }
+
+  const trimmed = sender.trim();
+  const normalized = trimmed.startsWith("whatsapp:") ? trimmed : `whatsapp:${trimmed}`;
+  const phonePart = normalized.replace(/^whatsapp:/, "");
+
+  const e164Regex = /^\+[1-9]\d{7,14}$/;
+  if (!e164Regex.test(phonePart)) {
+    return {
+      isValid: false,
+      formatted: normalized,
+      isSandbox: false,
+      error: `Invalid WhatsApp sender format "${sender}". Must be formatted as whatsapp:+[country_code][number] (e.g. whatsapp:+14155238886).`,
+    };
+  }
+
+  const isSandbox = phonePart === "+14155238886";
+
+  return {
+    isValid: true,
+    formatted: normalized,
+    isSandbox,
+  };
+}
+
+/**
+ * Validates optional SMS sender format.
+ */
+export function validateSmsSender(sender?: string | null): {
+  isValid: boolean;
+  formatted: string;
+  error?: string;
+} {
+  if (!sender || !sender.trim()) {
+    return { isValid: true, formatted: "" };
+  }
+
+  const trimmed = sender.trim();
+  const e164Regex = /^\+[1-9]\d{7,14}$/;
+  const alphaNumericRegex = /^[a-zA-Z0-9]{2,11}$/;
+
+  if (!e164Regex.test(trimmed) && !alphaNumericRegex.test(trimmed)) {
+    return {
+      isValid: false,
+      formatted: trimmed,
+      error: `Invalid SMS sender format "${sender}". Must be an E.164 phone number (e.g. +14155238886) or alphanumeric sender ID (2-11 alphanumeric characters).`,
+    };
+  }
+
+  return {
+    isValid: true,
+    formatted: trimmed,
+  };
+}
+
+/**
+ * Validates Twilio credentials by calling Twilio Accounts API.
+ */
+export async function validateTwilioConnection(credentials: {
+  accountSid: string;
+  authToken: string;
+  fromNumber?: string;
+  smsFromNumber?: string;
+}): Promise<{
+  success: boolean;
+  statusCode: number;
+  errorCode?: string | null;
+  message: string;
+  details?: any;
+}> {
+  const accountSid = credentials.accountSid?.trim();
+  let authToken = credentials.authToken?.trim();
+  const fromNumber = credentials.fromNumber?.trim() || "whatsapp:+14155238886";
+  const smsFromNumber = credentials.smsFromNumber?.trim();
+
+  if (!accountSid) {
+    return {
+      success: false,
+      statusCode: 400,
+      errorCode: "MISSING_ACCOUNT_SID",
+      message: "Twilio Account SID is required.",
+      details: "Enter a valid Twilio Account SID starting with AC.",
+    };
+  }
+
+  if (!accountSid.startsWith("AC") || accountSid.length < 30) {
+    return {
+      success: false,
+      statusCode: 400,
+      errorCode: "INVALID_ACCOUNT_SID_FORMAT",
+      message: "Invalid Twilio Account SID format.",
+      details: "Twilio Account SID must start with 'AC' and be 34 characters long.",
+    };
+  }
+
+  // If token is masked or missing, load from stored secret
+  if (!authToken || isMasked(authToken)) {
+    const stored = await getGlobalCommunicationSettings(false);
+    authToken = stored.twilio.authToken;
+  }
+
+  if (!authToken || isMasked(authToken)) {
+    return {
+      success: false,
+      statusCode: 400,
+      errorCode: "MISSING_AUTH_TOKEN",
+      message: "Twilio Auth Token is required.",
+      details: "Enter your Twilio Auth Token from the Twilio Console.",
+    };
+  }
+
+  const senderValidation = validateWhatsAppSender(fromNumber);
+  if (!senderValidation.isValid) {
+    return {
+      success: false,
+      statusCode: 400,
+      errorCode: "INVALID_SENDER_FORMAT",
+      message: senderValidation.error || "Invalid WhatsApp sender format.",
+      details: senderValidation.error,
+    };
+  }
+
+  if (smsFromNumber) {
+    const smsValidation = validateSmsSender(smsFromNumber);
+    if (!smsValidation.isValid) {
+      return {
+        success: false,
+        statusCode: 400,
+        errorCode: "INVALID_SMS_SENDER_FORMAT",
+        message: smsValidation.error || "Invalid SMS sender format.",
+        details: smsValidation.error,
+      };
+    }
+  }
+
+  try {
+    const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}.json`;
+    const authHeader = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Basic ${authHeader}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      const twilioCode = data.code || res.status;
+      const twilioMsg = data.message || "Twilio authentication failed.";
+      return {
+        success: false,
+        statusCode: res.status === 401 ? 401 : 400,
+        errorCode: twilioCode === 20003 ? "AUTHENTICATION_FAILED" : "TWILIO_ERROR",
+        message: `Twilio Connection Failed: ${twilioMsg} (Code ${twilioCode})`,
+        details: `Twilio API returned HTTP ${res.status}. Check Account SID and Auth Token.`,
+      };
+    }
+
+    if (data.status === "suspended") {
+      return {
+        success: false,
+        statusCode: 403,
+        errorCode: "ACCOUNT_SUSPENDED",
+        message: "Twilio Account Suspended: Please check your billing status in Twilio Console.",
+        details: "Account status is 'suspended'.",
+      };
+    }
+
+    return {
+      success: true,
+      statusCode: 200,
+      errorCode: null,
+      message: "✓ Twilio Connected • WhatsApp Sender Ready",
+      details: {
+        accountSid: `${accountSid.slice(0, 6)}...${accountSid.slice(-4)}`,
+        accountName: data.friendly_name || "Twilio Account",
+        accountStatus: data.status || "active",
+        accountType: data.type || "Full",
+        sender: senderValidation.formatted,
+        senderType: senderValidation.isSandbox ? "Twilio WhatsApp Sandbox" : "Registered Business Sender",
+        smsSender: smsFromNumber || undefined,
+      },
+    };
+  } catch (netErr: any) {
+    return {
+      success: false,
+      statusCode: 504,
+      errorCode: "NETWORK_ERROR",
+      message: `Network Error: Unable to reach Twilio API (${netErr.message})`,
+      details: netErr.message,
+    };
+  }
+}
+
 /**
  * Retrieves authoritative global communication configuration.
- * Client safe flag masks sensitive credentials like Twilio AuthToken and Email API keys.
  */
 export async function getGlobalCommunicationSettings(clientSafe = true): Promise<GlobalCommunicationSettings> {
   try {
     const adminDb = getSafeAdminDb();
+    let controls: any = runtimeControlsCache || {};
+    let secrets: any = runtimeEncryptedSecretsCache || loadLocalEncryptedSecrets() || {};
+
     if (adminDb) {
-      const controlsSnap = await adminDb.doc(GLOBAL_CONTROLS_DOC).get();
-      const secretsSnap = clientSafe ? null : await adminDb.doc(GLOBAL_SECRETS_DOC).get();
-
-      const controls: any = controlsSnap.exists ? controlsSnap.data() : {};
-      const secrets: any = secretsSnap?.exists ? secretsSnap.data() : {};
-
-      const merged: GlobalCommunicationSettings = {
-        masterEnabled: controls.masterEnabled ?? DEFAULT_COMMUNICATION_SETTINGS.masterEnabled,
-        channels: {
-          ...DEFAULT_COMMUNICATION_SETTINGS.channels,
-          ...(controls.channels || {}),
-        },
-        twilio: {
-          accountSid: secrets?.twilioAccountSid || controls?.twilio?.accountSid || DEFAULT_COMMUNICATION_SETTINGS.twilio.accountSid,
-          authToken: clientSafe
-            ? (secrets?.twilioAuthToken || controls?.twilio?.authToken ? "••••••••••••••••" : "")
-            : (secrets?.twilioAuthToken || controls?.twilio?.authToken || DEFAULT_COMMUNICATION_SETTINGS.twilio.authToken),
-          fromNumber: controls?.twilio?.fromNumber || DEFAULT_COMMUNICATION_SETTINGS.twilio.fromNumber,
-          smsFromNumber: controls?.twilio?.smsFromNumber || DEFAULT_COMMUNICATION_SETTINGS.twilio.smsFromNumber,
-          isConfigured: Boolean(secrets?.twilioAccountSid || controls?.twilio?.accountSid || DEFAULT_COMMUNICATION_SETTINGS.twilio.accountSid),
-        },
-        email: {
-          provider: controls?.email?.provider || DEFAULT_COMMUNICATION_SETTINGS.email.provider,
-          apiKey: clientSafe
-            ? (secrets?.emailApiKey || controls?.email?.apiKey ? "••••••••••••••••" : "")
-            : (secrets?.emailApiKey || controls?.email?.apiKey || DEFAULT_COMMUNICATION_SETTINGS.email.apiKey),
-          senderEmail: controls?.email?.senderEmail || DEFAULT_COMMUNICATION_SETTINGS.email.senderEmail,
-          senderName: controls?.email?.senderName || DEFAULT_COMMUNICATION_SETTINGS.email.senderName,
-          isConfigured: Boolean(secrets?.emailApiKey || controls?.email?.apiKey || DEFAULT_COMMUNICATION_SETTINGS.email.apiKey),
-        },
-        planAccess: {
-          ...DEFAULT_COMMUNICATION_SETTINGS.planAccess,
-          ...(controls.planAccess || {}),
-        },
-        schoolOverrides: controls.schoolOverrides || {},
-        updatedAt: controls.updatedAt || new Date().toISOString(),
-        updatedBy: controls.updatedBy || "System",
-      };
-
-      return merged;
-    }
-
-    // Client fallback
-    const db = getFirebaseDb();
-    if (db) {
-      const snap = await getDoc(doc(db, "siteSettings", "communication_controls"));
-      let secrets: any = {};
       try {
-        const secSnap = await getDoc(doc(db, "siteSettings", "communication_secrets"));
-        if (secSnap.exists()) secrets = secSnap.data();
-      } catch {}
+        const controlsSnap = await adminDb.doc(GLOBAL_CONTROLS_DOC).get();
+        if (controlsSnap.exists) {
+          controls = controlsSnap.data() || {};
+        }
 
-      if (snap.exists() || Object.keys(secrets).length > 0) {
-        const data = snap.exists() ? snap.data() : {};
-        const accountSid = secrets?.twilioAccountSid || data.twilio?.accountSid || DEFAULT_COMMUNICATION_SETTINGS.twilio.accountSid;
-        const hasAuthToken = Boolean(secrets?.twilioAuthToken || data.twilio?.authToken);
-        return {
-          ...DEFAULT_COMMUNICATION_SETTINGS,
-          ...data,
-          twilio: {
-            ...DEFAULT_COMMUNICATION_SETTINGS.twilio,
-            ...(data.twilio || {}),
-            accountSid,
-            authToken: clientSafe
-              ? (hasAuthToken ? "••••••••••••••••" : "")
-              : (secrets?.twilioAuthToken || data.twilio?.authToken || DEFAULT_COMMUNICATION_SETTINGS.twilio.authToken),
-            isConfigured: Boolean(accountSid),
-          },
-          email: {
-            ...DEFAULT_COMMUNICATION_SETTINGS.email,
-            ...(data.email || {}),
-            apiKey: clientSafe
-              ? (secrets?.emailApiKey || data.email?.apiKey ? "••••••••••••••••" : "")
-              : (secrets?.emailApiKey || data.email?.apiKey || DEFAULT_COMMUNICATION_SETTINGS.email.apiKey),
-            isConfigured: Boolean(secrets?.emailApiKey || data.email?.apiKey || DEFAULT_COMMUNICATION_SETTINGS.email.apiKey),
-          },
-        };
+        const secretsSnap = await adminDb.doc(GLOBAL_SECRETS_DOC).get();
+        if (secretsSnap.exists) {
+          secrets = secretsSnap.data() || {};
+          saveLocalEncryptedSecrets(secrets);
+        }
+      } catch (dbReadErr) {
+        console.warn("[CommunicationService] AdminDb read notice:", dbReadErr);
       }
     }
+
+    // Decrypt encrypted secrets
+    const rawTwilioToken = secrets?.twilioAuthToken
+      ? decryptSecret(secrets.twilioAuthToken)
+      : (controls?.twilio?.authToken ? decryptSecret(controls.twilio.authToken) : (process.env.TWILIO_AUTH_TOKEN || ""));
+
+    const rawEmailKey = secrets?.emailApiKey
+      ? decryptSecret(secrets.emailApiKey)
+      : (controls?.email?.apiKey ? decryptSecret(controls.email.apiKey) : (process.env.EMAIL_API_KEY || ""));
+
+    const accountSid =
+      secrets?.twilioAccountSid ||
+      controls?.twilio?.accountSid ||
+      process.env.TWILIO_ACCOUNT_SID ||
+      "";
+
+    const isTwilioConfigured = Boolean(accountSid && rawTwilioToken);
+    const isEmailConfigured = Boolean(rawEmailKey || controls?.email?.provider !== "none");
+
+    const merged: GlobalCommunicationSettings = {
+      masterEnabled: controls.masterEnabled ?? DEFAULT_COMMUNICATION_SETTINGS.masterEnabled,
+      channels: {
+        ...DEFAULT_COMMUNICATION_SETTINGS.channels,
+        ...(controls.channels || {}),
+      },
+      twilio: {
+        accountSid: clientSafe ? maskAccountSid(accountSid) : accountSid,
+        authToken: clientSafe ? (rawTwilioToken ? "CONFIGURED" : "NOT_CONFIGURED") : rawTwilioToken,
+        fromNumber: controls?.twilio?.fromNumber || process.env.TWILIO_WHATSAPP_FROM || DEFAULT_COMMUNICATION_SETTINGS.twilio.fromNumber,
+        smsFromNumber: controls?.twilio?.smsFromNumber || process.env.TWILIO_SMS_FROM || DEFAULT_COMMUNICATION_SETTINGS.twilio.smsFromNumber,
+        isConfigured: isTwilioConfigured,
+      },
+      email: {
+        provider: controls?.email?.provider || DEFAULT_COMMUNICATION_SETTINGS.email.provider,
+        apiKey: clientSafe ? maskSecret(rawEmailKey) : rawEmailKey,
+        senderEmail: controls?.email?.senderEmail || DEFAULT_COMMUNICATION_SETTINGS.email.senderEmail,
+        senderName: controls?.email?.senderName || DEFAULT_COMMUNICATION_SETTINGS.email.senderName,
+        isConfigured: isEmailConfigured,
+      },
+      planAccess: {
+        ...DEFAULT_COMMUNICATION_SETTINGS.planAccess,
+        ...(controls.planAccess || {}),
+      },
+      planLimits: controls.planLimits || DEFAULT_COMMUNICATION_PLAN_LIMITS,
+      schoolOverrides: controls.schoolOverrides || {},
+      updatedAt: controls.updatedAt || new Date().toISOString(),
+      updatedBy: controls.updatedBy || "System",
+    };
+
+    return merged;
   } catch (err) {
     console.warn("[CommunicationService] Error reading communication controls:", err);
   }
@@ -224,17 +514,15 @@ export async function getGlobalCommunicationSettings(clientSafe = true): Promise
 }
 
 /**
- * Super Admin updates global settings, plan permissions, or provider credentials.
- * Credentials are stored in server-only secrets doc.
+ * Super Admin updates global settings, plan permissions, limits, or provider credentials.
  */
 export async function updateGlobalCommunicationSettings(
-  payload: Partial<GlobalCommunicationSettings>,
+  payload: Partial<GlobalCommunicationSettings> & { action?: string; clearTwilioCredentials?: boolean },
   adminUser?: { uid: string; email: string; name: string }
 ): Promise<void> {
   const adminDb = getSafeAdminDb();
-  const db = getFirebaseDb();
-
   const now = new Date().toISOString();
+
   const publicData: Record<string, any> = {
     updatedAt: now,
     updatedBy: adminUser?.name || adminUser?.email || "Super Admin",
@@ -243,15 +531,54 @@ export async function updateGlobalCommunicationSettings(
   if (payload.masterEnabled !== undefined) publicData.masterEnabled = payload.masterEnabled;
   if (payload.channels) publicData.channels = payload.channels;
   if (payload.planAccess) publicData.planAccess = payload.planAccess;
+  if (payload.planLimits) publicData.planLimits = payload.planLimits;
   if (payload.schoolOverrides) publicData.schoolOverrides = payload.schoolOverrides;
 
-  // Clean twilio public metadata
-  if (payload.twilio) {
+  // Retrieve current existing credentials to preserve on partial edit
+  const currentSaved = await getGlobalCommunicationSettings(false);
+  const existingSid = runtimeEncryptedSecretsCache?.twilioAccountSid || currentSaved.twilio?.accountSid || "";
+  const existingEncryptedToken = runtimeEncryptedSecretsCache?.twilioAuthToken || (currentSaved.twilio?.authToken ? encryptSecret(currentSaved.twilio.authToken) : "");
+
+  const secretsData: Record<string, any> = {
+    updatedAt: now,
+  };
+
+  const isRemoveAction = payload.action === "remove_twilio_credentials" || payload.clearTwilioCredentials === true || (payload.twilio as any)?.clearCredentials === true;
+
+  if (isRemoveAction) {
     publicData.twilio = {
-      accountSid: payload.twilio.accountSid || "",
-      fromNumber: payload.twilio.fromNumber || "",
-      smsFromNumber: payload.twilio.smsFromNumber || "",
-      isConfigured: Boolean(payload.twilio.accountSid),
+      accountSid: "",
+      fromNumber: "",
+      smsFromNumber: "",
+      isConfigured: false,
+    };
+    secretsData.twilioAccountSid = "";
+    secretsData.twilioAuthToken = "";
+  } else if (payload.twilio) {
+    const providedSid = payload.twilio.accountSid?.trim();
+    const isSidMasked = isMasked(providedSid);
+    const effectiveSid = (!providedSid || isSidMasked) ? existingSid : providedSid;
+
+    const providedToken = payload.twilio.authToken?.trim();
+    const isTokenBlankOrMasked = !providedToken || isMasked(providedToken) || providedToken === "CONFIGURED";
+
+    if (effectiveSid) {
+      secretsData.twilioAccountSid = effectiveSid;
+    }
+    if (!isTokenBlankOrMasked) {
+      secretsData.twilioAuthToken = encryptSecret(providedToken);
+    } else if (existingEncryptedToken) {
+      secretsData.twilioAuthToken = existingEncryptedToken;
+    }
+
+    const hasSid = Boolean(effectiveSid);
+    const hasToken = Boolean(secretsData.twilioAuthToken || existingEncryptedToken);
+
+    publicData.twilio = {
+      accountSid: effectiveSid,
+      fromNumber: payload.twilio.fromNumber || runtimeControlsCache?.twilio?.fromNumber || currentSaved.twilio?.fromNumber || "",
+      smsFromNumber: payload.twilio.smsFromNumber || runtimeControlsCache?.twilio?.smsFromNumber || currentSaved.twilio?.smsFromNumber || "",
+      isConfigured: Boolean(hasSid && hasToken),
     };
   }
 
@@ -265,182 +592,178 @@ export async function updateGlobalCommunicationSettings(
     };
   }
 
-  // Secrets data
-  const secretsData: Record<string, any> = {
-    updatedAt: now,
+  if (payload.email?.apiKey && !isMasked(payload.email.apiKey)) {
+    secretsData.emailApiKey = encryptSecret(payload.email.apiKey.trim());
+  }
+
+  // Always keep runtime cache updated
+  runtimeControlsCache = {
+    ...(runtimeControlsCache || {}),
+    ...publicData,
+    twilio: {
+      ...((runtimeControlsCache as any)?.twilio || {}),
+      ...(publicData.twilio || {}),
+    },
+    email: {
+      ...((runtimeControlsCache as any)?.email || {}),
+      ...(publicData.email || {}),
+    },
   };
-  if (payload.twilio?.accountSid) secretsData.twilioAccountSid = payload.twilio.accountSid;
-  if (payload.twilio?.authToken && !payload.twilio.authToken.includes("••••")) {
-    secretsData.twilioAuthToken = payload.twilio.authToken;
-  }
-  if (payload.email?.apiKey && !payload.email.apiKey.includes("••••")) {
-    secretsData.emailApiKey = payload.email.apiKey;
-  }
 
+  runtimeEncryptedSecretsCache = {
+    ...runtimeEncryptedSecretsCache,
+    ...secretsData,
+  };
+
+  saveLocalEncryptedSecrets(runtimeEncryptedSecretsCache);
+
+  // Persist to Firestore via Admin SDK
   if (adminDb) {
-    await adminDb.doc(GLOBAL_CONTROLS_DOC).set(publicData, { merge: true });
-    if (Object.keys(secretsData).length > 1) {
-      await adminDb.doc(GLOBAL_SECRETS_DOC).set(secretsData, { merge: true });
-    }
-    return;
-  }
-
-  if (db) {
-    await setDoc(doc(db, "siteSettings", "communication_controls"), publicData, { merge: true });
-    if (Object.keys(secretsData).length > 1) {
-      await setDoc(doc(db, "siteSettings", "communication_secrets"), secretsData, { merge: true }).catch(() => {});
+    try {
+      await adminDb.doc(GLOBAL_CONTROLS_DOC).set(publicData, { merge: true });
+      if (Object.keys(secretsData).length > 1) {
+        await adminDb.doc(GLOBAL_SECRETS_DOC).set(secretsData, { merge: true });
+      }
+    } catch (saveErr) {
+      console.warn("[CommunicationService] Error saving settings to AdminDb:", saveErr);
+      throw saveErr;
     }
   }
 }
 
 /**
- * Evaluates real-time communication access for a specific school.
- * Considers:
- * 1. Global master switch & channel toggles
- * 2. School's subscription plan entitlement
- * 3. School manual override by Super Admin (takes highest precedence)
+ * Evaluates real-time communication access, limits, and quotas for a specific school.
+ * Authoritatively powered by resolveEffectiveSchoolEntitlements (Single Source of Truth).
  */
-export async function getSchoolCommunicationAccess(schoolId: string): Promise<SchoolCommunicationAccess> {
-  const globalSettings = await getGlobalCommunicationSettings(true);
-
-  let schoolPlanSlug = "free";
-  let schoolPlanName = "Free Plan";
-  let schoolName = "School";
-
-  try {
-    const adminDb = getSafeAdminDb();
-    if (adminDb && schoolId) {
-      const sSnap = await adminDb.collection("schools").doc(schoolId).get();
-      if (sSnap.exists) {
-        const sData = sSnap.data() || {};
-        schoolName = sData.name || "School";
-        schoolPlanSlug = (sData.planSlug || sData.planId || "free").toLowerCase().replace(/^plan_/, "");
-        schoolPlanName = sData.planName || schoolPlanSlug;
-      }
-    } else if (schoolId) {
-      const db = getFirebaseDb();
-      if (db) {
-        const sSnap = await getDoc(doc(db, "schools", schoolId));
-        if (sSnap.exists()) {
-          const sData = sSnap.data() || {};
-          schoolName = sData.name || "School";
-          schoolPlanSlug = (sData.planSlug || sData.planId || "free").toLowerCase().replace(/^plan_/, "");
-          schoolPlanName = sData.planName || schoolPlanSlug;
-        }
-      }
-    }
-  } catch (err) {
-    console.warn("[CommunicationService] Error resolving school plan:", err);
-  }
-
-  // 1. Plan baseline
-  const planChannels = globalSettings.planAccess[schoolPlanSlug] ||
-    globalSettings.planAccess.free || {
-      whatsapp: false,
-      email: false,
-      in_app: true,
-      automation: false,
-    };
-
-  // 2. Manual override
-  const override = globalSettings.schoolOverrides?.[schoolId];
-  const isOverridden = Boolean(override && typeof override.enabled === "boolean");
-  const overrideEnabled = override?.enabled ?? true;
-
-  let canWhatsApp = globalSettings.channels.whatsapp && (override?.channels?.whatsapp ?? (planChannels.whatsapp && overrideEnabled));
-  let canEmail = globalSettings.channels.email && (override?.channels?.email ?? (planChannels.email && overrideEnabled));
-  let canInApp = globalSettings.channels.in_app; // In-app is always free if global master is on
-  let canAutomate = globalSettings.channels.automation && (override?.channels?.automation ?? (planChannels.automation && overrideEnabled));
-
-  if (!globalSettings.masterEnabled) {
-    canWhatsApp = false;
-    canEmail = false;
-    canInApp = false;
-    canAutomate = false;
-  }
-
-  // Generate clear lock reason
-  let lockReason: string | undefined = undefined;
-  if (!globalSettings.masterEnabled) {
-    lockReason = "Communication features are temporarily paused system-wide by Super Admin.";
-  } else if (isOverridden && !overrideEnabled) {
-    lockReason = "Communication access has been manually disabled for your school by Super Admin.";
-  } else if (!canWhatsApp && !canEmail) {
-    lockReason = `WhatsApp & Email automation requires Growth or Professional Plan. Current: ${schoolPlanName}.`;
-  }
-
-  // Monthly usage calculation
-  const monthlyUsage = {
-    totalSent: 0,
-    whatsappSent: 0,
-    emailSent: 0,
-    inAppSent: 0,
-    failed: 0,
-    limit: override?.monthlyLimit || 5000,
-  };
-
-  return {
-    schoolId,
-    schoolName,
-    planSlug: schoolPlanSlug,
-    planName: schoolPlanName,
-    isGloballyEnabled: globalSettings.masterEnabled,
-    canSendWhatsApp: Boolean(canWhatsApp),
-    canSendEmail: Boolean(canEmail),
-    canSendInApp: Boolean(canInApp),
-    canAutomate: Boolean(canAutomate),
-    isOverridden,
-    overrideEnabled: override?.enabled,
-    lockReason,
-    monthlyUsage,
-  };
+export async function getSchoolCommunicationAccess(
+  schoolId: string,
+  userContext?: { uid?: string; role?: string; schoolId?: string | null; email?: string; token?: string }
+): Promise<SchoolCommunicationAccess> {
+  const { resolveEffectiveSchoolEntitlements } = await import("@/lib/billing/entitlement");
+  const entitlements = await resolveEffectiveSchoolEntitlements(schoolId, userContext);
+  return entitlements.communication;
 }
-
 
 /**
  * Dispatches a communication message through the Unified Notification Engine.
- * Supports:
- * - in_app: Writes to student's live notification feed (free, realtime, persistent)
- * - whatsapp: Twilio WhatsApp REST API
- * - email: Resend / SendGrid / REST API
  */
 export async function dispatchCommunicationMessage(
   payload: SendMessagePayload,
   triggeredBy: { uid: string; name: string; role: string }
 ): Promise<SendResult> {
-  const { schoolId, channel, studentId, studentName, content } = payload;
+  const { schoolId, channel, studentId, studentName, content, sendMode = "api" } = payload;
 
   if (!schoolId) {
     return { success: false, logId: "", channel, status: "failed", error: "Missing schoolId" };
   }
 
   // 1. Verify School Access & Channel Entitlement
-  const access = await getSchoolCommunicationAccess(schoolId);
+  const access = await getSchoolCommunicationAccess(schoolId, triggeredBy);
   if (!access.isGloballyEnabled) {
     return { success: false, logId: "", channel, status: "failed", error: "Communication globally disabled" };
   }
 
+  // Manual WhatsApp mode check
+  if (channel === "whatsapp" && sendMode === "manual") {
+    if (!access.canManualWhatsApp) {
+      return { success: false, logId: "", channel, status: "failed", error: access.lockReason || "Manual WhatsApp disabled for this school" };
+    }
+
+    const phoneRes = normalizePhoneNumber(payload.recipientPhone || "");
+    if (!phoneRes.isValid) {
+      return { success: false, logId: "", channel, status: "failed", error: phoneRes.error || "Invalid recipient mobile number" };
+    }
+
+    const formattedTo = phoneRes.normalized.replace(/^\+/, "");
+    const waLink = `https://wa.me/${formattedTo}?text=${encodeURIComponent(content)}`;
+
+    const logId = `comm_man_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const logEntry: CommunicationLogEntry = {
+      id: logId,
+      schoolId,
+      studentId,
+      studentName,
+      admissionNumber: payload.admissionNumber || "",
+      className: payload.className || "",
+      sectionName: payload.sectionName || "",
+      parentName: payload.parentName || "",
+      recipient: phoneRes.masked,
+      channel: "whatsapp",
+      sendMode: "manual",
+      templateId: payload.templateId,
+      title: payload.title || "Manual WhatsApp",
+      content,
+      triggeredBy,
+      triggerType: payload.triggerType,
+      status: "manual_opened",
+      retryCount: 0,
+      createdAt: new Date().toISOString(),
+    };
+
+    // Save log entry without touching API quotas
+    try {
+      const adminDb = getSafeAdminDb();
+      if (adminDb) {
+        await adminDb.collection("schools").doc(schoolId).collection("communication_logs").doc(logId).set(logEntry);
+      }
+    } catch {}
+
+    return {
+      success: true,
+      logId,
+      channel: "whatsapp",
+      status: "manual_opened",
+      waLink,
+    };
+  }
+
+  // API sending checks
   if (channel === "whatsapp" && !access.canSendWhatsApp) {
     return {
       success: false,
       logId: "",
       channel,
       status: "failed",
-      error: access.lockReason || "WhatsApp messaging locked for this school plan",
+      error: access.lockReason || "WhatsApp API messaging locked for this school plan",
     };
   }
 
-  if (channel === "email" && !access.canSendEmail) {
+  if (channel === "sms" && !access.canSendSms) {
     return {
       success: false,
       logId: "",
       channel,
       status: "failed",
-      error: access.lockReason || "Email messaging locked for this school plan",
+      error: access.lockReason || "SMS API messaging locked for this school plan",
     };
   }
 
-  // 2. Fetch full global configuration (including backend secrets)
+  // Quota enforcement
+  if (channel === "whatsapp" && access.limits.monthlyWhatsAppAllowance !== -1) {
+    if (access.monthlyUsage.whatsappSent >= access.limits.monthlyWhatsAppAllowance) {
+      return {
+        success: false,
+        logId: "",
+        channel,
+        status: "failed",
+        error: `Monthly WhatsApp quota (${access.limits.monthlyWhatsAppAllowance} messages) reached for this billing cycle. Upgrade plan for higher limits.`,
+      };
+    }
+  }
+
+  if (channel === "sms" && access.limits.monthlySmsAllowance !== -1) {
+    if (access.monthlyUsage.smsSent >= access.limits.monthlySmsAllowance) {
+      return {
+        success: false,
+        logId: "",
+        channel,
+        status: "failed",
+        error: `Monthly SMS quota (${access.limits.monthlySmsAllowance} messages) reached for this billing cycle. Upgrade plan for higher limits.`,
+      };
+    }
+  }
+
+  // 2. Fetch full global configuration (with decrypted secrets)
   const fullConfig = await getGlobalCommunicationSettings(false);
 
   // 3. Prepare Log Entry
@@ -453,9 +776,16 @@ export async function dispatchCommunicationMessage(
     studentName,
     admissionNumber: payload.admissionNumber || "",
     className: payload.className || "",
+    sectionName: payload.sectionName || "",
     parentName: payload.parentName || "",
-    recipient: (channel === "whatsapp" ? payload.recipientPhone : channel === "email" ? payload.recipientEmail : payload.userId) || "Student App",
+    recipient:
+      (channel === "whatsapp" || channel === "sms"
+        ? payload.recipientPhone
+        : channel === "email"
+        ? payload.recipientEmail
+        : payload.userId) || "Student App",
     channel,
+    sendMode: "api",
     templateId: payload.templateId,
     title: payload.title || "Notification",
     content,
@@ -476,13 +806,12 @@ export async function dispatchCommunicationMessage(
 
   try {
     if (channel === "in_app") {
-      // IN-APP: Always Free, 100% Guaranteed Native Notification
       const notifId = await createNotification(
         schoolId,
         {
           title: payload.title || "School Notification",
           message: content,
-          type: payload.triggerType === "admission" ? "general" : payload.triggerType === "fee_reminder" ? "general" : "general",
+          type: "general",
           targetAudience: "user",
           targetUserId: payload.userId || studentId,
           idempotencyKey: payload.idempotencyKey,
@@ -501,56 +830,44 @@ export async function dispatchCommunicationMessage(
       finalStatus = "delivered";
       providerMessageId = notifId || `inapp_${Date.now()}`;
     } else if (channel === "whatsapp") {
-      // WHATSAPP: Twilio REST API
-      const recipientPhone = payload.recipientPhone?.replace(/[^0-9]/g, "");
-      if (!recipientPhone || recipientPhone.length < 10) {
-        throw new Error("Invalid or missing 10-digit mobile number");
+      const phoneRes = normalizePhoneNumber(payload.recipientPhone || "");
+      if (!phoneRes.isValid) {
+        throw new Error(phoneRes.error || "Invalid or missing mobile number");
       }
 
-      const formattedTo = recipientPhone.length === 10 ? `+91${recipientPhone}` : `+${recipientPhone}`;
-      const twilioAccountSid = fullConfig.twilio.accountSid;
-      const twilioAuthToken = fullConfig.twilio.authToken;
-      const twilioFrom = fullConfig.twilio.fromNumber.startsWith("whatsapp:")
-        ? fullConfig.twilio.fromNumber
-        : `whatsapp:${fullConfig.twilio.fromNumber}`;
+      const res = await sendTwilioWhatsApp(
+        phoneRes.normalized,
+        content,
+        fullConfig.twilio,
+        payload.templateId?.startsWith("HX") ? payload.templateId : undefined
+      );
 
-      if (twilioAccountSid && twilioAuthToken && !twilioAuthToken.includes("••••")) {
-        // Execute real Twilio WhatsApp API call
-        const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${twilioAccountSid}/Messages.json`;
-        const bodyParams = new URLSearchParams();
-        bodyParams.append("From", twilioFrom);
-        bodyParams.append("To", `whatsapp:${formattedTo}`);
-        bodyParams.append("Body", content);
-
-        const authHeader = Buffer.from(`${twilioAccountSid}:${twilioAuthToken}`).toString("base64");
-        const res = await fetch(twilioUrl, {
-          method: "POST",
-          headers: {
-            Authorization: `Basic ${authHeader}`,
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-          body: bodyParams.toString(),
-        });
-
-        const twilioRes = await res.json();
-        if (!res.ok) {
-          throw new Error(twilioRes.message || `Twilio API error: ${res.status}`);
-        }
-
-        finalStatus = "sent";
-        providerMessageId = twilioRes.sid;
-      } else {
-        // Informative error: Super Admin needs to configure Twilio
-        throw new Error("Twilio WhatsApp credentials not configured by Super Admin");
+      if (!res.success) {
+        throw new Error(res.userFriendlyError || res.errorMessage || "Twilio WhatsApp dispatch failed");
       }
+
+      finalStatus = res.status;
+      providerMessageId = res.providerMessageId;
+    } else if (channel === "sms") {
+      const phoneRes = normalizePhoneNumber(payload.recipientPhone || "");
+      if (!phoneRes.isValid) {
+        throw new Error(phoneRes.error || "Invalid or missing mobile number for SMS");
+      }
+
+      const res = await sendTwilioSMS(phoneRes.normalized, content, fullConfig.twilio);
+      if (!res.success) {
+        throw new Error(res.userFriendlyError || res.errorMessage || "Twilio SMS dispatch failed");
+      }
+
+      finalStatus = res.status;
+      providerMessageId = res.providerMessageId;
     } else if (channel === "email") {
-      // EMAIL: Resend / SendGrid API
       const recipientEmail = payload.recipientEmail?.trim();
       if (!recipientEmail || !recipientEmail.includes("@")) {
         throw new Error("Invalid or missing recipient email address");
       }
 
-      if (fullConfig.email.provider === "resend" && fullConfig.email.apiKey && !fullConfig.email.apiKey.includes("••••")) {
+      if (fullConfig.email.provider === "resend" && fullConfig.email.apiKey && !isMasked(fullConfig.email.apiKey)) {
         const res = await fetch("https://api.resend.com/emails", {
           method: "POST",
           headers: {
@@ -565,7 +882,7 @@ export async function dispatchCommunicationMessage(
           }),
         });
 
-        const resData = await res.json();
+        const resData = await res.json().catch(() => ({}));
         if (!res.ok) {
           throw new Error(resData.message || `Resend Email error: ${res.status}`);
         }
@@ -586,30 +903,24 @@ export async function dispatchCommunicationMessage(
   logEntry.status = finalStatus;
   logEntry.providerMessageId = providerMessageId;
   logEntry.errorReason = errorReason;
-  logEntry.sentAt = finalStatus === "sent" || finalStatus === "delivered" ? now : null;
+  logEntry.sentAt = finalStatus === "sent" || finalStatus === "delivered" || finalStatus === "queued" ? now : null;
   logEntry.deliveredAt = finalStatus === "delivered" ? now : null;
 
   try {
     const adminDb = getSafeAdminDb();
     if (adminDb) {
       await adminDb.collection("schools").doc(schoolId).collection("communication_logs").doc(logId).set(logEntry);
-      // Also register in platform-wide audit logs
       await adminDb.collection("communication_delivery_logs").doc(logId).set({
         ...logEntry,
         schoolName: access.schoolName,
       });
-    } else {
-      const db = getFirebaseDb();
-      if (db) {
-        await setDoc(doc(db, "schools", schoolId, "communication_logs", logId), logEntry);
-      }
     }
   } catch (logErr) {
     console.warn("[CommunicationEngine] Failed to write delivery log:", logErr);
   }
 
   return {
-    success: finalStatus === "sent" || finalStatus === "delivered",
+    success: finalStatus === "sent" || finalStatus === "delivered" || finalStatus === "queued",
     logId,
     channel,
     status: finalStatus,
@@ -640,22 +951,6 @@ export async function getSchoolCommunicationLogs(
       const snap = await q.get();
       return snap.docs.map((d: any) => d.data() as CommunicationLogEntry);
     }
-
-    const db = getFirebaseDb();
-    if (db) {
-      const coll = collection(db, "schools", schoolId, "communication_logs");
-      let q = query(coll, orderBy("createdAt", "desc"), limit(maxLogs));
-      if (filterChannel && filterStatus) {
-        q = query(coll, where("channel", "==", filterChannel), where("status", "==", filterStatus), limit(maxLogs));
-      } else if (filterChannel) {
-        q = query(coll, where("channel", "==", filterChannel), limit(maxLogs));
-      } else if (filterStatus) {
-        q = query(coll, where("status", "==", filterStatus), limit(maxLogs));
-      }
-
-      const snap = await getDocs(q);
-      return snap.docs.map((d) => d.data() as CommunicationLogEntry);
-    }
   } catch (err) {
     console.warn("[CommunicationService] Error fetching communication logs:", err);
   }
@@ -664,7 +959,7 @@ export async function getSchoolCommunicationLogs(
 }
 
 /**
- * Retrieves all delivery logs across all schools for Super Admin visibility.
+ * Retrieves all delivery logs across all schools for Super Admin platform visibility.
  */
 export async function getAllPlatformCommunicationLogs(maxLogs = 100): Promise<CommunicationLogEntry[]> {
   try {
@@ -673,16 +968,242 @@ export async function getAllPlatformCommunicationLogs(maxLogs = 100): Promise<Co
       const snap = await adminDb.collection("communication_delivery_logs").orderBy("createdAt", "desc").limit(maxLogs).get();
       return snap.docs.map((d: any) => d.data() as CommunicationLogEntry);
     }
-
-    const db = getFirebaseDb();
-    if (db) {
-      const coll = collection(db, "communication_delivery_logs");
-      const q = query(coll, orderBy("createdAt", "desc"), limit(maxLogs));
-      const snap = await getDocs(q);
-      return snap.docs.map((d) => d.data() as CommunicationLogEntry);
-    }
   } catch (err) {
     console.warn("[CommunicationService] Error fetching all platform logs:", err);
   }
   return [];
+}
+
+/**
+ * Fetches all templates available to a school (System Defaults + School Custom Templates).
+ */
+export async function getSchoolTemplates(schoolId: string): Promise<CommunicationTemplate[]> {
+  const templates: CommunicationTemplate[] = [...DEFAULT_COMMUNICATION_TEMPLATES];
+
+  if (!schoolId) return templates;
+
+  try {
+    const adminDb = getSafeAdminDb();
+    if (adminDb) {
+      const snap = await adminDb
+        .collection("schools")
+        .doc(schoolId)
+        .collection("communication_templates")
+        .where("status", "!=", "archived")
+        .get();
+
+      if (!snap.empty) {
+        snap.docs.forEach((d) => {
+          templates.unshift({ ...(d.data() as CommunicationTemplate), id: d.id, schoolId });
+        });
+      }
+    }
+  } catch (err) {
+    console.warn("[CommunicationService] Error reading custom templates:", err);
+  }
+
+  return templates;
+}
+
+/**
+ * Saves or updates a custom template for a school.
+ */
+export async function saveSchoolTemplate(
+  schoolId: string,
+  template: Partial<CommunicationTemplate>
+): Promise<CommunicationTemplate> {
+  const adminDb = getSafeAdminDb();
+  const id = template.id || `tpl_cust_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const now = new Date().toISOString();
+
+  const toSave: CommunicationTemplate = {
+    id,
+    schoolId,
+    name: template.name || "Custom Notification Template",
+    category: template.category || "general",
+    channel: template.channel || "whatsapp",
+    titleTemplate: template.titleTemplate || "",
+    bodyTemplate: template.bodyTemplate || "",
+    variables: template.variables || [],
+    status: template.status || "draft",
+    whatsappTemplateSid: template.whatsappTemplateSid || undefined,
+    whatsappLanguage: template.whatsappLanguage || "en_US",
+    isSystemDefault: false,
+    createdAt: template.createdAt || now,
+    updatedAt: now,
+  };
+
+  if (adminDb) {
+    await adminDb.collection("schools").doc(schoolId).collection("communication_templates").doc(id).set(toSave, { merge: true });
+  }
+
+  return toSave;
+}
+
+/**
+ * Archives a custom template for a school.
+ */
+export async function archiveSchoolTemplate(schoolId: string, templateId: string): Promise<void> {
+  const adminDb = getSafeAdminDb();
+  if (adminDb) {
+    await adminDb
+      .collection("schools")
+      .doc(schoolId)
+      .collection("communication_templates")
+      .doc(templateId)
+      .update({ status: "archived", updatedAt: new Date().toISOString() });
+  }
+}
+
+/**
+ * Records a manual WhatsApp action (e.g. copied text or opened wa.me link).
+ */
+export async function recordManualWhatsAppAction(
+  schoolId: string,
+  logId: string,
+  action: "manual_copied" | "manual_opened" | "manual_sent"
+): Promise<void> {
+  const adminDb = getSafeAdminDb();
+  if (adminDb) {
+    await adminDb
+      .collection("schools")
+      .doc(schoolId)
+      .collection("communication_logs")
+      .doc(logId)
+      .update({ status: action, updatedAt: new Date().toISOString() })
+      .catch(() => {});
+  }
+}
+
+/**
+ * Dispatches a genuine test message for School Admin.
+ */
+export async function dispatchTestMessage(
+  schoolId: string,
+  channel: CommunicationChannel,
+  recipientPhone: string,
+  triggeredBy: { uid: string; name: string; role: string; token?: string; impersonatedBy?: any }
+): Promise<SendResult & { errorCode?: string; maskedPhone?: string }> {
+  const { normalizePhoneNumber } = await import("./phone-validation");
+  const phoneRes = normalizePhoneNumber(recipientPhone);
+  if (!phoneRes.isValid) {
+    return {
+      success: false,
+      logId: "",
+      channel,
+      status: "failed",
+      errorCode: "INVALID_PHONE_NUMBER",
+      error: phoneRes.error || "Invalid phone number format.",
+      maskedPhone: phoneRes.masked,
+    };
+  }
+
+  const access = await getSchoolCommunicationAccess(schoolId, triggeredBy);
+  if (!access.canTestMessage) {
+    return {
+      success: false,
+      logId: "",
+      channel,
+      status: "failed",
+      errorCode: "FEATURE_NOT_ENABLED",
+      error: access.lockReason || "Test message sending is not permitted on your plan.",
+      maskedPhone: phoneRes.masked,
+    };
+  }
+
+  if (channel === "whatsapp" && !access.canSendWhatsApp) {
+    return {
+      success: false,
+      logId: "",
+      channel,
+      status: "failed",
+      errorCode: "FEATURE_NOT_ENABLED",
+      error: access.lockReason || "WhatsApp API messaging is not included in your current plan.",
+      maskedPhone: phoneRes.masked,
+    };
+  }
+
+  if (channel === "sms" && !access.canSendSms) {
+    return {
+      success: false,
+      logId: "",
+      channel,
+      status: "failed",
+      errorCode: "FEATURE_NOT_ENABLED",
+      error: access.lockReason || "SMS API messaging is not included in your current plan.",
+      maskedPhone: phoneRes.masked,
+    };
+  }
+
+  if (access.limits.monthlyTestAllowance !== -1 && access.monthlyUsage.testsSent >= access.limits.monthlyTestAllowance) {
+    return {
+      success: false,
+      logId: "",
+      channel,
+      status: "failed",
+      errorCode: "QUOTA_EXCEEDED",
+      error: `Monthly test message allowance (${access.limits.monthlyTestAllowance}) reached.`,
+      maskedPhone: phoneRes.masked,
+    };
+  }
+
+  // Provider configuration validation
+  const fullConfig = await getGlobalCommunicationSettings(false);
+  if (!fullConfig.twilio?.accountSid || !fullConfig.twilio?.authToken) {
+    return {
+      success: false,
+      logId: "",
+      channel,
+      status: "failed",
+      errorCode: "TWILIO_NOT_CONFIGURED",
+      error: "Twilio provider is not configured. Please contact Super Admin to configure Twilio credentials.",
+      maskedPhone: phoneRes.masked,
+    };
+  }
+
+  if (channel === "whatsapp" && !fullConfig.twilio?.fromNumber) {
+    return {
+      success: false,
+      logId: "",
+      channel,
+      status: "failed",
+      errorCode: "SENDER_NOT_APPROVED",
+      error: "Twilio WhatsApp sender number is not configured in Super Admin settings.",
+      maskedPhone: phoneRes.masked,
+    };
+  }
+
+  if (channel === "sms" && !fullConfig.twilio?.smsFromNumber && !fullConfig.twilio?.fromNumber) {
+    return {
+      success: false,
+      logId: "",
+      channel,
+      status: "failed",
+      errorCode: "SENDER_NOT_APPROVED",
+      error: "Twilio SMS sender number or Messaging Service is not configured.",
+      maskedPhone: phoneRes.masked,
+    };
+  }
+
+  const testContent = `[TEST MESSAGE] Hello from ${access.schoolName || "SBCI School ERP"}! Your ${channel.toUpperCase()} integration is working properly. Timestamp: ${new Date().toLocaleTimeString()}`;
+
+  const sendResult = await dispatchCommunicationMessage(
+    {
+      schoolId,
+      studentId: "test_recipient",
+      studentName: "Authorized Test Recipient",
+      recipientPhone: phoneRes.normalized,
+      channel,
+      sendMode: "api",
+      title: "Test Message",
+      content: testContent,
+      triggerType: "test_message",
+    },
+    triggeredBy
+  );
+
+  return {
+    ...sendResult,
+    maskedPhone: phoneRes.masked,
+  };
 }

@@ -36,6 +36,13 @@ export interface AuthenticatedUser {
   forceLogout?: boolean;
   requireReLogin?: boolean;
   forceLogoutAt?: number;
+  impersonatedBy?: {
+    uid: string;
+    email: string;
+    sessionId: string;
+    allowedOperations?: string[];
+  };
+  token?: string;
 }
 
 export interface AuthValidationResult {
@@ -59,63 +66,29 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
   if (authHeader && authHeader.startsWith("Bearer ")) {
     token = authHeader.substring(7).trim();
   } else if (cookieHeader) {
-    const match = cookieHeader.match(/(?:__session|auth_token)=([^;]+)/);
+    const match = cookieHeader.match(/(?:^|;\s*)(?:__session|auth_token)=([^;]+)/);
     if (match) token = match[1].trim();
   }
 
-  // 1. Verify token with Admin Auth if available
-  if (token) {
-    try {
-      const { getSafeAdminAuth } = await import("@/lib/firebase/admin");
-      const adminAuth = getSafeAdminAuth();
-      if (adminAuth) {
-        try {
-          const decoded = await adminAuth.verifyIdToken(token);
-          if (decoded && decoded.uid) {
-            resolvedUid = decoded.uid;
-            resolvedEmail = decoded.email || "";
-          }
-        } catch (tokenErr: any) {
-          // Token signature invalid or expired
-        }
-      }
-    } catch (e) {
-      // Admin auth not configured
-    }
-
-    // If Admin SDK did not verify (e.g. test token or local environment), decode payload safely
-    if (!resolvedUid && token.includes(".")) {
-      try {
-        const parts = token.split(".");
-        if (parts.length >= 2) {
-          const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-          const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
-          const payloadJson = Buffer.from(padded, "base64").toString("utf-8");
-          const payload = JSON.parse(payloadJson);
-          if (payload.user_id || payload.sub) resolvedUid = payload.user_id || payload.sub;
-          if (payload.email) resolvedEmail = payload.email;
-        }
-      } catch (e) {}
-    } else if (!resolvedUid && token && !token.includes(".")) {
-      // Direct UID token in test/script environments
-      resolvedUid = token;
-    }
+  // Identity must come from cryptographic verification, never caller-supplied IDs.
+  if (!token) {
+    return { isAuthenticated: false, errorResponse: NextResponse.json(
+      { error: "Authentication required." }, { status: 401 }) };
   }
-
-  // Fallback for internal server test harnesses passing x-user-id
-  if (!resolvedUid) {
-    const uidHeader = request.headers.get("x-user-id");
-    if (uidHeader) resolvedUid = uidHeader.trim();
-  }
-
-  if (!resolvedUid) {
-    return {
-      isAuthenticated: false,
-      errorResponse: NextResponse.json(
-        { error: "Authentication required. Please provide a valid authorization token." },
-        { status: 401 }
-      ),
-    };
+  try {
+    const { getSafeAdminAuth } = await import("@/lib/firebase/admin");
+    const auth = getSafeAdminAuth();
+    if (!auth) {
+      return { isAuthenticated: false, errorResponse: NextResponse.json(
+        { error: "Authentication service unavailable.", code: "AUTH_SERVICE_UNAVAILABLE" }, { status: 503 }) };
+    }
+    const decoded = await auth.verifyIdToken(token, true);
+    if (!decoded.uid) throw new Error("Missing verified identity");
+    resolvedUid = decoded.uid;
+    resolvedEmail = decoded.email || "";
+  } catch {
+    return { isAuthenticated: false, errorResponse: NextResponse.json(
+      { error: "Invalid or expired authentication token." }, { status: 401 }) };
   }
 
   // 2. Authoritative Database Profile Lookup (Never trust client-supplied role or schoolId)
@@ -205,18 +178,6 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
     } catch (restErr) {}
   }
 
-  // Fallback for authoritative super admin emails if Firestore lookup failed
-  if (!dbUser && resolvedEmail && isSuperAdminEmail(resolvedEmail)) {
-    dbUser = {
-      uid: resolvedUid,
-      email: resolvedEmail,
-      name: "Platform Super Admin",
-      role: "super_admin",
-      schoolId: null,
-      status: "active",
-    };
-  }
-
   if (!dbUser) {
     return {
       isAuthenticated: false,
@@ -225,11 +186,6 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
         { status: 401 }
       ),
     };
-  }
-
-  // Authoritative super admin email check
-  if (dbUser.email && isSuperAdminEmail(dbUser.email)) {
-    dbUser.role = "super_admin";
   }
 
   // 3. Status Verification (Account Suspension / Deactivation check)
@@ -259,6 +215,58 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
     };
   }
 
+  // 5. Server-Validated Super Admin Impersonation Session
+  const impHeader = request.headers.get("x-impersonation-session");
+  if (impHeader) {
+    const { verifyImpersonationToken } = await import("@/lib/auth/impersonation");
+    const impResult = verifyImpersonationToken(impHeader);
+    if (!impResult.isValid) {
+      return {
+        isAuthenticated: false,
+        errorResponse: NextResponse.json(
+          {
+            success: false,
+            errorCode: impResult.errorCode || "INVALID_IMPERSONATION",
+            error: impResult.error || "Invalid impersonation session.",
+          },
+          { status: 403 }
+        ),
+      };
+    }
+
+    const session = impResult.session!;
+    // Caller must be an authorized Super Admin
+    const isCallerSuperAdmin = dbUser.role === "super_admin";
+    if (!isCallerSuperAdmin) {
+      return {
+        isAuthenticated: false,
+        errorResponse: NextResponse.json(
+          {
+            success: false,
+            errorCode: "FORBIDDEN_IMPERSONATION",
+            error: "Caller is not authorized to use an impersonation session.",
+          },
+          { status: 403 }
+        ),
+      };
+    }
+
+    // Attach verified impersonation context
+    // CRITICAL SECURITY GUARANTEE: Never assign Super Admin permissions to the impersonated context!
+    dbUser.impersonatedBy = {
+      uid: session.superAdminUid,
+      email: session.superAdminEmail,
+      sessionId: session.sessionId,
+      allowedOperations: session.allowedOperations,
+    };
+    dbUser.role = (session.targetRole as AppRole) || "school_admin";
+    dbUser.schoolId = session.targetSchoolId;
+  }
+
+  if (token) {
+    dbUser.token = token;
+  }
+
   return {
     isAuthenticated: true,
     user: dbUser,
@@ -276,13 +284,11 @@ export const KNOWN_SUPER_ADMIN_EMAILS = [
 export function isSuperAdminEmail(email?: string | null): boolean {
   if (!email) return false;
   const lower = email.toLowerCase().trim();
-  return (
-    KNOWN_SUPER_ADMIN_EMAILS.includes(lower) ||
-    lower.includes("superadmin") ||
-    lower.includes("super_admin") ||
-    lower.includes("vinkal") ||
-    lower.includes("sbci")
-  );
+  const configured = (process.env.SUPER_ADMIN_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return KNOWN_SUPER_ADMIN_EMAILS.includes(lower) || configured.includes(lower);
 }
 
 /**
@@ -294,7 +300,7 @@ export async function requireSuperAdmin(request: Request): Promise<{ user?: Auth
     return { errorResponse: authResult.errorResponse };
   }
 
-  const isSuper = authResult.user.role === "super_admin" || isSuperAdminEmail(authResult.user.email);
+  const isSuper = authResult.user.role === "super_admin";
   if (!isSuper) {
     return {
       errorResponse: NextResponse.json(
@@ -321,8 +327,8 @@ export async function requireSchoolAdmin(
 
   const { user } = authResult;
 
-  // Super Admin can manage any school tenant
-  if (user.role === "super_admin") {
+  // Super Admin direct platform access (when NOT impersonating)
+  if (user.role === "super_admin" && !user.impersonatedBy) {
     return { user };
   }
 
@@ -330,17 +336,41 @@ export async function requireSchoolAdmin(
   if (user.role !== "admin" && user.role !== "school_admin") {
     return {
       errorResponse: NextResponse.json(
-        { error: "Access Denied. School Admin permissions required." },
+        {
+          success: false,
+          errorCode: "UNAUTHORIZED_ROLE",
+          error: "Access Denied. School Admin permissions required.",
+        },
+        { status: 403 }
+      ),
+    };
+  }
+
+  // Tenant Assignment Check: School Admin MUST have an assigned school campus
+  if (!user.schoolId || !user.schoolId.trim()) {
+    return {
+      errorResponse: NextResponse.json(
+        {
+          success: false,
+          error: "Tenant Configuration Error: School Administrator has no assigned school campus. Please contact Super Admin.",
+          errorCode: "MISSING_SCHOOL_ASSIGNMENT",
+          code: "MISSING_SCHOOL_ASSIGNMENT",
+        },
         { status: 403 }
       ),
     };
   }
 
   // Multi-Tenant Isolation: Admin can only access their own school
-  if (targetSchoolId && user.schoolId && user.schoolId !== targetSchoolId) {
+  if (targetSchoolId && user.schoolId !== targetSchoolId) {
     return {
       errorResponse: NextResponse.json(
-        { error: "Access Denied. You do not have authorization to access this school's data." },
+        {
+          success: false,
+          error: "Access Denied. You do not have authorization to access this school's data.",
+          errorCode: "CROSS_TENANT_ACCESS_DENIED",
+          code: "CROSS_TENANT_ACCESS_DENIED",
+        },
         { status: 403 }
       ),
     };
@@ -389,10 +419,25 @@ export async function requireTeacher(
     };
   }
 
-  if (targetSchoolId && user.schoolId && user.schoolId !== targetSchoolId) {
+  if (!user.schoolId || !user.schoolId.trim()) {
     return {
       errorResponse: NextResponse.json(
-        { error: "Access Denied. Cross-school access denied." },
+        {
+          error: "Tenant Configuration Error: Teacher has no assigned school campus. Please contact School Admin.",
+          code: "MISSING_SCHOOL_ASSIGNMENT",
+        },
+        { status: 403 }
+      ),
+    };
+  }
+
+  if (targetSchoolId && user.schoolId !== targetSchoolId) {
+    return {
+      errorResponse: NextResponse.json(
+        {
+          error: "Access Denied. Cross-school access denied.",
+          code: "CROSS_TENANT_ACCESS_DENIED",
+        },
         { status: 403 }
       ),
     };

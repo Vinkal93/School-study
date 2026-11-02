@@ -17,7 +17,7 @@ export interface CheckoutOptionsInput {
   onError?: (errorMsg: string) => void;
 }
 
-function loadRazorpayScript(): Promise<boolean> {
+export function loadRazorpayScript(): Promise<boolean> {
   return new Promise((resolve) => {
     if (typeof window === "undefined") return resolve(false);
     if ((window as any).Razorpay) return resolve(true);
@@ -38,6 +38,10 @@ export async function triggerRazorpayCheckout(input: CheckoutOptionsInput): Prom
   const { planId, billingCycle, couponCode, schoolId, userId, prefillData, onSuccess, onError } = input;
 
   try {
+    const { getFirebaseAuth } = await import("@/lib/firebase/client");
+    const currentUser = getFirebaseAuth().currentUser;
+    if (!currentUser) throw new Error("Sign in before starting checkout.");
+    const authorization = `Bearer ${await currentUser.getIdToken()}`;
     // 1. Ensure Razorpay Checkout script is loaded
     const scriptLoaded = await loadRazorpayScript();
     if (!scriptLoaded) {
@@ -49,7 +53,7 @@ export async function triggerRazorpayCheckout(input: CheckoutOptionsInput): Prom
     // 2. Call server-side order creation API with safeFetchJson
     const orderRes = await safeFetchJson("/api/billing/orders", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: authorization },
       body: JSON.stringify({
         schoolId,
         userId,
@@ -104,7 +108,7 @@ export async function triggerRazorpayCheckout(input: CheckoutOptionsInput): Prom
           // Call server-side signature verification API safely
           const verifyRes = await safeFetchJson("/api/billing/verify", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", Authorization: authorization },
             body: JSON.stringify({
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_order_id: response.razorpay_order_id,

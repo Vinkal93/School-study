@@ -1,4 +1,5 @@
 import assert from "assert";
+import crypto from "crypto";
 
 console.log("======================================================================");
 console.log("🚀 RUNNING MULTI-TENANT COMMUNICATION & NOTIFICATION SYSTEM SUITE");
@@ -35,7 +36,8 @@ async function runCommunicationTests() {
       return resolved;
     }
 
-    const rawTemplate = "Dear {{parent_name}}, fee of ₹{{amount}} for {{student_name}} (Class: {{class_name}}, Adm No: {{admission_no}}) is due on {{due_date}}.\n- {{school_name}}";
+    const rawTemplate =
+      "Dear {{parent_name}}, fee of ₹{{amount}} for {{student_name}} (Class: {{class_name}}, Adm No: {{admission_no}}) is due on {{due_date}}.\n- {{school_name}}";
     const data = {
       parent_name: "Rajesh Singh",
       student_name: "Aarav Singh",
@@ -65,9 +67,9 @@ async function runCommunicationTests() {
   // ------------------------------------------------------------------
   try {
     const rawSecrets = {
-      twilioAccountSid: "MOCK_TWILIO_ACCOUNT_SID_XYZ",
-      twilioAuthToken: "super_secret_auth_token_9999",
-      emailApiKey: "re_secr3t_api_key_8888",
+      twilioAccountSid: "AC_MOCK_ACCOUNT_SID_SAMPLE_VALUE",
+      twilioAuthToken: "mock_sample_auth_token_value_xyz",
+      emailApiKey: "mock_sample_email_api_key_val_abc",
     };
 
     function maskForClient(secrets) {
@@ -92,7 +94,86 @@ async function runCommunicationTests() {
   }
 
   // ------------------------------------------------------------------
-  // TEST 3: Plan-Based Feature Access Gating & Super Admin Overrides
+  // TEST 3: AES-256-GCM Encryption & Decryption at Rest
+  // ------------------------------------------------------------------
+  try {
+    const secretKey = crypto.createHash("sha256").update("test-encryption-key-2026").digest();
+    const rawToken = "auth_tok_live_99887766554433221100";
+
+    function encrypt(plaintext) {
+      const iv = crypto.randomBytes(16);
+      const cipher = crypto.createCipheriv("aes-256-gcm", secretKey, iv);
+      let encrypted = cipher.update(plaintext, "utf8", "hex");
+      encrypted += cipher.final("hex");
+      const authTag = cipher.getAuthTag().toString("hex");
+      return `enc:v1:${iv.toString("hex")}:${authTag}:${encrypted}`;
+    }
+
+    function decrypt(ciphertext) {
+      if (!ciphertext.startsWith("enc:v1:")) return ciphertext;
+      const [, , ivHex, tagHex, encryptedHex] = ciphertext.split(":");
+      const decipher = crypto.createDecipheriv("aes-256-gcm", secretKey, Buffer.from(ivHex, "hex"));
+      decipher.setAuthTag(Buffer.from(tagHex, "hex"));
+      let decrypted = decipher.update(encryptedHex, "hex", "utf8");
+      decrypted += decipher.final("utf8");
+      return decrypted;
+    }
+
+    const ciphertext = encrypt(rawToken);
+    assert(ciphertext.startsWith("enc:v1:"), "Ciphertext must have versioned encryption header");
+    assert(!ciphertext.includes(rawToken), "Ciphertext must not expose plaintext");
+
+    const recovered = decrypt(ciphertext);
+    assert.strictEqual(recovered, rawToken, "Recovered plaintext must match original secret exactly");
+
+    testPass("Cryptographic Storage: AES-256-GCM encryption & authenticated decryption verified");
+  } catch (err) {
+    testFail("Cryptographic Storage", err);
+  }
+
+  // ------------------------------------------------------------------
+  // TEST 4: Twilio Credential & Sender Schema Validation
+  // ------------------------------------------------------------------
+  try {
+    function validateTwilioAccountSid(sid) {
+      if (!sid || typeof sid !== "string") return false;
+      const trimmed = sid.trim();
+      return trimmed.startsWith("AC") && trimmed.length >= 30;
+    }
+
+    function validateWhatsAppSender(sender) {
+      if (!sender) return { isValid: false, isSandbox: false };
+      const normalized = sender.startsWith("whatsapp:") ? sender : `whatsapp:${sender}`;
+      const phonePart = normalized.replace(/^whatsapp:/, "");
+      const isValid = /^\+[1-9]\d{7,14}$/.test(phonePart);
+      return { isValid, formatted: normalized, isSandbox: phonePart === "+14155238886" };
+    }
+
+    // SID checks
+    assert.strictEqual(validateTwilioAccountSid("AC_TEST_ACCOUNT_SID_FOR_VALIDATION_MOCK"), true, "Valid 34-char AC SID");
+    assert.strictEqual(validateTwilioAccountSid("XX_INVALID_ACCOUNT_SID_MOCK_TEST_1234"), false, "Non-AC SID rejected for account");
+    assert.strictEqual(validateTwilioAccountSid("short_sid"), false, "Short SID rejected");
+
+    // Sender checks
+    const sandboxCheck = validateWhatsAppSender("whatsapp:+14155238886");
+    assert.strictEqual(sandboxCheck.isValid, true, "Sandbox sender is valid");
+    assert.strictEqual(sandboxCheck.isSandbox, true, "Sandbox sender recognized");
+
+    const prodCheck = validateWhatsAppSender("+919876543210");
+    assert.strictEqual(prodCheck.isValid, true, "Production E.164 number is valid");
+    assert.strictEqual(prodCheck.isSandbox, false, "Production sender distinguished from sandbox");
+    assert.strictEqual(prodCheck.formatted, "whatsapp:+919876543210", "whatsapp: prefix automatically normalized");
+
+    const invalidCheck = validateWhatsAppSender("invalid_phone_number");
+    assert.strictEqual(invalidCheck.isValid, false, "Garbage number rejected");
+
+    testPass("Twilio Schema: Account SID and WhatsApp sender formats validated with sandbox detection");
+  } catch (err) {
+    testFail("Twilio Schema", err);
+  }
+
+  // ------------------------------------------------------------------
+  // TEST 5: Plan-Based Feature Access Gating & Super Admin Overrides
   // ------------------------------------------------------------------
   try {
     const planMatrix = {
@@ -151,7 +232,7 @@ async function runCommunicationTests() {
   }
 
   // ------------------------------------------------------------------
-  // TEST 4: Idempotency & Deduplication Engine (Zero Spam Guarantee)
+  // TEST 6: Idempotency & Deduplication Engine (Zero Spam Guarantee)
   // ------------------------------------------------------------------
   try {
     const sentHistory = new Set();
@@ -182,7 +263,7 @@ async function runCommunicationTests() {
   }
 
   // ------------------------------------------------------------------
-  // TEST 5: Fee Reminder Automation Rule Offset Logic
+  // TEST 7: Fee Reminder Automation Rule Offset Logic
   // ------------------------------------------------------------------
   try {
     const rules = [
@@ -211,7 +292,7 @@ async function runCommunicationTests() {
   }
 
   // ------------------------------------------------------------------
-  // TEST 6: Unified Delivery Lifecycle States
+  // TEST 8: Unified Delivery Lifecycle States
   // ------------------------------------------------------------------
   try {
     const validStatuses = ["pending", "processing", "sent", "delivered", "read", "failed"];
@@ -234,7 +315,7 @@ async function runCommunicationTests() {
   }
 
   // ------------------------------------------------------------------
-  // TEST 7: Tenant Isolation Barrier
+  // TEST 9: Tenant Isolation & Cross-School Authorization Barriers
   // ------------------------------------------------------------------
   try {
     const schoolAlphaLogs = [{ id: "l1", schoolId: "school_alpha", content: "Alpha Fee" }];
@@ -248,7 +329,23 @@ async function runCommunicationTests() {
     assert.strictEqual(alphaResult.length, 1, "Only School Alpha logs returned");
     assert.strictEqual(alphaResult[0].id, "l1", "Correct tenant log returned");
 
-    testPass("Tenant Isolation: Zero cross-tenant data leakage in communication logs");
+    function authorizeDispatch(actor, targetSchoolId) {
+      if (actor.role === "super_admin") return true;
+      if (actor.role === "admin" || actor.role === "school_admin") {
+        return actor.schoolId === targetSchoolId;
+      }
+      return false;
+    }
+
+    const schoolAAdmin = { uid: "u_admin_a", role: "school_admin", schoolId: "school_alpha" };
+    assert.strictEqual(authorizeDispatch(schoolAAdmin, "school_alpha"), true, "Admin can manage own school");
+    assert.strictEqual(authorizeDispatch(schoolAAdmin, "school_beta"), false, "Cross-school dispatch blocked");
+
+    const superAdmin = { uid: "u_super", role: "super_admin", schoolId: null };
+    assert.strictEqual(authorizeDispatch(superAdmin, "school_alpha"), true, "Super admin has platform authority");
+    assert.strictEqual(authorizeDispatch(superAdmin, "school_beta"), true, "Super admin has platform authority");
+
+    testPass("Tenant Isolation: Zero cross-tenant data leakage in communication logs & dispatch");
   } catch (err) {
     testFail("Tenant Isolation", err);
   }

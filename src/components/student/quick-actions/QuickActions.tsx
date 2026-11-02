@@ -24,12 +24,7 @@ export function QuickActions({
   error = null,
   onActionClick,
 }: QuickActionsProps) {
-  // 1. Loading Skeleton State (Section 25)
-  if (loading) {
-    return <QuickActionsSkeleton />;
-  }
-
-  // Filter actions based on tenant module configuration (Section 20)
+  // Filter actions based on tenant module configuration (Section 20) - run unconditionally before early returns
   const availableActions = useMemo(() => {
     if (!tenantEnabledModules || tenantEnabledModules.length === 0) {
       return actions; // Default all enabled
@@ -39,6 +34,11 @@ export function QuickActions({
       return tenantEnabledModules.includes(act.moduleKey);
     });
   }, [actions, tenantEnabledModules]);
+
+  // 1. Loading Skeleton State (Section 25)
+  if (loading) {
+    return <QuickActionsSkeleton />;
+  }
 
   if (error) {
     return (

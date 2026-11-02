@@ -387,7 +387,7 @@ export default function TeacherDetailPage({
     const targetClass = schoolClasses.find((c) => c.id === selectedClassId);
     const targetSection = targetClass?.sections?.find((s) => s.id === selectedSectionId);
 
-    const existingAssigned = teacher.assignedClasses || [];
+    const existingAssigned = Array.isArray(teacher.assignedClasses) ? teacher.assignedClasses : [];
     const newAssigned = [
       ...existingAssigned,
       {

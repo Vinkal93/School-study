@@ -38,6 +38,7 @@ import {
   ShieldCheck,
   Database,
   Megaphone,
+  AlertTriangle,
   Send,
   Hand,
   FolderOpen,
@@ -119,8 +120,7 @@ function buildSchoolAdminNavItems(): NavItem[] {
         .map((child) => ({
           label: child.label,
           href: child.route!,
-          featureKey: child.planControlled ? child.key : undefined,
-          isLocked: child.isLocked,
+            featureKey: child.key,
           badge: child.badge,
         }));
 
@@ -251,6 +251,15 @@ const roleNavItems: Record<string, NavItem[]> = {
       label: "Security Command",
       href: "/super-admin/security-center",
       icon: <ShieldCheck className="h-5 w-5 text-rose-500" />,
+    },
+    {
+      label: "Error Monitoring",
+      href: "/super-admin/errors",
+      icon: <AlertTriangle className="h-5 w-5 text-amber-500" />,
+      subItems: [
+        { label: "Incident Feed", href: "/super-admin/errors" },
+        { label: "Alert Settings", href: "/super-admin/errors/settings" },
+      ],
     },
     {
       label: "Data Backup & Sync",
@@ -609,7 +618,6 @@ export function Sidebar({ variant = "classic" }: SidebarProps) {
                   >
                     {item.subItems!.map((sub) => {
                       if (
-                        !sub.isLocked &&
                         sub.featureKey &&
                         !canAccess(sub.featureKey) &&
                         getFeatureAccessMode(sub.featureKey) !== "SHOWCASE"
@@ -633,7 +641,7 @@ export function Sidebar({ variant = "classic" }: SidebarProps) {
                           )}
                         >
                           <span className="truncate">{sub.label}</span>
-                          {sub.isLocked && (
+                          {sub.featureKey && getFeatureAccessMode(sub.featureKey) === "SHOWCASE" && (
                             <span className="inline-flex items-center justify-center p-0.5 rounded-full bg-pink-100 dark:bg-pink-950/60 text-pink-500 dark:text-pink-400 shrink-0 ml-1.5" title="Locked feature">
                               <Lock className="h-3 w-3" />
                             </span>

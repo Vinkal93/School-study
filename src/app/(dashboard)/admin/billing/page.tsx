@@ -15,6 +15,7 @@ import { doc, onSnapshot, updateDoc, setDoc } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { PageSkeleton } from "@/components/common/skeletons";
 import { toast } from "sonner";
+import { getSchoolBillingDashboard } from "@/lib/billing/dashboard";
 import { safeFetchJson } from "@/lib/utils/safeFetch";
 
 // Import Command Center Components
@@ -23,7 +24,7 @@ import { CurrentPlanHeroCard } from "@/components/billing/CurrentPlanHeroCard";
 import { PlanFeaturesIncluded } from "@/components/billing/PlanFeaturesIncluded";
 import { PlanLimitsProgress } from "@/components/billing/PlanLimitsProgress";
 import { UsageGraphSection } from "@/components/billing/UsageGraphSection";
-import { FeatureComparisonMatrix } from "@/components/billing/FeatureComparisonMatrix";
+import { DynamicPlanComparison as FeatureComparisonMatrix } from "@/components/billing/DynamicPlanComparison";
 import { ViewAllFeaturesModal } from "@/components/billing/ViewAllFeaturesModal";
 import { BillingInfoCard } from "@/components/billing/BillingInfoCard";
 import { PaymentMethodCard } from "@/components/billing/PaymentMethodCard";
@@ -38,8 +39,9 @@ import { SpecialOfferCheckoutModal } from "@/components/billing/SpecialOfferChec
 import { useRealtimeSchoolDashboard } from "@/hooks/useRealtimeSchoolDashboard";
 
 export default function SchoolAdminSubscriptionCommandCenter() {
-  const { profile, loading: authLoading } = useAuth();
+  const { profile, firebaseUser, loading: authLoading } = useAuth();
   const schoolId = profile?.schoolId || "";
+  const [verifiedSchool, setVerifiedSchool] = useState("");
 
   // Interactive Modals State
   const [showRechargeModal, setShowRechargeModal] = useState(false);
@@ -66,13 +68,14 @@ export default function SchoolAdminSubscriptionCommandCenter() {
   const {
     data: bundle,
     isLoading: isBundleLoading,
+    error: bundleError,
     refetch,
   } = useAppQuery(
     schoolId ? `subscriptionBundle:${schoolId}` : null,
     async () => {
-      const res = await safeFetchJson(`/api/billing/dashboard-bundle?schoolId=${schoolId}`);
-      if (!res.ok || !res.data) throw new Error(res.error || "Failed to load subscription command center.");
-      return res.data;
+      const fresh = await getSchoolBillingDashboard(schoolId);
+      setVerifiedSchool(schoolId);
+      return fresh;
     },
     { enabled: !!schoolId && !authLoading, staleTime: 15_000 }
   );
@@ -89,7 +92,7 @@ export default function SchoolAdminSubscriptionCommandCenter() {
     classes: { current: 0, limit: 15 },
     staffAccounts: { current: 1, limit: 2 },
   };
-  const billingProfile = bundle?.billingProfile || null;
+  const billingProfile = bundle?.billingProfile || { billingName: "", schoolName: "", email: "", phone: "", address: "", gstin: "", pan: "" };
   const paymentMethod = bundle?.paymentMethod || null;
   const invoices = bundle?.invoices || [];
   const payments = bundle?.payments || [];
@@ -100,166 +103,28 @@ export default function SchoolAdminSubscriptionCommandCenter() {
   const [liveSub, setLiveSub] = useState<any>(null);
   const [liveSchool, setLiveSchool] = useState<any>(null);
 
-  const effectiveSub = liveSub || subscription;
-  const rawPlanId =
-    liveSub?.planId ||
-    liveSchool?.planId ||
-    liveSchool?.plan ||
-    subscription?.planId ||
-    (schoolId ? "plan_base" : "plan_starter");
-  const effectivePlanId = rawPlanId.toLowerCase().startsWith("plan_")
-    ? rawPlanId.toLowerCase()
-    : `plan_${rawPlanId.toLowerCase()}`;
-
-  const effectivePlan =
-    allPlans.find(
-      (p: any) =>
-        p.id === effectivePlanId || p.slug === effectivePlanId.replace("plan_", "") || p.id === rawPlanId
-    ) ||
-    (plan?.id === effectivePlanId || plan?.id === rawPlanId ? plan : null) || {
-      id: effectivePlanId,
-      name:
-        liveSub?.planName ||
-        liveSchool?.planName ||
-        (effectivePlanId === "plan_base"
-          ? "Base Plan"
-          : effectivePlanId === "plan_starter"
-          ? "Starter Plan"
-          : effectivePlanId === "plan_growth"
-          ? "Growth Plan"
-          : effectivePlanId === "plan_professional"
-          ? "Professional Plan"
-          : effectivePlanId === "plan_enterprise"
-          ? "Enterprise Plan"
-          : effectivePlanId === "plan_free"
-          ? "Free Plan"
-          : "Custom Plan"),
-      slug: effectivePlanId.replace("plan_", ""),
-      description:
-        effectivePlanId === "plan_base"
-          ? "Core institution features for daily school administration."
-          : effectivePlanId === "plan_starter"
-          ? "Essential modules for small schools and new academies."
-          : "Comprehensive tools and management capabilities for educational institutions.",
-      status: "ACTIVE",
-      version: 1,
-      features: entitlement?.allowedFeatures || [],
-    };
-
-  const computedDaysRemaining = effectiveSub?.expiresAt
-    ? Math.max(0, Math.ceil((new Date(effectiveSub.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
-    : (subState?.daysRemaining ?? 30);
-
-  const fallbackPrices: Record<string, { monthly: number; annual: number; limits?: any }> = {
-    plan_base: { monthly: 39900, annual: 29900, limits: { maxStudents: 500, maxTeachers: 20, maxClasses: 15 } },
-    plan_starter: { monthly: 99900, annual: 89900, limits: { maxStudents: 500, maxTeachers: 25, maxClasses: 20 } },
-    plan_growth: { monthly: 149900, annual: 129900, limits: { maxStudents: 1000, maxTeachers: 50, maxClasses: 40 } },
-    plan_professional: { monthly: 199900, annual: 169900, limits: { maxStudents: 2500, maxTeachers: 100, maxClasses: 80 } },
-    plan_enterprise: { monthly: 999900, annual: 799900, limits: { maxStudents: 10000, maxTeachers: 500, maxClasses: 300 } },
-    plan_free: { monthly: 0, annual: 0, limits: { maxStudents: 100, maxTeachers: 10, maxClasses: 5 } },
-  };
-
-  const defaultPrice = fallbackPrices[effectivePlanId] || { monthly: 39900, annual: 29900 };
-
-  const effectivePlanVersion =
-    planVersion && (planVersion.planId === effectivePlanId || planVersion.id?.includes(effectivePlanId))
-      ? planVersion
-      : {
-          id: `version_${effectivePlanId}`,
-          planId: effectivePlanId,
-          versionNumber: 1,
-          monthlyPrice: plan?.pricing?.monthlyPrice || defaultPrice.monthly,
-          annualPrice: plan?.pricing?.annualPrice || defaultPrice.annual,
-          currency: "INR",
-          limits: plan?.limits || defaultPrice.limits || {},
-          features: effectivePlan?.features || [],
-          createdAt: new Date().toISOString(),
-        };
+  const effectiveSub = subscription;
+  const effectivePlanId = subscription?.planId || "";
+  const effectivePlan = plan;
+  const computedDaysRemaining = subState?.daysRemaining ?? 0;
+  const effectivePlanVersion = planVersion;
 
   // Real-time live counts fallback directly from client Firestore
   const { counts: liveCounts } = useRealtimeSchoolDashboard(schoolId);
 
   const planLimits = (effectivePlan?.limits || effectivePlanVersion?.limits || {}) as any;
 
-  const realStudentCount = Math.max(
-    bundle?.usage?.students?.current ?? 0,
-    liveCounts?.students ?? 0
-  );
-  const realTeacherCount = Math.max(
-    bundle?.usage?.teachers?.current ?? 0,
-    liveCounts?.teachers ?? 0
-  );
-  const realClassCount = Math.max(
-    bundle?.usage?.classes?.current ?? 0,
-    liveCounts?.classes ?? 0
-  );
-  const realStaffCount = Math.max(
-    bundle?.usage?.staffAccounts?.current ?? 1,
-    1
-  );
-  const realParentCount = Math.max(
-    bundle?.usage?.parents?.current ?? 0,
-    liveCounts?.inquiries ?? 0,
-    realStudentCount > 0 ? realStudentCount : 0
-  );
-  const calculatedStorageBytes =
-    bundle?.usage?.storage?.currentBytes && bundle.usage.storage.currentBytes > 0
-      ? bundle.usage.storage.currentBytes
-      : realStudentCount * 120 * 1024 + realTeacherCount * 250 * 1024 + (bundle?.usage?.monthlyNotifications?.current ?? 0) * 50 * 1024;
-
+  const realStudentCount = bundle?.usage?.students?.current ?? 0;
+  const realTeacherCount = bundle?.usage?.teachers?.current ?? 0;
+  const realClassCount = bundle?.usage?.classes?.current ?? 0;
   const effectiveUsage = {
-    students: {
-      current: realStudentCount,
-      limit: bundle?.usage?.students?.limit ?? planLimits.maxStudents ?? 1000,
-    },
-    teachers: {
-      current: realTeacherCount,
-      limit: bundle?.usage?.teachers?.limit ?? planLimits.maxTeachers ?? 25,
-    },
-    classes: {
-      current: realClassCount,
-      limit: bundle?.usage?.classes?.limit ?? planLimits.maxClasses ?? 20,
-    },
-    staffAccounts: {
-      current: realStaffCount,
-      limit: Math.max(bundle?.usage?.staffAccounts?.limit ?? 3, planLimits.maxStaffAccounts ?? 3, 3),
-    },
-    parents: {
-      current: realParentCount,
-      limit: bundle?.usage?.parents?.limit ?? planLimits.maxParents ?? (planLimits.maxStudents ?? 1000),
-    },
-    storage: {
-      currentBytes: calculatedStorageBytes,
-      limitBytes: bundle?.usage?.storage?.limitBytes ?? planLimits.maxStorageBytes ?? (2 * 1024 * 1024 * 1024),
-    },
-    monthlyNotifications: {
-      current: bundle?.usage?.monthlyNotifications?.current ?? 0,
-      limit: bundle?.usage?.monthlyNotifications?.limit ?? planLimits.maxNotifications ?? 2000,
-    },
+    students: { current: realStudentCount, limit: bundle?.usage?.students?.limit ?? 0 },
+    teachers: { current: realTeacherCount, limit: bundle?.usage?.teachers?.limit ?? 0 },
+    classes: { current: realClassCount, limit: bundle?.usage?.classes?.limit ?? 0 },
+    staffAccounts: { current: bundle?.usage?.staffAccounts?.current ?? 0, limit: bundle?.usage?.staffAccounts?.limit ?? 0 },
   };
 
-  // Reconcile and synchronize live usage to schoolUsage in Firestore
-  useEffect(() => {
-    if (!schoolId) return;
-    const db = getFirebaseDb();
-    if (!db) return;
-    if (realStudentCount > 0 || realTeacherCount > 0 || realClassCount > 0) {
-      setDoc(
-        doc(db, "schoolUsage", schoolId),
-        {
-          schoolId,
-          students: realStudentCount,
-          teachers: realTeacherCount,
-          classes: realClassCount,
-          staff: realStaffCount,
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      ).catch(() => {});
-    }
-  }, [schoolId, realStudentCount, realTeacherCount, realClassCount, realStaffCount]);
-
-  const loading = isBundleLoading && !bundle && !liveSub;
+  const loading = authLoading || verifiedSchool !== schoolId || (!bundle && isBundleLoading);
 
   // Debounced listener refetch to eliminate screen jump and value flicker
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -369,12 +234,10 @@ export default function SchoolAdminSubscriptionCommandCenter() {
   }, [schoolId, refetchOffers]);
 
   const getNextTierPlanId = (currentPlanId?: string): string => {
-    const norm = String(currentPlanId || "").toLowerCase();
-    if (norm.includes("free") || norm.includes("base")) return "plan_starter";
-    if (norm.includes("starter")) return "plan_growth";
-    if (norm.includes("growth")) return "plan_professional";
-    if (norm.includes("professional")) return "plan_enterprise";
-    return "plan_enterprise";
+    const choices = allPlans.filter((p: any) => p.status === "ACTIVE" && !p.isArchived && p.publicVisible !== false)
+      .sort((a: any, b: any) => a.displayOrder - b.displayOrder);
+    const current = choices.findIndex((p: any) => p.id === currentPlanId);
+    return choices[current + 1]?.id || currentPlanId || choices[0]?.id || "";
   };
 
   const openRecharge = (planId: string, cycle: "monthly" | "annual" = "monthly") => {
@@ -385,18 +248,10 @@ export default function SchoolAdminSubscriptionCommandCenter() {
 
   const handleCancelSubscription = async () => {
     try {
-      const db = getFirebaseDb();
-      if (db && schoolId) {
-        await updateDoc(doc(db, "schoolSubscriptions", schoolId), {
-          cancelAtPeriodEnd: true,
-          updatedAt: new Date().toISOString(),
-        }).catch(() => {});
-      }
-      setLiveSub((prev: any) => (prev ? { ...prev, cancelAtPeriodEnd: true } : prev));
-
+      const token = await firebaseUser?.getIdToken();
       const res = await safeFetchJson("/api/billing/subscription/cancel", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ schoolId, actorId: profile?.uid || "school_admin" }),
       });
       if (!res.ok) throw new Error(res.error || "Failed to set cancellation preference.");
@@ -410,19 +265,10 @@ export default function SchoolAdminSubscriptionCommandCenter() {
 
   const handleResumeSubscription = async () => {
     try {
-      const db = getFirebaseDb();
-      if (db && schoolId) {
-        await updateDoc(doc(db, "schoolSubscriptions", schoolId), {
-          cancelAtPeriodEnd: false,
-          status: "ACTIVE",
-          updatedAt: new Date().toISOString(),
-        }).catch(() => {});
-      }
-      setLiveSub((prev: any) => (prev ? { ...prev, cancelAtPeriodEnd: false, status: "ACTIVE" } : prev));
-
+      const token = await firebaseUser?.getIdToken();
       const res = await safeFetchJson("/api/billing/subscription/resume", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ schoolId, actorId: profile?.uid || "school_admin" }),
       });
       if (!res.ok) throw new Error(res.error || "Failed to resume subscription.");
@@ -476,7 +322,7 @@ export default function SchoolAdminSubscriptionCommandCenter() {
         </div>
       </div>
 
-      {loading ? (
+      {bundleError ? (<div role="alert" className="rounded-xl border border-red-200 p-6">Billing data could not be loaded. {String(bundleError)}<button onClick={() => refetch(true)} className="ml-4 underline">Retry</button></div>) : loading || !bundle ? (
         <PageSkeleton hasStats={true} hasTable={true} className="py-2" />
       ) : (
         <>
@@ -517,19 +363,20 @@ export default function SchoolAdminSubscriptionCommandCenter() {
             studentCount={effectiveUsage.students.current}
             teacherCount={effectiveUsage.teachers.current}
             classCount={effectiveUsage.classes.current}
-            storageBytes={effectiveUsage.storage?.currentBytes || 0}
-            notificationCount={effectiveUsage.monthlyNotifications?.current || 0}
+            storageBytes={0}
+            notificationCount={0}
           />
 
           {/* 6. Included Features Summary */}
           <PlanFeaturesIncluded
-            allowedFeatures={entitlement?.allowedFeatures || effectivePlan?.features || []}
+            allowedFeatures={Object.keys(entitlement?.features || {}).filter(key => entitlement?.features[key])}
             permissions={entitlement?.features || {}}
             onViewAllFeatures={() => setShowViewAllFeatures(true)}
           />
 
           {/* 7. Feature Comparison Matrix */}
           <FeatureComparisonMatrix
+            prices={bundle?.planPrices}
             currentPlanSlug={effectivePlan?.slug || "starter"}
             allPlans={allPlans}
             onSelectUpgrade={(targetPlanId) => openRecharge(targetPlanId)}
@@ -563,9 +410,9 @@ export default function SchoolAdminSubscriptionCommandCenter() {
               subscription={effectiveSub}
               planName={effectivePlan?.name || "Active Plan"}
               nextBillingAmountRupees={Math.round(
-                (effectiveSub?.amountPaise || planVersion?.monthlyPrice || 99900) / 100
+                (effectiveSub?.amountPaise ?? (effectiveSub?.billingCycle === "annual" ? planVersion?.annualPrice : planVersion?.monthlyPrice) ?? 0) / 100
               )}
-              paymentMethodText={effectiveSub?.paymentMethod || "Razorpay Autopay (UPI / Card)"}
+              paymentMethodText={effectiveSub?.paymentMethod || "No saved payment method"}
               onCancel={handleCancelSubscription}
               onResume={handleResumeSubscription}
               onRefresh={() => refetch(true)}
@@ -582,7 +429,7 @@ export default function SchoolAdminSubscriptionCommandCenter() {
         isOpen={showViewAllFeatures}
         onClose={() => setShowViewAllFeatures(false)}
         planName={effectivePlan?.name || "Active Plan"}
-        allowedFeatures={entitlement?.allowedFeatures || effectivePlan?.features || []}
+        allowedFeatures={Object.keys(entitlement?.features || {}).filter(key => entitlement?.features[key])}
         permissions={entitlement?.features || {}}
       />
 
@@ -595,6 +442,8 @@ export default function SchoolAdminSubscriptionCommandCenter() {
 
       {/* RECHARGE / RENEWAL / UPGRADE MODAL */}
       <RechargeModal
+        key={`${showRechargeModal}:${selectedRechargePlan}:${selectedRechargeCycle}`}
+        plans={allPlans}
         isOpen={showRechargeModal}
         schoolId={schoolId}
         userId={profile?.uid || "school_admin"}
