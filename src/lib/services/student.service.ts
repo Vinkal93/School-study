@@ -682,20 +682,8 @@ export async function restoreStudent(
       deletedAt: null,
       statusChangeReason: "Administrative restore",
       updatedAt: serverTimestamp(),
-    }).catch(() => {}),
-    updateDoc(rootStudentDocRef, {
-      status: "active",
-      deletedAt: null,
-      statusChangeReason: "Administrative restore",
-      updatedAt: serverTimestamp(),
-    }).catch(() => {}),
-    userDocRef
-      ? updateDoc(userDocRef, {
-          status: "active",
-          updatedAt: serverTimestamp(),
-        }).catch(() => {})
-      : Promise.resolve(),
-  ]);
+    }).catch(() => {});
+  }
 
   await incrementSchoolUsage(schoolId, "students", 1);
 }
