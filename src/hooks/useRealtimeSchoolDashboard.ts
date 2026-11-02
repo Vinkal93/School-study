@@ -8,6 +8,7 @@ import {
   where,
   onSnapshot,
   getCountFromServer,
+  getDoc,
   Unsubscribe,
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
@@ -97,14 +98,7 @@ export function useRealtimeSchoolDashboard(schoolId: string | undefined): UseRea
               ...data,
             } as School);
 
-            // Instant count paint from school summary metadata if available
-            if (typeof data.studentCount === "number" || typeof data.teacherCount === "number") {
-              setCounts((prev) => ({
-                ...prev,
-                students: typeof data.studentCount === "number" ? data.studentCount : prev.students,
-                teachers: typeof data.teacherCount === "number" ? data.teacherCount : prev.teachers,
-              }));
-            }
+// Authoritative live counts populated from schoolUsage and active rosters
             setLastSyncTime(new Date());
           }
           setIsLoading(false);
@@ -139,6 +133,33 @@ export function useRealtimeSchoolDashboard(schoolId: string | undefined): UseRea
       console.warn("Subscription listener error:", e);
     }
 
+    // 2b. Real-time School Usage Listener (Synchronized single-source-of-truth)
+    try {
+      const usageRef = doc(db, "schoolUsage", schoolId);
+      const unsubUsage = onSnapshot(
+        usageRef,
+        (snap) => {
+          if (snap.exists()) {
+            const uData = snap.data();
+            setCounts((prev) => ({
+              ...prev,
+              students: typeof uData.students === "number" ? uData.students : prev.students,
+              teachers: typeof uData.teachers === "number" ? uData.teachers : prev.teachers,
+              classes: typeof uData.classes === "number" ? uData.classes : prev.classes,
+            }));
+            setLastSyncTime(new Date());
+          }
+        },
+        (err) => {
+          console.warn("Realtime schoolUsage listener notice:", err);
+        }
+      );
+      unsubs.push(unsubUsage);
+    } catch (e) {
+      console.warn("Usage listener error:", e);
+    }
+
+
     // 3. Ultra-Fast Server Aggregation Counts (getCountFromServer)
     // Runs in ~20ms, downloads 0 documents, preventing network flooding even with 10,000+ students.
     let isCancelled = false;
@@ -150,18 +171,84 @@ export function useRealtimeSchoolDashboard(schoolId: string | undefined): UseRea
         const yearsRef = collection(db, "schools", schoolId, "academicYears");
         const inqQ = query(collection(db, "inquiries"), where("schoolId", "==", schoolId));
 
-        const [sSnap, tSnap, cSnap, ySnap, iSnap] = await Promise.all([
+        const [sSnap, tSnap, cSnap, ySnap, iSnap, usageSnap] = await Promise.all([
           getCountFromServer(subStudentsRef).catch(() => null),
           getCountFromServer(subTeachersRef).catch(() => null),
           getCountFromServer(classesRef).catch(() => null),
           getCountFromServer(yearsRef).catch(() => null),
           getCountFromServer(inqQ).catch(() => null),
+          getDoc(doc(db, "schoolUsage", schoolId)).catch(() => null),
         ]);
 
         if (isCancelled) return;
 
-        let studentsCount = sSnap ? sSnap.data().count : 0;
-        let teachersCount = tSnap ? tSnap.data().count : 0;
+        let studentsCount = 0;
+        let teachersCount = 0;
+        let classesCount = 0;
+
+        // 1. Authoritative active students count (server aggregation strictly excluding deleted and archived)
+        try {
+          const activeStudentsQ = query(
+            subStudentsRef,
+            where("status", "in", ["active", "inactive", "tc_issued", "transferred", "pending"])
+          );
+          const activeSnap = await getCountFromServer(activeStudentsQ).catch(() => null);
+          if (activeSnap && typeof activeSnap.data().count === "number") {
+            studentsCount = activeSnap.data().count;
+          } else if (usageSnap && usageSnap.exists() && typeof usageSnap.data().students === "number") {
+            studentsCount = usageSnap.data().students;
+          } else {
+            studentsCount = sSnap ? sSnap.data().count : 0;
+          }
+        } catch {
+          if (usageSnap && usageSnap.exists() && typeof usageSnap.data().students === "number") {
+            studentsCount = usageSnap.data().students;
+          } else {
+            studentsCount = sSnap ? sSnap.data().count : 0;
+          }
+        }
+
+        // 2. Authoritative active teachers count (server aggregation excluding deleted/archived)
+        try {
+          const activeTeachersQ = query(
+            subTeachersRef,
+            where("status", "in", ["active", "inactive"])
+          );
+          const activeSnap = await getCountFromServer(activeTeachersQ).catch(() => null);
+          if (activeSnap && typeof activeSnap.data().count === "number") {
+            teachersCount = activeSnap.data().count;
+          } else if (usageSnap && usageSnap.exists() && typeof usageSnap.data().teachers === "number") {
+            teachersCount = usageSnap.data().teachers;
+          } else {
+            teachersCount = tSnap ? tSnap.data().count : 0;
+          }
+        } catch {
+          if (usageSnap && usageSnap.exists() && typeof usageSnap.data().teachers === "number") {
+            teachersCount = usageSnap.data().teachers;
+          } else {
+            teachersCount = tSnap ? tSnap.data().count : 0;
+          }
+        }
+
+        // 3. Classes count
+        if (usageSnap && usageSnap.exists() && typeof usageSnap.data().classes === "number") {
+          classesCount = usageSnap.data().classes;
+        } else {
+          classesCount = cSnap ? cSnap.data().count : 0;
+        }
+
+        // 4. Auto-reconcile usage document if discrepancies exist
+        if (usageSnap && usageSnap.exists()) {
+          const uData = usageSnap.data();
+          if (
+            (typeof uData.students === "number" && studentsCount > 0 && studentsCount !== uData.students) ||
+            (typeof uData.teachers === "number" && teachersCount > 0 && teachersCount !== uData.teachers)
+          ) {
+            import("@/lib/billing/usage").then(({ reconcileSchoolUsage }) => {
+              reconcileSchoolUsage(schoolId, "dashboard_fast_count_reconcile").catch(() => {});
+            }).catch(() => {});
+          }
+        }
 
         // Fallback to root collections if subcollections are empty
         if (studentsCount === 0) {
@@ -179,7 +266,7 @@ export function useRealtimeSchoolDashboard(schoolId: string | undefined): UseRea
         setCounts({
           students: studentsCount,
           teachers: teachersCount,
-          classes: cSnap ? cSnap.data().count : 0,
+          classes: classesCount,
           academicYears: ySnap ? ySnap.data().count : 0,
           inquiries: iSnap ? iSnap.data().count : 0,
         });

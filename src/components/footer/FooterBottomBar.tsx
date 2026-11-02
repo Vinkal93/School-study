@@ -42,6 +42,12 @@ export function FooterBottomBar() {
               ))}
             </>
           )}
+          <Link
+            href="/cookies"
+            className="shrink-0 whitespace-nowrap transition-colors hover:text-blue-600 dark:hover:text-blue-400"
+          >
+            Cookie Policy
+          </Link>
           <button
             type="button"
             onClick={() => resetConsent()}

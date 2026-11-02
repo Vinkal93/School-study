@@ -21,6 +21,7 @@ import { getAuth, createUserWithEmailAndPassword, signOut, deleteUser } from "fi
 import { getFirebaseDb, getFirebaseAuth } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/utils/constants";
 import { firebaseClientConfig } from "@/lib/firebase/config";
+import { configureAuthEmulator } from "@/lib/firebase/emulators";
 import {
   requireFeatureAccess,
   requirePlanLimit,
@@ -163,8 +164,8 @@ export async function getStudents(
     let students = snapshot.docs.map((d: any) => {
       const data = d.data();
       return {
-        id: d.id,
         ...data,
+        id: d.id,
         name: data.name || data.fullName || "Student",
         studentId: data.studentId !== undefined && data.studentId !== null ? String(data.studentId) : undefined,
         admissionNumber: data.admissionNumber !== undefined && data.admissionNumber !== null ? String(data.admissionNumber) : undefined,
@@ -218,8 +219,8 @@ export async function getStudentsByClassAndSection(
   const snapshot = await getDocs(q);
   let students = snapshot.docs
     .map((d) => ({
-      id: d.id,
       ...d.data(),
+      id: d.id,
     })) as StudentProfile[];
 
   // Only active enrolled students
@@ -286,7 +287,7 @@ export async function createStudentWithAuth(
   // 5. Create student Auth user via secondary app instance
   const secondaryAppName = `student-auth-${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
   const secondaryApp = initializeApp(firebaseClientConfig, secondaryAppName);
-  const secondaryAuth = getAuth(secondaryApp);
+  const secondaryAuth = configureAuthEmulator(getAuth(secondaryApp));
 
   let userId = "";
   let createdAuthUser: import("firebase/auth").User | undefined;
@@ -519,8 +520,8 @@ export async function getStudentById(
     if (snap.exists()) {
       const data = snap.data();
       return {
-        id: snap.id,
         ...data,
+        id: snap.id,
         name: data.name || data.fullName || "Student",
       } as StudentProfile;
     }
@@ -530,8 +531,8 @@ export async function getStudentById(
     if (rootSnap.exists()) {
       const data = rootSnap.data();
       return {
-        id: rootSnap.id,
         ...data,
+        id: rootSnap.id,
         name: data.name || data.fullName || "Student",
       } as StudentProfile;
     }
@@ -550,19 +551,34 @@ export async function toggleStudentStatus(
   schoolId: string,
   studentId: string,
   userId: string,
-  status: "active" | "inactive"
+  status: "active" | "inactive" | "tc"
 ): Promise<void> {
   const db = getFirebaseDb();
-  const studentDocRef = doc(db, "schools", schoolId, "students", studentId);
-  const userDocRef = doc(db, COLLECTIONS.USERS, userId);
+  if (!db || !schoolId || !studentId) throw new Error("Missing parameters for status toggle.");
 
-  await updateDoc(studentDocRef, {
+  let canonicalId = studentId;
+  const subRef = doc(db, "schools", schoolId, "students", canonicalId);
+  const rootRef = doc(db, "students", canonicalId);
+
+  let targetSubSnap = await getDoc(subRef).catch(() => null);
+  if (!targetSubSnap?.exists()) {
+    const rootSnap = await getDoc(rootRef).catch(() => null);
+    if (rootSnap?.exists()) canonicalId = rootSnap.id;
+  }
+
+  const nowIso = new Date().toISOString();
+  const payload = {
     status,
+    statusChangedDate: nowIso,
     updatedAt: serverTimestamp(),
-  });
+  };
 
-  if (userId) {
-    await updateDoc(userDocRef, {
+  await setDoc(doc(db, "schools", schoolId, "students", canonicalId), payload, { merge: true });
+  await setDoc(doc(db, "students", canonicalId), payload, { merge: true }).catch(() => {});
+
+  const effectiveUserId = userId || canonicalId;
+  if (effectiveUserId) {
+    await updateDoc(doc(db, COLLECTIONS.USERS, effectiveUserId), {
       status: status === "active" ? "active" : "disabled",
       updatedAt: serverTimestamp(),
     }).catch(() => {});
@@ -637,33 +653,73 @@ export async function restoreStudent(
   await requirePlanLimit(schoolId, "students");
 
   const db = getFirebaseDb();
-  if (!db) throw new Error("Database offline.");
-  const studentDocRef = doc(db, "schools", schoolId, "students", studentId);
-  const rootStudentDocRef = doc(db, "students", studentId);
-  const userDocRef = userId ? doc(db, COLLECTIONS.USERS, userId) : null;
+  if (!db || !schoolId || !studentId) throw new Error("Database offline.");
 
-  await Promise.all([
-    updateDoc(studentDocRef, {
+  let canonicalId = studentId;
+  const subRef = doc(db, "schools", schoolId, "students", canonicalId);
+  const rootRef = doc(db, "students", canonicalId);
+
+  let targetSubSnap = await getDoc(subRef).catch(() => null);
+  if (!targetSubSnap?.exists()) {
+    const rootSnap = await getDoc(rootRef).catch(() => null);
+    if (rootSnap?.exists()) canonicalId = rootSnap.id;
+  }
+
+  const payload = {
+    status: "active",
+    deletedAt: null,
+    statusChangeReason: "Administrative restore",
+    updatedAt: serverTimestamp(),
+  };
+
+  await setDoc(doc(db, "schools", schoolId, "students", canonicalId), payload, { merge: true });
+  await setDoc(doc(db, "students", canonicalId), payload, { merge: true }).catch(() => {});
+
+  const effectiveUserId = userId || canonicalId;
+  if (effectiveUserId) {
+    await updateDoc(doc(db, COLLECTIONS.USERS, effectiveUserId), {
       status: "active",
       deletedAt: null,
       statusChangeReason: "Administrative restore",
       updatedAt: serverTimestamp(),
-    }).catch(() => {}),
-    updateDoc(rootStudentDocRef, {
-      status: "active",
-      deletedAt: null,
-      statusChangeReason: "Administrative restore",
-      updatedAt: serverTimestamp(),
-    }).catch(() => {}),
-    userDocRef
-      ? updateDoc(userDocRef, {
-          status: "active",
-          updatedAt: serverTimestamp(),
-        }).catch(() => {})
-      : Promise.resolve(),
-  ]);
+    }).catch(() => {});
+  }
 
   await incrementSchoolUsage(schoolId, "students", 1);
+}
+
+/**
+ * Restores multiple soft-deleted or archived students in bulk.
+ */
+export async function bulkRestoreStudents(
+  schoolId: string,
+  studentIds: string[]
+): Promise<{ success: boolean; restoredCount: number; failedCount: number; results: any[] }> {
+  if (!studentIds || studentIds.length === 0) {
+    return { success: true, restoredCount: 0, failedCount: 0, results: [] };
+  }
+
+  const results: any[] = [];
+  let restoredCount = 0;
+  let failedCount = 0;
+
+  for (const id of studentIds) {
+    try {
+      await restoreStudent(schoolId, id);
+      restoredCount++;
+      results.push({ id, success: true });
+    } catch (err: any) {
+      failedCount++;
+      results.push({ id, success: false, error: err?.message || "Failed to restore" });
+    }
+  }
+
+  return {
+    success: failedCount === 0,
+    restoredCount,
+    failedCount,
+    results,
+  };
 }
 
 /**
@@ -873,12 +929,15 @@ export async function bulkDeleteStudents(
 ): Promise<BulkDeleteStudentsResult> {
   const auth = getFirebaseAuth();
   const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => "") : "";
+  const impSession =
+    typeof window !== "undefined" ? sessionStorage.getItem("school_study_impersonation_token") : null;
 
   const res = await fetch("/api/admin/students/bulk-delete", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(impSession ? { "x-impersonation-session": impSession } : {}),
     },
     body: JSON.stringify(options),
   });

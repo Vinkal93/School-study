@@ -9,6 +9,7 @@ const mocks={'firebase/firestore':db,'@/lib/firebase/client':{getFirebaseDb:()=>
 function load(file){const full=path.resolve(root,file);if(modules.has(full))return modules.get(full);const exports={};modules.set(full,exports);const req=id=>{if(id.startsWith('.'))id=path.relative(root,path.resolve(path.dirname(full),id)).replace(/\\/g,'/');else if(id.startsWith('@/'))id='src/'+id.slice(2);const alias=id.startsWith('src/')?'@/'+id.slice(4):id;if(mocks[alias])return mocks[alias];if(mocks[id])return mocks[id];return load(id.endsWith('.ts')?id:id+'.ts');};const code=ts.transpileModule(fs.readFileSync(full,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;vm.runInNewContext(code,{exports,require:req,console,globalThis:{},window:{},Date,Map,Set,URL,crypto:require('node:crypto').webcrypto,BroadcastChannel:undefined}, {filename:full});return exports;}
 let authCreated=0,authDeleted=0,invoiceCalls=[],invoiceFailure=false;
 mocks['firebase/app']={initializeApp:()=>({name:'secondary'}),getApps:()=>[],deleteApp:async()=>{}};
+mocks['firebase/storage']={getStorage:()=>({}),connectStorageEmulator:()=>{}};
 mocks['firebase/auth']={getAuth:()=>({}),createUserWithEmailAndPassword:async()=>{authCreated++;return {user:{uid:'admitted-user'}};},signOut:async()=>{},deleteUser:async()=>{authDeleted++;}};
 mocks['@/lib/firebase/config']={firebaseClientConfig:{}};
 mocks['@/lib/utils/constants']={COLLECTIONS:{SCHOOLS:'schools',USERS:'users'}};

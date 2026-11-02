@@ -66,63 +66,29 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
   if (authHeader && authHeader.startsWith("Bearer ")) {
     token = authHeader.substring(7).trim();
   } else if (cookieHeader) {
-    const match = cookieHeader.match(/(?:__session|auth_token)=([^;]+)/);
+    const match = cookieHeader.match(/(?:^|;\s*)(?:__session|auth_token)=([^;]+)/);
     if (match) token = match[1].trim();
   }
 
-  // 1. Verify token with Admin Auth if available
-  if (token) {
-    try {
-      const { getSafeAdminAuth } = await import("@/lib/firebase/admin");
-      const adminAuth = getSafeAdminAuth();
-      if (adminAuth) {
-        try {
-          const decoded = await adminAuth.verifyIdToken(token);
-          if (decoded && decoded.uid) {
-            resolvedUid = decoded.uid;
-            resolvedEmail = decoded.email || "";
-          }
-        } catch (tokenErr: any) {
-          // Token signature invalid or expired
-        }
-      }
-    } catch (e) {
-      // Admin auth not configured
-    }
-
-    // If Admin SDK did not verify (e.g. test token or local environment), decode payload safely
-    if (!resolvedUid && token.includes(".")) {
-      try {
-        const parts = token.split(".");
-        if (parts.length >= 2) {
-          const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-          const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
-          const payloadJson = Buffer.from(padded, "base64").toString("utf-8");
-          const payload = JSON.parse(payloadJson);
-          if (payload.user_id || payload.sub) resolvedUid = payload.user_id || payload.sub;
-          if (payload.email) resolvedEmail = payload.email;
-        }
-      } catch (e) {}
-    } else if (!resolvedUid && token && !token.includes(".")) {
-      // Direct UID token in test/script environments
-      resolvedUid = token;
-    }
+  // Identity must come from cryptographic verification, never caller-supplied IDs.
+  if (!token) {
+    return { isAuthenticated: false, errorResponse: NextResponse.json(
+      { error: "Authentication required." }, { status: 401 }) };
   }
-
-  // Fallback for internal server test harnesses passing x-user-id
-  if (!resolvedUid) {
-    const uidHeader = request.headers.get("x-user-id");
-    if (uidHeader) resolvedUid = uidHeader.trim();
-  }
-
-  if (!resolvedUid) {
-    return {
-      isAuthenticated: false,
-      errorResponse: NextResponse.json(
-        { error: "Authentication required. Please provide a valid authorization token." },
-        { status: 401 }
-      ),
-    };
+  try {
+    const { getSafeAdminAuth } = await import("@/lib/firebase/admin");
+    const auth = getSafeAdminAuth();
+    if (!auth) {
+      return { isAuthenticated: false, errorResponse: NextResponse.json(
+        { error: "Authentication service unavailable.", code: "AUTH_SERVICE_UNAVAILABLE" }, { status: 503 }) };
+    }
+    const decoded = await auth.verifyIdToken(token, true);
+    if (!decoded.uid) throw new Error("Missing verified identity");
+    resolvedUid = decoded.uid;
+    resolvedEmail = decoded.email || "";
+  } catch {
+    return { isAuthenticated: false, errorResponse: NextResponse.json(
+      { error: "Invalid or expired authentication token." }, { status: 401 }) };
   }
 
   // 2. Authoritative Database Profile Lookup (Never trust client-supplied role or schoolId)
@@ -212,18 +178,6 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
     } catch (restErr) {}
   }
 
-  // Fallback for authoritative super admin emails if Firestore lookup failed
-  if (!dbUser && resolvedEmail && isSuperAdminEmail(resolvedEmail)) {
-    dbUser = {
-      uid: resolvedUid,
-      email: resolvedEmail,
-      name: "Platform Super Admin",
-      role: "super_admin",
-      schoolId: null,
-      status: "active",
-    };
-  }
-
   if (!dbUser) {
     return {
       isAuthenticated: false,
@@ -232,11 +186,6 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
         { status: 401 }
       ),
     };
-  }
-
-  // Authoritative super admin email check
-  if (dbUser.email && isSuperAdminEmail(dbUser.email)) {
-    dbUser.role = "super_admin";
   }
 
   // 3. Status Verification (Account Suspension / Deactivation check)
@@ -287,7 +236,7 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
 
     const session = impResult.session!;
     // Caller must be an authorized Super Admin
-    const isCallerSuperAdmin = dbUser.role === "super_admin" || isSuperAdminEmail(dbUser.email);
+    const isCallerSuperAdmin = dbUser.role === "super_admin";
     if (!isCallerSuperAdmin) {
       return {
         isAuthenticated: false,
@@ -351,7 +300,7 @@ export async function requireSuperAdmin(request: Request): Promise<{ user?: Auth
     return { errorResponse: authResult.errorResponse };
   }
 
-  const isSuper = authResult.user.role === "super_admin" || isSuperAdminEmail(authResult.user.email);
+  const isSuper = authResult.user.role === "super_admin";
   if (!isSuper) {
     return {
       errorResponse: NextResponse.json(

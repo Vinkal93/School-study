@@ -55,23 +55,33 @@ export async function reconcileSchoolUsage(
   }
 
   try {
+    // 1. Query authoritative tenant subcollections first
     const [
       studentsSub,
-      studentsRoot,
       teachersSub,
-      teachersRoot,
       classesSub,
-      classesRoot,
       usersSnap,
     ] = await Promise.all([
-      getDocs(collection(db, "schools", schoolId, "students")).catch(() => ({ size: 0 })),
-      getDocs(query(collection(db, "students"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0 })),
-      getDocs(collection(db, "schools", schoolId, "teachers")).catch(() => ({ size: 0 })),
-      getDocs(query(collection(db, "teachers"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0 })),
-      getDocs(collection(db, "schools", schoolId, "classes")).catch(() => ({ size: 0 })),
-      getDocs(query(collection(db, "classes"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0 })),
+      getDocs(collection(db, "schools", schoolId, "students")).catch(() => ({ size: 0, docs: [] })),
+      getDocs(collection(db, "schools", schoolId, "teachers")).catch(() => ({ size: 0, docs: [] })),
+      getDocs(collection(db, "schools", schoolId, "classes")).catch(() => ({ size: 0, docs: [] })),
       getDocs(query(collection(db, "users"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0, docs: [] })),
     ]);
+
+    // 2. Fallback to legacy root collections ONLY if tenant subcollections are completely empty
+    let studentsRoot: any = { size: 0, docs: [] };
+    let teachersRoot: any = { size: 0, docs: [] };
+    let classesRoot: any = { size: 0, docs: [] };
+
+    if (!studentsSub || (studentsSub as any).size === 0) {
+      studentsRoot = await getDocs(query(collection(db, "students"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0, docs: [] }));
+    }
+    if (!teachersSub || (teachersSub as any).size === 0) {
+      teachersRoot = await getDocs(query(collection(db, "teachers"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0, docs: [] }));
+    }
+    if (!classesSub || (classesSub as any).size === 0) {
+      classesRoot = await getDocs(query(collection(db, "classes"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0, docs: [] }));
+    }
 
     let staffCount = 0;
     if ((usersSnap as any).docs) {
@@ -81,12 +91,78 @@ export async function reconcileSchoolUsage(
       });
     }
 
+    // Collect and deduplicate students, strictly excluding deleted or archived records
+    const studentMap = new Map<string, any>();
+    if ((studentsSub as any).docs) {
+      (studentsSub as any).docs.forEach((d: any) => studentMap.set(d.id, d.data()));
+    }
+    if ((studentsRoot as any).docs) {
+      (studentsRoot as any).docs.forEach((d: any) => {
+        if (!studentMap.has(d.id)) studentMap.set(d.id, d.data());
+      });
+    }
+
+    let activeStudentsCount = 0;
+    if (studentMap.size > 0) {
+      studentMap.forEach((data) => {
+        const s = (data?.status || "").toLowerCase();
+        if (s !== "deleted" && s !== "archived") {
+          activeStudentsCount++;
+        }
+      });
+    } else {
+      activeStudentsCount = Math.max(studentsSub.size || 0, studentsRoot.size || 0);
+    }
+
+    // Collect and deduplicate teachers, excluding deleted records
+    const teacherMap = new Map<string, any>();
+    if ((teachersSub as any).docs) {
+      (teachersSub as any).docs.forEach((d: any) => teacherMap.set(d.id, d.data()));
+    }
+    if ((teachersRoot as any).docs) {
+      (teachersRoot as any).docs.forEach((d: any) => {
+        if (!teacherMap.has(d.id)) teacherMap.set(d.id, d.data());
+      });
+    }
+
+    let activeTeachersCount = 0;
+    if (teacherMap.size > 0) {
+      teacherMap.forEach((data) => {
+        const s = (data?.status || "").toLowerCase();
+        if (s !== "deleted" && s !== "archived") {
+          activeTeachersCount++;
+        }
+      });
+    } else {
+      activeTeachersCount = Math.max(teachersSub.size || 0, teachersRoot.size || 0);
+    }
+
+    // Deduplicate classes by canonical name, excluding deleted records
+    const classMap = new Map<string, any>();
+    if ((classesSub as any).docs) {
+      (classesSub as any).docs.forEach((d: any) => {
+        const name = (d.data()?.name || "").trim().toLowerCase();
+        if (name && (d.data()?.status || "").toLowerCase() !== "deleted") {
+          classMap.set(name, d.data());
+        }
+      });
+    }
+    if ((classesRoot as any).docs) {
+      (classesRoot as any).docs.forEach((d: any) => {
+        const name = (d.data()?.name || "").trim().toLowerCase();
+        if (name && !classMap.has(name) && (d.data()?.status || "").toLowerCase() !== "deleted") {
+          classMap.set(name, d.data());
+        }
+      });
+    }
+    const activeClassesCount = classMap.size || Math.max(classesSub.size || 0, classesRoot.size || 0);
+
     const now = new Date().toISOString();
     const usageData: SchoolUsage = {
       schoolId,
-      students: Math.max(studentsSub.size || 0, studentsRoot.size || 0),
-      teachers: Math.max(teachersSub.size || 0, teachersRoot.size || 0),
-      classes: Math.max(classesSub.size || 0, classesRoot.size || 0),
+      students: activeStudentsCount,
+      teachers: activeTeachersCount,
+      classes: activeClassesCount,
       staff: Math.max(1, staffCount),
       lastReconciledAt: now,
       updatedAt: now,
@@ -122,9 +198,26 @@ export async function getSchoolUsage(schoolId: string): Promise<SchoolUsage> {
     const snap = await db.collection(USAGE_COLLECTION).doc(schoolId).get();
     if (snap.exists) return {...getDefaultSchoolUsage(schoolId),...snap.data(),schoolId} as SchoolUsage;
     const [students,teachers,classes,staff] = await Promise.all([
-      db.collection(`schools/${schoolId}/students`).get(),db.collection(`schools/${schoolId}/teachers`).get(),db.collection(`schools/${schoolId}/classes`).get(),db.collection("users").where("schoolId","==",schoolId).where("role","==","school_admin").get()
+      db.collection(`schools/${schoolId}/students`).get().catch(() => ({ docs: [], size: 0 })),
+      db.collection(`schools/${schoolId}/teachers`).get().catch(() => ({ docs: [], size: 0 })),
+      db.collection(`schools/${schoolId}/classes`).get().catch(() => ({ docs: [], size: 0 })),
+      db.collection("users").where("schoolId","==",schoolId).where("role","==","school_admin").get().catch(() => ({ docs: [], size: 0 }))
     ]);
-    return {...getDefaultSchoolUsage(schoolId),students:students.size,teachers:teachers.size,classes:classes.size,staff:staff.size};
+    const validStudents = (students.docs || []).filter((d: any) => {
+      const s = (d.data()?.status || "").toLowerCase();
+      return s !== "deleted" && s !== "archived";
+    }).length;
+    const validTeachers = (teachers.docs || []).filter((d: any) => {
+      const s = (d.data()?.status || "").toLowerCase();
+      return s !== "deleted" && s !== "archived";
+    }).length;
+    return {
+      ...getDefaultSchoolUsage(schoolId),
+      students: validStudents,
+      teachers: validTeachers,
+      classes: classes.size || 0,
+      staff: Math.max(1, staff.size || 0)
+    };
   }
   if (!schoolId || schoolId === "school_default" || schoolId === "system") {
     return getDefaultSchoolUsage(schoolId || "school_default");

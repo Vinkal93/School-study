@@ -541,9 +541,9 @@ export default function AdminStudentsPage() {
   };
 
   const handleRestoreStudent = async (stu: StudentProfile) => {
-    if (limitStatus && !limitStatus.allowed) {
+    if (isStudentLimitReached) {
       toast.error(
-        `Student limit reached (${limitStatus.current}/${limitStatus.limit}). Upgrade plan to restore more students.`
+        `Student limit reached (${effectiveStudentCount}/${effectiveStudentLimit}). Upgrade plan to restore more students.`
       );
       return;
     }
@@ -837,6 +837,23 @@ export default function AdminStudentsPage() {
     [filteredStudents]
   );
 
+  const effectiveStudentCount = students.length > 0 ? nonDeletedStudents.length : (limitStatus?.current ?? 0);
+  const effectiveStudentLimit = limitStatus?.limit ?? 500;
+  const isStudentLimitReached = limitStatus && effectiveStudentLimit !== -1 ? effectiveStudentCount >= effectiveStudentLimit : false;
+
+  // Auto-synchronize schoolUsage when student list is loaded and discrepancies exist
+  useEffect(() => {
+    if (!schoolId || !limitStatus || students.length === 0 || loading) return;
+    if (limitStatus.current !== nonDeletedStudents.length) {
+      import("@/lib/billing/usage").then(({ reconcileSchoolUsage }) => {
+        reconcileSchoolUsage(schoolId, "students_page_auto_sync").then(() => {
+          appQueryClient.invalidateCache(`planLimit:${schoolId}:students`);
+          refetchLimit(true);
+        }).catch(() => {});
+      }).catch(() => {});
+    }
+  }, [schoolId, limitStatus, students.length, nonDeletedStudents.length, loading, refetchLimit]);
+
   return (
     <EntitlementGate
       feature="student_management"
@@ -1099,10 +1116,9 @@ export default function AdminStudentsPage() {
                 toast.error("Student Management is not included in your current plan. Please upgrade to unlock.");
                 return;
               }
-              if (limitStatus && !limitStatus.allowed) {
+              if (isStudentLimitReached) {
                 toast.error(
-                  limitStatus.message ||
-                    `Student limit reached. Your plan allows ${limitStatus.limit} students. You already have ${limitStatus.current}.`
+                  `Student limit reached. Your plan allows ${effectiveStudentLimit} students. You already have ${effectiveStudentCount}.`
                 );
                 return;
               }
@@ -1110,7 +1126,7 @@ export default function AdminStudentsPage() {
               setIsAddModalOpen(true);
             }}
             className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white shadow-sm transition-all ${
-              limitStatus && !limitStatus.allowed
+              isStudentLimitReached
                 ? "bg-slate-500 hover:bg-slate-600 opacity-90 cursor-pointer"
                 : "bg-blue-600 hover:bg-blue-700"
             }`}
@@ -1122,14 +1138,13 @@ export default function AdminStudentsPage() {
       </div>
 
       {/* Plan Capacity Limit Warning Banner */}
-      {limitStatus && !limitStatus.allowed && (
+      {isStudentLimitReached && (
         <div className="rounded-2xl border border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/40 p-4 flex items-center justify-between gap-4 text-red-800 dark:text-red-300">
           <div className="flex items-center gap-3">
             <XCircle className="h-5 w-5 text-red-600 shrink-0" />
             <div className="text-xs sm:text-sm">
               <span className="font-bold">
-                {limitStatus.message ||
-                  `Student limit reached. Your plan allows ${limitStatus.limit} students. You already have ${limitStatus.current}.`}
+                Student limit reached. Your plan allows ${effectiveStudentLimit} students. You already have ${effectiveStudentCount}.
               </span>
             </div>
           </div>

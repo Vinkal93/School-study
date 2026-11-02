@@ -161,7 +161,8 @@ export async function POST(
       // Fallback using secondary client Auth instance
       const secondaryAppName = `admin-pass-reset-${Date.now()}`;
       const secondaryApp = initializeApp(firebaseClientConfig, secondaryAppName);
-      const secondaryAuth = getAuth(secondaryApp);
+      const { configureAuthEmulator } = await import("@/lib/firebase/emulators");
+      const secondaryAuth = configureAuthEmulator(getAuth(secondaryApp));
       try {
         if (!finalUserId) {
           const userCred = await createUserWithEmailAndPassword(secondaryAuth, email, tempPassword);

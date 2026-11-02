@@ -11,6 +11,7 @@ import { AnnouncementBanner } from "@/components/common/AnnouncementBanner";
 import { GlobalEmergencyGate } from "@/components/common/GlobalEmergencyGate";
 import { SiteSettingsProvider } from "@/context/SiteSettingsContext";
 import { PortalUIProvider } from "@/context/portal-ui-context";
+import { ConfirmationProvider } from "@/components/common/ConfirmationContext";
 import { constructMetadata } from "@/lib/seo";
 import { CapacitorInitializer } from "@/components/common/CapacitorInitializer";
 import { CookieConsentBanner } from "@/components/common/CookieConsentBanner";
@@ -63,12 +64,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <CapacitorInitializer />
             <SiteSettingsProvider>
               <PortalUIProvider>
-                <ImpersonationBanner />
-                <EmergencyBanner />
-                <AnnouncementBanner />
-                <GlobalEmergencyGate>{children}</GlobalEmergencyGate>
-                <CookieConsentBanner />
-                <ToastProvider />
+                <ConfirmationProvider>
+                  <ImpersonationBanner />
+                  <EmergencyBanner />
+                  <AnnouncementBanner />
+                  <GlobalEmergencyGate>{children}</GlobalEmergencyGate>
+                  <CookieConsentBanner />
+                  <ToastProvider />
+                </ConfirmationProvider>
               </PortalUIProvider>
             </SiteSettingsProvider>
           </AuthProvider>

@@ -41,29 +41,52 @@ export async function uploadSchoolLogo(
 export async function createSchoolWithAdmin(
   input: CreateSchoolInput
 ): Promise<{ schoolId: string; adminUid: string }> {
-  // 1. Attempt Server-Authoritative Registration (in browser)
-  if (typeof window !== "undefined") {
-    try {
-      const res = await fetch("/api/school/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.success && data.schoolId && data.adminUid) {
-        return { schoolId: data.schoolId, adminUid: data.adminUid };
-      }
-      if (!res.ok && data.error && !data.fallbackToClient) {
-        throw new Error(data.error);
-      }
-    } catch (apiErr: any) {
-      if (apiErr?.message && !apiErr.message.includes("fetch") && !apiErr.message.includes("URL")) {
-        throw apiErr;
-      }
-    }
+  if (typeof window === "undefined") {
+    throw new Error("createSchoolWithAdmin must be called from client context.");
   }
 
-  throw new Error("School registration is unavailable. Configure the private Firebase Admin server before retrying.");
+  const res = await fetch("/api/school/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (res.ok && data.success && data.schoolId && data.adminUid) {
+    return { schoolId: data.schoolId, adminUid: data.adminUid };
+  }
+
+  const refCode = data?.referenceCode || data?.error?.referenceCode;
+
+  // If validation error (400) or duplicate conflict (409), throw server message directly
+  if (res.status === 400 || res.status === 409) {
+    const msg =
+      (typeof data.error === "object" ? data.error?.message : data.error) ||
+      "Registration validation error.";
+    const err = new Error(msg);
+    if (refCode) (err as any).referenceCode = refCode;
+    throw err;
+  }
+
+  // If server admin credentials are not configured (503)
+  const errorCode = data?.error?.code || data?.code;
+  if (errorCode === "ADMIN_AUTH_NOT_CONFIGURED") {
+    const err = new Error(
+      "School registration is temporarily unavailable. Please try again later or contact support."
+    );
+    (err as Error & { code: string }).code = errorCode;
+    if (refCode) (err as any).referenceCode = refCode;
+    throw err;
+  }
+
+  const errorMsg =
+    (typeof data.error === "object" ? data.error?.message : data.error) ||
+    data.message ||
+    "Failed to register school. Please verify your connection and try again.";
+  const genericErr = new Error(errorMsg);
+  if (refCode) (genericErr as any).referenceCode = refCode;
+  throw genericErr;
 }
 
 /**
