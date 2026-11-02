@@ -1412,10 +1412,21 @@ export async function updatePlan(
       }
     }
     if (!planExists) {
+      const defaultMatch = DEFAULT_STATIC_PLANS.find(p => p.id === planId || p.id === normalizePlanId(planId) || p.slug === planId);
+      if (defaultMatch) {
+        await adminDb.collection(BILLING_COLLECTIONS.PLANS).doc(defaultMatch.id).set(defaultMatch, { merge: true });
+        planSnap = await adminDb.collection(BILLING_COLLECTIONS.PLANS).doc(defaultMatch.id).get();
+        planExists = true;
+      }
+    }
+    if (!planExists) {
       throw new Error(`Plan "${planId}" not found.`);
     }
     currentPlan = { id: planSnap.id, ...planSnap.data() } as Plan;
   } else {
+    if (typeof window === "undefined") {
+      throw new Error("Administrative database connection unavailable. Ensure FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY environment variables are configured.");
+    }
     const db = getFirebaseDb();
     if (!db) throw new Error("Database unavailable.");
 
@@ -1529,7 +1540,7 @@ export async function updatePlan(
       const latestVersion = await tx.get(versionRef);
 
       const latestExists = typeof latest.exists === "function" ? latest.exists() : Boolean(latest.exists);
-      if (!latestExists) {
+      if (!latestExists && !DEFAULT_STATIC_PLANS.some(p => p.id === planId || p.id === normalizePlanId(planId))) {
         throw new Error(`Plan "${planId}" not found.`);
       }
 
