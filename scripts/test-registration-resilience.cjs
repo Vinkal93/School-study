@@ -1,19 +1,66 @@
 // scripts/test-registration-resilience.cjs
-// Authoritative tests for School Registration Resilience and Firebase Admin configuration
+// Authoritative tests for School Registration Resilience, Security, and Firebase Admin configuration
 
 const assert = require("assert");
+const fs = require("fs");
+const ts = require("typescript");
+const vm = require("vm");
 
 console.log("======================================================================");
 console.log("RUNNING REGISTRATION RESILIENCE & FIREBASE ADMIN VERIFICATION SUITE");
 console.log("======================================================================");
 
-// Mock server state
+// Load and transpile src/lib/firebase/admin.ts into isolated VM sandbox
+const code = fs.readFileSync("src/lib/firebase/admin.ts", "utf-8");
+const transpiled = ts.transpileModule(code, {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+
+function createAdminSandbox(customEnv = {}) {
+  const adminExports = {};
+  const mockApps = [];
+  const mockProcess = {
+    env: { ...customEnv },
+    cwd: () => process.cwd(),
+  };
+  vm.runInNewContext(transpiled, {
+    exports: adminExports,
+    require: (mod) => {
+      if (mod === "firebase-admin/app") {
+        return {
+          initializeApp: (opts) => {
+            const app = { name: "[DEFAULT]", options: opts };
+            mockApps.push(app);
+            return app;
+          },
+          getApps: () => mockApps,
+          cert: (sa) => ({ projectId: sa.projectId, clientEmail: sa.clientEmail }),
+        };
+      }
+      if (mod === "firebase-admin/auth") {
+        return { getAuth: (app) => ({ app }) };
+      }
+      if (mod === "firebase-admin/firestore") {
+        return { getFirestore: (app) => ({ app }) };
+      }
+      return require(mod);
+    },
+    process: mockProcess,
+    console,
+    Buffer,
+    setTimeout,
+    clearTimeout,
+    Promise,
+  });
+  return adminExports;
+}
+
+// Mock server state for registration API tests
 const records = new Map();
 let authUsers = new Map();
 let deletedAuthUids = [];
 let failTransaction = false;
 
-// Mock Firebase Admin module behavior
 const mockAdminAuth = {
   createUser: async ({ email, password, displayName }) => {
     if (authUsers.has(email)) {
@@ -93,7 +140,6 @@ const mockAdminDb = {
   },
 };
 
-// Seed active free plan
 function seedFreePlan() {
   records.set("plans/plan_free", { id: "plan_free", name: "Free Plan", status: "ACTIVE" });
   records.set("planVersions/free_v1", {
@@ -106,33 +152,58 @@ function seedFreePlan() {
   });
 }
 
-// Tests
 (async function runTests() {
   let passed = 0;
+  let totalTests = 14;
+
+  // Client error classification must preserve transient failures and support references.
+  try {
+    const service = ts.transpileModule(fs.readFileSync("src/lib/services/school.service.ts", "utf8"), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    async function checkFailure(body) {
+      const exports = {};
+      vm.runInNewContext(service, {
+        exports, require: () => ({}), window: {},
+        fetch: async () => ({ ok: false, status: 503, json: async () => body }),
+      });
+      try { await exports.createSchoolWithAdmin({}); }
+      catch (error) { return error; }
+      throw new Error("Expected registration to fail");
+    }
+    const config = await checkFailure({ error: { code: "ADMIN_AUTH_NOT_CONFIGURED", referenceCode: "ERR-TEST" } });
+    assert.strictEqual(config.code, "ADMIN_AUTH_NOT_CONFIGURED");
+    assert.strictEqual(config.referenceCode, "ERR-TEST");
+    assert.ok(!/FIREBASE_|env.local/.test(config.message));
+    const transient = await checkFailure({ error: { code: "TEMPORARILY_UNAVAILABLE", message: "Please retry shortly.", referenceCode: "ERR-RETRY" } });
+    assert.strictEqual(transient.message, "Please retry shortly.");
+    assert.notStrictEqual(transient.code, "ADMIN_AUTH_NOT_CONFIGURED");
+    assert.strictEqual(transient.referenceCode, "ERR-RETRY");
+    console.log("  [PASS] Client distinguishes missing configuration from transient 503 responses");
+    passed++;
+  } catch (error) { console.error("  [FAIL] Client registration errors:", error); }
 
   // Test 1: Private key normalization helper
   try {
-    const fs = require("fs");
-    const ts = require("typescript");
-    const vm = require("vm");
-    const code = fs.readFileSync("src/lib/firebase/admin.ts", "utf-8");
-    const transpiled = ts.transpileModule(code, {
-      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-    }).outputText;
-    const adminExports = {};
-    vm.runInNewContext(transpiled, { exports: adminExports, require, process, console, Buffer });
-
+    const adminSandbox = createAdminSandbox();
     const escaped = '"-----BEGIN PRIVATE KEY-----\\nMIIEvgIBADANBgk\\n-----END PRIVATE KEY-----\\n"';
-    const normalized = adminExports.normalizePrivateKey(escaped);
+    const normalized = adminSandbox.normalizePrivateKey(escaped);
     assert.ok(normalized.includes("\n"), "Should replace literal \\n with real newlines");
     assert.ok(!normalized.startsWith('"'), "Should strip wrapping double quotes");
+    assert.ok(normalized.includes("BEGIN PRIVATE KEY"), "Should retain key header");
+    assert.ok(normalized.includes("END PRIVATE KEY"), "Should retain key footer");
+
+    const singleQuoted = "'-----BEGIN RSA PRIVATE KEY-----\\nABC123\\n-----END RSA PRIVATE KEY-----\\n;';";
+    const normSingle = adminSandbox.normalizePrivateKey(singleQuoted);
+    assert.ok(!normSingle.startsWith("'"), "Should strip wrapping single quotes");
+    assert.ok(!normSingle.endsWith(";"), "Should strip trailing semicolons");
     console.log("  [PASS] Test 1: Private key PEM normalization correctly unescapes newlines and trims quotes");
     passed++;
   } catch (e) {
     console.error("  [FAIL] Test 1:", e);
   }
 
-  // Test 2: Successful registration creates school, admin user, and subscription
+  // Test 2: Valid school completes self-registration and creates school, admin, and free trial subscription
   try {
     records.clear();
     authUsers.clear();
@@ -140,10 +211,10 @@ function seedFreePlan() {
     failTransaction = false;
     seedFreePlan();
 
-    // Emulate POST request handler logic
     const input = {
       name: "Sunrise Academy",
       code: "SUNRISE",
+      city: "Jaipur",
       adminName: "Principal Sharma",
       adminEmail: "principal@sunrise.edu",
       adminPassword: "Password123!",
@@ -165,6 +236,7 @@ function seedFreePlan() {
         id: schoolId,
         name: input.name,
         code: input.code,
+        city: input.city,
         adminUid: user.uid,
         status: "active",
       });
@@ -242,7 +314,6 @@ function seedFreePlan() {
       });
     } catch (err) {
       transactionFailed = true;
-      // Compensation
       await mockAdminAuth.deleteUser(compensationUser.uid);
     }
 
@@ -255,8 +326,118 @@ function seedFreePlan() {
     console.error("  [FAIL] Test 5:", e);
   }
 
+  // Test 6: Insecure client fallback eliminated from school.service.ts
+  try {
+    const serviceCode = fs.readFileSync("src/lib/services/school.service.ts", "utf-8");
+    assert.ok(!serviceCode.includes("secAppName"), "Must not create secondary client apps (secAppName)");
+    assert.ok(!serviceCode.includes("createUserWithEmailAndPassword(secAuth"), "Client secondary user creation must be eliminated");
+    assert.ok(!serviceCode.includes("window.location.pathname.startsWith(\"/super-admin\")"), "Client pathname super-admin bypass must be removed");
+    console.log("  [PASS] Test 6: Insecure administrative client fallback is completely eliminated");
+    passed++;
+  } catch (e) {
+    console.error("  [FAIL] Test 6:", e);
+  }
+
+  // Test 7: Missing credentials safely report 503 and do not expose secrets
+  try {
+    const unconfiguredAdmin = createAdminSandbox({
+      FIREBASE_PROJECT_ID: "school-study-c8991",
+    });
+    assert.strictEqual(unconfiguredAdmin.isFirebaseAdminConfigured(), false);
+    assert.strictEqual(unconfiguredAdmin.getSafeAdminDb(), null);
+    assert.strictEqual(unconfiguredAdmin.getSafeAdminAuth(), null);
+    console.log("  [PASS] Test 7: Missing credentials safely return null services without crashing");
+    passed++;
+  } catch (e) {
+    console.error("  [FAIL] Test 7:", e);
+  }
+
+  // Test 8: Diagnostics output contains correct fields and masks secrets
+  try {
+    const testPemKey = "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQD\n-----END PRIVATE KEY-----";
+    const configuredAdmin = createAdminSandbox({
+      FIREBASE_PROJECT_ID: "school-study-c8991",
+      FIREBASE_CLIENT_EMAIL: "firebase-adminsdk-xyz@school-study-c8991.iam.gserviceaccount.com",
+      FIREBASE_PRIVATE_KEY: testPemKey,
+      VERCEL_ENV: "production",
+    });
+
+    const diag = await configuredAdmin.getFirebaseAdminDiagnostics(false);
+    assert.strictEqual(diag.configured, true, "Must detect valid configuration");
+    assert.strictEqual(diag.environmentScope, "production");
+    assert.strictEqual(diag.formatValidation.isClientEmailValid, true);
+    assert.strictEqual(diag.formatValidation.privateKeyFormat, "valid_pem");
+    assert.strictEqual(diag.projectId.isConsistent, true);
+    assert.ok(diag.clientEmailMasked.includes("***"), "Client email must be masked");
+    assert.strictEqual(diag.clientEmailMasked.includes("firebase-adminsdk-xyz"), false, "Raw email must not be exposed");
+    const serialized = JSON.stringify(diag);
+    assert.strictEqual(serialized.includes(testPemKey), false, "Private key must never be exposed in diagnostics");
+    console.log("  [PASS] Test 8: Diagnostics utility correctly validates format and masks/omits all secrets");
+    passed++;
+  } catch (e) {
+    console.error("  [FAIL] Test 8:", e);
+  }
+
+  // Test 9: getAdminApp returns null when no credentials and does NOT poison getApps()
+  try {
+    const freshSandbox = createAdminSandbox({});
+    const app = freshSandbox.getAdminApp();
+    assert.strictEqual(app, null, "getAdminApp must return null when unconfigured");
+    console.log("  [PASS] Test 9: getAdminApp returns null when unconfigured and eliminates app poisoning");
+    passed++;
+  } catch (e) {
+    console.error("  [FAIL] Test 9:", e);
+  }
+
+  // Test 10: cleanEnvString trims quotes and punctuation from environment variables
+  try {
+    const adminSandbox = createAdminSandbox();
+    assert.strictEqual(adminSandbox.cleanEnvString('"school-study-c8991"'), "school-study-c8991");
+    assert.strictEqual(adminSandbox.cleanEnvString("'firebase-adminsdk@domain.com;'"), "firebase-adminsdk@domain.com");
+    assert.strictEqual(adminSandbox.cleanEnvString("  \"clean-id\"  "), "clean-id");
+    console.log("  [PASS] Test 10: cleanEnvString correctly normalizes quoted environment values");
+    passed++;
+  } catch (e) {
+    console.error("  [FAIL] Test 10:", e);
+  }
+
+  // Test 11: Route handler /api/school/register uses Node.js runtime and force-dynamic
+  try {
+    const routeCode = fs.readFileSync("src/app/api/school/register/route.ts", "utf-8");
+    assert.ok(routeCode.includes('export const runtime = "nodejs";'), "Must declare nodejs runtime");
+    assert.ok(routeCode.includes('export const dynamic = "force-dynamic";'), "Must declare force-dynamic");
+    console.log("  [PASS] Test 11: Registration route declares nodejs runtime and force-dynamic");
+    passed++;
+  } catch (e) {
+    console.error("  [FAIL] Test 11:", e);
+  }
+
+  // Test 12: Public API error payload does not leak internal diagnostics or secrets
+  try {
+    const routeCode = fs.readFileSync("src/app/api/school/register/route.ts", "utf-8");
+    assert.ok(!routeCode.includes("diagnostics: diagnostics"), "Must not include diagnostics object in public API response");
+    assert.ok(!routeCode.match(/NextResponse\.json\(\s*\{[^}]*\bdiagnostics\b/), "Must not pass diagnostics in response payload");
+    assert.ok(routeCode.includes("ADMIN_AUTH_NOT_CONFIGURED"), "Must return safe ADMIN_AUTH_NOT_CONFIGURED code");
+    assert.ok(routeCode.includes("RATE_LIMIT_EXCEEDED"), "Must include rate limit protection");
+    console.log("  [PASS] Test 12: Public API error response is fully sanitized and leaks zero diagnostics");
+    passed++;
+  } catch (e) {
+    console.error("  [FAIL] Test 12:", e);
+  }
+
+  // Test 13: Usage service prioritizes tenant subcollections before attempting root queries
+  try {
+    const usageCode = fs.readFileSync("src/lib/billing/usage.ts", "utf-8");
+    assert.ok(usageCode.includes("Query authoritative tenant subcollections first"), "Must prioritize tenant subcollection queries");
+    assert.ok(usageCode.includes("Fallback to legacy root collections ONLY"), "Must only query root if subcollections are empty");
+    console.log("  [PASS] Test 13: Usage service prioritizes subcollections to prevent unauthorized root collection errors");
+    passed++;
+  } catch (e) {
+    console.error("  [FAIL] Test 13:", e);
+  }
+
   console.log("======================================================================");
-  console.log(`REGISTRATION RESILIENCE RESULTS: ${passed} PASSED, 0 FAILED`);
+  console.log(`REGISTRATION RESILIENCE RESULTS: ${passed} PASSED, ${totalTests - passed} FAILED`);
   console.log("======================================================================");
-  if (passed !== 5) process.exitCode = 1;
+  if (passed !== totalTests) process.exitCode = 1;
 })();

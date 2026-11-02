@@ -55,23 +55,33 @@ export async function reconcileSchoolUsage(
   }
 
   try {
+    // 1. Query authoritative tenant subcollections first
     const [
       studentsSub,
-      studentsRoot,
       teachersSub,
-      teachersRoot,
       classesSub,
-      classesRoot,
       usersSnap,
     ] = await Promise.all([
-      getDocs(collection(db, "schools", schoolId, "students")).catch(() => ({ size: 0 })),
-      getDocs(query(collection(db, "students"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0 })),
-      getDocs(collection(db, "schools", schoolId, "teachers")).catch(() => ({ size: 0 })),
-      getDocs(query(collection(db, "teachers"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0 })),
-      getDocs(collection(db, "schools", schoolId, "classes")).catch(() => ({ size: 0 })),
-      getDocs(query(collection(db, "classes"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0 })),
+      getDocs(collection(db, "schools", schoolId, "students")).catch(() => ({ size: 0, docs: [] })),
+      getDocs(collection(db, "schools", schoolId, "teachers")).catch(() => ({ size: 0, docs: [] })),
+      getDocs(collection(db, "schools", schoolId, "classes")).catch(() => ({ size: 0, docs: [] })),
       getDocs(query(collection(db, "users"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0, docs: [] })),
     ]);
+
+    // 2. Fallback to legacy root collections ONLY if tenant subcollections are completely empty
+    let studentsRoot: any = { size: 0, docs: [] };
+    let teachersRoot: any = { size: 0, docs: [] };
+    let classesRoot: any = { size: 0, docs: [] };
+
+    if (!studentsSub || (studentsSub as any).size === 0) {
+      studentsRoot = await getDocs(query(collection(db, "students"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0, docs: [] }));
+    }
+    if (!teachersSub || (teachersSub as any).size === 0) {
+      teachersRoot = await getDocs(query(collection(db, "teachers"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0, docs: [] }));
+    }
+    if (!classesSub || (classesSub as any).size === 0) {
+      classesRoot = await getDocs(query(collection(db, "classes"), where("schoolId", "==", schoolId))).catch(() => ({ size: 0, docs: [] }));
+    }
 
     let staffCount = 0;
     if ((usersSnap as any).docs) {

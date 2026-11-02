@@ -38,6 +38,7 @@ import {
   ShieldCheck,
   Database,
   Megaphone,
+  AlertTriangle,
   Send,
   Hand,
   FolderOpen,
@@ -250,6 +251,15 @@ const roleNavItems: Record<string, NavItem[]> = {
       label: "Security Command",
       href: "/super-admin/security-center",
       icon: <ShieldCheck className="h-5 w-5 text-rose-500" />,
+    },
+    {
+      label: "Error Monitoring",
+      href: "/super-admin/errors",
+      icon: <AlertTriangle className="h-5 w-5 text-amber-500" />,
+      subItems: [
+        { label: "Incident Feed", href: "/super-admin/errors" },
+        { label: "Alert Settings", href: "/super-admin/errors/settings" },
+      ],
     },
     {
       label: "Data Backup & Sync",

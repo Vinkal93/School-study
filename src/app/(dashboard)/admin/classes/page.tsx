@@ -44,6 +44,9 @@ import { useEntitlement } from "@/context/EntitlementContext";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
 import { SessionPromotionModal } from "@/components/admin/SessionPromotionModal";
 import { useConfirm } from "@/components/common/ConfirmationContext";
+import { EnterprisePageLayout } from "@/components/layout/EnterprisePageLayout";
+import { LoadingState } from "@/components/ui/LoadingState";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 export default function AdminClassesPage() {
   const { profile } = useAuth();
@@ -297,30 +300,58 @@ export default function AdminClassesPage() {
       description="Configure grades, divisions, and manage class structures for your school."
       requiredPlan="Starter Plan"
     >
-      <div className="space-y-6 max-w-7xl mx-auto">
-        {/* =========================================================
-            HEADER & ACTION TOOLBAR (Design System 3.0)
-        ========================================================= */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-xs font-bold border border-blue-200/60 dark:border-blue-900/60">
-                <Calendar className="h-3.5 w-3.5" />
-                <span>SESSION: {currentYear?.name || "Not Configured"}</span>
-              </span>
-              <span className="text-xs text-slate-500 dark:text-slate-400">
-                {nonDeletedClasses.length} Active {nonDeletedClasses.length === 1 ? "Class" : "Classes"}
-              </span>
-            </div>
-            <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">
-              Classes & Sections
-            </h1>
-            <p className="mt-0.5 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-              Configure grade levels, division sections, assigned class mentors, and baseline tuition structures.
-            </p>
+      <EnterprisePageLayout
+        breadcrumbs={[{ name: "Classes & Sections", url: "/admin/classes" }]}
+        title="Classes & Sections"
+        badge={
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-xs font-bold border border-blue-200/60 dark:border-blue-900/60">
+              <Calendar className="h-3.5 w-3.5" />
+              <span>SESSION: {currentYear?.name || "Not Configured"}</span>
+            </span>
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+              {nonDeletedClasses.length} Active {nonDeletedClasses.length === 1 ? "Class" : "Classes"}
+            </span>
           </div>
-
-          <div className="flex flex-wrap items-center gap-2.5">
+        }
+        description="Configure grade levels, division sections, assigned class mentors, and baseline tuition structures."
+        primaryAction={
+          <button
+            type="button"
+            onClick={() => {
+              if (profile?.role !== "super_admin" && !canAccess("class_management")) {
+                toast.error("Class Management is not included in your current plan. Please upgrade to unlock.");
+                return;
+              }
+              if (limitStatus && !limitStatus.allowed) {
+                toast.error(
+                  limitStatus.message ||
+                    `Class limit reached. Your plan allows ${limitStatus.limit} classes. You already have ${limitStatus.current}.`
+                );
+                return;
+              }
+              setEditingClass(null);
+              setClassNameInput("");
+              setClassOrderInput(classes.length + 1);
+              setSelectedAcademicYearId(currentYear?.id || "");
+              setClassTeacherIdInput("");
+              setMonthlyFeeInput("");
+              setAdmissionFeeInput("");
+              setInitialSectionsInput("A, B");
+              setIsClassModalOpen(true);
+            }}
+            className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold text-white shadow-xs transition-all cursor-pointer ${
+              limitStatus && !limitStatus.allowed
+                ? "bg-slate-500 hover:bg-slate-600 opacity-90"
+                : "bg-blue-600 hover:bg-blue-700 shadow-blue-500/20"
+            }`}
+          >
+            <Plus className="h-4 w-4 stroke-[2.5]" />
+            <span>Add Class</span>
+          </button>
+        }
+        secondaryActions={
+          <>
             <Link
               href="/admin/students/promote"
               className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 dark:border-emerald-800/80 bg-emerald-50 dark:bg-emerald-950/40 px-3.5 py-2 text-xs font-bold text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition shadow-2xs"
@@ -343,43 +374,9 @@ export default function AdminClassesPage() {
               <Calendar className="h-4 w-4 text-slate-500" />
               <span>{academicYears.length === 0 ? "Set Academic Year" : "Academic Sessions"}</span>
             </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                if (profile?.role !== "super_admin" && !canAccess("class_management")) {
-                  toast.error("Class Management is not included in your current plan. Please upgrade to unlock.");
-                  return;
-                }
-                if (limitStatus && !limitStatus.allowed) {
-                  toast.error(
-                    limitStatus.message ||
-                      `Class limit reached. Your plan allows ${limitStatus.limit} classes. You already have ${limitStatus.current}.`
-                  );
-                  return;
-                }
-                setEditingClass(null);
-                setClassNameInput("");
-                setClassOrderInput(classes.length + 1);
-                setSelectedAcademicYearId(currentYear?.id || "");
-                setClassTeacherIdInput("");
-                setMonthlyFeeInput("");
-                setAdmissionFeeInput("");
-                setInitialSectionsInput("A, B");
-                setIsClassModalOpen(true);
-              }}
-              className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold text-white shadow-xs transition-all cursor-pointer ${
-                limitStatus && !limitStatus.allowed
-                  ? "bg-slate-500 hover:bg-slate-600 opacity-90"
-                  : "bg-blue-600 hover:bg-blue-700 shadow-blue-500/20"
-              }`}
-            >
-              <Plus className="h-4 w-4 stroke-[2.5]" />
-              <span>Add Class</span>
-            </button>
-          </div>
-        </div>
-
+          </>
+        }
+      >
         {/* Capacity Warning Banner */}
         {isClassLimitReached && (
           <div className="rounded-2xl border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/40 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-amber-900 dark:text-amber-200 animate-in fade-in duration-200">
@@ -410,23 +407,19 @@ export default function AdminClassesPage() {
             CLASSES CARD GRID (Material 3 Surface Elevation)
         ========================================================= */}
         {loading ? (
-          <div className="flex h-64 items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          </div>
+          <LoadingState
+            label="Loading classes & sections..."
+            description="Fetching grade levels, section capacities, and tuition fee schedules"
+          />
         ) : classes.length === 0 ? (
-          <div className="flex flex-col items-center justify-center min-h-[320px] rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 text-center shadow-xs">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400 mb-3">
-              <BookOpen className="h-7 w-7" />
-            </div>
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">
-              No Classes Configured Yet
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm">
-              Define your first grade level, sections, and tuition fee structure to start registering students and taking roll call.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
+          <EmptyState
+            icon={<BookOpen className="h-7 w-7" />}
+            title="No Classes Configured Yet"
+            description="Define your first grade level, sections, and tuition fee structure to start registering students and taking roll call."
+            primaryAction={{
+              label: "Create First Class",
+              icon: <Plus className="h-4 w-4" />,
+              onClick: () => {
                 setEditingClass(null);
                 setClassNameInput("");
                 setClassOrderInput(1);
@@ -436,13 +429,9 @@ export default function AdminClassesPage() {
                 setAdmissionFeeInput("");
                 setInitialSectionsInput("A, B");
                 setIsClassModalOpen(true);
-              }}
-              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-blue-700 transition cursor-pointer"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Create First Class</span>
-            </button>
-          </div>
+              },
+            }}
+          />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
             {classes.map((cls) => {
@@ -969,7 +958,7 @@ export default function AdminClassesPage() {
             }}
           />
         )}
-      </div>
+      </EnterprisePageLayout>
     </EntitlementGate>
   );
 }
