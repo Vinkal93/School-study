@@ -781,12 +781,11 @@ export default function SuperAdminPricingPage() {
             toast.success(`Plan "${selectedPlan.name}" updated successfully.`);
           }
         } else {
-          await updatePlan(selectedPlan.id, input, profile?.email || "super_admin");
-          toast.success(`Plan "${selectedPlan.name}" updated!`);
+          const json = await apiRes.json().catch(() => ({}));
+          throw new Error(json.error || "Failed to update plan.");
         }
-      } catch (putErr) {
-        await updatePlan(selectedPlan.id, input, profile?.email || "super_admin");
-        toast.success(`Plan "${selectedPlan.name}" updated!`);
+      } catch (putErr: any) {
+        throw putErr;
       }
 
       // Real-time multi-tab sync notice

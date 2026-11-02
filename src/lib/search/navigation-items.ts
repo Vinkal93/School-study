@@ -100,6 +100,16 @@ export const SUPER_ADMIN_NAV_ITEMS: NavigationShortcut[] = [
     category: "navigation",
     type: "navigation",
   },
+  {
+    id: "nav_error_monitoring",
+    name: "Error Monitoring & Diagnostics",
+    title: "Error Monitoring & Diagnostics",
+    subtitle: "Enterprise telemetry, incident feed, telemetry and alerts",
+    keywords: ["error", "errors", "monitoring", "telemetry", "incidents", "exceptions", "bugs", "diagnostics", "stacktrace"],
+    url: "/super-admin/errors",
+    category: "navigation",
+    type: "navigation",
+  },
 ];
 
 export const SCHOOL_ADMIN_NAV_ITEMS: NavigationShortcut[] = [
