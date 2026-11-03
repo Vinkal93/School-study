@@ -1,16 +1,27 @@
 /**
  * Centralized SEO & Site Configuration for School Study
- * 
- * Configured for 100% On-Page, Off-Page, Technical SEO, and AI Engine Optimization (AEO/GEO).
- * Targets global top rankings for School Management/ERP keywords and founder entity ("Vinkal Prajapati").
+ *
+ * Shared production identity for metadata, sitemaps and structured data.
  */
 
 const getSiteUrl = (): string => {
-  // Always prioritize canonical production domain for search indexing and structured data
-  if (process.env.NEXT_PUBLIC_SITE_URL && !process.env.NEXT_PUBLIC_SITE_URL.includes("localhost")) {
-    return process.env.NEXT_PUBLIC_SITE_URL.replace(/\/+$/, "");
+  // Preview hosts must never become canonical, even when env vars are copied.
+  try {
+    const configured = new URL(process.env.NEXT_PUBLIC_SITE_URL || "");
+    if (
+      configured.protocol === "https:" &&
+      !configured.username &&
+      !configured.password &&
+      configured.hostname !== "localhost" &&
+      configured.hostname !== "127.0.0.1" &&
+      configured.hostname !== "vercel.app" &&
+      !configured.hostname.endsWith(".vercel.app")
+    ) {
+      return configured.origin;
+    }
+  } catch {
+    /* Missing or malformed configuration uses the production domain. */
   }
-  // Production canonical domain
   return "https://school.sbci.online";
 };
 
@@ -45,10 +56,10 @@ export const siteConfig = {
   legalName: "School Study EdTech",
   version: "2.0.0",
   url: getSiteUrl(),
-  defaultTitle: "School Management ERP Software | Best Cloud School ERP System — School Study",
+  defaultTitle: "School Study | School Management Software for Schools",
   titleTemplate: "%s | School Study",
   defaultDescription:
-    "School Study is India's leading AI-powered School Management ERP Software architected by Vinkal Prajapati. Automate student admissions, online fee collection, real-time attendance, CBSE report cards, and parent apps on one secure cloud platform.",
+    "Manage student records, teachers, attendance and school fees with School Study. Explore school ERP modules, compare plans and arrange a school software demo.",
   defaultOgImage: `${getSiteUrl()}/og-image.png`,
   supportEmail: "sbci224234@gmail.com",
   supportPhone: "+91 9118245636",
@@ -56,7 +67,7 @@ export const siteConfig = {
   bingSiteVerification: "D5705E3C8B7BC3DF43A5F44DCEF8E80C",
   themeColor: "#2563EB",
   locale: "en_US",
-  
+
   // Developer & Entity Information
   developer: developerConfig,
 

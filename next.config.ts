@@ -15,9 +15,8 @@ const nextConfig: NextConfig = {
   // Prevent serverless bundler crashes with firebase-admin and native modules
   serverExternalPackages: ["firebase-admin"],
   turbopack: {
-    resolveAlias: {"@/lib/firebase/admin": {browser:"./src/lib/firebase/admin.browser.ts"}},
+    resolveAlias: { "@/lib/firebase/admin": { browser: "./src/lib/firebase/admin.browser.ts" } },
   },
-
 
   // Enable gzip/brotli compression
   compress: true,
@@ -45,14 +44,30 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/images/:path*",
-        headers: [{ key: "Cache-Control", value: "public, max-age=2592000, stale-while-revalidate=86400" }],
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=2592000, stale-while-revalidate=86400" },
+        ],
       },
       {
         source: "/cursors/:path*",
         headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
       },
 
-      ...["admin", "teacher", "student", "super-admin", "billing", "api", "setup-super-admin", "su"].map((segment) => ({
+      ...[
+        "admin",
+        "teacher",
+        "student",
+        "super-admin",
+        "billing",
+        "api",
+        "setup-super-admin",
+        "su",
+        "support",
+        "login",
+        "register",
+        "student-login",
+        "super-admin-login",
+      ].map((segment) => ({
         source: `/${segment}/:path*`,
         headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
       })),
@@ -87,8 +102,6 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-
-
 };
 
 export default withSentryConfig(nextConfig, {

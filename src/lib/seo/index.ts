@@ -1,5 +1,10 @@
 export { siteConfig, developerConfig } from "./config";
-export { constructMetadata, normalizeTitle, type ConstructMetadataOptions } from "./metadata";
+export {
+  constructMetadata,
+  constructPublicMetadata,
+  normalizeTitle,
+  type ConstructMetadataOptions,
+} from "./metadata";
 export {
   getHomepageJsonLd,
   getOrganizationSchema,
@@ -9,6 +14,5 @@ export {
   getPersonSchema,
   getDeveloperProfilePageSchema,
   getFaqSchema,
-  getHomepageFaqSchema,
   getSchoolErpCarouselSchema,
 } from "./schema";

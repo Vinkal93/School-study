@@ -2,20 +2,13 @@ import type { Metadata } from "next";
 import { MarketingHeader } from "@/components/marketing";
 import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import { Footer } from "@/components/footer";
-import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
+import { constructPublicMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
 import { DownloadContent } from "@/components/download/DownloadContent";
 
-export const metadata: Metadata = constructMetadata({
-  title: "Download School Study App | Android APK, PWA & Mobile Portals",
-  description:
-    "Download the official School Study mobile app. Install our lightweight PWA instantly with 0 MB storage or download the Android APK directly for fast school attendance and student portals.",
-  canonicalUrl: "/download",
-});
+export const metadata: Metadata = constructPublicMetadata("/download");
 
 export default function DownloadPage() {
-  const breadcrumbData = [
-    { name: "Download App", url: "/download" },
-  ];
+  const breadcrumbData = [{ name: "Download App", url: "/download" }];
 
   const jsonLd = [
     {
@@ -45,7 +38,7 @@ export default function DownloadPage() {
     <div className="min-h-screen bg-white dark:bg-gray-950 text-slate-900 dark:text-slate-100 font-sans">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
       />
       <MarketingHeader currentPath="/download" />
       <Breadcrumbs items={breadcrumbData} />

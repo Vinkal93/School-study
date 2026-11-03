@@ -2,7 +2,13 @@ import type { Metadata } from "next";
 import { MarketingHeader } from "@/components/marketing";
 import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import { Footer } from "@/components/footer";
-import { constructMetadata, siteConfig, getBreadcrumbSchema, getFaqSchema, getSoftwareAppSchema } from "@/lib/seo";
+import {
+  constructPublicMetadata,
+  siteConfig,
+  getBreadcrumbSchema,
+  getFaqSchema,
+  getSoftwareAppSchema,
+} from "@/lib/seo";
 import {
   BrochureHero,
   BrochureTableOfContents,
@@ -22,12 +28,7 @@ import {
 } from "@/components/brochure";
 import { BROCHURE_FAQS, BROCHURE_CONTACT } from "@/lib/cms/brochureData";
 
-export const metadata: Metadata = constructMetadata({
-  title: "School Management Software Brochure | School Study",
-  description:
-    "Official 2026 digital product brochure for School Study smart school management ERP. Explore student admissions, smart fee automation, daily attendance roll-call, timetables, and role portals. Download vector PDF.",
-  canonicalUrl: "/brochure",
-});
+export const metadata: Metadata = constructPublicMetadata("/brochure");
 
 export default function BrochurePage() {
   const breadcrumbItems = [{ name: "Digital Brochure", url: "/brochure" }];
@@ -57,7 +58,7 @@ export default function BrochurePage() {
     <div className="min-h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans selection:bg-blue-600 selection:text-white">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
       />
 
       <BrochurePrintView />
@@ -72,7 +73,7 @@ export default function BrochurePage() {
         <Breadcrumbs items={breadcrumbItems} />
       </div>
 
-      <main className="relative">
+      <main id="main-content" className="relative">
         {/* Section 01: Hero Cover & Overview */}
         <BrochureHero />
 

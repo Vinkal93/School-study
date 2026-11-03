@@ -13,20 +13,13 @@ import {
 import { MarketingHeader } from "@/components/marketing";
 import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import { Footer } from "@/components/footer";
-import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
+import { constructPublicMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
 import { ContactForm } from "@/components/contact/ContactForm";
 
-export const metadata: Metadata = constructMetadata({
-  title: "Contact Support & Inquiries",
-  description:
-    "Get in touch with School Study. Contact our official support team via email or phone for institutional onboarding, technical assistance, or product questions.",
-  canonicalUrl: "/contact",
-});
+export const metadata: Metadata = constructPublicMetadata("/contact");
 
 export default function ContactPage() {
-  const breadcrumbData = [
-    { name: "Contact", url: "/contact" },
-  ];
+  const breadcrumbData = [{ name: "Contact", url: "/contact" }];
 
   const jsonLd = [
     {
@@ -57,7 +50,7 @@ export default function ContactPage() {
     <div className="min-h-screen bg-white dark:bg-gray-950 text-slate-900 dark:text-slate-100 font-sans">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
       />
       <MarketingHeader currentPath="/contact" />
       <Breadcrumbs items={breadcrumbData} />
@@ -76,7 +69,8 @@ export default function ContactPage() {
             </h1>
 
             <p className="mt-6 text-base sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed">
-              Have questions regarding school onboarding, feature setup, or need technical assistance? Our dedicated support team is here to assist you directly.
+              Have questions regarding school onboarding, feature setup, or need technical
+              assistance? Our dedicated support team is here to assist you directly.
             </p>
           </div>
         </section>
@@ -101,7 +95,8 @@ export default function ContactPage() {
                     Email Support
                   </h2>
                   <p className="mt-2 text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                    Send your questions, school registration inquiries, or feedback directly to our team.
+                    Send your questions, school registration inquiries, or feedback directly to our
+                    team.
                   </p>
                   <div className="mt-4 rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
@@ -132,7 +127,8 @@ export default function ContactPage() {
                     Phone & Helpline
                   </h2>
                   <p className="mt-2 text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                    Speak directly with our team for urgent institutional inquiries or platform onboarding.
+                    Speak directly with our team for urgent institutional inquiries or platform
+                    onboarding.
                   </p>
                   <div className="mt-4 rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
@@ -160,7 +156,8 @@ export default function ContactPage() {
                     Learn About the Creator
                   </h3>
                   <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-                    Read about Vinkal Prajapati, his engineering background, and why School Study was created.
+                    Read about Vinkal Prajapati, his engineering background, and why School Study
+                    was created.
                   </p>
                   <div className="mt-4">
                     <Link
