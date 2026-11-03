@@ -186,7 +186,7 @@ function seedFreePlan() {
   // Test 1: Private key normalization helper
   try {
     const adminSandbox = createAdminSandbox();
-    const escaped = '"-----BEGIN PRIVATE KEY-----\\nMIIEvgIBADANBgk\\n-----END PRIVATE KEY-----\\n"';
+    const escaped = '"-----BEGIN PRIVATE KEY-----\\nTEST_MOCK_KEY_DATA_FOR_VALIDATION_ONLY_ABC123\\n-----END PRIVATE KEY-----\\n"';
     const normalized = adminSandbox.normalizePrivateKey(escaped);
     assert.ok(normalized.includes("\n"), "Should replace literal \\n with real newlines");
     assert.ok(!normalized.startsWith('"'), "Should strip wrapping double quotes");
@@ -354,7 +354,7 @@ function seedFreePlan() {
 
   // Test 8: Diagnostics output contains correct fields and masks secrets
   try {
-    const testPemKey = "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQD\n-----END PRIVATE KEY-----";
+    const testPemKey = "-----BEGIN PRIVATE KEY-----\nTEST_MOCK_SECRET_PAYLOAD_FOR_UNIT_TEST_DIAGNOSTICS_ONLY_DO_NOT_FLAG_1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz\n-----END PRIVATE KEY-----";
     const configuredAdmin = createAdminSandbox({
       FIREBASE_PROJECT_ID: "school-study-c8991",
       FIREBASE_CLIENT_EMAIL: "firebase-adminsdk-xyz@school-study-c8991.iam.gserviceaccount.com",
