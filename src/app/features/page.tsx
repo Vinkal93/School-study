@@ -14,6 +14,7 @@ import {
   Smartphone,
   School,
   HelpCircle,
+  Receipt,
 } from "lucide-react";
 import {
   StudentColourIcon,
@@ -28,7 +29,6 @@ import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import { Footer } from "@/components/footer";
 import {
   constructPublicMetadata,
-  siteConfig,
   getBreadcrumbSchema,
   getFaqSchema,
   getSoftwareAppSchema,
@@ -40,7 +40,7 @@ const FAQS = [
   {
     question: "What core operations can schools manage with School Study?",
     answer:
-      "Schools can manage student admissions and rosters, faculty accounts and class assignments, daily attendance roll-call with monthly percentage calculations, and targeted campus circulars.",
+      "Schools can manage student admissions and rosters, faculty accounts and class assignments, daily attendance, fee invoices and receipts, and targeted campus circulars. Review the current plan for included features and limits.",
   },
   {
     question: "Is School Study multi-tenant and secure for multiple institutions?",
@@ -65,6 +65,15 @@ export default function FeaturesPage() {
   const schemas = [getBreadcrumbSchema(breadcrumbData), getFaqSchema(FAQS), getSoftwareAppSchema()];
 
   const features = [
+    {
+      title: "School Fees, Dues & Receipts",
+      description:
+        "Connect fee structures, student invoices, collections, concessions and refunds with receipts and student ledgers.",
+      icon: Receipt,
+      href: "/fee-management",
+      color: "blue",
+      badge: "School Finance",
+    },
     {
       title: "Student Roster & Profiles",
       description:
