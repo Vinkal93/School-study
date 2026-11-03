@@ -4,7 +4,6 @@ import {
   getPersonSchema,
   getDeveloperProfilePageSchema,
   getBreadcrumbSchema,
-  developerConfig,
 } from "@/lib/seo";
 
 export const metadata: Metadata = constructPublicMetadata("/about-developer");
