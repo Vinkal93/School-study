@@ -128,7 +128,7 @@ async function runTests() {
     assert.strictEqual(cleanEnvString("'firebase-adminsdk@app.iam.gserviceaccount.com',"), "firebase-adminsdk@app.iam.gserviceaccount.com");
   });
 
-  const sampleKeyBody = "MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC6XYZ1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const sampleKeyBody = "TEST_MOCK_KEY_FOR_TESTING_PURPOSES_ONLY_NOT_A_REAL_SECRET_KEY_1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
   const standardPem = `-----BEGIN PRIVATE KEY-----\n${sampleKeyBody}\n-----END PRIVATE KEY-----\n`;
 
   test("1.2 normalizePrivateKey unescapes literal \\n and wrapped quotes", () => {

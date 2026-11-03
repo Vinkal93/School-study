@@ -93,12 +93,22 @@ textarea {
 }
 
 /* Safe Area Insets for modern mobile viewports (e.g. iPhone Notch / Dynamic Island / Navigation bars) */
-.pb-safe {
+.pb-safe,
+.safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-.pt-safe {
+.pt-safe,
+.safe-top {
   padding-top: env(safe-area-inset-top, 0px);
+}
+
+.margin-safe-top {
+  margin-top: env(safe-area-inset-top, 0px);
+}
+
+.margin-safe-bottom {
+  margin-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 /* Custom smooth horizontal table & container scrollbars */

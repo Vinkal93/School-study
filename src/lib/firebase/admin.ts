@@ -68,45 +68,6 @@ export function cleanEnvString(val?: string | null): string {
   return v.replace(/[;,]+$/, "").trim();
 }
 
-export function resetAdminAppCache(): void {
-  parsedServiceAccount = undefined;
-  _adminApp = null;
-}
-
-/**
- * Normalizes a raw PEM private key string:
- * - Unwraps quotes
- * - Replaces escaped newlines (\\n, \r\n, \n)
- * - Decodes Base64 if needed
- */
-export function normalizePrivateKey(rawKey: string): string {
-  if (!rawKey) return "";
-  let key = rawKey.trim();
-
-  // Strip wrapping single or double quotes
-  while (
-    (key.startsWith('"') && key.endsWith('"')) ||
-    (key.startsWith("'") && key.endsWith("'"))
-  ) {
-    key = key.slice(1, -1).trim();
-  }
-
-  // Handle literal escaped newlines and carriage returns
-  key = key.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\r\n/g, "\n");
-
-  // Auto-detect and decode Base64-encoded private key if standard header is missing
-  if (!key.includes("BEGIN PRIVATE KEY") && !key.includes("BEGIN RSA PRIVATE KEY")) {
-    try {
-      const decoded = Buffer.from(key, "base64").toString("utf-8");
-      if (decoded.includes("BEGIN PRIVATE KEY") || decoded.includes("BEGIN RSA PRIVATE KEY")) {
-        key = decoded.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\r\n/g, "\n");
-      }
-    } catch {}
-  }
-
-  return key;
-}
-
 /**
  * Repairs PEM strings where line breaks were collapsed into spaces or irregular chunks.
  * Strips whitespace inside the payload and re-chunks into standard RFC 7468 64-character lines.
