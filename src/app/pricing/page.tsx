@@ -8,7 +8,7 @@ import { PricingContent } from "@/components/pricing/PricingContent";
 export const metadata: Metadata = constructMetadata({
   title: "Pricing Plans for Schools",
   description:
-    "Choose the right School Study plan for your institution. Simple, transparent pricing starting at ₹999/month. Starter, Professional, and Enterprise plans available.",
+    "Choose the right School Study plan for your institution. Simple, transparent pricing starting from ₹0 for Free tier, ₹299/month for Base, ₹799/month for Starter, and ₹1,599/month for Professional.",
   canonicalUrl: "/pricing",
 });
 
@@ -21,7 +21,7 @@ export default function PricingPage() {
       "@type": "WebPage",
       name: "Pricing Plans | School Study",
       description:
-        "Choose the right School Study plan for your institution. Simple, transparent pricing for Starter, Professional, and Enterprise plans.",
+        "Choose the right School Study plan for your institution. Simple, transparent pricing across Free, Base, Starter, and Professional plans.",
       url: `${siteConfig.url}/pricing`,
     },
     getBreadcrumbSchema(breadcrumbData),
