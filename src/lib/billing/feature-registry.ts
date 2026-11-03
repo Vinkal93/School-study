@@ -282,6 +282,14 @@ export function getCuratedCardFeatures(plan: Plan, maxCount: number = 6): Featur
       "school_dashboard",
       "subscription_billing",
     ],
+    base: [
+      "student_management",
+      "teacher_management",
+      "school_dashboard",
+      "student_portal_access",
+      "teacher_portal_access",
+      "class_management",
+    ],
     starter: [
       "student_management",
       "teacher_management",
@@ -322,12 +330,41 @@ export function getCuratedCardFeatures(plan: Plan, maxCount: number = 6): Featur
   const preferredKeys = priorityMap[plan.slug] || priorityMap[plan.id] || [];
   const planFeatures = plan.features || [];
 
-  // Deduplicate and resolve
   const resolved: FeatureMetadata[] = [];
   const seenLabels = new Set<string>();
 
-  // 1. First add preferred highlights that exist in this plan (or default fallback)
+  const isFeatureEnabled = (key: string): boolean => {
+    if (!planFeatures.length) return true;
+    const k = key.toLowerCase().trim().replace(/^module:/, "");
+    if (
+      planFeatures.some((f) => {
+        const fClean = f.toLowerCase().trim().replace(/^module:/, "");
+        return fClean === k || fClean.replace(/_/g, " ") === k.replace(/_/g, " ");
+      })
+    ) {
+      return true;
+    }
+    if (plan.featureAccess) {
+      if (plan.featureAccess[key] === "FULL_ACCESS" || plan.featureAccess[k] === "FULL_ACCESS") return true;
+      if (plan.featureAccess[key] === "HIDDEN" || plan.featureAccess[k] === "HIDDEN") return false;
+    }
+    return false;
+  };
+
+  // 1. First add preferred highlights that are enabled in this plan
   for (const key of preferredKeys) {
+    if (resolved.length >= maxCount) break;
+    if (isFeatureEnabled(key)) {
+      const meta = getFeatureMetadata(key);
+      if (!seenLabels.has(meta.label)) {
+        seenLabels.add(meta.label);
+        resolved.push(meta);
+      }
+    }
+  }
+
+  // 2. Backfill with other features from plan's actual features list
+  for (const key of planFeatures) {
     if (resolved.length >= maxCount) break;
     const meta = getFeatureMetadata(key);
     if (!seenLabels.has(meta.label)) {
@@ -336,9 +373,9 @@ export function getCuratedCardFeatures(plan: Plan, maxCount: number = 6): Featur
     }
   }
 
-  // 2. If more slots remain, backfill from plan's actual feature keys
-  if (resolved.length < maxCount) {
-    for (const key of planFeatures) {
+  // 3. Fallback if still empty and plan has no features
+  if (resolved.length === 0) {
+    for (const key of preferredKeys) {
       if (resolved.length >= maxCount) break;
       const meta = getFeatureMetadata(key);
       if (!seenLabels.has(meta.label)) {
@@ -359,7 +396,6 @@ export function getGroupedPlanFeatures(
 ): Record<string, Array<{ key: string; label: string; description: string; enabled: boolean }>> {
   const groups: Record<string, Array<{ key: string; label: string; description: string; enabled: boolean }>> = {};
 
-  // Standard modules evaluated in order
   const canonicalCatalog = [
     { key: "school_dashboard", category: "Dashboard" },
     { key: "student_management", category: "Student Management" },
@@ -378,30 +414,62 @@ export function getGroupedPlanFeatures(
   ];
 
   const planFeaturesSet = new Set(
-    (plan.features || []).map((f) => f.toLowerCase().replace(/^module:/, ""))
+    (plan.features || []).map((f) => f.toLowerCase().trim().replace(/^module:/, "").replace(/_/g, " "))
   );
 
+  const isFeatureEnabled = (key: string, aliases: string[] = []): boolean => {
+    const k = key.toLowerCase().trim().replace(/^module:/, "").replace(/_/g, " ");
+    if (planFeaturesSet.has(k) || planFeaturesSet.has(key.toLowerCase().trim())) return true;
+    for (const alias of aliases) {
+      const a = alias.toLowerCase().trim().replace(/^module:/, "").replace(/_/g, " ");
+      if (planFeaturesSet.has(a) || planFeaturesSet.has(alias.toLowerCase().trim())) return true;
+    }
+    if (plan.featureAccess) {
+      if (plan.featureAccess[key] === "FULL_ACCESS" || plan.featureAccess[k] === "FULL_ACCESS") return true;
+      for (const alias of aliases) {
+        if (plan.featureAccess[alias] === "FULL_ACCESS") return true;
+      }
+      if (plan.featureAccess[key] === "HIDDEN" || plan.featureAccess[k] === "HIDDEN") return false;
+    }
+    return false;
+  };
+
+  const seenKeys = new Set<string>();
+
+  // 1. Process canonicalCatalog first to preserve standard categorization
   canonicalCatalog.forEach((item) => {
     const meta = getFeatureMetadata(item.key);
     const category = item.category;
-
     if (!groups[category]) groups[category] = [];
 
-    // Check enabled status based on plan feature array or featureAccess map
-    let isEnabled =
-      planFeaturesSet.has(item.key.toLowerCase()) ||
-      planFeaturesSet.has(meta.key.toLowerCase());
-
-    if (plan.featureAccess && plan.featureAccess[item.key]) {
-      isEnabled = plan.featureAccess[item.key] === "FULL_ACCESS";
-    }
+    const enabled = isFeatureEnabled(item.key, []);
+    seenKeys.add(item.key.toLowerCase());
 
     groups[category].push({
       key: meta.key,
       label: meta.label,
       description: meta.description,
-      enabled: isEnabled,
+      enabled,
     });
+  });
+
+  // 2. Also process any additional custom features from the plan
+  (plan.features || []).forEach((fKey) => {
+    const clean = fKey.toLowerCase().trim().replace(/^module:/, "");
+    if (!seenKeys.has(clean) && !seenKeys.has(fKey.toLowerCase())) {
+      const meta = getFeatureMetadata(fKey);
+      const category = meta.category || "Additional Modules";
+      if (!groups[category]) groups[category] = [];
+
+      if (!groups[category].some((x) => x.label === meta.label)) {
+        groups[category].push({
+          key: fKey,
+          label: meta.label,
+          description: meta.description,
+          enabled: true,
+        });
+      }
+    }
   });
 
   return groups;

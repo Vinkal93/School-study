@@ -33,6 +33,28 @@ import {
 
 const DEFAULT_FALLBACK_PLANS: Plan[] = [
   {
+    id: "plan_base",
+    name: "Base",
+    slug: "base",
+    description: "Essential school administration, student records & basic portal tools.",
+    status: "ACTIVE",
+    displayOrder: 1,
+    isPopular: false,
+    publicVisible: true,
+    features: [
+      "student_management",
+      "teacher_management",
+      "school_dashboard",
+      "student_portal_access",
+      "teacher_portal_access",
+      "class_management",
+    ],
+    limits: { maxStudents: 50, maxTeachers: 10, maxClasses: 8, maxStaffAccounts: 2 },
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  },
+
+  {
     id: "plan_free",
     name: "Free Plan",
     slug: "free",
@@ -127,6 +149,21 @@ const DEFAULT_FALLBACK_PLANS: Plan[] = [
 ];
 
 const DEFAULT_FALLBACK_VERSIONS: Record<string, PlanVersion> = {
+  plan_base: {
+    id: "plan_base_v1",
+    planId: "plan_base",
+    version: 1,
+    monthlyPrice: 39900,
+    annualPrice: 29900,
+    currency: "INR",
+    features: [],
+    limits: { maxStudents: 50, maxTeachers: 10, maxClasses: 8, maxStaffAccounts: 2 },
+    effectiveFrom: "2026-01-01T00:00:00.000Z",
+    effectiveUntil: null,
+    status: "ACTIVE",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+
   plan_free: {
     id: "plan_free_v1",
     planId: "plan_free",
@@ -407,6 +444,35 @@ export function PricingContent() {
 
   const activePlans = plans.length > 0 ? plans : DEFAULT_FALLBACK_PLANS;
 
+  // Dynamically calculate the maximum annual savings percentage across all active plans
+  const maxSavingsPercent = React.useMemo(() => {
+    let max = 0;
+    for (const p of activePlans) {
+      const ver = activeVersions[p.id] || (p as any).activeVersion || DEFAULT_FALLBACK_VERSIONS[p.id];
+      const m = ver?.monthlyPrice
+        ? Math.round(ver.monthlyPrice / 100)
+        : (p as any).monthlyPrice
+        ? Math.round((p as any).monthlyPrice / 100)
+        : (p.limits as any)?.monthlyPrice
+        ? Math.round((p.limits as any).monthlyPrice / 100)
+        : (p.slug === "base" ? 399 : p.slug === "starter" ? 999 : p.slug === "professional" ? 1999 : 0);
+
+      const a = ver?.annualPrice
+        ? Math.round(ver.annualPrice / 100)
+        : (p as any).annualPrice
+        ? Math.round((p as any).annualPrice / 100)
+        : (p.limits as any)?.annualPrice
+        ? Math.round((p.limits as any).annualPrice / 100)
+        : (p.slug === "base" ? 299 : p.slug === "starter" ? 799 : p.slug === "professional" ? 1599 : 0);
+
+      if (m > 0 && a > 0 && m > a) {
+        const pct = Math.round(((m - a) / m) * 100);
+        if (pct > max) max = pct;
+      }
+    }
+    return max || 25;
+  }, [activePlans, activeVersions]);
+
   return (
     <div className="py-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-16">
       {/* Hero Header */}
@@ -439,7 +505,7 @@ export function PricingContent() {
             />
           </button>
           <span className={`text-sm font-semibold flex items-center gap-1.5 ${isAnnual ? "text-slate-900 dark:text-white" : "text-slate-500"}`}>
-            Annual <span className="text-xs bg-green-100 dark:bg-green-950/80 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full font-bold">Save 20%</span>
+            Annual <span className="text-xs bg-green-100 dark:bg-green-950/80 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full font-bold">Save up to {maxSavingsPercent}%</span>
           </span>
         </div>
 
@@ -505,25 +571,46 @@ export function PricingContent() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-stretch">
           {activePlans.map((p) => {
-            const ver = activeVersions[p.id] || DEFAULT_FALLBACK_VERSIONS[p.id];
-            const monthlyRs = ver ? Math.round(ver.monthlyPrice / 100) : (p.slug === "starter" ? 999 : p.slug === "professional" ? 1999 : 0);
-            const annualRs = ver ? Math.round(ver.annualPrice / 100) : (p.slug === "starter" ? 799 : p.slug === "professional" ? 1599 : 0);
+            const ver = activeVersions[p.id] || (p as any).activeVersion || DEFAULT_FALLBACK_VERSIONS[p.id];
+            const monthlyRs = ver?.monthlyPrice
+              ? Math.round(ver.monthlyPrice / 100)
+              : (p as any).monthlyPrice
+              ? Math.round((p as any).monthlyPrice / 100)
+              : (p.limits as any)?.monthlyPrice
+              ? Math.round((p.limits as any).monthlyPrice / 100)
+              : (p.slug === "base" ? 399 : p.slug === "starter" ? 999 : p.slug === "professional" ? 1999 : 0);
+
+            const annualRs = ver?.annualPrice
+              ? Math.round(ver.annualPrice / 100)
+              : (p as any).annualPrice
+              ? Math.round((p as any).annualPrice / 100)
+              : (p.limits as any)?.annualPrice
+              ? Math.round((p.limits as any).annualPrice / 100)
+              : (p.slug === "base" ? 299 : p.slug === "starter" ? 799 : p.slug === "professional" ? 1599 : 0);
+
+            const savingsPercent =
+              monthlyRs > 0 && annualRs > 0 && monthlyRs > annualRs
+                ? Math.round(((monthlyRs - annualRs) / monthlyRs) * 100)
+                : 0;
 
             const isFree = p.slug === "free" || p.id === "plan_free" || monthlyRs === 0;
             const isEnterprise = p.slug === "enterprise" || p.id === "plan_enterprise";
 
-            let displayPriceStr = `₹${(isAnnual ? annualRs : monthlyRs).toLocaleString("en-IN")}`;
-            let pricePeriodStr = isAnnual ? "/ mo (billed annually)" : "/ month";
-
-            if (isFree) {
-              displayPriceStr = "₹0";
-              pricePeriodStr = "/ forever";
-            } else if (isEnterprise) {
-              displayPriceStr = "Contact Sales";
-              pricePeriodStr = "";
-            }
+            const planDescription =
+              p.description && p.description !== "No description provided."
+                ? p.description
+                : p.slug === "base"
+                ? "Essential school administration, student records & basic portal tools."
+                : p.slug === "free"
+                ? "Essential modules for evaluation, trials, and new academies."
+                : p.slug === "starter"
+                ? "Core school administration tools for small schools."
+                : p.slug === "professional"
+                ? "Advanced fee automation, WhatsApp alerts & complete analytics."
+                : "Custom limits, multi-campus governance & dedicated support.";
 
             const curatedFeatures = getCuratedCardFeatures(p, 6);
+            const totalModulesCount = p.features?.length || curatedFeatures.length;
             const isProcessing = processingPlanId === p.id;
 
             return (
@@ -541,44 +628,139 @@ export function PricingContent() {
                   </div>
                 )}
 
-                <div className="space-y-5">
+                <div className="space-y-4">
                   <div>
                     <h3 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">{p.name}</h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 min-h-[32px]">{p.description}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 min-h-[32px] leading-relaxed">
+                      {planDescription}
+                    </p>
                   </div>
 
                   {/* Price Block */}
-                  <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-                        {displayPriceStr}
-                      </span>
-                      {pricePeriodStr && (
-                        <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                          {pricePeriodStr}
-                        </span>
-                      )}
-                    </div>
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
+                    {isFree ? (
+                      <div>
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                            ₹0
+                          </span>
+                          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                            / forever
+                          </span>
+                        </div>
+                        <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 mt-1">
+                          Free forever • No credit card required
+                        </p>
+                      </div>
+                    ) : isEnterprise ? (
+                      <div>
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                            Contact Sales
+                          </span>
+                        </div>
+                        <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-1">
+                          Custom limits & dedicated support
+                        </p>
+                      </div>
+                    ) : isAnnual ? (
+                      <div>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                            ₹{annualRs.toLocaleString("en-IN")}
+                          </span>
+                          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                            / mo
+                          </span>
+                          {monthlyRs > annualRs && (
+                            <span className="text-xs text-slate-400 line-through">
+                              ₹{monthlyRs.toLocaleString("en-IN")}/mo
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between text-[11px] pt-1">
+                          <span className="text-slate-500 dark:text-slate-400">
+                            Billed annually (₹{(annualRs * 12).toLocaleString("en-IN")}/yr)
+                          </span>
+                          {savingsPercent > 0 && (
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                              Save {savingsPercent}% on Annual
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                            ₹{monthlyRs.toLocaleString("en-IN")}
+                          </span>
+                          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                            / month
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px] pt-1">
+                          <span className="text-slate-500 dark:text-slate-400">
+                            Billed monthly
+                          </span>
+                          {savingsPercent > 0 && (
+                            <span className="font-semibold text-blue-600 dark:text-blue-400">
+                              Save {savingsPercent}% yearly
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
 
-                    {/* Capacity Limits Badge */}
-                    <div className="mt-2 text-[11px] font-medium text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
-                      <Users className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                      <span>
-                        {p.limits?.maxStudents && p.limits.maxStudents > 0
-                          ? `Up to ${p.limits.maxStudents} Students`
-                          : "Unlimited Students"}
-                        {p.limits?.maxTeachers && p.limits.maxTeachers > 0
-                          ? ` • ${p.limits.maxTeachers} Teachers`
-                          : " • Unlimited Teachers"}
-                      </span>
+                    {/* Capacity Limits Grid (Students, Teachers, Classes, Staff) */}
+                    <div className="grid grid-cols-2 gap-2 pt-2 text-xs">
+                      <div className="p-2 rounded-xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+                        <span className="text-[10px] font-bold uppercase text-slate-400 block">Students</span>
+                        <span className="font-bold text-slate-900 dark:text-white">
+                          {!p.limits?.maxStudents || p.limits.maxStudents === -1
+                            ? "Unlimited"
+                            : p.limits.maxStudents.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="p-2 rounded-xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+                        <span className="text-[10px] font-bold uppercase text-slate-400 block">Teachers</span>
+                        <span className="font-bold text-slate-900 dark:text-white">
+                          {!p.limits?.maxTeachers || p.limits.maxTeachers === -1
+                            ? "Unlimited"
+                            : p.limits.maxTeachers.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="p-2 rounded-xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+                        <span className="text-[10px] font-bold uppercase text-slate-400 block">Classes</span>
+                        <span className="font-bold text-slate-900 dark:text-white">
+                          {!p.limits?.maxClasses || p.limits.maxClasses === -1
+                            ? "Unlimited"
+                            : p.limits.maxClasses.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="p-2 rounded-xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+                        <span className="text-[10px] font-bold uppercase text-slate-400 block">Staff</span>
+                        <span className="font-bold text-slate-900 dark:text-white">
+                          {!p.limits?.maxStaffAccounts || p.limits.maxStaffAccounts === -1
+                            ? "Unlimited"
+                            : p.limits.maxStaffAccounts.toLocaleString()}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Curated 5–7 Features */}
-                  <div className="space-y-2.5 pt-2">
-                    <p className="text-[11px] font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                      Key Highlights:
-                    </p>
+                  {/* Key Highlights */}
+                  <div className="space-y-2.5 pt-1">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                        Key Highlights:
+                      </p>
+                      {totalModulesCount > 0 && (
+                        <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-900">
+                          {totalModulesCount} features
+                        </span>
+                      )}
+                    </div>
                     <ul className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
                       {curatedFeatures.map((feat, idx) => (
                         <li key={idx} className="flex items-start gap-2">
@@ -635,7 +817,7 @@ export function PricingContent() {
         </div>
       )}
 
-      {/* Feature Breakdown Modal */}
+{/* Feature Breakdown Modal */}
       {mounted && featureModalPlan && createPortal(
         <div
           role="dialog"

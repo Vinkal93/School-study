@@ -16,7 +16,7 @@ export default function PricingPage() {
       "@type": "WebPage",
       name: "Pricing Plans | School Study",
       description:
-        "Choose the right School Study plan for your institution. Simple, transparent pricing for Starter, Professional, and Enterprise plans.",
+        "Choose the right School Study plan for your institution. Simple, transparent pricing across Free, Base, Starter, and Professional plans.",
       url: `${siteConfig.url}/pricing`,
     },
     getBreadcrumbSchema(breadcrumbData),
