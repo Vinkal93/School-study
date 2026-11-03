@@ -1,3 +1,4 @@
+import { ModuleWorkflow } from "@/components/marketing/ModuleWorkflow";
 import type { Metadata } from "next";
 import Link from "next/link";
 import {
@@ -15,14 +16,9 @@ import {
 import { MarketingHeader, RelatedModules } from "@/components/marketing";
 import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import { Footer } from "@/components/footer";
-import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
+import { constructPublicMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
 
-export const metadata: Metadata = constructMetadata({
-  title: "School Management Software Built for Modern Schools",
-  description:
-    "Discover School Study's school management system. Easily administer students, teachers, classes, daily attendance, and notices in one unified platform.",
-  canonicalUrl: "/school-management",
-});
+export const metadata: Metadata = constructPublicMetadata("/school-management");
 
 export default function SchoolManagementPage() {
   const breadcrumbData = [
@@ -51,7 +47,7 @@ export default function SchoolManagementPage() {
     <div className="min-h-screen bg-white dark:bg-gray-950 text-slate-900 dark:text-slate-100 font-sans">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
       />
       <MarketingHeader currentPath="/school-management" />
       <Breadcrumbs items={breadcrumbData} />
@@ -70,7 +66,9 @@ export default function SchoolManagementPage() {
             </h1>
 
             <p className="mt-6 text-base sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed">
-              Eliminate paperwork and scattered spreadsheets. School Study brings student records, faculty rosters, attendance tracking, and official notices into a simple, collaborative system.
+              Eliminate paperwork and scattered spreadsheets. School Study brings student records,
+              faculty rosters, attendance tracking, and official notices into a simple,
+              collaborative system.
             </p>
 
             <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
@@ -99,7 +97,8 @@ export default function SchoolManagementPage() {
                 Everything School Administrators Need to Run Daily Operations
               </h2>
               <p className="mt-3 text-sm sm:text-base text-slate-600 dark:text-slate-400">
-                Built specifically to solve the administrative challenges educational institutions face every day.
+                Built specifically to solve the administrative challenges educational institutions
+                face every day.
               </p>
             </div>
 
@@ -113,9 +112,13 @@ export default function SchoolManagementPage() {
                   Student Administration
                 </h3>
                 <p className="mt-2 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Enroll new students, generate admission identifiers, and assign students to their respective classes and sections seamlessly.
+                  Enroll new students, generate admission identifiers, and assign students to their
+                  respective classes and sections seamlessly.
                 </p>
-                <Link href="/student-management" className="mt-4 inline-block text-xs font-semibold text-blue-600 dark:text-blue-400">
+                <Link
+                  href="/student-management"
+                  className="mt-4 inline-block text-xs font-semibold text-blue-600 dark:text-blue-400"
+                >
                   Explore Student Management →
                 </Link>
               </div>
@@ -129,9 +132,13 @@ export default function SchoolManagementPage() {
                   Teacher Management
                 </h3>
                 <p className="mt-2 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Provision faculty logins, delegate class teachers, and allocate subjects to streamline classroom responsibility.
+                  Provision faculty logins, delegate class teachers, and allocate subjects to
+                  streamline classroom responsibility.
                 </p>
-                <Link href="/teacher-management" className="mt-4 inline-block text-xs font-semibold text-purple-600 dark:text-purple-400">
+                <Link
+                  href="/teacher-management"
+                  className="mt-4 inline-block text-xs font-semibold text-purple-600 dark:text-purple-400"
+                >
                   Explore Teacher Management →
                 </Link>
               </div>
@@ -145,9 +152,13 @@ export default function SchoolManagementPage() {
                   Attendance Tracking
                 </h3>
                 <p className="mt-2 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Teachers record daily attendance in seconds. Administrators and students immediately view calculated attendance averages.
+                  Teachers record daily attendance in seconds. Administrators and students
+                  immediately view calculated attendance averages.
                 </p>
-                <Link href="/attendance-management" className="mt-4 inline-block text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                <Link
+                  href="/attendance-management"
+                  className="mt-4 inline-block text-xs font-semibold text-emerald-600 dark:text-emerald-400"
+                >
                   Explore Attendance Tracking →
                 </Link>
               </div>
@@ -161,9 +172,13 @@ export default function SchoolManagementPage() {
                   Class & Section Hub
                 </h3>
                 <p className="mt-2 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Easily structure grades (e.g. Class 1 to 12) with custom section divisions (A, B, C) and designated head teachers.
+                  Easily structure grades (e.g. Class 1 to 12) with custom section divisions (A, B,
+                  C) and designated head teachers.
                 </p>
-                <Link href="/school-erp" className="mt-4 inline-block text-xs font-semibold text-amber-600 dark:text-amber-400">
+                <Link
+                  href="/school-erp"
+                  className="mt-4 inline-block text-xs font-semibold text-amber-600 dark:text-amber-400"
+                >
                   Explore School ERP Architecture →
                 </Link>
               </div>
@@ -177,7 +192,8 @@ export default function SchoolManagementPage() {
                   Notices & Announcements
                 </h3>
                 <p className="mt-2 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Publish campus-wide circulars or target notices to specific departments, teachers, or student cohorts instantly.
+                  Publish campus-wide circulars or target notices to specific departments, teachers,
+                  or student cohorts instantly.
                 </p>
               </div>
 
@@ -190,7 +206,8 @@ export default function SchoolManagementPage() {
                   Actionable Dashboards
                 </h3>
                 <p className="mt-2 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                  A high-level dashboard displaying total student counts, active teachers, today&apos;s attendance percentage, and recent notices.
+                  A high-level dashboard displaying total student counts, active teachers,
+                  today&apos;s attendance percentage, and recent notices.
                 </p>
               </div>
             </div>
@@ -198,6 +215,7 @@ export default function SchoolManagementPage() {
         </section>
 
         {/* Related Interconnected Modules */}
+        <ModuleWorkflow path="/school-management" />
         <RelatedModules
           currentPath="/school-management"
           title="Connect with Key Academic Modules"

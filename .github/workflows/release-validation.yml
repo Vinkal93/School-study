@@ -39,6 +39,8 @@ jobs:
         run: npm run typecheck
       - name: Verify financial and plan regressions
         run: npm run test:release
+      - name: Verify public page SEO and indexing boundaries
+        run: npm run test:seo
       - name: Build production application
         run: npm run build
 

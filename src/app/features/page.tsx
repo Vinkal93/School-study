@@ -26,14 +26,15 @@ import {
 import { MarketingHeader } from "@/components/marketing";
 import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import { Footer } from "@/components/footer";
-import { constructMetadata, siteConfig, getBreadcrumbSchema, getFaqSchema, getSoftwareAppSchema } from "@/lib/seo";
+import {
+  constructPublicMetadata,
+  siteConfig,
+  getBreadcrumbSchema,
+  getFaqSchema,
+  getSoftwareAppSchema,
+} from "@/lib/seo";
 
-export const metadata: Metadata = constructMetadata({
-  title: "Core Features & Capabilities",
-  description:
-    "Explore School Study's core modules: student administration, teacher assignment, live attendance tracking, notice boards, and role-based portals.",
-  canonicalUrl: "/features",
-});
+export const metadata: Metadata = constructPublicMetadata("/features");
 
 const FAQS = [
   {
@@ -59,15 +60,9 @@ const FAQS = [
 ];
 
 export default function FeaturesPage() {
-  const breadcrumbData = [
-    { name: "Features", url: "/features" },
-  ];
+  const breadcrumbData = [{ name: "Features", url: "/features" }];
 
-  const schemas = [
-    getBreadcrumbSchema(breadcrumbData),
-    getFaqSchema(FAQS),
-    getSoftwareAppSchema(),
-  ];
+  const schemas = [getBreadcrumbSchema(breadcrumbData), getFaqSchema(FAQS), getSoftwareAppSchema()];
 
   const features = [
     {
@@ -130,7 +125,7 @@ export default function FeaturesPage() {
     <div className="min-h-screen bg-white dark:bg-gray-950 text-slate-900 dark:text-slate-100 font-sans">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(schemas) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(schemas).replace(/</g, "\\u003c") }}
       />
       <MarketingHeader currentPath="/features" />
       <Breadcrumbs items={breadcrumbData} />
@@ -149,7 +144,8 @@ export default function FeaturesPage() {
             </h1>
 
             <p className="mt-6 text-base sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed">
-              School Study focuses on the essential operations schools need every day — reliable rosters, instant attendance, faculty workspaces, and student transparency.
+              School Study focuses on the essential operations schools need every day — reliable
+              rosters, instant attendance, faculty workspaces, and student transparency.
             </p>
 
             <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
