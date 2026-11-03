@@ -646,6 +646,30 @@ export interface UpdatePlanInput {
  * Helper using Firestore query to enforce only one plan marked as Popular.
  */
 async function enforceSinglePopularPlan(targetPlanId?: string, actorId: string = "super_admin"): Promise<void> {
+  if (typeof window === "undefined") {
+    try {
+      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+      const adminDb = getSafeAdminDb();
+      if (adminDb) {
+        const popularSnap = await adminDb.collection(BILLING_COLLECTIONS.PLANS).where("isPopular", "==", true).get();
+        for (const docSnap of popularSnap.docs) {
+          if (docSnap.id !== targetPlanId) {
+            await docSnap.ref.update({
+              isPopular: false,
+              updatedAt: new Date().toISOString(),
+            });
+            await createBillingAuditLog(actorId, "super_admin", "POPULAR_PLAN_CHANGED", "plan", docSnap.id, {
+              isPopular: false,
+            });
+          }
+        }
+        return;
+      }
+    } catch (e) {
+      console.warn("adminDb enforceSinglePopularPlan notice:", e);
+    }
+  }
+
   const db = getFirebaseDb();
   if (!db) return;
 
@@ -1208,12 +1232,38 @@ export async function getActivePlanVersion(planId: string): Promise<PlanVersion 
 }
 
 export async function getPlanVersions(planId: string): Promise<PlanVersion[]> {
+  const normId = normalizePlanId(planId);
+  if (typeof window === "undefined") {
+    try {
+      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+      const adminDb = getSafeAdminDb();
+      if (adminDb) {
+        const snap = await adminDb.collection(BILLING_COLLECTIONS.PLAN_VERSIONS).where("planId", "==", normId).get();
+        if (!snap.empty) {
+          return snap.docs
+            .map((d: any) => ({ id: d.id, ...d.data() } as PlanVersion))
+            .sort((a: any, b: any) => (b.version || 0) - (a.version || 0));
+        }
+        if (normId !== planId) {
+          const snapOriginal = await adminDb.collection(BILLING_COLLECTIONS.PLAN_VERSIONS).where("planId", "==", planId).get();
+          if (!snapOriginal.empty) {
+            return snapOriginal.docs
+              .map((d: any) => ({ id: d.id, ...d.data() } as PlanVersion))
+              .sort((a: any, b: any) => (b.version || 0) - (a.version || 0));
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("adminDb getPlanVersions notice:", e);
+    }
+  }
+
   const db = getFirebaseDb();
   if (!db) return [];
 
   try {
     const snap = await getDocs(
-      query(collection(db, BILLING_COLLECTIONS.PLAN_VERSIONS), where("planId", "==", planId))
+      query(collection(db, BILLING_COLLECTIONS.PLAN_VERSIONS), where("planId", "==", normId))
     );
 
     const versions = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as PlanVersion[];
@@ -1225,11 +1275,16 @@ export async function getPlanVersions(planId: string): Promise<PlanVersion[]> {
 }
 
 export async function createPlan(input: CreatePlanInput, actorId: string = "super_admin"): Promise<Plan> {
-  const db = getFirebaseDb();
-  if (!db) throw new Error("Database unavailable.");
-
   if (![input.monthlyPricePaise, input.annualPricePaise].every(v => Number.isSafeInteger(v) && v >= 0)) {
     throw new Error("Plan price cannot be negative.");
+  }
+
+  let adminDb: any = null;
+  if (typeof window === "undefined") {
+    try {
+      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+      adminDb = getSafeAdminDb();
+    } catch {}
   }
 
   const { cleanLimits, cleanFeatures, cleanFeatureAccess } = validatePlanLimitsAndFeatures(
@@ -1238,17 +1293,27 @@ export async function createPlan(input: CreatePlanInput, actorId: string = "supe
     input.featureAccess
   );
 
-  const existingQuery = query(collection(db, BILLING_COLLECTIONS.PLANS), where("slug", "==", input.slug.trim().toLowerCase()));
-  const existingSnap = await getDocs(existingQuery);
-  if (!existingSnap.empty) {
-    throw new Error(`A plan with slug "${input.slug}" already exists.`);
+  const planId = `plan_${input.slug.trim().toLowerCase()}`;
+
+  if (adminDb) {
+    const existingSnap = await adminDb.collection(BILLING_COLLECTIONS.PLANS).where("slug", "==", input.slug.trim().toLowerCase()).get();
+    if (!existingSnap.empty) {
+      throw new Error(`A plan with slug "${input.slug}" already exists.`);
+    }
+  } else {
+    const db = getFirebaseDb();
+    if (!db) throw new Error("Database unavailable.");
+    const existingQuery = query(collection(db, BILLING_COLLECTIONS.PLANS), where("slug", "==", input.slug.trim().toLowerCase()));
+    const existingSnap = await getDocs(existingQuery);
+    if (!existingSnap.empty) {
+      throw new Error(`A plan with slug "${input.slug}" already exists.`);
+    }
   }
 
   if (input.isPopular) {
     await enforceSinglePopularPlan(undefined, actorId);
   }
 
-  const planId = `plan_${input.slug.trim().toLowerCase()}`;
   const nowIso = new Date().toISOString();
 
   const plan: Plan = {
@@ -1269,7 +1334,6 @@ export async function createPlan(input: CreatePlanInput, actorId: string = "supe
     updatedAt: nowIso,
   };
 
-
   const versionId = `${planId}_v1`;
   const planVersion: PlanVersion = {
     id: versionId,
@@ -1287,13 +1351,26 @@ export async function createPlan(input: CreatePlanInput, actorId: string = "supe
     createdAt: nowIso,
   };
 
-  await runTransaction(db, async tx => {
-    const planRef = doc(db, BILLING_COLLECTIONS.PLANS, planId);
-    const existing = await tx.get(planRef);
-    if (existing.exists()) throw new Error("A plan with this slug already exists.");
-    tx.set(planRef, plan);
-    tx.set(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, versionId), planVersion);
-  });
+  if (adminDb) {
+    await adminDb.runTransaction(async (tx: any) => {
+      const planRef = adminDb.collection(BILLING_COLLECTIONS.PLANS).doc(planId);
+      const existing = await tx.get(planRef);
+      const existingExists = typeof existing.exists === "function" ? existing.exists() : Boolean(existing.exists);
+      if (existingExists) throw new Error("A plan with this slug already exists.");
+      tx.set(planRef, plan);
+      tx.set(adminDb.collection(BILLING_COLLECTIONS.PLAN_VERSIONS).doc(versionId), planVersion);
+    });
+  } else {
+    const db = getFirebaseDb();
+    if (!db) throw new Error("Database unavailable.");
+    await runTransaction(db, async tx => {
+      const planRef = doc(db, BILLING_COLLECTIONS.PLANS, planId);
+      const existing = await tx.get(planRef);
+      if (existing.exists()) throw new Error("A plan with this slug already exists.");
+      tx.set(planRef, plan);
+      tx.set(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, versionId), planVersion);
+    });
+  }
 
   await createBillingAuditLog(actorId, "super_admin", "PLAN_CREATED", "plan", planId, {
     planName: plan.name,
@@ -1314,17 +1391,55 @@ export async function updatePlan(
   for (const price of [input.monthlyPricePaise, input.annualPricePaise]) {
     if (price !== undefined && (!Number.isSafeInteger(price) || price < 0)) throw new Error("Plan prices must be non-negative integer amounts in paise.");
   }
-  const db = getFirebaseDb();
-  if (!db) throw new Error("Database unavailable.");
 
-  const planRef = doc(db, BILLING_COLLECTIONS.PLANS, planId);
-  const planSnap = await getDoc(planRef);
-
-  if (!planSnap.exists()) {
-    throw new Error(`Plan "${planId}" not found.`);
+  let adminDb: any = null;
+  if (typeof window === "undefined") {
+    try {
+      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+      adminDb = getSafeAdminDb();
+    } catch {}
   }
 
-  const currentPlan = { id: planSnap.id, ...planSnap.data() } as Plan;
+  let currentPlan: Plan;
+  if (adminDb) {
+    let planSnap = await adminDb.collection(BILLING_COLLECTIONS.PLANS).doc(planId).get();
+    let planExists = typeof planSnap.exists === "function" ? planSnap.exists() : Boolean(planSnap.exists);
+    if (!planExists) {
+      const norm = normalizePlanId(planId);
+      if (norm !== planId) {
+        planSnap = await adminDb.collection(BILLING_COLLECTIONS.PLANS).doc(norm).get();
+        planExists = typeof planSnap.exists === "function" ? planSnap.exists() : Boolean(planSnap.exists);
+      }
+    }
+    if (!planExists) {
+      const defaultMatch = DEFAULT_STATIC_PLANS.find(p => p.id === planId || p.id === normalizePlanId(planId) || p.slug === planId);
+      if (defaultMatch) {
+        await adminDb.collection(BILLING_COLLECTIONS.PLANS).doc(defaultMatch.id).set(defaultMatch, { merge: true });
+        planSnap = await adminDb.collection(BILLING_COLLECTIONS.PLANS).doc(defaultMatch.id).get();
+        planExists = true;
+      }
+    }
+    if (!planExists) {
+      throw new Error(`Plan "${planId}" not found.`);
+    }
+    currentPlan = { id: planSnap.id, ...planSnap.data() } as Plan;
+  } else {
+    if (typeof window === "undefined") {
+      throw new Error("Administrative database connection unavailable. Ensure FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY environment variables are configured.");
+    }
+    const db = getFirebaseDb();
+    if (!db) throw new Error("Database unavailable.");
+
+    const planRef = doc(db, BILLING_COLLECTIONS.PLANS, planId);
+    const planSnap = await getDoc(planRef);
+
+    if (!planSnap.exists()) {
+      throw new Error(`Plan "${planId}" not found.`);
+    }
+
+    currentPlan = { id: planSnap.id, ...planSnap.data() } as Plan;
+  }
+
   const currentVersion = await getActivePlanVersion(planId);
 
   if (!currentVersion) {
@@ -1404,79 +1519,109 @@ export async function updatePlan(
     pendingVersion = newPlanVersion;
     updatedPlanData.version = nextVersionNum;
     newVersionCreated = true;
-
   }
 
-  await runTransaction(db, async tx => {
-    const latest = await tx.get(planRef);
-    const latestVersion = await tx.get(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, currentVersion.id));
-
-    if (!latest.exists()) {
-      throw new Error(`Plan "${planId}" not found.`);
+  const normalizeTs = (ts: any) => {
+    if (!ts) return "";
+    if (typeof ts?.toMillis === "function") return ts.toMillis();
+    if (typeof ts?.getTime === "function") return ts.getTime();
+    if (typeof ts === "object" && typeof ts.seconds === "number") {
+      return ts.seconds * 1000 + Math.floor((ts.nanoseconds || 0) / 1e6);
     }
+    return String(ts);
+  };
 
-    const latestData = latest.data() || {};
-    const latestVer = latestData.version || 1;
-    const currentVer = currentPlan.version || 1;
+  if (adminDb) {
+    await adminDb.runTransaction(async (tx: any) => {
+      const planRef = adminDb.collection(BILLING_COLLECTIONS.PLANS).doc(planId);
+      const versionRef = adminDb.collection(BILLING_COLLECTIONS.PLAN_VERSIONS).doc(currentVersion.id);
 
-    const normalizeTs = (ts: any) => {
-      if (!ts) return "";
-      if (typeof ts?.toMillis === "function") return ts.toMillis();
-      if (typeof ts?.getTime === "function") return ts.getTime();
-      if (typeof ts === "object" && typeof ts.seconds === "number") {
-        return ts.seconds * 1000 + Math.floor((ts.nanoseconds || 0) / 1e6);
+      const latest = await tx.get(planRef);
+      const latestVersion = await tx.get(versionRef);
+
+      const latestExists = typeof latest.exists === "function" ? latest.exists() : Boolean(latest.exists);
+      if (!latestExists && !DEFAULT_STATIC_PLANS.some(p => p.id === planId || p.id === normalizePlanId(planId))) {
+        throw new Error(`Plan "${planId}" not found.`);
       }
-      return String(ts);
-    };
 
-    const isVersionChanged = latestVer !== currentVer;
-    const isUpdatedChanged =
-      Boolean(latestData.updatedAt && currentPlan.updatedAt) &&
-      normalizeTs(latestData.updatedAt) !== normalizeTs(currentPlan.updatedAt);
-    const isVersionInactive = latestVersion.exists() && latestVersion.data()?.status !== "ACTIVE";
+      const latestData = latest.data() || {};
+      const latestVer = latestData.version || 1;
+      const currentVer = currentPlan.version || 1;
 
-    if (isVersionChanged || isUpdatedChanged || isVersionInactive) {
-      throw new Error("This plan changed while editing. Reload before saving.");
-    }
+      const isVersionChanged = latestVer !== currentVer;
+      const isUpdatedChanged =
+        Boolean(latestData.updatedAt && currentPlan.updatedAt) &&
+        normalizeTs(latestData.updatedAt) !== normalizeTs(currentPlan.updatedAt);
 
-    if (pendingVersion) {
-      if (latestVersion.exists()) {
-        tx.update(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, currentVersion.id), { status: "ARCHIVED", effectiveUntil: nowIso });
-      } else {
-        tx.set(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, currentVersion.id), {
-          ...currentVersion,
-          status: "ARCHIVED",
-          effectiveUntil: nowIso,
-        });
+      const latestVersionExists =
+        typeof latestVersion.exists === "function" ? latestVersion.exists() : Boolean(latestVersion.exists);
+      const isVersionInactive = latestVersionExists && latestVersion.data()?.status !== "ACTIVE";
+
+      if (isVersionChanged || isUpdatedChanged || isVersionInactive) {
+        throw new Error("This plan changed while editing. Reload before saving.");
       }
-      tx.set(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, pendingVersion.id), pendingVersion);
-    }
-    tx.update(planRef, updatedPlanData);
-  });
-  if (pendingVersion) await createBillingAuditLog(actorId, "super_admin", "PLAN_VERSION_CREATED", "planVersion", pendingVersion.id, { planId, version: pendingVersion.version });
-  const updatedPlan = { ...currentPlan, ...updatedPlanData };
-  cachePlan(updatedPlan);
 
-  // Server-side dual write if adminDb is available
-  if (typeof window === "undefined") {
-    try {
-      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
-      const adminDb = getSafeAdminDb();
-      if (adminDb) {
-        await adminDb.collection(BILLING_COLLECTIONS.PLANS).doc(planId).set(updatedPlanData, { merge: true });
-        if (pendingVersion) {
-          await adminDb.collection(BILLING_COLLECTIONS.PLAN_VERSIONS).doc(pendingVersion.id).set(pendingVersion);
-          await adminDb.collection(BILLING_COLLECTIONS.PLAN_VERSIONS).doc(currentVersion.id).set({
+      if (pendingVersion) {
+        if (latestVersionExists) {
+          tx.update(versionRef, { status: "ARCHIVED", effectiveUntil: nowIso });
+        } else {
+          tx.set(versionRef, {
             ...currentVersion,
             status: "ARCHIVED",
             effectiveUntil: nowIso,
-          }, { merge: true });
+          });
         }
+        const newVersionRef = adminDb.collection(BILLING_COLLECTIONS.PLAN_VERSIONS).doc(pendingVersion.id);
+        tx.set(newVersionRef, pendingVersion);
       }
-    } catch (adminErr) {
-      console.warn("adminDb plan update notice:", adminErr);
-    }
+      tx.update(planRef, updatedPlanData);
+    });
+  } else {
+    const db = getFirebaseDb();
+    if (!db) throw new Error("Database unavailable.");
+    const planRef = doc(db, BILLING_COLLECTIONS.PLANS, planId);
+
+    await runTransaction(db, async tx => {
+      const latest = await tx.get(planRef);
+      const latestVersion = await tx.get(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, currentVersion.id));
+
+      if (!latest.exists()) {
+        throw new Error(`Plan "${planId}" not found.`);
+      }
+
+      const latestData = latest.data() || {};
+      const latestVer = latestData.version || 1;
+      const currentVer = currentPlan.version || 1;
+
+      const isVersionChanged = latestVer !== currentVer;
+      const isUpdatedChanged =
+        Boolean(latestData.updatedAt && currentPlan.updatedAt) &&
+        normalizeTs(latestData.updatedAt) !== normalizeTs(currentPlan.updatedAt);
+      const isVersionInactive = latestVersion.exists() && latestVersion.data()?.status !== "ACTIVE";
+
+      if (isVersionChanged || isUpdatedChanged || isVersionInactive) {
+        throw new Error("This plan changed while editing. Reload before saving.");
+      }
+
+      if (pendingVersion) {
+        if (latestVersion.exists()) {
+          tx.update(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, currentVersion.id), { status: "ARCHIVED", effectiveUntil: nowIso });
+        } else {
+          tx.set(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, currentVersion.id), {
+            ...currentVersion,
+            status: "ARCHIVED",
+            effectiveUntil: nowIso,
+          });
+        }
+        tx.set(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, pendingVersion.id), pendingVersion);
+      }
+      tx.update(planRef, updatedPlanData);
+    });
   }
+
+  if (pendingVersion) await createBillingAuditLog(actorId, "super_admin", "PLAN_VERSION_CREATED", "planVersion", pendingVersion.id, { planId, version: pendingVersion.version });
+  const updatedPlan = { ...currentPlan, ...updatedPlanData };
+  cachePlan(updatedPlan);
 
   await createBillingAuditLog(actorId, "super_admin", "PLAN_UPDATED", "plan", planId, {
     planName: updatedPlan.name,
@@ -1489,13 +1634,6 @@ export async function updatePlan(
 }
 
 export async function archivePlan(planId: string, actorId: string = "super_admin"): Promise<Plan> {
-  const db = getFirebaseDb();
-  if (!db) throw new Error("Database unavailable.");
-
-  const planRef = doc(db, BILLING_COLLECTIONS.PLANS, planId);
-  const planSnap = await getDoc(planRef);
-  if (!planSnap.exists()) throw new Error(`Plan "${planId}" not found.`);
-
   const nowIso = new Date().toISOString();
   const updateData = {
     status: "ARCHIVED" as PlanStatus,
@@ -1503,6 +1641,36 @@ export async function archivePlan(planId: string, actorId: string = "super_admin
     publicVisible: false,
     updatedAt: nowIso,
   };
+
+  let adminDb: any = null;
+  if (typeof window === "undefined") {
+    try {
+      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+      adminDb = getSafeAdminDb();
+    } catch {}
+  }
+
+  if (adminDb) {
+    const planRef = adminDb.collection(BILLING_COLLECTIONS.PLANS).doc(planId);
+    const planSnap = await planRef.get();
+    const exists = typeof planSnap.exists === "function" ? planSnap.exists() : Boolean(planSnap.exists);
+    if (!exists) throw new Error(`Plan "${planId}" not found.`);
+
+    await planRef.update(updateData);
+    await createBillingAuditLog(actorId, "super_admin", "PLAN_ARCHIVED", "plan", planId, {
+      planId,
+      archivedAt: nowIso,
+    });
+    broadcastPlanChange(planId);
+    return { id: planSnap.id, ...planSnap.data(), ...updateData } as Plan;
+  }
+
+  const db = getFirebaseDb();
+  if (!db) throw new Error("Database unavailable.");
+
+  const planRef = doc(db, BILLING_COLLECTIONS.PLANS, planId);
+  const planSnap = await getDoc(planRef);
+  if (!planSnap.exists()) throw new Error(`Plan "${planId}" not found.`);
 
   await updateDoc(planRef, updateData);
 
@@ -1520,6 +1688,30 @@ export async function togglePlanStatus(
   targetStatus: PlanStatus,
   actorId: string = "super_admin"
 ): Promise<Plan> {
+  const nowIso = new Date().toISOString();
+
+  let adminDb: any = null;
+  if (typeof window === "undefined") {
+    try {
+      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+      adminDb = getSafeAdminDb();
+    } catch {}
+  }
+
+  if (adminDb) {
+    const planRef = adminDb.collection(BILLING_COLLECTIONS.PLANS).doc(planId);
+    const planSnap = await planRef.get();
+    const exists = typeof planSnap.exists === "function" ? planSnap.exists() : Boolean(planSnap.exists);
+    if (!exists) throw new Error(`Plan "${planId}" not found.`);
+
+    await planRef.update({ status: targetStatus, updatedAt: nowIso });
+    await createBillingAuditLog(actorId, "super_admin", "MANUAL_ACCESS_CHANGE", "plan", planId, {
+      newStatus: targetStatus,
+    });
+    broadcastPlanChange(planId);
+    return { id: planSnap.id, ...planSnap.data(), status: targetStatus, updatedAt: nowIso } as Plan;
+  }
+
   const db = getFirebaseDb();
   if (!db) throw new Error("Database unavailable.");
 
@@ -1527,7 +1719,6 @@ export async function togglePlanStatus(
   const planSnap = await getDoc(planRef);
   if (!planSnap.exists()) throw new Error(`Plan "${planId}" not found.`);
 
-  const nowIso = new Date().toISOString();
   await updateDoc(planRef, { status: targetStatus, updatedAt: nowIso });
 
   await createBillingAuditLog(actorId, "super_admin", "MANUAL_ACCESS_CHANGE", "plan", planId, {
