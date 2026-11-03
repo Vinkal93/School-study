@@ -1,5 +1,30 @@
 import type { Metadata } from "next";
 import { siteConfig } from "./config";
+import { getPublicPage, type PublicPagePath } from "./pages";
+
+export function isPreviewEnvironment(): boolean {
+  return Boolean(process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production");
+}
+
+export function resolveCanonicalUrl(path: string): string {
+  const canonical = new URL(path, siteConfig.url);
+  if (canonical.origin !== siteConfig.url) {
+    throw new Error("Canonical URLs must use the configured production origin.");
+  }
+  canonical.search = "";
+  canonical.hash = "";
+  canonical.pathname = canonical.pathname.replace(/\/+$/, "") || "/";
+  return canonical.toString();
+}
+
+export function constructPublicMetadata(path: PublicPagePath): Metadata {
+  const page = getPublicPage(path);
+  return constructMetadata({
+    title: page.title,
+    description: page.description,
+    canonicalUrl: path,
+  });
+}
 
 export interface ConstructMetadataOptions {
   title?: string;
@@ -37,7 +62,7 @@ export function normalizeTitle(rawTitle?: string): string {
   // Strip any trailing occurrences of the brand suffix (e.g., " | School Study", " - School Study")
   const brandSuffixRegex = new RegExp(
     `\\s*[-|—–•]\\s*${brand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`,
-    "i"
+    "i",
   );
 
   while (brandSuffixRegex.test(cleaned)) {
@@ -53,7 +78,7 @@ export function normalizeTitle(rawTitle?: string): string {
 
 /**
  * Constructs robust, consistent Next.js Metadata objects.
- * Built for 100% technical SEO, author entity linking, and AI bot discovery.
+ * Uses a consistent production identity and keeps previews out of search results.
  */
 export function constructMetadata({
   title,
@@ -64,18 +89,23 @@ export function constructMetadata({
   noIndex = false,
 }: ConstructMetadataOptions = {}): Metadata {
   const pageTitle = normalizeTitle(title);
-  
+  const preventIndexing = noIndex || isPreviewEnvironment();
+  const canonical = resolveCanonicalUrl(canonicalUrl || "/");
+
   // Merge page-specific keywords with global brand & creator keywords (deduped)
-  const combinedKeywords = Array.from(new Set(keywords.length ? keywords : [siteConfig.name, "school management software", "school ERP software"]));
+  const combinedKeywords = Array.from(
+    new Set(
+      keywords.length
+        ? keywords
+        : [siteConfig.name, "school management software", "school ERP software"],
+    ),
+  );
 
   return {
     title: pageTitle,
     description,
     keywords: combinedKeywords,
-    authors: [
-      { name: siteConfig.developer.name, url: `${siteConfig.url}/about-developer` },
-      { name: "Vinkal", url: siteConfig.developer.portfolioUrl },
-    ],
+    authors: [{ name: siteConfig.developer.name, url: `${siteConfig.url}/about-developer` }],
     creator: siteConfig.developer.name,
     publisher: siteConfig.name,
     applicationName: siteConfig.name,
@@ -84,12 +114,12 @@ export function constructMetadata({
     classification: "Multi-Tenant School Management Software & ERP",
     metadataBase: new URL(siteConfig.url),
     alternates: {
-      canonical: canonicalUrl || "/",
+      canonical: noIndex ? null : canonical,
     },
     openGraph: {
       title: pageTitle,
       description,
-      url: new URL(canonicalUrl || "/", siteConfig.url).toString(),
+      url: canonical,
       siteName: siteConfig.name,
       images: [
         {
@@ -116,11 +146,11 @@ export function constructMetadata({
       },
     },
     robots: {
-      index: !noIndex,
+      index: !preventIndexing,
       follow: !noIndex,
       nocache: false,
       googleBot: {
-        index: !noIndex,
+        index: !preventIndexing,
         follow: !noIndex,
         noimageindex: false,
         "max-video-preview": -1,
@@ -134,22 +164,18 @@ export function constructMetadata({
         { url: "/favicon.ico", sizes: "any" },
       ],
       shortcut: "/icon.svg",
-      apple: [
-        { url: "/icon.svg", type: "image/svg+xml" },
-      ],
+      apple: [{ url: "/icon.svg", type: "image/svg+xml" }],
     },
     manifest: "/manifest.json",
     other: {
-      "author": siteConfig.developer.name,
-      "designer": siteConfig.developer.name,
-      "developer": siteConfig.developer.name,
-      "owner": siteConfig.developer.name,
-      "creator": siteConfig.developer.name,
-      "rating": "General",
-      "distribution": "Global",
-      "revisit-after": "3 days",
-      "ai-content-declaration": "educational-saas",
-      "llms": siteConfig.links.llmsTxt,
+      author: siteConfig.developer.name,
+      designer: siteConfig.developer.name,
+      developer: siteConfig.developer.name,
+      owner: siteConfig.developer.name,
+      creator: siteConfig.developer.name,
+      rating: "General",
+      distribution: "Global",
+      llms: siteConfig.links.llmsTxt,
       "apple-mobile-web-app-title": siteConfig.name,
       "application-name": siteConfig.name,
     },

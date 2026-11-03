@@ -1,3 +1,4 @@
+import { ModuleWorkflow } from "@/components/marketing/ModuleWorkflow";
 import type { Metadata } from "next";
 import Link from "next/link";
 import {
@@ -15,14 +16,9 @@ import {
 import { MarketingHeader, RelatedModules } from "@/components/marketing";
 import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import { Footer } from "@/components/footer";
-import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
+import { constructPublicMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
 
-export const metadata: Metadata = constructMetadata({
-  title: "Simple School Attendance Management Software",
-  description:
-    "Simple school attendance management software. Mark daily roll-call (Present, Absent, Late), track monthly attendance history, and empower students with real-time percentage visibility.",
-  canonicalUrl: "/attendance-management",
-});
+export const metadata: Metadata = constructPublicMetadata("/attendance-management");
 
 export default function AttendanceManagementPage() {
   const breadcrumbData = [
@@ -51,7 +47,7 @@ export default function AttendanceManagementPage() {
     <div className="min-h-screen bg-white dark:bg-gray-950 text-slate-900 dark:text-slate-100 font-sans">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
       />
       <MarketingHeader currentPath="/attendance-management" />
       <Breadcrumbs items={breadcrumbData} />
@@ -70,7 +66,8 @@ export default function AttendanceManagementPage() {
             </h1>
 
             <p className="mt-6 text-base sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed">
-              Ditch paper registers. Record daily student attendance in seconds from mobile or desktop with instant calculation of monthly percentages.
+              Ditch paper registers. Record daily student attendance in seconds from mobile or
+              desktop with instant calculation of monthly percentages.
             </p>
 
             <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
@@ -99,7 +96,8 @@ export default function AttendanceManagementPage() {
                 Clean, Transparent Attendance Tracking for the Entire School
               </h2>
               <p className="mt-3 text-sm sm:text-base text-slate-600 dark:text-slate-400">
-                A unified workflow connecting teachers in the classroom to administrators and parents.
+                A unified workflow connecting teachers in the classroom to administrators and
+                parents.
               </p>
             </div>
 
@@ -113,9 +111,15 @@ export default function AttendanceManagementPage() {
                   Present, Absent & Late Statuses
                 </h3>
                 <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Easily toggle between <strong className="text-emerald-600">Present</strong>, <strong className="text-red-600">Absent</strong>, and <strong className="text-amber-600">Late</strong> statuses per student with single-tap controls.
+                  Easily toggle between <strong className="text-emerald-600">Present</strong>,{" "}
+                  <strong className="text-red-600">Absent</strong>, and{" "}
+                  <strong className="text-amber-600">Late</strong> statuses per student with
+                  single-tap controls.
                 </p>
-                <Link href="/teacher-management" className="mt-4 inline-block text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                <Link
+                  href="/teacher-management"
+                  className="mt-4 inline-block text-xs font-semibold text-emerald-600 dark:text-emerald-400"
+                >
                   See Teacher Roll-Call Desk →
                 </Link>
               </div>
@@ -129,9 +133,13 @@ export default function AttendanceManagementPage() {
                   Monthly Logs & History
                 </h3>
                 <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Review complete historical records by date, class, or individual student. Never lose attendance sheets again.
+                  Review complete historical records by date, class, or individual student. Never
+                  lose attendance sheets again.
                 </p>
-                <Link href="/school-management" className="mt-4 inline-block text-xs font-semibold text-blue-600 dark:text-blue-400">
+                <Link
+                  href="/school-management"
+                  className="mt-4 inline-block text-xs font-semibold text-blue-600 dark:text-blue-400"
+                >
                   Review in School Management Dashboard →
                 </Link>
               </div>
@@ -145,9 +153,13 @@ export default function AttendanceManagementPage() {
                   Live Attendance Percentage
                 </h3>
                 <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Students log into their portal to view their overall attendance percentage, helping them maintain institutional eligibility.
+                  Students log into their portal to view their overall attendance percentage,
+                  helping them maintain institutional eligibility.
                 </p>
-                <Link href="/student-management" className="mt-4 inline-block text-xs font-semibold text-purple-600 dark:text-purple-400">
+                <Link
+                  href="/student-management"
+                  className="mt-4 inline-block text-xs font-semibold text-purple-600 dark:text-purple-400"
+                >
                   Check Student Portal Features →
                 </Link>
               </div>
@@ -156,6 +168,7 @@ export default function AttendanceManagementPage() {
         </section>
 
         {/* Related Interconnected Modules */}
+        <ModuleWorkflow path="/attendance-management" />
         <RelatedModules
           currentPath="/attendance-management"
           title="Related Attendance & Administration Features"

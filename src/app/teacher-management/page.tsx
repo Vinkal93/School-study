@@ -1,3 +1,4 @@
+import { ModuleWorkflow } from "@/components/marketing/ModuleWorkflow";
 import type { Metadata } from "next";
 import Link from "next/link";
 import {
@@ -14,14 +15,9 @@ import {
 import { MarketingHeader, RelatedModules } from "@/components/marketing";
 import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import { Footer } from "@/components/footer";
-import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
+import { constructPublicMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
 
-export const metadata: Metadata = constructMetadata({
-  title: "Teacher Management & Classroom Assignment Software",
-  description:
-    "Manage teachers and classes in one place. Provision faculty accounts, assign homeroom classes, allocate subject responsibilities, and streamline attendance workflows.",
-  canonicalUrl: "/teacher-management",
-});
+export const metadata: Metadata = constructPublicMetadata("/teacher-management");
 
 export default function TeacherManagementPage() {
   const breadcrumbData = [
@@ -34,8 +30,7 @@ export default function TeacherManagementPage() {
       "@context": "https://schema.org",
       "@type": "WebPage",
       name: "Manage Teachers and Classes in One Place",
-      description:
-        "Faculty management and classroom assignment software for modern schools.",
+      description: "Faculty management and classroom assignment software for modern schools.",
       url: `${siteConfig.url}/teacher-management`,
       publisher: {
         "@type": "Organization",
@@ -50,7 +45,7 @@ export default function TeacherManagementPage() {
     <div className="min-h-screen bg-white dark:bg-gray-950 text-slate-900 dark:text-slate-100 font-sans">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
       />
       <MarketingHeader currentPath="/teacher-management" />
       <Breadcrumbs items={breadcrumbData} />
@@ -69,7 +64,8 @@ export default function TeacherManagementPage() {
             </h1>
 
             <p className="mt-6 text-base sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed">
-              Equip your faculty with a clutter-free digital workspace to mark daily attendance, review assigned student directories, and broadcast announcements.
+              Equip your faculty with a clutter-free digital workspace to mark daily attendance,
+              review assigned student directories, and broadcast announcements.
             </p>
 
             <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
@@ -98,7 +94,8 @@ export default function TeacherManagementPage() {
                 How School Study Simplifies Teacher Administration
               </h2>
               <p className="mt-3 text-sm sm:text-base text-slate-600 dark:text-slate-400">
-                Built to empower teachers so they can spend more time teaching and less time doing paperwork.
+                Built to empower teachers so they can spend more time teaching and less time doing
+                paperwork.
               </p>
             </div>
 
@@ -112,9 +109,13 @@ export default function TeacherManagementPage() {
                   Teacher Accounts & Credentials
                 </h3>
                 <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                  School administrators add faculty members with name, email, phone, and subjects. The platform automatically generates secure login credentials.
+                  School administrators add faculty members with name, email, phone, and subjects.
+                  The platform automatically generates secure login credentials.
                 </p>
-                <Link href="/school-management" className="mt-4 inline-block text-xs font-semibold text-purple-600 dark:text-purple-400">
+                <Link
+                  href="/school-management"
+                  className="mt-4 inline-block text-xs font-semibold text-purple-600 dark:text-purple-400"
+                >
                   Manage via School Management System →
                 </Link>
               </div>
@@ -128,9 +129,13 @@ export default function TeacherManagementPage() {
                   Class & Subject Allocation
                 </h3>
                 <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Assign specific classes and divisions (e.g. Class 8-B) to teachers. Designated class teachers get direct access to their assigned student roster.
+                  Assign specific classes and divisions (e.g. Class 8-B) to teachers. Designated
+                  class teachers get direct access to their assigned student roster.
                 </p>
-                <Link href="/student-management" className="mt-4 inline-block text-xs font-semibold text-blue-600 dark:text-blue-400">
+                <Link
+                  href="/student-management"
+                  className="mt-4 inline-block text-xs font-semibold text-blue-600 dark:text-blue-400"
+                >
                   Explore Student Management Profiles →
                 </Link>
               </div>
@@ -144,9 +149,13 @@ export default function TeacherManagementPage() {
                   Fast Classroom Roll-Call
                 </h3>
                 <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Teachers open their mobile browser in class, mark attendance for their students with single clicks, and submit instantly to the school database.
+                  Teachers open their mobile browser in class, mark attendance for their students
+                  with single clicks, and submit instantly to the school database.
                 </p>
-                <Link href="/attendance-management" className="mt-4 inline-block text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                <Link
+                  href="/attendance-management"
+                  className="mt-4 inline-block text-xs font-semibold text-emerald-600 dark:text-emerald-400"
+                >
                   Review Daily Attendance Workflows →
                 </Link>
               </div>
@@ -155,6 +164,7 @@ export default function TeacherManagementPage() {
         </section>
 
         {/* Related Interconnected Modules */}
+        <ModuleWorkflow path="/teacher-management" />
         <RelatedModules
           currentPath="/teacher-management"
           title="Related Educational Management Modules"

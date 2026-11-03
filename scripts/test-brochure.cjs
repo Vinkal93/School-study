@@ -80,7 +80,8 @@ console.log("✓ src/app/brochure/page.tsx verified.");
 // 6. Verify Navigation & Integration
 console.log("6. Verifying navigation and sitemap integration...");
 const sitemapContent = fs.readFileSync(path.join(root, "src", "app", "sitemap.ts"), "utf8");
-assert.ok(sitemapContent.includes('"/brochure"'), "sitemap.ts must contain /brochure");
+const publicPagesContent = fs.readFileSync(path.join(root, "src", "lib", "seo", "pages.ts"), "utf8");
+assert.ok(sitemapContent.includes("publicPages") && publicPagesContent.includes('"/brochure"'), "The sitemap's public page catalogue must include /brochure; test:seo verifies the generated URLs");
 
 const proxyContent = fs.readFileSync(path.join(root, "src", "proxy.ts"), "utf8");
 assert.ok(proxyContent.includes('"/brochure"'), "proxy.ts must allow /brochure in publicRoutes");

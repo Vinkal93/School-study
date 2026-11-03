@@ -1,3 +1,4 @@
+import { ModuleWorkflow } from "@/components/marketing/ModuleWorkflow";
 import type { Metadata } from "next";
 import Link from "next/link";
 import {
@@ -13,14 +14,9 @@ import {
 import { MarketingHeader, RelatedModules } from "@/components/marketing";
 import { Breadcrumbs } from "@/components/common/Breadcrumbs";
 import { Footer } from "@/components/footer";
-import { constructMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
+import { constructPublicMetadata, siteConfig, getBreadcrumbSchema } from "@/lib/seo";
 
-export const metadata: Metadata = constructMetadata({
-  title: "Student Management Software & Portal",
-  description:
-    "Student management made simple. Maintain student profiles, unique admission numbers, class sections, and transparent student attendance portals.",
-  canonicalUrl: "/student-management",
-});
+export const metadata: Metadata = constructPublicMetadata("/student-management");
 
 export default function StudentManagementPage() {
   const breadcrumbData = [
@@ -33,8 +29,7 @@ export default function StudentManagementPage() {
       "@context": "https://schema.org",
       "@type": "WebPage",
       name: "Student Management Made Simple",
-      description:
-        "Comprehensive student information management software for schools.",
+      description: "Comprehensive student information management software for schools.",
       url: `${siteConfig.url}/student-management`,
       publisher: {
         "@type": "Organization",
@@ -49,7 +44,7 @@ export default function StudentManagementPage() {
     <div className="min-h-screen bg-white dark:bg-gray-950 text-slate-900 dark:text-slate-100 font-sans">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
       />
       <MarketingHeader currentPath="/student-management" />
       <Breadcrumbs items={breadcrumbData} />
@@ -68,7 +63,8 @@ export default function StudentManagementPage() {
             </h1>
 
             <p className="mt-6 text-base sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed">
-              Organize student records, manage class assignments, and give students direct access to their daily attendance and announcements.
+              Organize student records, manage class assignments, and give students direct access to
+              their daily attendance and announcements.
             </p>
 
             <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
@@ -111,9 +107,13 @@ export default function StudentManagementPage() {
                   Student Profiles & Admission Numbers
                 </h3>
                 <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Store complete student records including full name, roll number, unique admission ID, class, section, guardian names, and contact phone numbers.
+                  Store complete student records including full name, roll number, unique admission
+                  ID, class, section, guardian names, and contact phone numbers.
                 </p>
-                <Link href="/school-management" className="mt-4 inline-block text-xs font-semibold text-blue-600 dark:text-blue-400">
+                <Link
+                  href="/school-management"
+                  className="mt-4 inline-block text-xs font-semibold text-blue-600 dark:text-blue-400"
+                >
                   Manage via School Management System →
                 </Link>
               </div>
@@ -127,9 +127,13 @@ export default function StudentManagementPage() {
                   Class & Section Organization
                 </h3>
                 <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Easily filter and organize students by grade and division (e.g. Class 10-A, 10-B), with quick search across names and admission IDs.
+                  Easily filter and organize students by grade and division (e.g. Class 10-A, 10-B),
+                  with quick search across names and admission IDs.
                 </p>
-                <Link href="/teacher-management" className="mt-4 inline-block text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+                <Link
+                  href="/teacher-management"
+                  className="mt-4 inline-block text-xs font-semibold text-indigo-600 dark:text-indigo-400"
+                >
                   View Assigned Faculty Desks →
                 </Link>
               </div>
@@ -143,9 +147,13 @@ export default function StudentManagementPage() {
                   Dedicated Student Portal
                 </h3>
                 <p className="mt-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Students log in with their assigned credentials or admission number to monitor their monthly attendance percentage and campus circulars.
+                  Students log in with their assigned credentials or admission number to monitor
+                  their monthly attendance percentage and campus circulars.
                 </p>
-                <Link href="/attendance-management" className="mt-4 inline-block text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                <Link
+                  href="/attendance-management"
+                  className="mt-4 inline-block text-xs font-semibold text-emerald-600 dark:text-emerald-400"
+                >
                   Check Real-Time Attendance Logs →
                 </Link>
               </div>
@@ -154,6 +162,7 @@ export default function StudentManagementPage() {
         </section>
 
         {/* Related Interconnected Modules */}
+        <ModuleWorkflow path="/student-management" />
         <RelatedModules
           currentPath="/student-management"
           title="Interconnected Platform Workflows"
