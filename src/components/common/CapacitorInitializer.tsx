@@ -24,10 +24,10 @@ export function CapacitorInitializer() {
     // 2. Setup Global Native Download Interceptor for blobs & exports
     const cleanupDownloads = setupGlobalDownloadInterceptor();
 
-    // 3. Configure Status Bar with Light Theme and White Background
+    // 3. Configure Transparent Edge-to-Edge Status Bar (Top Notch)
     try {
+      StatusBar.setOverlaysWebView({ overlay: true }).catch(() => {});
       StatusBar.setStyle({ style: Style.Light }).catch(() => {});
-      StatusBar.setBackgroundColor({ color: "#ffffff" }).catch(() => {});
     } catch {}
 
     // 4. Smoothly Fade Out Native Splash Screen (eliminates black/white flashes)

@@ -679,6 +679,8 @@ export async function restoreStudent(
   if (effectiveUserId) {
     await updateDoc(doc(db, COLLECTIONS.USERS, effectiveUserId), {
       status: "active",
+      deletedAt: null,
+      statusChangeReason: "Administrative restore",
       updatedAt: serverTimestamp(),
     }).catch(() => {});
   }

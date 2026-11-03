@@ -11,10 +11,14 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.view.View;
+import android.view.Window;
+import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.URLUtil;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -24,28 +28,31 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // 1. Create High-Priority Notification Channel for FCM & Local Alerts
+        // 1. Enable Full Edge-to-Edge: Transparent Status Bar (Top Notch) & Transparent Bottom Safe Area / Navigation Bar
+        setupEdgeToEdgeTransparentSystemBars();
+
+        // 2. Create High-Priority Notification Channel for FCM & Local Alerts
         createNotificationChannel();
 
         if (this.bridge != null && this.bridge.getWebView() != null) {
             WebView webView = this.bridge.getWebView();
 
-            // 2. Prevent White/Black Flashes & Ensure Smooth Native Appearance
-            webView.setBackgroundColor(Color.WHITE);
+            // 3. Prevent White/Black Flashes & Ensure Smooth Native Appearance with Transparent Background
+            webView.setBackgroundColor(Color.TRANSPARENT);
             webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
 
-            // 3. Enable cookies and third-party cookies for seamless Firebase and API auth
+            // 4. Enable cookies and third-party cookies for seamless Firebase and API auth
             CookieManager cookieManager = CookieManager.getInstance();
             cookieManager.setAcceptCookie(true);
             cookieManager.setAcceptThirdPartyCookies(webView, true);
 
-            // 4. Enable DOM storage and caching for persistent client-side state
+            // 5. Enable DOM storage and caching for persistent client-side state
             WebSettings settings = webView.getSettings();
             settings.setDomStorageEnabled(true);
             settings.setDatabaseEnabled(true);
             settings.setCacheMode(WebSettings.LOAD_DEFAULT);
 
-            // 5. Seamless file and PDF downloads handling via Android DownloadManager
+            // 6. Seamless file and PDF downloads handling via Android DownloadManager
             webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
                 try {
                     DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
@@ -73,6 +80,41 @@ public class MainActivity extends BridgeActivity {
                     } catch (Exception ignored) {}
                 }
             });
+        }
+    }
+
+    private void setupEdgeToEdgeTransparentSystemBars() {
+        Window window = getWindow();
+        if (window == null) return;
+
+        // Allow window to draw behind both status bar (notch) and bottom navigation bar
+        WindowCompat.setDecorFitsSystemWindows(window, false);
+
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS | WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+
+        // Set fully transparent status bar & navigation bar
+        window.setStatusBarColor(Color.TRANSPARENT);
+        window.setNavigationBarColor(Color.TRANSPARENT);
+
+        // Android 10+ (API 29+): Disable contrast enforcement so navigation bar is 100% transparent without any gray scrim
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.setStatusBarContrastEnforced(false);
+            window.setNavigationBarContrastEnforced(false);
+        }
+
+        // Android 9+ (API 28+): Extend window into display cutout / notch area
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            WindowManager.LayoutParams layoutParams = window.getAttributes();
+            layoutParams.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            window.setAttributes(layoutParams);
+        }
+
+        // Configure system bar icons to be clearly visible against light content
+        WindowInsetsControllerCompat insetsController = WindowCompat.getInsetsController(window, window.getDecorView());
+        if (insetsController != null) {
+            insetsController.setAppearanceLightStatusBars(true);
+            insetsController.setAppearanceLightNavigationBars(true);
         }
     }
 
