@@ -78,7 +78,7 @@ import { getFirebaseDb } from "@/lib/firebase/client";
 import { doc, setDoc } from "firebase/firestore";
 
 export default function SuperAdminPricingPage() {
-  const { profile } = useAuth();
+  const { profile, firebaseUser } = useAuth();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [activeVersions, setActiveVersions] = useState<Record<string, PlanVersion>>({});
   const [features, setFeatures] = useState<FeatureDefinition[]>([]);
@@ -954,9 +954,28 @@ export default function SuperAdminPricingPage() {
     e.preventDefault();
     setSavingGst(true);
     try {
-      const updated = await updateGstSettings(gstSettings, profile?.email || "super_admin");
-      setGstSettings(updated);
-      toast.success("GST Tax settings saved successfully!");
+      const token = await firebaseUser?.getIdToken();
+      const res = await fetch("/api/super-admin/pricing/gst", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          gstEnabled: gstSettings.gstEnabled,
+          gstPercentage: Number(gstSettings.gstPercentage) || 0,
+          gstin: gstSettings.gstin || "",
+          actorId: profile?.email || "super_admin",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to save GST settings.");
+      }
+      setGstSettings(data.settings);
+      toast.success(
+        `GST tax configuration saved successfully! Rate: ${data.settings.gstPercentage}% (${data.settings.gstEnabled ? "Active" : "Disabled"})`
+      );
     } catch (err: any) {
       toast.error("Failed to save GST settings.");
     } finally {
@@ -1692,15 +1711,31 @@ export default function SuperAdminPricingPage() {
                       onChange={(e) => setGstSettings({ ...gstSettings, gstPercentage: Number(e.target.value) })}
                       className="w-full px-3.5 py-2.5 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
+                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                      <span className="text-[10px] text-gray-500 font-semibold">Presets:</span>
+                      {[0, 5, 12, 18, 28].map((rate) => (
+                        <button
+                          type="button"
+                          key={rate}
+                          onClick={() => setGstSettings({ ...gstSettings, gstPercentage: rate, gstEnabled: rate > 0 })}
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                            gstSettings.gstPercentage === rate
+                              ? "bg-emerald-600 text-white shadow-xs"
+                              : "bg-gray-200 dark:bg-slate-800 text-gray-700 dark:text-gray-300 hover:bg-gray-300"
+                          }`}
+                        >
+                          {rate}%{rate === 18 ? " (Standard)" : rate === 0 ? " (Exempt)" : ""}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
-                      GSTIN Registration Number *
+                      GSTIN Registration Number (Optional)
                     </label>
                     <input
                       type="text"
-                      required
                       value={gstSettings.gstin}
                       onChange={(e) => setGstSettings({ ...gstSettings, gstin: e.target.value.toUpperCase() })}
                       className="w-full px-3.5 py-2.5 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"

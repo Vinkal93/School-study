@@ -48,7 +48,7 @@ import { fetchFullUserProfileDetails } from "@/lib/services/super-admin.service"
 import { getAllSchools } from "@/lib/services/school.service";
 import { ROLE_PERMISSIONS } from "@/lib/permissions";
 import { getFirebaseDb } from "@/lib/firebase/client";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import type {
   AppUser,
   School,
@@ -112,6 +112,7 @@ export default function UserProfileInspectorPage() {
     dob: "",
     className: "",
     sectionName: "",
+    photoUrl: "",
   });
 
   const loadUserData = async () => {
@@ -144,6 +145,7 @@ export default function UserProfileInspectorPage() {
         dob: (data.user as any)?.dob || "",
         className: data.academicProfile?.className || (data.user as any)?.className || "",
         sectionName: data.academicProfile?.sectionName || (data.user as any)?.sectionName || "",
+        photoUrl: (data.user as any)?.photoURL || (data.user as any)?.photoUrl || (data.user as any)?.avatar || data.academicProfile?.photoUrl || "",
       });
     } catch (err: any) {
       console.error("User profile load failed:", err);
@@ -289,10 +291,31 @@ export default function UserProfileInspectorPage() {
             reason
           );
         } else if (payload.action === "UPDATE_PROFILE") {
-          await updateDoc(doc(db, "users", user.uid), {
-            ...payload.profileUpdates,
+          const profileUpdates = { ...payload.profileUpdates };
+          const photo = profileUpdates.photoUrl;
+          const updates: any = {
+            ...profileUpdates,
             updatedAt: serverTimestamp(),
-          });
+          };
+          if (photo) {
+            updates.photoURL = photo;
+            updates.photoUrl = photo;
+          }
+          await updateDoc(doc(db, "users", user.uid), updates);
+
+          // Synchronize to school subcollections so teacher/student profiles update everywhere
+          if (user.schoolId) {
+            const syncPayload = {
+              ...(photo ? { photoUrl: photo, photoURL: photo } : {}),
+              name: profileUpdates.name || user.name,
+              updatedAt: serverTimestamp(),
+            };
+            if (user.role === "teacher" || (user.role as string) === "staff") {
+              await setDoc(doc(db, "schools", user.schoolId, "teachers", user.uid), syncPayload, { merge: true }).catch(() => {});
+            } else if (user.role === "student") {
+              await setDoc(doc(db, "schools", user.schoolId, "students", user.uid), syncPayload, { merge: true }).catch(() => {});
+            }
+          }
         } else if (payload.action === "DELETE_USER") {
           await deleteDoc(doc(db, "users", user.uid));
         }
@@ -454,8 +477,16 @@ export default function UserProfileInspectorPage() {
       <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
           <div className="flex items-start gap-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 font-bold text-xl dark:bg-blue-950/50 dark:text-blue-400 border border-blue-200/60">
-              {(user.name || user.email || "U").slice(0, 2).toUpperCase()}
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 font-bold text-xl dark:bg-blue-950/50 dark:text-blue-400 border border-blue-200/60 overflow-hidden relative shadow-xs">
+              {((user as any)?.photoURL || (user as any)?.photoUrl || (user as any)?.avatar) ? (
+                <img
+                  src={(user as any).photoURL || (user as any).photoUrl || (user as any).avatar}
+                  alt={user.name || "User"}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                (user.name || user.email || "U").slice(0, 2).toUpperCase()
+              )}
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2.5">
@@ -1279,6 +1310,26 @@ export default function UserProfileInspectorPage() {
                   value={editForm.email}
                   className="mt-1 w-full rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500 dark:border-gray-800 dark:bg-gray-950"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  Profile Photo URL (Real-time sync to all devices)
+                </label>
+                <div className="flex items-center gap-2 mt-1">
+                  <input
+                    type="url"
+                    value={editForm.photoUrl || ""}
+                    onChange={(e) => setEditForm((p) => ({ ...p, photoUrl: e.target.value }))}
+                    placeholder="https://... image URL"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  />
+                  {editForm.photoUrl && (
+                    <div className="h-9 w-9 shrink-0 rounded-full overflow-hidden border border-gray-200 dark:border-gray-700">
+                      <img src={editForm.photoUrl} alt="Preview" className="h-full w-full object-cover" />
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div>

@@ -62,7 +62,34 @@ export async function POST(request: Request) {
       });
     }
 
-    // 2. Single Portal Version Update
+    // 2. Attendance System Version Update
+    if (action === "updateAttendance" || portal === "attendanceSystem") {
+      const targetAttendance = body.attendanceSystem === "classic" || version === "classic" ? "classic" : "smart_swipe";
+      const { updateAttendanceSystemVersion } = await import("@/lib/services/portal-ui.service");
+      await updateAttendanceSystemVersion(targetAttendance, { uid: actorUid, name: actorEmail });
+
+      await createBillingAuditLog(
+        actorUid,
+        "super_admin",
+        "MANUAL_ACCESS_CHANGE",
+        "accessPolicy",
+        "attendanceSystem",
+        {
+          actionType: "ATTENDANCE_SYSTEM_VERSION_CHANGED",
+          toVersion: targetAttendance,
+          timestamp: new Date().toISOString(),
+        }
+      ).catch(() => {});
+
+      const updatedSettings = await getPortalUISettings();
+      return NextResponse.json({
+        success: true,
+        message: `Attendance system successfully set to ${targetAttendance === "smart_swipe" ? "Smart Swipe Attendance 3.0" : "Classic List"}.`,
+        settings: updatedSettings,
+      });
+    }
+
+    // 3. Single Portal Version Update
     if (!portal || !VALID_PORTAL_KEYS.includes(portal)) {
       return NextResponse.json(
         { error: `Invalid portal key. Allowed: ${VALID_PORTAL_KEYS.join(", ")}` },

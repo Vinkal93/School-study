@@ -9,11 +9,13 @@ export type PortalUIVersion = "classic" | "new" | "liquid_glass";
 
 export type PortalKey = "schoolAdmin" | "teacher" | "student" | "superAdmin" | "landingPage";
 
+export type AttendanceSystemVersion = "smart_swipe" | "classic";
+
 export interface PortalUIHistoryItem {
   id: string;
-  portal: PortalKey;
-  from: PortalUIVersion;
-  to: PortalUIVersion;
+  portal: PortalKey | "attendanceSystem";
+  from: string;
+  to: string;
   changedAt: string;
   changedByUid: string;
   changedByName: string;
@@ -25,6 +27,7 @@ export interface PortalUISettings {
   student: PortalUIVersion;
   superAdmin: PortalUIVersion;
   landingPage: PortalUIVersion;
+  attendanceSystem?: AttendanceSystemVersion;
   updatedAt?: any;
   updatedByUid?: string;
   updatedByName?: string;
@@ -37,6 +40,7 @@ export const DEFAULT_PORTAL_UI_SETTINGS: PortalUISettings = {
   student: "classic",
   superAdmin: "classic",
   landingPage: "classic",
+  attendanceSystem: "smart_swipe",
   history: [],
 };
 

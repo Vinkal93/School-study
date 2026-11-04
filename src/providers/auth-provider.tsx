@@ -15,7 +15,7 @@ import {
 } from "@/lib/services/auth.service";
 import { getUserProfile, isSuperAdminEmail } from "@/lib/services/user.service";
 import { getFirebaseAuth, getFirebaseDb } from "@/lib/firebase/client";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc, updateDoc, onSnapshot } from "firebase/firestore";
 import type { AppUser } from "@/types";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -57,6 +57,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [impersonatedUser, setImpersonatedUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [bootstrapState, setBootstrapState] = useState<AuthBootstrapState>("AUTH_BOOTSTRAPPING");
+
+  // Real-time synchronization of active user profile (photoURL, avatar, name, status) across all devices
+  useEffect(() => {
+    if (!firebaseUser?.uid) return;
+    try {
+      const db = getFirebaseDb();
+      if (!db) return;
+      const unsub = onSnapshot(
+        doc(db, "users", firebaseUser.uid),
+        (snap: any) => {
+          if (!snap.exists()) return;
+          const liveData = snap.data();
+          setOriginalProfile((prev) => {
+            if (!prev) return prev;
+            const livePhoto = liveData.photoURL || liveData.photoUrl || liveData.avatar;
+            const merged: AppUser = {
+              ...prev,
+              ...liveData,
+              photoURL: livePhoto || (prev as any)?.photoURL,
+              photoUrl: livePhoto || (prev as any).photoUrl,
+              avatar: liveData.avatar || livePhoto || (prev as any).avatar,
+              name: liveData.name || prev.name,
+              status: liveData.status || prev.status,
+            };
+            try {
+              localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        },
+        (err: any) => {
+          console.warn("[AuthProvider] Realtime profile listener notice:", err);
+        }
+      );
+
+      return () => unsub();
+    } catch (e) {
+      console.warn("[AuthProvider] Could not initialize realtime profile sync:", e);
+    }
+  }, [firebaseUser?.uid]);
 
   // Restore cached session and impersonation session on client mount
   useEffect(() => {

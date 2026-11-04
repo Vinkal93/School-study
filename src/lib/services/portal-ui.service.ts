@@ -50,6 +50,7 @@ export function subscribeToPortalUISettings(
             student: normalizePortalVersion(data.student),
             superAdmin: normalizePortalVersion(data.superAdmin),
             landingPage: normalizePortalVersion(data.landingPage),
+            attendanceSystem: data.attendanceSystem === "classic" ? "classic" : "smart_swipe",
             updatedAt: data.updatedAt || null,
             updatedByUid: data.updatedByUid || "",
             updatedByName: data.updatedByName || "",
@@ -92,6 +93,7 @@ export async function getPortalUISettings(): Promise<PortalUISettings> {
         student: normalizePortalVersion(data.student),
         superAdmin: normalizePortalVersion(data.superAdmin),
         landingPage: normalizePortalVersion(data.landingPage),
+        attendanceSystem: data.attendanceSystem === "classic" ? "classic" : "smart_swipe",
         updatedAt: data.updatedAt || null,
         updatedByUid: data.updatedByUid || "",
         updatedByName: data.updatedByName || "",
@@ -149,6 +151,46 @@ export async function updatePortalUIVersion(
 /**
  * Emergency Rollback: Instantly resets all 4 portals to Classic.
  */
+/**
+ * Updates the Global Attendance System version (Smart Swipe 3.0 vs Classic).
+ */
+export async function updateAttendanceSystemVersion(
+  version: "smart_swipe" | "classic",
+  operator: { uid: string; name: string }
+): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) throw new Error("Database unavailable");
+
+  const current = await getPortalUISettings();
+  const fromVersion = current.attendanceSystem || "smart_swipe";
+
+  const historyItem: PortalUIHistoryItem = {
+    id: `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    portal: "attendanceSystem",
+    from: fromVersion,
+    to: version,
+    changedAt: new Date().toISOString(),
+    changedByUid: operator.uid,
+    changedByName: operator.name || "Super Admin",
+  };
+
+  const updatedHistory = [historyItem, ...(current.history || [])].slice(0, 50);
+
+  const docRef = doc(db, SETTINGS_COLLECTION, PORTAL_UI_DOC);
+  await setDoc(
+    docRef,
+    {
+      ...current,
+      attendanceSystem: version,
+      updatedAt: serverTimestamp(),
+      updatedByUid: operator.uid,
+      updatedByName: operator.name || "Super Admin",
+      history: updatedHistory,
+    },
+    { merge: true }
+  );
+}
+
 export async function resetAllPortalsToClassic(
   operator: { uid: string; name: string }
 ): Promise<void> {

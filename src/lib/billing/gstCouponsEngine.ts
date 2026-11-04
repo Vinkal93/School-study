@@ -85,8 +85,8 @@ export const COUPONS_COLLECTION = "coupons";
  * Default GST configuration fallback if not set in DB.
  */
 export const DEFAULT_GST_SETTINGS: BillingGstSettings = {
-  gstEnabled: false,
-  gstPercentage: 0,
+  gstEnabled: true,
+  gstPercentage: 18,
   gstin: "",
   updatedAt: new Date().toISOString(),
 };
@@ -97,7 +97,8 @@ let inMemoryGstOverride: BillingGstSettings | null = null;
  * Retrieves platform GST settings from siteSettings/billing_settings.
  */
 export async function getGstSettings(): Promise<BillingGstSettings> {
-  if (inMemoryGstOverride) {
+  // In test environment, allow in-memory override for fast unit tests
+  if (inMemoryGstOverride && process.env.NODE_ENV === "test") {
     return inMemoryGstOverride;
   }
 

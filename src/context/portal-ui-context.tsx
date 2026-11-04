@@ -16,11 +16,13 @@ import {
   PortalUIVersion,
   PortalUISettings,
   DEFAULT_PORTAL_UI_SETTINGS,
+  AttendanceSystemVersion,
 } from "@/types/portal-ui";
 import {
   subscribeToPortalUISettings,
   updatePortalUIVersion,
   resetAllPortalsToClassic,
+  updateAttendanceSystemVersion,
 } from "@/lib/services/portal-ui.service";
 import { doc, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
@@ -37,6 +39,8 @@ interface PortalUIContextType {
   getPortalVersion: (portal: PortalKey) => PortalUIVersion;
   setPortalVersion: (portal: PortalKey, version: PortalUIVersion) => Promise<void>;
   setInstituteAdminPortalUiMode: (schoolId: string, mode: "modern" | "classic") => Promise<void>;
+  attendanceSystem: AttendanceSystemVersion;
+  setAttendanceSystemVersion: (version: AttendanceSystemVersion) => Promise<void>;
   resetAllToClassic: () => Promise<void>;
 }
 
@@ -235,6 +239,42 @@ export function PortalUIProvider({ children }: { children: ReactNode }) {
     }
   }, [profile, firebaseUser]);
 
+
+  const setAttendanceSystemVersionHandler = useCallback(
+    async (version: AttendanceSystemVersion) => {
+      const operatorObj = {
+        uid: profile?.uid || firebaseUser?.uid || "super_admin",
+        name: profile?.name || profile?.email || "Super Admin",
+      };
+      let savedViaApi = false;
+      try {
+        const token = await firebaseUser?.getIdToken();
+        const res = await fetch("/api/super-admin/portal-ui", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            action: "updateAttendance",
+            version,
+            operator: operatorObj.name,
+          }),
+        });
+        if (res.ok) {
+          savedViaApi = true;
+        }
+      } catch (apiErr) {
+        console.warn("Server API updateAttendance notice, using client SDK fallback:", apiErr);
+      }
+
+      if (!savedViaApi) {
+        await updateAttendanceSystemVersion(version, operatorObj);
+      }
+    },
+    [profile, firebaseUser]
+  );
+
   return (
     <PortalUIContext.Provider
       value={{
@@ -249,6 +289,8 @@ export function PortalUIProvider({ children }: { children: ReactNode }) {
         getPortalVersion,
         setPortalVersion,
         setInstituteAdminPortalUiMode,
+        attendanceSystem: settings.attendanceSystem || "smart_swipe",
+        setAttendanceSystemVersion: setAttendanceSystemVersionHandler,
         resetAllToClassic: resetAllToClassicHandler,
       }}
     >
@@ -276,6 +318,8 @@ export function usePortalUI() {
       getPortalVersion: () => "classic" as PortalUIVersion,
       setPortalVersion: async () => {},
       setInstituteAdminPortalUiMode: async () => {},
+      attendanceSystem: "smart_swipe" as AttendanceSystemVersion,
+      setAttendanceSystemVersion: async () => {},
       resetAllToClassic: async () => {},
     };
   }

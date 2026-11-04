@@ -25,6 +25,9 @@ import {
   ExternalLink,
   Globe,
   Droplets,
+  Smartphone,
+  Layers,
+  CheckSquare,
 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -34,8 +37,27 @@ export default function PortalUIVersionPage() {
     settings,
     loading,
     setPortalVersion,
+    setAttendanceSystemVersion,
     resetAllToClassic,
   } = usePortalUI();
+
+
+  const isSmartSwipeActive = settings.attendanceSystem !== "classic";
+  const handleSwitchAttendanceSystem = async (version: "smart_swipe" | "classic") => {
+    setSaving(true);
+    try {
+      await setAttendanceSystemVersion(version);
+      toast.success(
+        version === "smart_swipe"
+          ? "Smart Swipe Attendance System 3.0 activated platform-wide!"
+          : "Switched back to Classic Register Attendance."
+      );
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to update attendance system.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // Confirmation dialog state
   const [confirmModal, setConfirmModal] = useState<{
@@ -285,6 +307,178 @@ export default function PortalUIVersionPage() {
         })}
       </div>
 
+
+      {/* 3.5 Specialized Module Systems: Attendance 3.0 Control */}
+      <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 sm:p-8 shadow-sm space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20 shrink-0">
+              <Smartphone className="h-6 w-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white">
+                  Student Attendance Module Experience
+                </h2>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                  Version 3.0
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-2xl leading-relaxed">
+                Control the real-time student attendance interface used across Teacher and Admin portals. Seamlessly switch between the modern Tinder-style gesture card deck (Smart Swipe 3.0) and the classic desktop register table.
+              </p>
+            </div>
+          </div>
+
+          <div className="self-start sm:self-center">
+            {isSmartSwipeActive ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-sm">
+                <Layers className="h-3.5 w-3.5" />
+                Smart Swipe 3.0 Active
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                <CheckSquare className="h-3.5 w-3.5 text-blue-500" />
+                Classic Register Active
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Attendance Option Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Card 1: Smart Swipe 3.0 */}
+          <div
+            onClick={() => !saving && handleSwitchAttendanceSystem("smart_swipe")}
+            className={`relative rounded-2xl border-2 p-5 transition-all cursor-pointer flex flex-col justify-between ${
+              isSmartSwipeActive
+                ? "border-blue-600 bg-blue-50/40 dark:bg-blue-950/30 shadow-md ring-2 ring-blue-500/20"
+                : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 hover:border-slate-300 dark:hover:border-slate-700"
+            }`}
+          >
+            {isSmartSwipeActive && (
+              <div className="absolute -top-3 right-4 px-2.5 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-black uppercase tracking-wider shadow-sm flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" />
+                Active Default
+              </div>
+            )}
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/60 text-blue-600 dark:text-blue-400">
+                  <Layers className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
+                    Smart Swipe Attendance 3.0
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    Material 3 • 3D Card Stack • Tinder-style Gestures • Live Undo
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                Full-featured interactive mobile attendance deck. Swipe Right to mark Present (green), Swipe Left to mark Absent (red), Mark Late, fluid haptics, instant Undo pill, real-time counters, and dual-mode list toggle.
+              </p>
+
+              <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] font-semibold text-slate-500">
+                <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
+                  Swipe Right: Present
+                </span>
+                <span className="px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300">
+                  Swipe Left: Absent
+                </span>
+                <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300">
+                  Instant Undo
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+              <span className="text-xs font-bold text-blue-600 dark:text-blue-400">
+                {isSmartSwipeActive ? "Currently Enabled" : "Click to Enable 3.0"}
+              </span>
+              <button
+                type="button"
+                disabled={saving || isSmartSwipeActive}
+                className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  isSmartSwipeActive
+                    ? "bg-blue-600 text-white shadow-xs cursor-default"
+                    : "bg-slate-900 dark:bg-slate-700 text-white hover:bg-slate-800 cursor-pointer"
+                }`}
+              >
+                {isSmartSwipeActive ? "Active" : "Activate 3.0"}
+              </button>
+            </div>
+          </div>
+
+          {/* Card 2: Classic Register */}
+          <div
+            onClick={() => !saving && handleSwitchAttendanceSystem("classic")}
+            className={`relative rounded-2xl border-2 p-5 transition-all cursor-pointer flex flex-col justify-between ${
+              !isSmartSwipeActive
+                ? "border-blue-600 bg-blue-50/40 dark:bg-blue-950/30 shadow-md ring-2 ring-blue-500/20"
+                : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 hover:border-slate-300 dark:hover:border-slate-700"
+            }`}
+          >
+            {!isSmartSwipeActive && (
+              <div className="absolute -top-3 right-4 px-2.5 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-black uppercase tracking-wider shadow-sm flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" />
+                Active Default
+              </div>
+            )}
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                  <CheckSquare className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
+                    Classic Register Attendance
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    Traditional Desktop Table • Grid Roster • Standard Radios
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                Traditional tabular attendance register for high-density administrative data entry, bulk status assignment, and quick desktop audits.
+              </p>
+
+              <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] font-semibold text-slate-500">
+                <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                  Tabular Roster
+                </span>
+                <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                  Bulk Actions
+                </span>
+                <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                  High Density
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-600 dark:text-slate-400">
+                {!isSmartSwipeActive ? "Currently Enabled" : "Click to Revert to Classic"}
+              </span>
+              <button
+                type="button"
+                disabled={saving || !isSmartSwipeActive}
+                className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  !isSmartSwipeActive
+                    ? "bg-blue-600 text-white shadow-xs cursor-default"
+                    : "bg-slate-900 dark:bg-slate-700 text-white hover:bg-slate-800 cursor-pointer"
+                }`}
+              >
+                {!isSmartSwipeActive ? "Active" : "Activate Classic"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* 4. Audit & Change History */}
       <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm space-y-4">
         <div className="flex items-center gap-2">
@@ -320,7 +514,7 @@ export default function PortalUIVersionPage() {
                     </td>
                     <td className="py-3 px-3">
                       <span className="inline-flex items-center gap-1 font-semibold">
-                        <span className="capitalize">{getVersionLabel(item.from)}</span>
+                        <span className="capitalize">{getVersionLabel(item.from as PortalUIVersion)}</span>
                         <ArrowRight className="h-3 w-3 text-slate-400" />
                         <span className={`capitalize font-bold ${
                           item.to === "liquid_glass"
@@ -329,7 +523,7 @@ export default function PortalUIVersionPage() {
                             ? "text-indigo-600 dark:text-indigo-400"
                             : "text-emerald-600 dark:text-emerald-400"
                         }`}>
-                          {getVersionLabel(item.to)}
+                          {getVersionLabel(item.to as PortalUIVersion)}
                         </span>
                       </span>
                     </td>

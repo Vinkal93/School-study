@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
-import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, updateDoc, serverTimestamp, setDoc, collection, getDocs } from "firebase/firestore";
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
 import { getFirebaseDb, getFirebaseAuth } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/utils/constants";
@@ -194,8 +194,43 @@ export default function SchoolAdminSettingsPage() {
           feeReceiptPrefix: feePrefix,
           updatedAt: serverTimestamp(),
         });
+
+        // Synchronize academicYears subcollection so all modules & student enrollment recognize this active session
+        try {
+          const yearsSnap = await getDocs(collection(db, "schools", schoolId, "academicYears"));
+          const matching = yearsSnap.docs.find(
+            (d: any) => d.data().name?.includes(academicYear) || d.id === academicYear
+          );
+
+          if (matching) {
+            for (const d of yearsSnap.docs) {
+              const shouldBeCurrent = d.id === matching.id;
+              if (d.data().isCurrent !== shouldBeCurrent) {
+                await updateDoc(d.ref, { isCurrent: shouldBeCurrent, updatedAt: serverTimestamp() }).catch(() => {});
+              }
+            }
+          } else {
+            for (const d of yearsSnap.docs) {
+              if (d.data().isCurrent) {
+                await updateDoc(d.ref, { isCurrent: false, updatedAt: serverTimestamp() }).catch(() => {});
+              }
+            }
+            const [sYr, eYr] = academicYear.split("-").map((s) => s ? s.trim() : "");
+            const newYearRef = doc(collection(db, "schools", schoolId, "academicYears"));
+            await setDoc(newYearRef, {
+              name: `Academic Year ${academicYear}`,
+              startDate: `${sYr || "2026"}-04-01`,
+              endDate: `${eYr || "2027"}-03-31`,
+              isCurrent: true,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+          }
+        } catch (syncErr) {
+          console.warn("Could not sync academicYears subcollection:", syncErr);
+        }
       }
-      toast.success("School operational preferences updated!");
+      toast.success("School operational preferences & active academic session updated!");
     } catch (err: any) {
       toast.error(err.message || "Failed to update preferences.");
     } finally {
