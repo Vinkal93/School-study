@@ -1194,6 +1194,7 @@ export async function getActivePlanVersion(planId: string): Promise<PlanVersion 
     DEFAULT_STATIC_PLAN_VERSIONS[normId] ||
     DEFAULT_STATIC_PLAN_VERSIONS[planId] ||
     DEFAULT_STATIC_PLAN_VERSIONS[`${normId}_v1`] ||
+    DEFAULT_STATIC_PLAN_VERSIONS[`${planId}_v1`] ||
     null;
 
   if (typeof window === "undefined") {
@@ -1201,19 +1202,29 @@ export async function getActivePlanVersion(planId: string): Promise<PlanVersion 
       const { getSafeAdminDb } = await import("@/lib/firebase/admin");
       const adminDb = getSafeAdminDb();
       if (adminDb) {
-        const snap = await adminDb.collection(BILLING_COLLECTIONS.PLAN_VERSIONS).where("planId", "==", normId).get();
-        const versions = snap.docs.map(d => ({ id: d.id, ...d.data() }) as PlanVersion);
-        const active = versions.filter(v => v.status === "ACTIVE").sort((a,b) => b.version-a.version)[0];
-        if (active) return active;
+        let snap = await adminDb.collection(BILLING_COLLECTIONS.PLAN_VERSIONS).where("planId", "==", normId).get();
+        if (snap.empty && normId !== planId) {
+          snap = await adminDb.collection(BILLING_COLLECTIONS.PLAN_VERSIONS).where("planId", "==", planId).get();
+        }
+        if (!snap.empty) {
+          const versions = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }) as PlanVersion);
+          const active = versions.filter(v => v.status === "ACTIVE").sort((a, b) => b.version - a.version)[0];
+          if (active) return active;
+        }
       }
     } catch {}
   }
   const db = getFirebaseDb();
   if (db) {
     try {
-      const snap = await getDocs(
+      let snap = await getDocs(
         query(collection(db, BILLING_COLLECTIONS.PLAN_VERSIONS), where("planId", "==", normId))
       );
+      if (snap.empty && normId !== planId) {
+        snap = await getDocs(
+          query(collection(db, BILLING_COLLECTIONS.PLAN_VERSIONS), where("planId", "==", planId))
+        );
+      }
 
       if (!snap.empty) {
         const versions = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as PlanVersion[];
@@ -1440,10 +1451,27 @@ export async function updatePlan(
     currentPlan = { id: planSnap.id, ...planSnap.data() } as Plan;
   }
 
-  const currentVersion = await getActivePlanVersion(planId);
+  let currentVersion = await getActivePlanVersion(planId);
 
   if (!currentVersion) {
-    throw new Error(`Active version for plan "${planId}" not found.`);
+    const norm = normalizePlanId(planId);
+    currentVersion = {
+      id: `${norm}_v${currentPlan.version || 1}`,
+      planId: currentPlan.id || norm,
+      version: currentPlan.version || 1,
+      monthlyPrice: (currentPlan.limits as any)?.monthlyPrice ?? 0,
+      annualPrice: (currentPlan.limits as any)?.annualPrice ?? 0,
+      currency: "INR",
+      status: "ACTIVE",
+      features: currentPlan.features || [],
+      featureAccess: currentPlan.featureAccess || {},
+      limits: currentPlan.limits || {},
+      effectiveFrom: currentPlan.createdAt || new Date().toISOString(),
+      effectiveUntil: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      publishedAt: new Date().toISOString(),
+    } as unknown as PlanVersion;
   }
 
   if (input.isPopular) {

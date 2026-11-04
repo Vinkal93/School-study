@@ -93,22 +93,45 @@ export async function createSchoolWithAdmin(
  * Fetches all registered schools.
  */
 export async function getAllSchools(): Promise<School[]> {
-  const db = getFirebaseDb();
   try {
+    const db = getFirebaseDb();
     const snapshot = await getDocs(collection(db, COLLECTIONS.SCHOOLS));
-    const schools = snapshot.docs.map((docSnap) => {
-      const data = docSnap.data();
-      return {
-        id: docSnap.id,
-        name: data.name || data.schoolName || data.title || docSnap.id,
-        ...data,
-      };
-    }) as School[];
-    return schools.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    if (snapshot && !snapshot.empty) {
+      const schools = snapshot.docs.map((docSnap) => {
+        const data = docSnap.data();
+        return {
+          id: docSnap.id,
+          name: data.name || data.schoolName || data.title || docSnap.id,
+          ...data,
+        };
+      }) as School[];
+      return schools.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    }
   } catch (err) {
-    console.warn("getAllSchools fetch notice:", err);
-    return [];
+    console.warn("getAllSchools client notice, falling back to server API:", err);
   }
+
+  // Graceful fallback to server API (/api/super-admin/schools) with Admin SDK authority
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/super-admin/schools");
+      if (res.ok) {
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : data.schools || [];
+        if (list.length > 0) {
+          return list.map((s: any) => ({
+            id: s.id,
+            name: s.name || s.schoolName || s.title || s.id,
+            ...s,
+          })).sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""));
+        }
+      }
+    } catch (apiErr) {
+      console.warn("getAllSchools server API fallback notice:", apiErr);
+    }
+  }
+
+  return [];
 }
 
 /**
@@ -163,7 +186,11 @@ export function subscribeToAllSchools(callback: (schools: School[]) => void): ()
       emitMerged();
     },
     (err) => {
-      console.error("subscribeToAllSchools snapshot error:", err);
+      console.warn("subscribeToAllSchools snapshot notice:", err);
+      // Fallback: load schools via server-aware API if realtime listener encounters permission latency
+      getAllSchools().then((schools) => {
+        if (schools && schools.length > 0) callback(schools);
+      }).catch(() => {});
     }
   );
 
@@ -279,38 +306,82 @@ export interface SuperAdminStats {
  * Fetches platform stats for Super Admin Overview Dashboard.
  */
 export async function getSuperAdminStats(): Promise<SuperAdminStats> {
-  const db = getFirebaseDb();
-  const schoolsSnapshot = await getDocs(collection(db, COLLECTIONS.SCHOOLS));
-  const usersSnapshot = await getDocs(collection(db, COLLECTIONS.USERS));
+  let schoolsSnapshot: any = null;
+  let usersSnapshot: any = null;
 
-  let activeSchools = 0;
-  let inactiveSchools = 0;
+  try {
+    const db = getFirebaseDb();
+    [schoolsSnapshot, usersSnapshot] = await Promise.all([
+      getDocs(collection(db, COLLECTIONS.SCHOOLS)),
+      getDocs(collection(db, COLLECTIONS.USERS)),
+    ]);
+  } catch (directErr) {
+    console.warn("getSuperAdminStats direct Firestore notice, attempting server API aggregation:", directErr);
+  }
 
-  schoolsSnapshot.forEach((docSnap) => {
-    const data = docSnap.data();
-    if (data.status === "active") {
-      activeSchools++;
-    } else {
-      inactiveSchools++;
+  if (schoolsSnapshot && !schoolsSnapshot.empty) {
+    let activeSchools = 0;
+    let inactiveSchools = 0;
+
+    schoolsSnapshot.forEach((docSnap: any) => {
+      const data = docSnap.data();
+      if (data.status === "active") {
+        activeSchools++;
+      } else {
+        inactiveSchools++;
+      }
+    });
+
+    let totalStudents = 0;
+    let totalTeachers = 0;
+
+    if (usersSnapshot && !usersSnapshot.empty) {
+      usersSnapshot.forEach((docSnap: any) => {
+        const data = docSnap.data();
+        if (data.role === "student") totalStudents++;
+        if (data.role === "teacher") totalTeachers++;
+      });
     }
-  });
 
-  let totalStudents = 0;
-  let totalTeachers = 0;
+    return {
+      totalSchools: schoolsSnapshot.size,
+      activeSchools,
+      inactiveSchools,
+      totalStudents,
+      totalTeachers,
+      totalUsers: usersSnapshot ? usersSnapshot.size : 0,
+    };
+  }
 
-  usersSnapshot.forEach((docSnap) => {
-    const data = docSnap.data();
-    if (data.role === "student") totalStudents++;
-    if (data.role === "teacher") totalTeachers++;
-  });
+  // Graceful server API fallback (/api/super-admin/schools)
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/super-admin/schools");
+      if (res.ok) {
+        const data = await res.json();
+        const schools = Array.isArray(data) ? data : data.schools || [];
+        const active = schools.filter((s: any) => s.status === "active").length;
+        return {
+          totalSchools: schools.length,
+          activeSchools: active,
+          inactiveSchools: schools.length - active,
+          totalStudents: 0,
+          totalTeachers: 0,
+          totalUsers: schools.length,
+        };
+      }
+    } catch (apiErr) {
+      console.warn("getSuperAdminStats server fallback notice:", apiErr);
+    }
+  }
 
   return {
-    totalSchools: schoolsSnapshot.size,
-    activeSchools,
-    inactiveSchools,
-    totalStudents,
-    totalTeachers,
-    totalUsers: usersSnapshot.size,
+    totalSchools: 0,
+    activeSchools: 0,
+    inactiveSchools: 0,
+    totalStudents: 0,
+    totalTeachers: 0,
+    totalUsers: 0,
   };
 }
 
