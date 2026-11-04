@@ -455,6 +455,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (userProfile.role === "student") {
               localStorage.setItem("ss_last_student_uid", fbUser.uid);
               localStorage.setItem("ss_last_student_email", userProfile.email);
+            } else if (userProfile.role === "school_admin" || userProfile.role === "super_admin") {
+              localStorage.removeItem("ss_last_student_uid");
+              localStorage.removeItem("ss_last_student_email");
             }
           }
         } catch (storageErr) {

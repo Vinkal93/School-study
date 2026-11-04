@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { AlertCircle, ArrowRight, ShieldAlert } from "lucide-react";
+import { AlertCircle, ArrowRight, LogOut, ShieldAlert } from "lucide-react";
 import type { UserRole } from "@/types";
 
 interface PortalWrongRoleModalProps {
   attemptedPortalName: string;
   actualRole: UserRole;
   onDismiss: () => void;
+  onSignOut?: () => void;
 }
 
 const ROLE_INFO_MAP: Record<
@@ -16,23 +17,23 @@ const ROLE_INFO_MAP: Record<
 > = {
   super_admin: {
     name: "Platform Administrator",
-    loginRoute: "/login",
-    buttonText: "Return to Home",
+    loginRoute: "/super-admin",
+    buttonText: "Go to Super Admin Portal",
   },
   school_admin: {
     name: "School Administrator",
-    loginRoute: "/admin/login",
-    buttonText: "Go to School Admin Login",
+    loginRoute: "/admin",
+    buttonText: "Go to School Admin Portal",
   },
   teacher: {
     name: "Teacher / Faculty",
-    loginRoute: "/teacher/login",
-    buttonText: "Go to Teacher Login",
+    loginRoute: "/teacher",
+    buttonText: "Go to Teacher Portal",
   },
   student: {
     name: "Student",
-    loginRoute: "/student/login",
-    buttonText: "Go to Student Login",
+    loginRoute: "/student",
+    buttonText: "Go to Student Portal",
   },
 };
 
@@ -40,6 +41,7 @@ export function PortalWrongRoleModal({
   attemptedPortalName,
   actualRole,
   onDismiss,
+  onSignOut,
 }: PortalWrongRoleModalProps) {
   const correctInfo = ROLE_INFO_MAP[actualRole] || {
     name: "another account type",
@@ -58,16 +60,26 @@ export function PortalWrongRoleModal({
             Different Account Detected
           </h4>
           <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
-            This account is registered as a{" "}
+            You are currently signed in as a{" "}
             <strong className="font-semibold text-gray-900 dark:text-white">
               {correctInfo.name}
-            </strong>{" "}
-            and does not have access to the {attemptedPortalName}.
+            </strong>
+            . This session does not have access to the {attemptedPortalName}.
           </p>
         </div>
       </div>
 
       <div className="pt-2 flex flex-col sm:flex-row items-center gap-2">
+        {onSignOut && (
+          <button
+            type="button"
+            onClick={onSignOut}
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-red-700 active:scale-95 transition-all"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            <span>Sign Out & Switch Account</span>
+          </button>
+        )}
         <Link
           href={correctInfo.loginRoute}
           className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-amber-700 active:scale-95 transition-all"
@@ -80,7 +92,7 @@ export function PortalWrongRoleModal({
           onClick={onDismiss}
           className="w-full sm:w-auto px-3 py-2 text-xs font-semibold text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-white"
         >
-          Try another email
+          Dismiss
         </button>
       </div>
     </div>
