@@ -292,6 +292,7 @@ export async function POST(request: Request) {
         status: "active",
         setupCompleted: false,
         setupStep: 1,
+        onboardingStatus: "PLAN_SELECTION_REQUIRED",
         adminUid: user.uid,
         adminName,
         adminEmail,

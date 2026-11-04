@@ -22,6 +22,15 @@ export type SubscriptionStatus =
   | "COMPLETED"
   | "CANCELLED";
 
+export type SubscriptionOnboardingStatus =
+  | "REGISTRATION_PENDING"
+  | "PLAN_SELECTION_REQUIRED"
+  | "CHECKOUT_PENDING"
+  | "SUBSCRIPTION_PENDING_VERIFICATION"
+  | "PLAN_ACTIVE"
+  | "PAYMENT_ACTION_REQUIRED"
+  | "ONBOARDING_COMPLETE";
+
 export type AccessMode =
   | "FULL_ACCESS"
   | "EXPIRING"
