@@ -150,7 +150,7 @@ export async function fulfillSuccessfulPayment(orderId: string, razorpayPaymentI
     tx.update(orderRef, { status: "PAID", razorpayPaymentId, updatedAt: nowIso });
     tx.set(payRef, payment); tx.set(invRef, invoice); tx.set(financeRef, financeTransaction);
     tx.set(subRef, { ...subscription, ...(order.razorpaySubscriptionId ? { razorpaySubscriptionId: order.razorpaySubscriptionId, autoRenew: true } : {}) }, { merge: true });
-    tx.update(schoolRef, { planId: order.planId, plan: order.planId, billingCycle: order.billingCycle, subscriptionStatus: subscription.status, subscriptionExpiresAt: expiresAt, updatedAt: nowIso });
+    tx.update(schoolRef, { planId: order.planId, plan: order.planId, billingCycle: order.billingCycle, subscriptionStatus: subscription.status, subscriptionExpiresAt: expiresAt, onboardingStatus: "ONBOARDING_COMPLETE", updatedAt: nowIso });
     tx.set(db.collection(BILLING_COLLECTIONS.AUDIT_LOGS).doc(`fulfill_${order.id}`), { action: "PAYMENT_FULFILLED", schoolId: order.schoolId, orderId: order.id, paymentId, actorId: order.userId, source, createdAt: nowIso });
     return { success: true, order: { ...order, status: "PAID" as const }, payment, subscription, invoice, financeTransaction, alreadyFulfilled: false };
   });

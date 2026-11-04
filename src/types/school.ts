@@ -27,7 +27,17 @@ export interface School {
   primaryContactEmail?: string;
   setupCompleted?: boolean;
   setupStep?: number;
-  onboardingStatus?: "not_started" | "in_progress" | "completed";
+  onboardingStatus?:
+    | "not_started"
+    | "in_progress"
+    | "completed"
+    | "REGISTRATION_PENDING"
+    | "PLAN_SELECTION_REQUIRED"
+    | "CHECKOUT_PENDING"
+    | "SUBSCRIPTION_PENDING_VERIFICATION"
+    | "PLAN_ACTIVE"
+    | "PAYMENT_ACTION_REQUIRED"
+    | "ONBOARDING_COMPLETE";
   onboardingCurrentStep?: number;
   onboardingCompletedSteps?: number[];
   onboardingCompleted?: boolean;

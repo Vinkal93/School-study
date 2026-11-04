@@ -4,3 +4,4 @@ export * from "./subscriptions";
 export * from "./signature";
 export * from "./webhooks";
 export * from "./errors";
+export * from "./planSync";

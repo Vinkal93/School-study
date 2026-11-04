@@ -153,3 +153,135 @@ export async function triggerRazorpayCheckout(input: CheckoutOptionsInput): Prom
     if (onError) onError(error.message || "Failed to initiate payment checkout.");
   }
 }
+
+
+export interface SubscriptionCheckoutOptionsInput {
+  planId: string;
+  billingCycle: "monthly" | "annual";
+  couponCode?: string;
+  schoolId: string;
+  userId?: string;
+  prefillData?: {
+    name?: string;
+    email?: string;
+    phone?: string;
+  };
+  onSuccess?: (subscriptionId: string) => void;
+  onError?: (errorMsg: string) => void;
+}
+
+/**
+ * Client-Side Razorpay Recurring Subscription Checkout Trigger.
+ * Calls POST /api/billing/subscriptions/create server-side to resolve synced provider plan,
+ * then opens genuine Razorpay Checkout modal linked to the subscription_id.
+ * On callback, automatically submits cryptographic parameters to /api/billing/subscriptions/verify.
+ */
+export async function triggerRazorpaySubscriptionCheckout(
+  input: SubscriptionCheckoutOptionsInput
+): Promise<void> {
+  const { planId, billingCycle, couponCode, schoolId, prefillData, onSuccess, onError } = input;
+
+  try {
+    const { getFirebaseAuth } = await import("@/lib/firebase/client");
+    const currentUser = getFirebaseAuth().currentUser;
+    if (!currentUser) throw new Error("Please sign in before starting subscription checkout.");
+    const authorization = `Bearer ${await currentUser.getIdToken()}`;
+
+    // 1. Ensure Razorpay Checkout script is loaded
+    const scriptLoaded = await loadRazorpayScript();
+    if (!scriptLoaded) {
+      const msg = "Unable to load Razorpay SDK. Please check your internet connection.";
+      if (onError) onError(msg);
+      return;
+    }
+
+    // 2. Call server-side recurring subscription creation API
+    const subRes = await safeFetchJson("/api/billing/subscriptions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: authorization },
+      body: JSON.stringify({
+        schoolId,
+        planId,
+        billingCycle,
+        couponCode: couponCode || undefined,
+      }),
+    });
+
+    if (!subRes.ok || !subRes.data || !subRes.data.subscriptionId) {
+      const msg =
+        subRes.error ||
+        subRes.data?.error ||
+        `Failed to initiate subscription checkout (HTTP ${subRes.status}).`;
+      console.error("[RazorpaySubscriptionCheckout] Subscription creation failed:", subRes);
+      if (onError) onError(msg);
+      return;
+    }
+
+    const subData = subRes.data;
+    const activeKey = subData.keyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
+
+    if (!activeKey) {
+      const msg = "Razorpay Key ID is not configured on the server.";
+      if (onError) onError(msg);
+      return;
+    }
+
+    // 3. Mount Razorpay Checkout modal for recurring subscription
+    const options: any = {
+      key: activeKey,
+      subscription_id: subData.subscriptionId,
+      name: "School Study",
+      description: `${subData.plan?.name || "School Subscription"} (${billingCycle.toUpperCase()})`,
+      handler: async function (response: any) {
+        try {
+          // Cryptographically verify recurring payment and subscription on backend
+          const verifyRes = await safeFetchJson("/api/billing/subscriptions/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: authorization },
+            body: JSON.stringify({
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_subscription_id: response.razorpay_subscription_id,
+              razorpay_signature: response.razorpay_signature,
+              schoolId,
+            }),
+          });
+
+          if (verifyRes.ok && verifyRes.data?.success) {
+            if (onSuccess) onSuccess(subData.subscriptionId);
+            window.location.href = verifyRes.data.redirectUrl || "/admin";
+          } else {
+            const err =
+              verifyRes.error ||
+              verifyRes.data?.error ||
+              "Subscription signature verification failed.";
+            if (onError) onError(err);
+            window.location.href = `/billing/failed?reason=${encodeURIComponent(err)}`;
+          }
+        } catch (err: any) {
+          if (onError) onError(err.message || "Subscription verification error");
+          window.location.href = `/billing/failed?reason=${encodeURIComponent("Subscription verification network error")}`;
+        }
+      },
+      modal: {
+        ondismiss: function () {
+          console.log("[RazorpaySubscriptionCheckout] Checkout dismissed before completing mandate.");
+          if (onError) onError("Checkout was cancelled before completing mandate setup.");
+        },
+      },
+      prefill: {
+        name: prefillData?.name || "",
+        email: prefillData?.email || "",
+        contact: prefillData?.phone || "",
+      },
+      theme: {
+        color: "#2563EB",
+      },
+    };
+
+    const rzp = new (window as any).Razorpay(options);
+    rzp.open();
+  } catch (error: any) {
+    console.error("[RazorpaySubscriptionCheckout] Unexpected Error:", error);
+    if (onError) onError(error.message || "Failed to initiate subscription checkout.");
+  }
+}

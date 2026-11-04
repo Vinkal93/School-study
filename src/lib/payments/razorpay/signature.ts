@@ -61,3 +61,54 @@ export function verifyRazorpaySignature(
     razorpay_signature: signature,
   });
 }
+
+export interface VerifySubscriptionSignatureInput {
+  razorpay_payment_id: string;
+  razorpay_subscription_id: string;
+  razorpay_signature: string;
+  secret?: string;
+}
+
+/**
+ * Server-side HMAC-SHA256 signature verification for Razorpay subscription callback.
+ * Formula: HMAC_SHA256(razorpay_payment_id + "|" + razorpay_subscription_id, secret)
+ */
+export function verifyRazorpaySubscriptionSignature(input: VerifySubscriptionSignatureInput): boolean {
+  const { razorpay_payment_id, razorpay_subscription_id, razorpay_signature } = input;
+  const secret = input.secret || process.env.RAZORPAY_KEY_SECRET || "";
+
+  if (!razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature) {
+    return false;
+  }
+
+  if (!secret) {
+    console.warn("Subscription signature verification: RAZORPAY_KEY_SECRET not configured.");
+    return false;
+  }
+
+  const payload = `${razorpay_payment_id}|${razorpay_subscription_id}`;
+  const expectedSignature = crypto
+    .createHmac("sha256", secret)
+    .update(payload)
+    .digest("hex");
+
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(expectedSignature, "utf-8"),
+      Buffer.from(razorpay_signature, "utf-8")
+    );
+  } catch (err) {
+    return false;
+  }
+}
+
+export async function verifyRazorpaySubscriptionSignatureAsync(
+  input: VerifySubscriptionSignatureInput
+): Promise<boolean> {
+  if (input.secret) {
+    return verifyRazorpaySubscriptionSignature(input);
+  }
+  const creds = await loadRazorpayCredentials();
+  const secret = creds.keySecret || process.env.RAZORPAY_KEY_SECRET || "";
+  return verifyRazorpaySubscriptionSignature({ ...input, secret });
+}

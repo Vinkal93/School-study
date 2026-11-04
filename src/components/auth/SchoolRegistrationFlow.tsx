@@ -24,6 +24,7 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { toast } from "sonner";
 import { Spinner } from "@/components/common/Spinner";
 import { useAuth } from "@/hooks/use-auth";
+import { ChooseYourPlanModal } from "@/components/billing/ChooseYourPlanModal";
 import { triggerConfettiSideCannons } from "@/components/magicui/confetti";
 
 export function SchoolRegistrationFlow() {
@@ -375,9 +376,9 @@ export function SchoolRegistrationFlow() {
                   <span className="font-bold text-slate-900 dark:text-white">{adminEmail}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-500 dark:text-slate-400">Default Plan:</span>
+                  <span className="font-bold text-slate-500 dark:text-slate-400">Plan Selection:</span>
                   <span className="font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded">
-                    Free Starter (10 Students / 2 Teachers)
+                    Choose in Next Step (Free or Paid)
                   </span>
                 </div>
               </div>
@@ -395,7 +396,7 @@ export function SchoolRegistrationFlow() {
                 ) : (
                   <>
                     <Check className="w-4 h-4" />
-                    <span>Complete Registration & Go to Dashboard</span>
+                    <span>Complete Registration & Choose Plan</span>
                   </>
                 )}
               </button>
