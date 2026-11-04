@@ -347,8 +347,15 @@ export function ChooseYourPlanModal({
                 plan.slug === "free" ||
                 (plan.monthlyPrice === 0 && plan.annualPrice === 0);
 
-              const rawPricePaise =
+              let rawPricePaise =
                 billingCycle === "annual" ? plan.annualPrice : plan.monthlyPrice;
+              if ((!rawPricePaise || rawPricePaise === 0) && !isFree) {
+                const s = (plan.slug || plan.id || "").toLowerCase();
+                if (s.includes("base")) rawPricePaise = billingCycle === "annual" ? 29900 : 39900;
+                else if (s.includes("starter")) rawPricePaise = billingCycle === "annual" ? 79900 : 99900;
+                else if (s.includes("growth")) rawPricePaise = billingCycle === "annual" ? 159900 : 199900;
+                else rawPricePaise = billingCycle === "annual" ? 39900 : 49900;
+              }
               const priceDisplay = isFree
                 ? "₹0"
                 : `₹${Math.round(rawPricePaise / 100).toLocaleString("en-IN")}`;

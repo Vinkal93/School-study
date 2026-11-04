@@ -229,11 +229,24 @@ export function RechargeModal({
   // Plan metadata resolution with robust fallback across version, paise, and rupees
   const resolvePrice = (p: any, cycle: "monthly" | "annual"): number => {
     if (!p) return 0;
+    const isFree = p.id === "plan_free" || p.slug === "free" || p.name?.toLowerCase().includes("free");
+    if (isFree) return 0;
+
     let m = p.monthlyPrice ?? p.pricePerMonth ?? p.limits?.monthlyPrice ?? (p.price ? p.price * 100 : 0);
     // If m was given in rupees (e.g. 299 or 499), convert to paise
     if (m > 0 && m < 1000) m = m * 100;
     let a = p.annualPrice ?? p.limits?.annualPrice ?? (m > 0 ? Math.round(m * 0.8) : 0);
     if (a > 0 && a < 1000) a = a * 100;
+
+    // Guaranteed fallbacks for known paid tiers if prices were not populated
+    if (m === 0) {
+      const slug = (p.slug || p.id || "").toLowerCase();
+      if (slug.includes("base")) { m = 39900; a = 29900; }
+      else if (slug.includes("starter")) { m = 99900; a = 79900; }
+      else if (slug.includes("growth")) { m = 199900; a = 159900; }
+      else { m = 49900; a = 39900; }
+    }
+
     if (cycle === "annual") {
       return a > 0 ? a : (m > 0 ? Math.round(m * 0.8) : 0);
     }
@@ -479,6 +492,11 @@ export function RechargeModal({
                         <span className="text-base font-black text-slate-900 dark:text-white">
                           {displayPrice}
                         </span>
+                        {!isFree && billingCycle === "annual" && (
+                          <span className="block text-[10px] text-emerald-600 dark:text-emerald-400 font-bold mt-0.5">
+                            {formatPaise(aPrice * 12)} / year
+                          </span>
+                        )}
                       </div>
 
                       <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">

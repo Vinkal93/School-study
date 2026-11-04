@@ -1711,6 +1711,23 @@ export default function SuperAdminPricingPage() {
                       onChange={(e) => setGstSettings({ ...gstSettings, gstPercentage: Number(e.target.value) })}
                       className="w-full px-3.5 py-2.5 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
+                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                      <span className="text-[10px] text-gray-500 font-semibold">Presets:</span>
+                      {[0, 5, 12, 18, 28].map((rate) => (
+                        <button
+                          type="button"
+                          key={rate}
+                          onClick={() => setGstSettings({ ...gstSettings, gstPercentage: rate, gstEnabled: rate > 0 })}
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                            gstSettings.gstPercentage === rate
+                              ? "bg-emerald-600 text-white shadow-xs"
+                              : "bg-gray-200 dark:bg-slate-800 text-gray-700 dark:text-gray-300 hover:bg-gray-300"
+                          }`}
+                        >
+                          {rate}%{rate === 18 ? " (Standard)" : rate === 0 ? " (Exempt)" : ""}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   <div>

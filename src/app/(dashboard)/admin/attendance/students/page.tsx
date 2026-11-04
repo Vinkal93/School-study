@@ -36,6 +36,9 @@ import { getStudentsByClassAndSection } from "@/lib/services/student.service";
 import type { SchoolClass, AttendanceRecord, AttendanceStatus, StudentProfile } from "@/types";
 import { toast } from "sonner";
 import { useEntitlement } from "@/context/EntitlementContext";
+import { usePortalUI } from "@/context/portal-ui-context";
+import { SmartSwipeAttendance } from "@/components/attendance/SmartSwipeAttendance";
+import { Layers, CheckSquare } from "lucide-react";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
 
 export default function StudentsAttendancePage() {
@@ -55,6 +58,17 @@ export default function StudentsAttendancePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const { settings } = usePortalUI();
+  const [activeMode, setActiveMode] = useState<"smart_swipe" | "classic">("smart_swipe");
+
+  useEffect(() => {
+    if (settings.attendanceSystem === "classic") {
+      setActiveMode("classic");
+    } else {
+      setActiveMode("smart_swipe");
+    }
+  }, [settings.attendanceSystem]);
+
 
   // Load Classes
   useEffect(() => {
@@ -368,6 +382,60 @@ export default function StudentsAttendancePage() {
           </Link>
         </div>
 
+        {/* Attendance System Experience Mode Switcher */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 px-4 shadow-sm">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/60 text-blue-600 dark:text-blue-400 shrink-0">
+              <Layers className="h-4.5 w-4.5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black text-slate-900 dark:text-white">
+                  {activeMode === "smart_swipe" ? "Smart Swipe Attendance 3.0" : "Classic Register View"}
+                </span>
+                <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                  activeMode === "smart_swipe"
+                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                    : "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300"
+                }`}>
+                  {activeMode === "smart_swipe" ? "Interactive 3D Deck" : "Table Grid"}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                {activeMode === "smart_swipe"
+                  ? "Swipe Right for Present • Swipe Left for Absent • Live Undo"
+                  : "Traditional tabular roster and bulk administrative actions"}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setActiveMode(activeMode === "smart_swipe" ? "classic" : "smart_swipe")}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white text-xs font-bold transition-all cursor-pointer self-start sm:self-center shrink-0"
+          >
+            {activeMode === "smart_swipe" ? (
+              <>
+                <CheckSquare className="h-3.5 w-3.5" />
+                <span>Switch to Classic Table</span>
+              </>
+            ) : (
+              <>
+                <Layers className="h-3.5 w-3.5 text-blue-400" />
+                <span>Switch to Smart Swipe 3.0</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {activeMode === "smart_swipe" ? (
+          <SmartSwipeAttendance
+            schoolId={schoolId}
+            classes={classes}
+            userRole="school_admin"
+          />
+        ) : (
+          <>
         {/* Top Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
@@ -845,6 +913,8 @@ export default function StudentsAttendancePage() {
               </button>
             </div>
           </div>
+        )}
+          </>
         )}
       </div>
     </EntitlementGate>

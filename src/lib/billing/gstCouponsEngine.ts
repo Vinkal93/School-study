@@ -85,8 +85,8 @@ export const COUPONS_COLLECTION = "coupons";
  * Default GST configuration fallback if not set in DB.
  */
 export const DEFAULT_GST_SETTINGS: BillingGstSettings = {
-  gstEnabled: false,
-  gstPercentage: 0,
+  gstEnabled: true,
+  gstPercentage: 18,
   gstin: "",
   updatedAt: new Date().toISOString(),
 };

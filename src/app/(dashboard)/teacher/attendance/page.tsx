@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
+import { usePortalUI } from "@/context/portal-ui-context";
+import { SmartSwipeAttendance } from "@/components/attendance/SmartSwipeAttendance";
+import { Layers, CheckSquare } from "lucide-react";
 import {
   ClipboardCheck,
   Calendar,
@@ -44,6 +47,17 @@ export default function TeacherAttendancePage() {
   const [loading, setLoading] = useState(true);
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const { settings } = usePortalUI();
+  const [activeMode, setActiveMode] = useState<"smart_swipe" | "classic">("smart_swipe");
+
+  useEffect(() => {
+    if (settings.attendanceSystem === "classic") {
+      setActiveMode("classic");
+    } else {
+      setActiveMode("smart_swipe");
+    }
+  }, [settings.attendanceSystem]);
+
 
   // 1. Initial Load: Teacher Profile & Classes
   useEffect(() => {
