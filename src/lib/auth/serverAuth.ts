@@ -275,6 +275,7 @@ export async function authenticateRequest(request: Request): Promise<AuthValidat
 
 export const KNOWN_SUPER_ADMIN_EMAILS = [
   "vinkal93041@gmail.com",
+  "vinkalp041@gmail.com",
   "vinkal93@gmail.com",
   "sbci224234@gmail.com",
   "superadmin@schoolstudy.com",

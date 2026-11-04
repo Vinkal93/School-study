@@ -1,6 +1,6 @@
 "use client";
 
-import { getRedirectByRole } from "@/lib/utils/redirect-by-role";
+import { getRedirectByRole, normalizeRole } from "@/lib/utils/redirect-by-role";
 import { Suspense, useState, useEffect, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -33,17 +33,30 @@ function AdminLoginForm() {
   const searchParams = useSearchParams();
   const redirectParam = searchParams.get("redirect");
 
-  // Auto-redirect if already logged in
+  // Auto-redirect if already logged in as school administrator
   useEffect(() => {
     if (!loading && firebaseUser && profile?.role) {
-      if (profile.role === "school_admin") {
+      const canonicalRole = normalizeRole(profile.role);
+      if (canonicalRole === "school_admin" || canonicalRole === "super_admin") {
         router.replace(redirectParam || "/admin");
       } else {
-        const targetRoute = getRedirectByRole(profile.role);
-        if (targetRoute) router.replace(targetRoute);
+        // Active session is for a different role (e.g. student or teacher)
+        // DO NOT force-kick the user away from this admin login page.
+        // Surface the warning modal with an option to sign out and log in as admin.
+        setWrongRole(profile.role);
       }
     }
   }, [firebaseUser, profile, loading, redirectParam, router]);
+
+  const handleSignOutCurrentSession = async () => {
+    try {
+      await signOut();
+      setWrongRole(null);
+      toast.success("Previous session cleared. Please sign in with your School Admin credentials.");
+    } catch {
+      toast.error("Failed to clear previous session. Please refresh the page.");
+    }
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -51,17 +64,19 @@ function AdminLoginForm() {
     setWrongRole(null);
 
     try {
-      const profile = await signIn(email, password);
+      const userProfile = await signIn(email, password);
+      const canonicalRole = normalizeRole(userProfile.role);
 
-      // Verify that this user is a School Administrator
-      if (profile.role !== "school_admin") {
-        toast.info(`Signed in as ${profile.name} (${profile.role}). Redirecting to your dashboard...`);
-        const targetRoute = getRedirectByRole(profile.role);
-        router.push(targetRoute || "/admin");
+      // Verify that this user is a School Administrator (or Super Admin)
+      if (canonicalRole !== "school_admin" && canonicalRole !== "super_admin") {
+        setWrongRole(userProfile.role);
+        toast.warning(
+          `Signed in as ${userProfile.name} (${userProfile.role}). Please use School Administrator credentials or switch portals.`
+        );
         return;
       }
 
-      toast.success(`Welcome back, ${profile.name}!`);
+      toast.success(`Welcome back, ${userProfile.name}!`);
       if (redirectParam) {
         router.push(redirectParam);
       } else {
@@ -114,12 +129,13 @@ function AdminLoginForm() {
           </p>
         </div>
 
-        {/* Wrong Role Warning Dialog */}
+        {/* Wrong Role Warning Dialog with instant Sign Out */}
         {wrongRole && (
           <PortalWrongRoleModal
             attemptedPortalName="School Admin Portal"
             actualRole={wrongRole}
             onDismiss={() => setWrongRole(null)}
+            onSignOut={handleSignOutCurrentSession}
           />
         )}
 
