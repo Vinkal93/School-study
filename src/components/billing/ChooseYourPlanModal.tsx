@@ -350,7 +350,7 @@ export function ChooseYourPlanModal({
               let rawPricePaise =
                 billingCycle === "annual" ? plan.annualPrice : plan.monthlyPrice;
               if ((!rawPricePaise || rawPricePaise === 0) && !isFree) {
-                const s = (plan.slug || plan.id || "").toLowerCase();
+                const s = `${plan.slug || ""} ${plan.id || ""} ${plan.name || ""}`.toLowerCase();
                 if (s.includes("base")) rawPricePaise = billingCycle === "annual" ? 29900 : 39900;
                 else if (s.includes("starter")) rawPricePaise = billingCycle === "annual" ? 79900 : 99900;
                 else if (s.includes("growth")) rawPricePaise = billingCycle === "annual" ? 159900 : 199900;
