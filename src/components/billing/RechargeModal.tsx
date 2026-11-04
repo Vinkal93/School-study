@@ -226,13 +226,18 @@ export function RechargeModal({
     setCouponInput("");
   };
 
-  // Plan metadata resolution
+  // Plan metadata resolution with robust fallback across version, paise, and rupees
   const resolvePrice = (p: any, cycle: "monthly" | "annual"): number => {
     if (!p) return 0;
+    let m = p.monthlyPrice ?? p.pricePerMonth ?? p.limits?.monthlyPrice ?? (p.price ? p.price * 100 : 0);
+    // If m was given in rupees (e.g. 299 or 499), convert to paise
+    if (m > 0 && m < 1000) m = m * 100;
+    let a = p.annualPrice ?? p.limits?.annualPrice ?? (m > 0 ? Math.round(m * 0.8) : 0);
+    if (a > 0 && a < 1000) a = a * 100;
     if (cycle === "annual") {
-      return p.annualPrice ?? p.limits?.annualPrice ?? (p.monthlyPrice ? Math.round(p.monthlyPrice * 0.8) : 0);
+      return a > 0 ? a : (m > 0 ? Math.round(m * 0.8) : 0);
     }
-    return p.monthlyPrice ?? p.limits?.monthlyPrice ?? 0;
+    return m;
   };
 
   const currentPlan = plans.find((p) => p.id === currentPlanId);

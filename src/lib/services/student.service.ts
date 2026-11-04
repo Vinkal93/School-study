@@ -248,10 +248,37 @@ export async function createStudentWithAuth(
   if (!academicYearId || ["all", "ay_current", "current"].includes(academicYearId)) {
     const years = await getDocs(collection(db, "schools", schoolId, "academicYears"));
     const current = years.docs.filter(d => d.data().isCurrent === true);
-    if (current.length !== 1) throw new Error("Select one current academic session before admission.");
-    academicYearId = current[0].id;
+    if (current.length === 1) {
+      academicYearId = current[0].id;
+    } else if (current.length > 1) {
+      academicYearId = current[0].id;
+    } else if (years.docs.length > 0) {
+      const schoolSnap = await getDoc(doc(db, "schools", schoolId)).catch(() => null);
+      const schoolSession = schoolSnap?.data()?.currentAcademicYear;
+      const matched = schoolSession ? years.docs.find(d => d.data().name?.includes(schoolSession) || d.id === schoolSession) : null;
+      const targetDoc = matched || years.docs[0];
+      academicYearId = targetDoc.id;
+      updateDoc(targetDoc.ref, { isCurrent: true, updatedAt: serverTimestamp() }).catch(() => {});
+    } else {
+      const schoolSnap = await getDoc(doc(db, "schools", schoolId)).catch(() => null);
+      const sessionName = schoolSnap?.data()?.currentAcademicYear || "2026-2027";
+      const [sYr, eYr] = sessionName.split("-").map((s: string) => s ? s.trim() : "");
+      const newYearRef = doc(collection(db, "schools", schoolId, "academicYears"));
+      await setDoc(newYearRef, {
+        name: `Academic Year ${sessionName}`,
+        startDate: `${sYr || "2026"}-04-01`,
+        endDate: `${eYr || "2027"}-03-31`,
+        isCurrent: true,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      academicYearId = newYearRef.id;
+    }
   }
-  const [year, classroom] = await Promise.all([getDoc(doc(db,"schools",schoolId,"academicYears",academicYearId)), getDoc(doc(db,"schools",schoolId,"classes",input.classId))]);
+  const [year, classroom] = await Promise.all([
+    getDoc(doc(db,"schools",schoolId,"academicYears",academicYearId)),
+    getDoc(doc(db,"schools",schoolId,"classes",input.classId))
+  ]);
   if (!year.exists() || !classroom.exists()) throw new Error("Admission class and academic session must belong to this school.");
   if (!input.name?.trim() || !input.email?.trim() || input.password?.length < 6) throw new Error("Student name, email and a password of at least six characters are required.");
 
@@ -411,6 +438,17 @@ export async function updateStudent(
     ...data,
     updatedAt: serverTimestamp(),
   });
+  if (data.photoUrl) {
+    const snap = await getDoc(studentDocRef).catch(() => null);
+    const effectiveUserId = (data as any).userId || snap?.data()?.userId || studentId;
+    if (effectiveUserId) {
+      await updateDoc(doc(db, "users", effectiveUserId), {
+        photoURL: data.photoUrl,
+        photoUrl: data.photoUrl,
+        updatedAt: serverTimestamp(),
+      }).catch(() => {});
+    }
+  }
 }
 
 /**

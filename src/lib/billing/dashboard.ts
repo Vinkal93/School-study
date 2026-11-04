@@ -30,6 +30,18 @@ export async function getSchoolBillingDashboard(schoolId: string) {
   const effectivePlans = allPlans;
   const versions = await Promise.all(effectivePlans.map(p => getActivePlanVersion(p.id)));
   const planPrices = Object.fromEntries(versions.filter(v => v !== null).map(v => [v.planId, { monthlyPrice: v.monthlyPrice, annualPrice: v.annualPrice, currency: v.currency || "INR" }]));
+  const effectivePlansWithPrices = effectivePlans.map(p => {
+    const v = versions.find(ver => ver?.planId === p.id);
+    const mPrice = v?.monthlyPrice ?? 0;
+    const aPrice = v?.annualPrice ?? (mPrice > 0 ? Math.round(mPrice * 0.8) : 0);
+    return {
+      ...p,
+      monthlyPrice: mPrice,
+      annualPrice: aPrice,
+      pricePerMonth: Math.round(mPrice / 100),
+      currency: v?.currency || "INR",
+    };
+  });
   const readDocument = (name:string) => readDocumentAt(name,schoolId);
   const readRecords = async (name: string) => {
     if (adminDb) { const snap = await adminDb.collection(name).where("schoolId","==",schoolId).get(); return snap.docs.map(d => ({...d.data(),id:d.id})); }
@@ -44,7 +56,7 @@ export async function getSchoolBillingDashboard(schoolId: string) {
   ]);
   return {
     schoolId, subscription, subState: calculateSubscriptionState(subscription, policy), planPrices,
-    plan: resolvedPlan, planVersion: resolvedVersion, allPlans: effectivePlans, entitlement,
+    plan: resolvedPlan, planVersion: resolvedVersion, allPlans: effectivePlansWithPrices, entitlement,
     billingProfile: { billingName: "", schoolName: "", email: "", phone: "", address: "", gstin: "", pan: "", ...billingProfile } as BillingProfileData,
     paymentMethod: paymentMethod as PaymentMethodData | null,
     invoices, payments, subscriptionEvents: [], siteSettings: null,

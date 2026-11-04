@@ -24,7 +24,7 @@ import { toast } from "sonner";
 import type { School } from "@/types";
 import { HelpCenterModal } from "@/components/help/HelpCenterModal";
 import { LogoutConfirmDialog } from "@/components/common/LogoutConfirmDialog";
-import { Avatar, AvatarFallback, AvatarBadge } from "@/components/ui/avatar";
+import { Avatar, AvatarImage, AvatarFallback, AvatarBadge } from "@/components/ui/avatar";
 
 interface ProfileDropdownProps {
   school?: School | null;
@@ -38,6 +38,11 @@ export function ProfileDropdown({ school }: ProfileDropdownProps) {
   const [loggingOut, setLoggingOut] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const triggerButtonRef = useRef<HTMLButtonElement>(null);
+  const avatarUrl =
+    (profile as any)?.photoURL ||
+    (profile as any)?.photoUrl ||
+    (profile as any)?.avatar ||
+    firebaseUser?.photoURL;
   const router = useRouter();
 
   // Close on outside click and Escape key
@@ -174,7 +179,10 @@ export function ProfileDropdown({ school }: ProfileDropdownProps) {
         className="flex items-center gap-2 p-1 sm:px-2.5 sm:py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-all outline-none focus-visible:ring-2 focus-visible:ring-blue-500 active:scale-95 group cursor-pointer"
       >
         {/* Avatar Circle with Online Live Status Badge */}
-        <Avatar size="sm" className="ring-2 ring-blue-500/20 group-hover:ring-blue-500 transition-all">
+        <Avatar size="sm" className="ring-2 ring-blue-500/20 group-hover:ring-blue-500 transition-all overflow-hidden relative">
+          {avatarUrl ? (
+            <AvatarImage src={avatarUrl} alt={displayName} />
+          ) : null}
           <AvatarFallback className="bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-black text-xs">
             {userInitial}
           </AvatarFallback>
@@ -210,8 +218,12 @@ export function ProfileDropdown({ school }: ProfileDropdownProps) {
           {/* Top User Card Header */}
           <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 space-y-2.5">
             <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-black text-sm shadow-sm">
-                {userInitial}
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full overflow-hidden bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-black text-sm shadow-sm relative">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={displayName} className="h-full w-full object-cover" />
+                ) : (
+                  userInitial
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-extrabold text-slate-900 dark:text-white truncate">

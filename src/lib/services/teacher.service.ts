@@ -289,12 +289,16 @@ export async function updateTeacher(
   await setDoc(doc(db, "teachers", canonicalId), payload, { merge: true }).catch(() => {});
 
   const effectiveUserId = (data as any).userId || targetSubSnap?.data()?.userId || canonicalId;
-  if (effectiveUserId && (data.name || data.email || data.phone || data.status)) {
+  if (effectiveUserId && (data.name || data.email || data.phone || data.status || data.photoUrl)) {
     const userUpdate: any = { updatedAt: serverTimestamp() };
     if (data.name) userUpdate.name = data.name;
     if (data.email) userUpdate.email = data.email;
     if (data.phone) userUpdate.phone = data.phone;
     if (data.status) userUpdate.status = data.status === "active" ? "active" : "disabled";
+    if (data.photoUrl) {
+      userUpdate.photoURL = data.photoUrl;
+      userUpdate.photoUrl = data.photoUrl;
+    }
     await updateDoc(doc(db, COLLECTIONS.USERS, effectiveUserId), userUpdate).catch(() => {});
   }
 }

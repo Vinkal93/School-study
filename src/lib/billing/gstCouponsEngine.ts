@@ -97,7 +97,8 @@ let inMemoryGstOverride: BillingGstSettings | null = null;
  * Retrieves platform GST settings from siteSettings/billing_settings.
  */
 export async function getGstSettings(): Promise<BillingGstSettings> {
-  if (inMemoryGstOverride) {
+  // In test environment, allow in-memory override for fast unit tests
+  if (inMemoryGstOverride && process.env.NODE_ENV === "test") {
     return inMemoryGstOverride;
   }
 
