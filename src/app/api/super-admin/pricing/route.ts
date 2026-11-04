@@ -88,7 +88,7 @@ export async function GET() {
  */
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
     const { action, actorId = "super_admin" } = body;
 
     // Duplicate action
@@ -184,7 +184,7 @@ export async function POST(request: Request) {
  */
 export async function PUT(request: Request) {
   try {
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
     const { planId, action, actorId = "super_admin" } = body;
 
     if (!planId) {
@@ -216,6 +216,13 @@ export async function PUT(request: Request) {
     }
 
     // Standard plan update
+    const safeMonthlyPaise = body.monthlyPricePaise !== undefined && body.monthlyPricePaise !== null && !isNaN(Number(body.monthlyPricePaise))
+      ? Math.max(0, Math.round(Number(body.monthlyPricePaise)))
+      : undefined;
+    const safeAnnualPaise = body.annualPricePaise !== undefined && body.annualPricePaise !== null && !isNaN(Number(body.annualPricePaise))
+      ? Math.max(0, Math.round(Number(body.annualPricePaise)))
+      : undefined;
+
     const input: UpdatePlanInput = {
       name: body.name,
       description: body.description,
@@ -223,8 +230,8 @@ export async function PUT(request: Request) {
       isPopular: body.isPopular,
       publicVisible: body.publicVisible,
       status: body.status,
-      monthlyPricePaise: body.monthlyPricePaise !== undefined ? Number(body.monthlyPricePaise) : undefined,
-      annualPricePaise: body.annualPricePaise !== undefined ? Number(body.annualPricePaise) : undefined,
+      monthlyPricePaise: safeMonthlyPaise,
+      annualPricePaise: safeAnnualPaise,
       features: body.features,
       featureAccess: body.featureAccess,
       limits: body.limits,

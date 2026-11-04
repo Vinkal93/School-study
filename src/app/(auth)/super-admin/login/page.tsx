@@ -143,6 +143,16 @@ export default function SuperAdminLoginPage() {
         // ignore
       }
 
+      // Authoritatively force-refresh the Firebase Auth ID Token so that custom claims
+      // ('role: super_admin') are immediately baked into the client token for Firestore rules
+      try {
+        if (firebaseUser) {
+          await firebaseUser.getIdToken(true);
+        }
+      } catch (tokenRefreshErr) {
+        console.warn("Could not force-refresh ID token post-PIN:", tokenRefreshErr);
+      }
+
       toast.success("Security PIN verified! Welcome Super Admin!");
       window.location.href = "/super-admin";
     } catch (error: any) {

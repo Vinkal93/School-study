@@ -132,7 +132,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // Sync session cookie for serverless API authorization (30 days)
         try {
-          const token = await user.getIdToken();
+          const isSuper = isSuperAdminEmail(user.email);
+          // If super admin email, force refresh token to ensure custom claims are present
+          const token = isSuper ? await user.getIdToken(true) : await user.getIdToken();
           if (typeof document !== "undefined") {
             document.cookie = `__session=${token}; path=/; max-age=2592000; SameSite=Lax;`;
           }

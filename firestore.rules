@@ -20,6 +20,15 @@ service cloud.firestore {
         // Check for Super Admin role in cryptographically verified token claims
         request.auth.token.get('role', '') == 'super_admin' ||
         request.auth.token.get('isSuperAdmin', false) == true ||
+        // Check for cryptographically verified Super Admin email in Firebase Auth token
+        (request.auth.token.email != null && request.auth.token.email in [
+          'vinkalp041@gmail.com',
+          'vinkal93041@gmail.com',
+          'vinkal93@gmail.com',
+          'sbci224234@gmail.com',
+          'superadmin@schoolstudy.com',
+          'admin@schoolstudy.com'
+        ]) ||
         // Trusted server-managed identity document in Firestore
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'super_admin')

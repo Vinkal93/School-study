@@ -52,7 +52,7 @@ export function getFirebaseDb(): Firestore {
         // Prevents WebChannel 400 stream disconnects and bfcache drops while loading instantly from IndexedDB
         dbInstance = initializeFirestore(app, {
           ignoreUndefinedProperties: true,
-          experimentalAutoDetectLongPolling: true,
+          experimentalForceLongPolling: true,
           localCache: persistentLocalCache({
             tabManager: persistentMultipleTabManager(),
           }),
