@@ -5,6 +5,7 @@ import { AuthProvider } from "@/providers/auth-provider";
 import { ToastProvider } from "@/providers/toast-provider";
 import { ThemeProvider } from "@/context/theme-context";
 import { GoogleAnalytics } from "@/components/common/GoogleAnalytics";
+import { MicrosoftClarity } from "@/components/common/MicrosoftClarity";
 import { ImpersonationBanner } from "@/components/common/ImpersonationBanner";
 import { EmergencyBanner } from "@/components/common/EmergencyBanner";
 import { AnnouncementBanner } from "@/components/common/AnnouncementBanner";
@@ -59,6 +60,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           Skip to main content
         </a>
         <GoogleAnalytics />
+        <MicrosoftClarity />
         <ThemeProvider>
           <AuthProvider>
             <CapacitorInitializer />
