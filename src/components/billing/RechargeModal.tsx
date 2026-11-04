@@ -240,7 +240,7 @@ export function RechargeModal({
 
     // Guaranteed fallbacks for known paid tiers if prices were not populated
     if (m === 0) {
-      const slug = (p.slug || p.id || "").toLowerCase();
+      const slug = `${p.slug || ""} ${p.id || ""} ${p.name || ""}`.toLowerCase();
       if (slug.includes("base")) { m = 39900; a = 29900; }
       else if (slug.includes("starter")) { m = 99900; a = 79900; }
       else if (slug.includes("growth")) { m = 199900; a = 159900; }

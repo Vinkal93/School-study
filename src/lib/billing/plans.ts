@@ -1125,6 +1125,7 @@ export async function calculatePlanPrice(
 }
 
 export async function getAllPlans(): Promise<Plan[]> {
+  let rawPlans: Plan[] = [];
   if (typeof window === "undefined") {
     try {
       const { getSafeAdminDb } = await import("@/lib/firebase/admin");
@@ -1132,7 +1133,7 @@ export async function getAllPlans(): Promise<Plan[]> {
       if (db) {
         const snap = await db.collection(BILLING_COLLECTIONS.PLANS).get();
         if (!snap.empty) {
-          return snap.docs
+          rawPlans = snap.docs
             .map((d) => ({ id: d.id, ...d.data() } as Plan))
             .filter((p) => p.status === "ACTIVE" && p.publicVisible !== false && !p.isArchived)
             .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
@@ -1140,23 +1141,60 @@ export async function getAllPlans(): Promise<Plan[]> {
       }
     } catch {}
   }
-  const db = getFirebaseDb();
-  if (db) {
-    try {
-      const snap = await getDocs(collection(db, BILLING_COLLECTIONS.PLANS));
-      if (!snap.empty) {
-        const allPlans = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Plan[];
-        const filtered = allPlans
-          .filter((p) => p.status === "ACTIVE" && p.publicVisible !== false && !p.isArchived)
-          .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
-        if (filtered.length > 0) return filtered;
+  if (rawPlans.length === 0) {
+    const db = getFirebaseDb();
+    if (db) {
+      try {
+        const snap = await getDocs(collection(db, BILLING_COLLECTIONS.PLANS));
+        if (!snap.empty) {
+          const allPlans = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Plan[];
+          rawPlans = allPlans
+            .filter((p) => p.status === "ACTIVE" && p.publicVisible !== false && !p.isArchived)
+            .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+        }
+      } catch (err) {
+        console.warn("getAllPlans error:", err);
       }
-    } catch (err) {
-      console.warn("getAllPlans error:", err);
     }
   }
-  return DEFAULT_STATIC_PLANS.filter((p) => p.status === "ACTIVE" && p.publicVisible !== false && !p.isArchived).sort(
-    (a, b) => (a.displayOrder || 0) - (b.displayOrder || 0)
+  if (rawPlans.length === 0) {
+    rawPlans = DEFAULT_STATIC_PLANS.filter((p) => p.status === "ACTIVE" && p.publicVisible !== false && !p.isArchived).sort(
+      (a, b) => (a.displayOrder || 0) - (b.displayOrder || 0)
+    );
+  }
+
+  // Enrich every plan with verified active version prices
+  return Promise.all(
+    rawPlans.map(async (p) => {
+      const isFree = p.id === "plan_free" || p.slug === "free" || p.name?.toLowerCase().includes("free");
+      const ver = await getActivePlanVersion(p.id);
+      const fallback =
+        DEFAULT_STATIC_PLAN_VERSIONS[p.id] ||
+        DEFAULT_STATIC_PLAN_VERSIONS[p.slug || ""] ||
+        DEFAULT_STATIC_PLAN_VERSIONS[`plan_${p.slug}`] ||
+        null;
+
+      let mPrice = ver?.monthlyPrice ?? (p as any).monthlyPrice ?? (p.limits as any)?.monthlyPrice ?? fallback?.monthlyPrice ?? 0;
+      if (mPrice > 0 && mPrice < 1000) mPrice = mPrice * 100;
+      let aPrice = ver?.annualPrice ?? (p as any).annualPrice ?? (p.limits as any)?.annualPrice ?? fallback?.annualPrice ?? (mPrice > 0 ? Math.round(mPrice * 0.8) : 0);
+      if (aPrice > 0 && aPrice < 1000) aPrice = aPrice * 100;
+
+      if (!isFree && mPrice === 0) {
+        const text = `${p.slug || ""} ${p.id || ""} ${p.name || ""}`.toLowerCase();
+        if (text.includes("base")) { mPrice = 39900; aPrice = 29900; }
+        else if (text.includes("starter")) { mPrice = 99900; aPrice = 79900; }
+        else if (text.includes("growth")) { mPrice = 199900; aPrice = 159900; }
+        else { mPrice = 49900; aPrice = 39900; }
+      }
+
+      return {
+        ...p,
+        monthlyPrice: isFree ? 0 : mPrice,
+        annualPrice: isFree ? 0 : aPrice,
+        pricePerMonth: isFree ? 0 : Math.round(mPrice / 100),
+        currency: ver?.currency || fallback?.currency || (p as any).currency || "INR",
+      };
+    })
   );
 }
 
