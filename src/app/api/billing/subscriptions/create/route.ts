@@ -50,9 +50,13 @@ export async function POST(request: Request) {
     }
 
     const credentials = await loadRazorpayCredentials();
-    if (!credentials.keyId || !credentials.keySecret || !credentials.webhookSecret) {
+    if (!credentials.keyId || !credentials.keySecret) {
       return NextResponse.json(
-        { error: "Razorpay keys and webhook secret are required for recurring billing." },
+        {
+          success: false,
+          error: "Razorpay payment gateway keys are not configured. Please add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in Super Admin → Settings → Payment Gateway, or choose the Free Starter Plan.",
+          code: "RAZORPAY_NOT_CONFIGURED",
+        },
         { status: 503 }
       );
     }

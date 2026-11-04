@@ -63,6 +63,7 @@ export function ChooseYourPlanModal({
   // Selected plan & checkout states
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [processingPlanId, setProcessingPlanId] = useState<string | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   // Coupon state
   const [couponCode, setCouponCode] = useState("");
@@ -184,6 +185,7 @@ export function ChooseYourPlanModal({
       (plan.monthlyPrice === 0 && plan.annualPrice === 0);
 
     setProcessingPlanId(plan.id);
+    setCheckoutError(null);
 
     if (isFree) {
       // Free Tier Activation
@@ -223,6 +225,7 @@ export function ChooseYourPlanModal({
             if (onPlanActivated) onPlanActivated();
           },
           onError: (errMsg) => {
+            setCheckoutError(errMsg || "Checkout was interrupted.");
             toast.error(errMsg || "Checkout was interrupted.");
             setProcessingPlanId(null);
           },
@@ -308,6 +311,29 @@ export function ChooseYourPlanModal({
             >
               <RefreshCw className="w-3.5 h-3.5" />
               <span>Retry</span>
+            </button>
+          </div>
+        )}
+
+        {/* Checkout Gateway Error Banner */}
+        {checkoutError && (
+          <div className="mb-6 p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+            <div className="flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-amber-900 dark:text-amber-200">Payment Gateway Notice</p>
+                <p className="text-amber-700 dark:text-amber-300 mt-0.5">{checkoutError}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const freePlan = plans.find((p) => p.id === "plan_free" || p.slug === "free");
+                if (freePlan) handleSelectPlan(freePlan);
+              }}
+              className="shrink-0 px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold transition self-start sm:self-center"
+            >
+              Activate Free Plan Instead
             </button>
           </div>
         )}

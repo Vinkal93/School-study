@@ -209,10 +209,14 @@ export async function triggerRazorpaySubscriptionCheckout(
 
     if (!subRes.ok || !subRes.data || !subRes.data.subscriptionId) {
       const msg =
-        subRes.error ||
         subRes.data?.error ||
+        subRes.error ||
         `Failed to initiate subscription checkout (HTTP ${subRes.status}).`;
-      console.error("[RazorpaySubscriptionCheckout] Subscription creation failed:", subRes);
+      console.error("[RazorpaySubscriptionCheckout] Subscription creation failed:", {
+        status: subRes.status,
+        error: msg,
+        data: subRes.data,
+      });
       if (onError) onError(msg);
       return;
     }
