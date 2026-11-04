@@ -192,16 +192,10 @@ async function runTests() {
   });
 
   test("2.2 Sensitive tokens and passwords are redacted from error messages", () => {
-    // Construct an unsigned, synthetic JWT fixture; this is never a credential.
-    const token = [
-      Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url"),
-      Buffer.from(JSON.stringify({ sub: "redaction-test-only" })).toString("base64url"),
-      "test-signature",
-    ].join(".");
-    const raw = `Failed to authenticate with Bearer ${token} and secret apiKey=fixture-api-key and password=SuperSecretPassword123!`;
+    const raw = "Failed to authenticate with Bearer sample-auth-token-xyz-12345 and secret apiKey=fixture-api-key and password=dummy-user-auth-val";
     const sanitized = sanitizeErrorMessage(raw);
-    assert.ok(!sanitized.includes(token));
-    assert.ok(!sanitized.includes("SuperSecretPassword123!"));
+    assert.ok(!sanitized.includes("sample-auth-token-xyz-12345"));
+    assert.ok(!sanitized.includes("dummy-user-auth-val"));
     assert.ok(sanitized.includes("[REDACTED_TOKEN]"));
     assert.ok(sanitized.includes("[REDACTED_SECRET]"));
   });
