@@ -444,6 +444,8 @@ export default function SchoolAdminSubscriptionCommandCenter() {
       <RechargeModal
         key={`${showRechargeModal}:${selectedRechargePlan}:${selectedRechargeCycle}`}
         plans={allPlans}
+        currentPlanId={effectivePlan?.id || subscription?.planId || "plan_free"}
+        currentUsage={usage}
         isOpen={showRechargeModal}
         schoolId={schoolId}
         userId={profile?.uid || "school_admin"}

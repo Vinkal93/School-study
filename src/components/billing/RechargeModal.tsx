@@ -13,11 +13,15 @@ import {
   ArrowRight,
   ShieldCheck,
   Zap,
-  Clock,
+  Check,
+  Lock,
+  RefreshCw,
+  AlertCircle,
+  HelpCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { safeFetchJson } from "@/lib/utils/safeFetch";
-import { triggerRazorpayCheckout } from "@/lib/payments/clientCheckout";
+import { triggerRazorpaySubscriptionCheckout } from "@/lib/payments/clientCheckout";
 import type { Plan, SchoolUsage } from "@/types";
 
 interface RechargeModalProps {
@@ -28,9 +32,9 @@ interface RechargeModalProps {
   initialPlanId?: string;
   initialBillingCycle?: "monthly" | "annual";
   currentPlanId?: string;
-  currentUsage?: SchoolUsage;
-  plans?: Plan[];
-  onSuccess?: (orderId: string) => void;
+  currentUsage?: any;
+  plans?: any[];
+  onSuccess?: (orderId?: string) => void;
 }
 
 interface PriceBreakdown {
@@ -46,7 +50,14 @@ interface PriceBreakdown {
   couponMessage?: string;
 }
 
+interface GatewayStatus {
+  isConfigured: boolean;
+  mode: "TEST" | "LIVE" | "UNCONFIGURED";
+  keyIdPreview?: string | null;
+}
+
 function formatPaise(paise: number): string {
+  if (!paise || paise <= 0) return "₹0";
   return `₹${Math.round(paise / 100).toLocaleString("en-IN")}`;
 }
 
@@ -62,17 +73,37 @@ export function RechargeModal({
   plans = [],
   onSuccess,
 }: RechargeModalProps) {
-  const { firebaseUser } = useAuth();
+  const { firebaseUser, profile } = useAuth();
   const priceRequest = useRef(0);
-  const [selectedPlanId, setSelectedPlanId] = useState(initialPlanId);
+
+  // Filter eligible active plans
+  const eligiblePlans = plans.filter(
+    (p) => p.status === "ACTIVE" && !p.isArchived && p.publicVisible !== false
+  );
+
+  const [selectedPlanId, setSelectedPlanId] = useState<string>(
+    initialPlanId || (eligiblePlans[0]?.id ?? "plan_starter")
+  );
   const [billingCycle, setBillingCycle] = useState<"monthly" | "annual">(initialBillingCycle);
+
+  // Coupon state
   const [couponInput, setCouponInput] = useState("");
   const [appliedCoupon, setAppliedCoupon] = useState("");
+
+  // Gateway status state
+  const [gatewayStatus, setGatewayStatus] = useState<GatewayStatus>({
+    isConfigured: true,
+    mode: "TEST",
+  });
+  const [gatewayError, setGatewayError] = useState<string | null>(null);
+
+  // Calculation and checkout states
   const [priceReady, setPriceReady] = useState(false);
   const [pricedSelection, setPricedSelection] = useState("");
   const selectionKey = `${selectedPlanId}:${billingCycle}:${appliedCoupon}`;
   const [isCalculating, setIsCalculating] = useState(false);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+
   const [breakdown, setBreakdown] = useState<PriceBreakdown>({
     baseAmount: 0,
     discountAmount: 0,
@@ -80,6 +111,28 @@ export function RechargeModal({
     currency: "INR",
     couponValid: false,
   });
+
+  // Verify Payment Gateway Readiness from Server
+  useEffect(() => {
+    if (!isOpen) return;
+    let isSubscribed = true;
+
+    async function checkGateway() {
+      try {
+        const res = await safeFetchJson<GatewayStatus>("/api/billing/gateway-status");
+        if (isSubscribed && res.ok && res.data) {
+          setGatewayStatus(res.data);
+        }
+      } catch (e) {
+        console.warn("[RechargeModal] Could not fetch gateway status:", e);
+      }
+    }
+
+    checkGateway();
+    return () => {
+      isSubscribed = false;
+    };
+  }, [isOpen]);
 
   // Recalculate price server-side when plan, billing cycle, or coupon changes
   const calculatePrice = async (planId: string, cycle: "monthly" | "annual", coupon?: string) => {
@@ -89,9 +142,14 @@ export function RechargeModal({
       if (requestId !== priceRequest.current) return;
       setIsCalculating(true);
       setPriceReady(false);
+      setGatewayError(null);
+
       const res = await safeFetchJson("/api/billing/calculate", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           planId,
           billingCycle: cycle,
@@ -99,6 +157,7 @@ export function RechargeModal({
           schoolId,
         }),
       });
+
       if (requestId !== priceRequest.current) return;
 
       if (res.ok && res.data && res.data.calculation) {
@@ -115,7 +174,9 @@ export function RechargeModal({
           finalAmount: calc.finalAmountPaise,
           currency: calc.currency || "INR",
           couponValid: Boolean(calc.couponCode),
-          couponMessage: calc.couponCode ? `Coupon "${calc.couponCode}" applied successfully!` : undefined,
+          couponMessage: calc.couponCode
+            ? `Coupon "${calc.couponCode}" applied successfully!`
+            : undefined,
         });
 
         if (coupon && calc.couponCode) {
@@ -138,20 +199,26 @@ export function RechargeModal({
   useEffect(() => {
     let cancelled = false;
     if (isOpen) {
-      void Promise.resolve().then(() => { if (!cancelled) return calculatePrice(selectedPlanId, billingCycle, appliedCoupon); });
+      void Promise.resolve().then(() => {
+        if (!cancelled) return calculatePrice(selectedPlanId, billingCycle, appliedCoupon);
+      });
     }
-    return () => { cancelled = true; priceRequest.current++; };
+    return () => {
+      cancelled = true;
+      priceRequest.current++;
+    };
   }, [isOpen, selectedPlanId, billingCycle, appliedCoupon]);
 
   if (!isOpen) return null;
 
   const handleApplyCoupon = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!couponInput.trim()) {
+    const clean = couponInput.trim().toUpperCase();
+    if (!clean) {
       toast.error("Please enter a coupon code.");
       return;
     }
-    setAppliedCoupon(couponInput.trim());
+    setAppliedCoupon(clean);
   };
 
   const handleRemoveCoupon = () => {
@@ -159,69 +226,133 @@ export function RechargeModal({
     setCouponInput("");
   };
 
+  // Plan metadata resolution
+  const resolvePrice = (p: any, cycle: "monthly" | "annual"): number => {
+    if (!p) return 0;
+    if (cycle === "annual") {
+      return p.annualPrice ?? p.limits?.annualPrice ?? (p.monthlyPrice ? Math.round(p.monthlyPrice * 0.8) : 0);
+    }
+    return p.monthlyPrice ?? p.limits?.monthlyPrice ?? 0;
+  };
+
+  const currentPlan = plans.find((p) => p.id === currentPlanId);
+  const selectedPlan = plans.find((p) => p.id === selectedPlanId);
+  const isCurrentSelection = selectedPlanId === currentPlanId;
+  const isFreePlan =
+    selectedPlan?.id === "plan_free" ||
+    selectedPlan?.slug === "free" ||
+    (breakdown.baseAmount === 0 && resolvePrice(selectedPlan, "monthly") === 0);
+
+  const isDowngrade =
+    !!currentPlan && !!selectedPlan && (selectedPlan.displayOrder ?? 0) < (currentPlan.displayOrder ?? 0);
+  const studentCount =
+    typeof currentUsage?.students === "object"
+      ? (currentUsage?.students?.current ?? 0)
+      : Number(currentUsage?.students ?? 0);
+  const targetLimit = selectedPlan?.limits?.maxStudents ?? 0;
+  const isOverLimitOnDowngrade = isDowngrade && targetLimit !== -1 && studentCount > targetLimit;
+
+  // Real annual savings percentage calculation
+  const calculateSavingsPercent = (plan?: any): number => {
+    if (!plan) return 0;
+    const m = resolvePrice(plan, "monthly");
+    const a = resolvePrice(plan, "annual");
+    if (m <= 0 || a >= m) return 0;
+    return Math.round(((m * 12 - a * 12) / (m * 12)) * 100);
+  };
+
+  const annualSavingsPercent = calculateSavingsPercent(selectedPlan);
+
+  // Execution: Free Plan Activation or Paid Subscription Checkout
   const handleProceedToPayment = async () => {
     if (!priceReady || pricedSelection !== selectionKey) return;
-    if (!schoolId || !userId) {
+    if (!schoolId) {
       toast.error("Authentication session missing. Please reload the page.");
       return;
     }
 
-    // Payment Gateway Temporary State: Online payments are currently Coming Soon
-    const isPaymentGatewayLive = process.env.NEXT_PUBLIC_PAYMENT_GATEWAY_LIVE === "true";
-    if (!isPaymentGatewayLive) {
-      toast.info(
-        "Online payments are coming soon! Payment gateway integration is currently being prepared. Please contact your Super Administrator for plan activation.",
-        { duration: 6000 }
-      );
+    // 1. FREE PLAN ACTIVATION PATH
+    if (isFreePlan) {
+      setIsCheckingOut(true);
+      try {
+        const res = await safeFetchJson("/api/billing/onboarding/free-plan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ schoolId }),
+        });
+
+        if (res.ok && res.data?.success) {
+          toast.success("Free Starter Plan activated successfully!");
+          setIsCheckingOut(false);
+          onClose();
+          if (onSuccess) onSuccess("free_activated");
+          window.location.reload();
+        } else {
+          toast.error(res.data?.error || "Failed to activate Free plan.");
+          setIsCheckingOut(false);
+        }
+      } catch (err: any) {
+        setIsCheckingOut(false);
+        toast.error(err?.message || "Failed to activate plan.");
+      }
       return;
     }
 
+    // 2. PAID PLAN RECURRING CHECKOUT PATH
     setIsCheckingOut(true);
+    setGatewayError(null);
+
     try {
-      await triggerRazorpayCheckout({
+      await triggerRazorpaySubscriptionCheckout({
         planId: selectedPlanId,
         billingCycle,
         couponCode: appliedCoupon || undefined,
         schoolId,
-        userId,
-        onSuccess: (orderId) => {
+        prefillData: {
+          name: profile?.name || "School Administrator",
+          email: profile?.email || "",
+          phone: (profile as any)?.phone || "",
+        },
+        onSuccess: (subscriptionId) => {
           setIsCheckingOut(false);
+          toast.success("Subscription upgraded & AutoPay mandate verified!");
           onClose();
-          if (onSuccess) onSuccess(orderId);
+          if (onSuccess) onSuccess(subscriptionId);
+          window.location.reload();
         },
         onError: (errMsg) => {
           setIsCheckingOut(false);
-          toast.error(errMsg || "Payment checkout failed.");
+          setGatewayError(errMsg);
+          toast.error(errMsg || "Checkout failed.");
         },
       });
     } catch (err: unknown) {
       setIsCheckingOut(false);
-      toast.error(err instanceof Error ? err.message : "Failed to open Razorpay Checkout.");
+      const msg = err instanceof Error ? err.message : "Failed to open Razorpay Checkout.";
+      setGatewayError(msg);
+      toast.error(msg);
     }
   };
 
-  const current = plans.find(p => p.id === currentPlanId);
-  const selected = plans.find(p => p.id === selectedPlanId);
-  const isDowngrade = !!current && !!selected && selected.displayOrder < current.displayOrder;
-  const studentCount = currentUsage?.students ?? 0;
-  const targetLimit = selected?.limits.maxStudents ?? 0;
-  const isOverLimitOnDowngrade = isDowngrade && targetLimit !== -1 && studentCount > targetLimit;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs overflow-y-auto">
-      <div className="relative w-full max-w-2xl rounded-3xl border border-slate-200 bg-white p-6 sm:p-8 shadow-2xl dark:border-slate-800 dark:bg-slate-900 my-8">
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-6 backdrop-blur-sm overflow-y-auto"
+    >
+      <div className="relative w-full max-w-3xl rounded-3xl border border-slate-200 bg-white p-5 sm:p-8 shadow-2xl dark:border-slate-800 dark:bg-slate-900 my-auto animate-fadeIn">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400">
               <CreditCard className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
+              <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white">
                 Recharge / Upgrade Subscription
               </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Choose a plan and billing cycle for your school.
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Select an institutional plan backed by Super Admin entitlements.
               </p>
             </div>
           </div>
@@ -235,28 +366,40 @@ export function RechargeModal({
         </div>
 
         <div className="space-y-6 pt-5">
-          {/* Plan Selector Grid */}
-          <div className="space-y-2">
-            <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              Select Subscription Plan
-            </label>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {plans.filter(p => p.status === "ACTIVE" && !p.isArchived && p.publicVisible !== false).map(p => <button type="button" key={p.id} onClick={() => setSelectedPlanId(p.id)} className={`rounded-2xl border p-4 text-left ${selectedPlanId === p.id ? "border-blue-600 bg-blue-50 dark:bg-blue-950" : "border-slate-200 dark:border-slate-700"}`}><strong>{p.name}</strong><p className="mt-2 text-xs">{p.description}</p></button>)}
+          {/* Gateway Warning Notice if Error Occurred */}
+          {gatewayError && (
+            <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 flex items-start gap-3 text-xs text-amber-900 dark:text-amber-200">
+              <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Payment Gateway Notice</p>
+                <p className="mt-0.5 leading-relaxed">{gatewayError}</p>
+                <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-300">
+                  Ensure Razorpay Key ID and Secret are configured in Super Admin → Settings → Payment Gateway.
+                </p>
+              </div>
             </div>
-          </div>
-          {/* Billing Cycle Toggle */}
+          )}
+
+          {/* Billing Duration Switch */}
           <div className="space-y-2">
-            <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              Billing Duration
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Billing Frequency
+              </label>
+              {annualSavingsPercent > 0 && (
+                <span className="text-xs font-extrabold text-emerald-600 dark:text-emerald-400">
+                  Save {annualSavingsPercent}% with Annual Billing
+                </span>
+              )}
+            </div>
             <div className="flex p-1 rounded-2xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
               <button
                 type="button"
                 onClick={() => setBillingCycle("monthly")}
                 className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                   billingCycle === "monthly"
-                    ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
-                    : "text-slate-600 dark:text-slate-400"
+                    ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                 }`}
               >
                 Monthly Billing
@@ -266,26 +409,100 @@ export function RechargeModal({
                 onClick={() => setBillingCycle("annual")}
                 className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                   billingCycle === "annual"
-                    ? "bg-blue-600 text-white shadow-xs"
-                    : "text-slate-600 dark:text-slate-400"
+                    ? "bg-blue-600 text-white shadow-sm"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                 }`}
               >
                 <span>Annual Billing</span>
-                <span className="px-1.5 py-0.5 rounded-full bg-emerald-500 text-white text-[10px]">
-                  Save 20%
-                </span>
+                {annualSavingsPercent > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full bg-emerald-500 text-white text-[10px] font-extrabold">
+                    -{annualSavingsPercent}%
+                  </span>
+                )}
               </button>
             </div>
           </div>
 
-          {/* Downgrade Warning */}
+          {/* Dynamic Plan Selector Cards Grid */}
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              Select Subscription Plan
+            </label>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 max-h-[320px] overflow-y-auto pr-1">
+              {eligiblePlans.map((plan) => {
+                const isSelected = selectedPlanId === plan.id;
+                const isCurrent = plan.id === currentPlanId;
+                const isFree = plan.id === "plan_free" || plan.slug === "free";
+                const mPrice = resolvePrice(plan, "monthly");
+                const aPrice = resolvePrice(plan, "annual");
+                const displayPrice = isFree
+                  ? "₹0 / Free"
+                  : billingCycle === "annual"
+                  ? `${formatPaise(aPrice)} / mo`
+                  : `${formatPaise(mPrice)} / mo`;
+
+                return (
+                  <button
+                    type="button"
+                    key={plan.id}
+                    onClick={() => setSelectedPlanId(plan.id)}
+                    className={`relative rounded-2xl border p-4 text-left transition-all cursor-pointer flex flex-col justify-between ${
+                      isSelected
+                        ? "border-blue-600 bg-blue-50/50 dark:bg-blue-950/40 shadow-sm ring-2 ring-blue-500/20"
+                        : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 hover:border-slate-300 dark:hover:border-slate-600"
+                    }`}
+                  >
+                    {isCurrent && (
+                      <span className="absolute -top-2.5 right-3 px-2 py-0.5 rounded-full bg-emerald-500 text-white text-[10px] font-black uppercase tracking-wider shadow-xs">
+                        Current Plan
+                      </span>
+                    )}
+
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-extrabold text-sm text-slate-900 dark:text-white">
+                          {plan.name}
+                        </span>
+                        {plan.isPopular && !isCurrent && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                            Popular
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="mt-1">
+                        <span className="text-base font-black text-slate-900 dark:text-white">
+                          {displayPrice}
+                        </span>
+                      </div>
+
+                      <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">
+                        {plan.description || "School Study institutional tier."}
+                      </p>
+
+                      <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-700/60 text-[11px] text-slate-600 dark:text-slate-300 space-y-1">
+                        <p>
+                          👥 <strong>{plan.limits?.maxStudents === -1 ? "Unlimited" : plan.limits?.maxStudents ?? 10}</strong> Students
+                        </p>
+                        <p>
+                          👨‍🏫 <strong>{plan.limits?.maxTeachers === -1 ? "Unlimited" : plan.limits?.maxTeachers ?? 2}</strong> Teachers
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Downgrade Capacity Notice */}
           {isOverLimitOnDowngrade && (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/40 p-4 flex items-start gap-3 text-amber-900 dark:text-amber-300 text-xs">
               <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
               <div>
                 <p className="font-bold">Capacity Notice for Downgrade</p>
                 <p className="mt-0.5 text-amber-800 dark:text-amber-400 leading-relaxed">
-                  Your school currently has <strong>{studentCount} students</strong>, which exceeds the {selected?.name} plan limit ({targetLimit}). Review capacity before changing plans.
+                  Your school currently has <strong>{studentCount} active students</strong>, which exceeds the {selectedPlan?.name} limit ({targetLimit}). Existing records will remain safe, but new admissions will require upgrading capacity.
                 </p>
               </div>
             </div>
@@ -302,12 +519,13 @@ export function RechargeModal({
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                   <span>
-                    Coupon <strong>{appliedCoupon}</strong> applied ({formatPaise(breakdown.discountAmount)} discount)
+                    Coupon <strong>{appliedCoupon}</strong> active ({formatPaise(breakdown.discountAmount)} discount applied)
                   </span>
                 </div>
                 <button
+                  type="button"
                   onClick={handleRemoveCoupon}
-                  className="font-bold text-red-600 hover:underline cursor-pointer"
+                  className="font-bold text-red-600 hover:underline cursor-pointer ml-3"
                 >
                   Remove
                 </button>
@@ -316,14 +534,14 @@ export function RechargeModal({
               <form onSubmit={handleApplyCoupon} className="flex gap-2">
                 <input
                   type="text"
-                  placeholder="Enter coupon (e.g. SAVE20)"
+                  placeholder="Enter coupon code (e.g. WELCOME20)"
                   value={couponInput}
                   onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
                   className="flex-1 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono uppercase"
                 />
                 <button
                   type="submit"
-                  disabled={isCalculating}
+                  disabled={isCalculating || !couponInput.trim()}
                   className="px-4 py-2 rounded-xl bg-slate-900 dark:bg-slate-800 text-white text-xs font-bold hover:bg-slate-800 dark:hover:bg-slate-700 disabled:opacity-50 transition-all cursor-pointer shrink-0"
                 >
                   Apply
@@ -332,7 +550,7 @@ export function RechargeModal({
             )}
           </div>
 
-          {/* Order Breakdown Summary with GST */}
+          {/* Order Breakdown Summary */}
           <div className="rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 p-4 space-y-2 text-xs">
             <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
               <span>Base Plan Price ({billingCycle === "annual" ? "12 Months" : "1 Month"})</span>
@@ -349,7 +567,11 @@ export function RechargeModal({
             <div className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
               <span>Net Taxable Amount</span>
               <span className="font-mono">
-                {formatPaise(breakdown.taxableAmount !== undefined ? breakdown.taxableAmount : Math.max(0, breakdown.baseAmount - breakdown.discountAmount))}
+                {formatPaise(
+                  breakdown.taxableAmount !== undefined
+                    ? breakdown.taxableAmount
+                    : Math.max(0, breakdown.baseAmount - breakdown.discountAmount)
+                )}
               </span>
             </div>
 
@@ -360,7 +582,7 @@ export function RechargeModal({
               </div>
             ) : (
               <div className="flex items-center justify-between text-slate-400 italic">
-                <span>GST (Tax Exempt / OFF)</span>
+                <span>GST (Tax Exempt / Not Configured)</span>
                 <span className="font-mono">₹0</span>
               </div>
             )}
@@ -373,39 +595,61 @@ export function RechargeModal({
             </div>
           </div>
 
-          {/* Checkout CTA */}
+          {/* Action CTA Button */}
           <div className="pt-2 space-y-3">
-            <div className="rounded-2xl border border-blue-200 bg-blue-50/80 p-3.5 text-xs text-blue-900 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-300">
-              <div className="flex items-center gap-2 font-bold mb-1">
-                <Clock className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                <span>Online Payments Coming Soon</span>
-              </div>
-              <p className="text-[11px] leading-relaxed text-blue-700 dark:text-blue-300">
-                Payment gateway integration is currently being prepared. To activate or change your school plan immediately, please contact your Super Administrator.
-              </p>
-            </div>
-
             <button
               onClick={handleProceedToPayment}
-              disabled={isCheckingOut || isCalculating || !priceReady || pricedSelection !== selectionKey}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-6 py-3.5 text-xs sm:text-sm font-bold text-white shadow-lg shadow-blue-500/25 hover:bg-blue-700 active:scale-98 disabled:opacity-50 transition-all cursor-pointer"
+              disabled={
+                isCheckingOut ||
+                isCalculating ||
+                !priceReady ||
+                pricedSelection !== selectionKey ||
+                isCurrentSelection
+              }
+              className={`w-full inline-flex items-center justify-center gap-2 rounded-2xl px-6 py-3.5 text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                isCurrentSelection
+                  ? "bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-700"
+                  : "bg-blue-600 text-white shadow-lg shadow-blue-500/25 hover:bg-blue-700 active:scale-98 disabled:opacity-50"
+              }`}
             >
               {isCheckingOut ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Opening Razorpay Secure Checkout...</span>
+                  <span>
+                    {isFreePlan ? "Activating Free Starter..." : "Opening Razorpay Secure AutoPay..."}
+                  </span>
+                </>
+              ) : isCurrentSelection ? (
+                <>
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                  <span>Current Active Plan</span>
+                </>
+              ) : isFreePlan ? (
+                <>
+                  <span>Activate Free Starter Plan</span>
+                  <ArrowRight className="h-4 w-4" />
+                </>
+              ) : isDowngrade ? (
+                <>
+                  <span>Confirm Plan Change</span>
+                  <ArrowRight className="h-4 w-4" />
                 </>
               ) : (
                 <>
-                  <Clock className="h-4 w-4" />
-                  <span>Online Payments Coming Soon</span>
+                  <Lock className="h-4 w-4" />
+                  <span>Subscribe &amp; Enable AutoPay</span>
                   <ArrowRight className="h-4 w-4" />
                 </>
               )}
             </button>
-            <p className="text-center text-[10px] text-slate-400">
-              🔒 Payment gateway is in preparation. Super Admin can manually assign any plan.
-            </p>
+
+            <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+              <span className="flex items-center gap-1">
+                <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+                <span>256-bit Secure Razorpay Checkout</span>
+              </span>
+              <span>Cancel or adjust anytime in Settings</span>
+            </div>
           </div>
         </div>
       </div>
