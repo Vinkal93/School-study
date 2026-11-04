@@ -71,7 +71,7 @@ export default function StudentDetailPage(props: { params: Promise<{ id: string 
   const [issuedCreds, setIssuedCreds] = useState<{
     studentName: string;
     email: string;
-    temporaryPassword: string;
+    temporaryAccessKey?: string;
     portalUrl: string;
   } | null>(null);
   const [copiedCreds, setCopiedCreds] = useState(false);
@@ -699,7 +699,7 @@ export default function StudentDetailPage(props: { params: Promise<{ id: string 
                 <div>
                   <span className="text-[10px] text-slate-400 block font-sans">Temporary Password:</span>
                   <span className="font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50 px-2 py-0.5 rounded border border-rose-200 dark:border-rose-900">
-                    {issuedCreds.temporaryPassword}
+                    {issuedCreds.temporaryAccessKey}
                   </span>
                 </div>
               </div>
@@ -708,7 +708,7 @@ export default function StudentDetailPage(props: { params: Promise<{ id: string 
                 <button
                   type="button"
                   onClick={() => {
-                    const slip = `🎓 School Study — Student Login Credentials\nStudent: ${issuedCreds.studentName}\nUsername: ${issuedCreds.email}\nTemporary Password: ${issuedCreds.temporaryPassword}\nPortal Login: ${window.location.origin}/student/login`;
+                    const slip = `🎓 School Study — Student Login Credentials\nStudent: ${issuedCreds.studentName}\nUsername: ${issuedCreds.email}\nTemporary Access Key: ${issuedCreds.temporaryAccessKey}\nPortal Login: ${window.location.origin}/student/login`;
                     navigator.clipboard.writeText(slip);
                     setCopiedCreds(true);
                     toast.success("Credentials copied to clipboard!");
@@ -724,7 +724,7 @@ export default function StudentDetailPage(props: { params: Promise<{ id: string 
                   <button
                     type="button"
                     onClick={() => {
-                      const slip = `🎓 *School Study — Student Portal Credentials*\n\nDear Parent,\nHere are the official login credentials for *${issuedCreds.studentName}*:\n\n• *Username / Email:* ${issuedCreds.email}\n• *Temporary Password:* ${issuedCreds.temporaryPassword}\n• *Portal Link:* ${window.location.origin}/student/login\n\nPlease log in and update your password on first login.`;
+                      const slip = `🎓 *School Study — Student Portal Credentials*\n\nDear Parent,\nHere are the official login credentials for *${issuedCreds.studentName}*:\n\n• *Username / Email:* ${issuedCreds.email}\n• *Temporary Access Key:* ${issuedCreds.temporaryAccessKey}\n• *Portal Link:* ${window.location.origin}/student/login\n\nPlease log in and update your password on first login.`;
                       const cleanPhone = student.phone?.replace(/[^0-9]/g, "");
                       const target = cleanPhone?.length === 10 ? `91${cleanPhone}` : cleanPhone;
                       window.open(`https://wa.me/${target}?text=${encodeURIComponent(slip)}`, "_blank");
