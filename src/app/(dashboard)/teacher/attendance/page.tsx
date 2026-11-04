@@ -48,15 +48,8 @@ export default function TeacherAttendancePage() {
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const { settings } = usePortalUI();
-  const [activeMode, setActiveMode] = useState<"smart_swipe" | "classic">("smart_swipe");
-
-  useEffect(() => {
-    if (settings.attendanceSystem === "classic") {
-      setActiveMode("classic");
-    } else {
-      setActiveMode("smart_swipe");
-    }
-  }, [settings.attendanceSystem]);
+  const [userModeOverride, setUserModeOverride] = useState<"smart_swipe" | "classic" | null>(null);
+  const activeMode = userModeOverride ?? (settings.attendanceSystem === "classic" ? "classic" : "smart_swipe");
 
 
   // 1. Initial Load: Teacher Profile & Classes
@@ -277,23 +270,45 @@ export default function TeacherAttendancePage() {
             </p>
           </div>
 
-          <button
-            onClick={handleSubmitAttendance}
-            disabled={isSaving || students.length === 0}
-            className="hidden sm:inline-flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-blue-700 disabled:opacity-50"
-          >
-            {isSaving ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <Save className="h-4 w-4" />
-                Submit Attendance
-              </>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setUserModeOverride(activeMode === "smart_swipe" ? "classic" : "smart_swipe")}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white text-xs font-bold transition-all cursor-pointer shadow-xs"
+            >
+              {activeMode === "smart_swipe" ? (
+                <>
+                  <CheckSquare className="h-3.5 w-3.5" />
+                  <span>Switch to Classic Table</span>
+                </>
+              ) : (
+                <>
+                  <Layers className="h-3.5 w-3.5 text-blue-400" />
+                  <span>Switch to Smart Swipe 3.0</span>
+                </>
+              )}
+            </button>
+
+            {activeMode === "classic" && (
+              <button
+                onClick={handleSubmitAttendance}
+                disabled={isSaving || students.length === 0}
+                className="hidden sm:inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold text-white shadow hover:bg-blue-700 disabled:opacity-50"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4" />
+                    Submit Attendance
+                  </>
+                )}
+              </button>
             )}
-          </button>
+          </div>
         </div>
       </div>
 
@@ -316,6 +331,17 @@ export default function TeacherAttendancePage() {
             </Link>
           </div>
         </div>
+      ) : activeMode === "smart_swipe" ? (
+        <SmartSwipeAttendance
+          schoolId={schoolId}
+          classes={classes}
+          initialClassId={selectedClassId}
+          initialSectionId={selectedSectionId}
+          initialDate={selectedDate}
+          teacherId={teacherData?.id || profile?.uid}
+          teacherName={teacherData?.name || profile?.name}
+          userRole="teacher"
+        />
       ) : (
         <>
           {/* Controls Bar: Class, Section, Date */}

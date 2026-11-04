@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -42,6 +42,8 @@ export default function EmployeesAttendancePage() {
   const { profile } = useAuth();
   const schoolId = profile?.schoolId || "";
   const { canAccess } = useEntitlement();
+  const isSuperAdmin = profile?.role === "super_admin";
+  const hasAttendanceAccess = isSuperAdmin || Boolean(canAccess("basic_attendance"));
 
   // State
   const [employees, setEmployees] = useState<TeacherProfile[]>([]);
@@ -73,16 +75,20 @@ export default function EmployeesAttendancePage() {
     loadStaff();
   }, [schoolId]);
 
+  const reqIdRef = useRef(0);
+
   // Load Attendance Records for Date
   const loadData = useCallback(async () => {
     if (!schoolId) return;
-    if (profile?.role !== "super_admin" && !canAccess("basic_attendance")) {
+    if (!hasAttendanceAccess) {
       setLoading(false);
       return;
     }
+    const currentReq = ++reqIdRef.current;
     setLoading(true);
     try {
       const records = await getEmployeeAttendanceForDate(schoolId, selectedDate);
+      if (currentReq !== reqIdRef.current) return;
       const attMap: Record<string, AttendanceStatus> = {};
       const inMap: Record<string, string> = {};
       const outMap: Record<string, string> = {};
@@ -109,12 +115,15 @@ export default function EmployeesAttendancePage() {
       setLeaveTypeMap(lvMap);
       setRemarksMap(remMap);
     } catch (err) {
+      if (currentReq !== reqIdRef.current) return;
       console.error("Failed to load employee attendance:", err);
       toast.error("Failed to load employee attendance records.");
     } finally {
-      setLoading(false);
+      if (currentReq === reqIdRef.current) {
+        setLoading(false);
+      }
     }
-  }, [schoolId, selectedDate, employees, profile?.role, canAccess]);
+  }, [schoolId, selectedDate, employees, hasAttendanceAccess]);
 
   useEffect(() => {
     if (employees.length > 0) {

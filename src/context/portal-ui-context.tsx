@@ -275,25 +275,41 @@ export function PortalUIProvider({ children }: { children: ReactNode }) {
     [profile, firebaseUser]
   );
 
+  const contextValue = useMemo(() => ({
+    settings,
+    activePortal,
+    currentVersion,
+    isNewUI,
+    isLiquidGlassUI,
+    isClassicUI,
+    loading: loading || (activePortal === "schoolAdmin" && !!profile?.schoolId && profile.schoolId !== "system" && resolvedSchoolMode !== profile.schoolId),
+    adminPortalUiMode,
+    getPortalVersion,
+    setPortalVersion,
+    setInstituteAdminPortalUiMode,
+    attendanceSystem: settings.attendanceSystem || "smart_swipe",
+    setAttendanceSystemVersion: setAttendanceSystemVersionHandler,
+    resetAllToClassic: resetAllToClassicHandler,
+  }), [
+    settings,
+    activePortal,
+    currentVersion,
+    isNewUI,
+    isLiquidGlassUI,
+    isClassicUI,
+    loading,
+    profile?.schoolId,
+    resolvedSchoolMode,
+    adminPortalUiMode,
+    getPortalVersion,
+    setPortalVersion,
+    setInstituteAdminPortalUiMode,
+    setAttendanceSystemVersionHandler,
+    resetAllToClassicHandler,
+  ]);
+
   return (
-    <PortalUIContext.Provider
-      value={{
-        settings,
-        activePortal,
-        currentVersion,
-        isNewUI,
-        isLiquidGlassUI,
-        isClassicUI,
-        loading: loading || (activePortal === "schoolAdmin" && !!profile?.schoolId && profile.schoolId !== "system" && resolvedSchoolMode !== profile.schoolId),
-        adminPortalUiMode,
-        getPortalVersion,
-        setPortalVersion,
-        setInstituteAdminPortalUiMode,
-        attendanceSystem: settings.attendanceSystem || "smart_swipe",
-        setAttendanceSystemVersion: setAttendanceSystemVersionHandler,
-        resetAllToClassic: resetAllToClassicHandler,
-      }}
-    >
+    <PortalUIContext.Provider value={contextValue}>
       {children}
     </PortalUIContext.Provider>
   );

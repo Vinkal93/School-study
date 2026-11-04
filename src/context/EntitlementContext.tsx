@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, useRef, type ReactNode } from "react";
+import React, { createContext, useContext, useEffect, useState, useRef, useCallback, useMemo, type ReactNode } from "react";
 import { doc, onSnapshot, collection, query, where } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -436,7 +436,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  const canAccess = (featureKey: string): boolean => {
+  const canAccess = useCallback((featureKey: string): boolean => {
     if (role === "super_admin") return true;
     if (!featureKey) return false;
 
@@ -536,9 +536,9 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     }
 
     return false;
-  };
+  }, [role, loading, resolvedSchool, schoolId, entitlement, globalFeatureStates, schoolFeatureOverrides]);
 
-  const getFeatureAccessMode = (featureKey: string): FeatureAccessMode => {
+  const getFeatureAccessMode = useCallback((featureKey: string): FeatureAccessMode => {
     if (role === "super_admin") return "FULL_ACCESS";
     if (!featureKey) return "HIDDEN";
 
@@ -662,9 +662,9 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     }
 
     return "HIDDEN";
-  };
+  }, [role, loading, resolvedSchool, schoolId, entitlement, globalFeatureStates, schoolFeatureOverrides]);
 
-  const getRequiredPlanForFeature = (featureKey: string): string => {
+  const getRequiredPlanForFeature = useCallback((featureKey: string): string => {
     if (!featureKey) return "Higher Plan Required";
     const canonical = canonicalizeCapabilityKey(featureKey);
     const parentKey = getParentFeatureKey(canonical);
@@ -675,26 +675,42 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       (parentKey ? entitlement?.availableFromMap?.[parentKey] : undefined) ||
       "Higher Plan Required"
     );
-  };
+  }, [entitlement]);
+
+  const stableCanAccess = useCallback((key: string) => (isSuper ? true : canAccess(key)), [isSuper, canAccess]);
+  const stableGetFeatureAccessMode = useCallback((key: string) => (isSuper ? "FULL_ACCESS" : getFeatureAccessMode(key)), [isSuper, getFeatureAccessMode]);
+  const stableGetRequiredPlan = useCallback((key: string) => (isSuper ? "Included" : getRequiredPlanForFeature(key)), [isSuper, getRequiredPlanForFeature]);
+
+  const contextValue = useMemo(() => ({
+    entitlement,
+    loading: isSuper ? false : (loading || resolvedSchool !== schoolId),
+    accessMode: isSuper ? "FULL_ACCESS" : (entitlement?.accessMode || "NO_ACCESS"),
+    canAccess: stableCanAccess,
+    canAccessFeature: stableCanAccess,
+    canAccessAction: stableCanAccess,
+    getFeatureAccessMode: stableGetFeatureAccessMode,
+    getCapabilityAccessMode: stableGetFeatureAccessMode,
+    getRequiredPlanForFeature: stableGetRequiredPlan,
+    getRequiredPlanForCapability: stableGetRequiredPlan,
+    refreshEntitlement: fetchEntitlement,
+    globalFeatureStates,
+    schoolFeatureOverrides,
+  }), [
+    entitlement,
+    isSuper,
+    loading,
+    resolvedSchool,
+    schoolId,
+    stableCanAccess,
+    stableGetFeatureAccessMode,
+    stableGetRequiredPlan,
+    fetchEntitlement,
+    globalFeatureStates,
+    schoolFeatureOverrides,
+  ]);
 
   return (
-    <EntitlementContext.Provider
-      value={{
-        entitlement,
-        loading: isSuper ? false : (loading || resolvedSchool !== schoolId),
-        accessMode: isSuper ? "FULL_ACCESS" : (entitlement?.accessMode || "NO_ACCESS"),
-        canAccess: (key: string) => (isSuper ? true : canAccess(key)),
-        canAccessFeature: (key: string) => (isSuper ? true : canAccess(key)),
-        canAccessAction: (key: string) => (isSuper ? true : canAccess(key)),
-        getFeatureAccessMode: (key: string) => (isSuper ? "FULL_ACCESS" : getFeatureAccessMode(key)),
-        getCapabilityAccessMode: (key: string) => (isSuper ? "FULL_ACCESS" : getFeatureAccessMode(key)),
-        getRequiredPlanForFeature: (key: string) => (isSuper ? "Included" : getRequiredPlanForFeature(key)),
-        getRequiredPlanForCapability: (key: string) => (isSuper ? "Included" : getRequiredPlanForFeature(key)),
-        refreshEntitlement: fetchEntitlement,
-        globalFeatureStates,
-        schoolFeatureOverrides,
-      }}
-    >
+    <EntitlementContext.Provider value={contextValue}>
       {children}
     </EntitlementContext.Provider>
   );

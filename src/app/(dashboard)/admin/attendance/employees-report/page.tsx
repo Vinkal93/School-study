@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -39,6 +39,8 @@ export default function EmployeesAttendanceReportPage() {
   const { profile } = useAuth();
   const schoolId = profile?.schoolId || "";
   const { canAccess } = useEntitlement();
+  const isSuperAdmin = profile?.role === "super_admin";
+  const hasAttendanceAccess = isSuperAdmin || Boolean(canAccess("basic_attendance"));
 
   // Current Month/Year (YYYY-MM)
   const [selectedYearMonth, setSelectedYearMonth] = useState<string>(() => {
@@ -70,24 +72,31 @@ export default function EmployeesAttendanceReportPage() {
     loadStaff();
   }, [schoolId]);
 
+  const reqIdRef = useRef(0);
+
   // Load Monthly Attendance Records
   const loadData = useCallback(async () => {
     if (!schoolId) return;
-    if (profile?.role !== "super_admin" && !canAccess("basic_attendance")) {
+    if (!hasAttendanceAccess) {
       setLoading(false);
       return;
     }
+    const currentReq = ++reqIdRef.current;
     setLoading(true);
     try {
       const recs = await getEmployeeMonthlyAttendance(schoolId, selectedYearMonth);
+      if (currentReq !== reqIdRef.current) return;
       setMonthlyRecords(recs);
     } catch (err) {
+      if (currentReq !== reqIdRef.current) return;
       console.error("Failed to load monthly employee attendance:", err);
       toast.error("Failed to load staff attendance report.");
     } finally {
-      setLoading(false);
+      if (currentReq === reqIdRef.current) {
+        setLoading(false);
+      }
     }
-  }, [schoolId, selectedYearMonth, profile?.role, canAccess]);
+  }, [schoolId, selectedYearMonth, hasAttendanceAccess]);
 
   useEffect(() => {
     loadData();
