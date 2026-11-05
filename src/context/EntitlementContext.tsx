@@ -144,7 +144,9 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const fetchEntitlement = async () => {
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const fetchEntitlement = async (forceClearCache: boolean = false) => {
     if (!hasValidSchool) {
       setLoading(false);
       return;
@@ -152,18 +154,31 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
 
     const requestId = ++requestSequence.current;
     try {
-      // CRITICAL: Clear stale in-memory subscription cache before re-fetching
-      // Without this, plan changes from Super Admin are invisible to school admins
-      clearSubscriptionCache(schoolId);
+      if (forceClearCache) {
+        clearSubscriptionCache(schoolId);
+      }
       const data = await getEffectiveEntitlement(schoolId);
       if (activeSchool.current !== schoolId || requestId !== requestSequence.current) return;
       setEntitlement(data);
       setResolvedSchool(schoolId);
-    } catch (err) {
-      console.warn("Failed to fetch effective entitlement:", err);
+    } catch (err: any) {
+      if (err?.code === "resource-exhausted" || err?.message?.includes("Quota exceeded")) {
+        console.warn("Notice: Firestore daily quota exceeded on free plan. Using current cached entitlement.");
+      } else {
+        console.warn("Failed to fetch effective entitlement:", err);
+      }
     } finally {
       if (activeSchool.current === schoolId && requestId === requestSequence.current) setLoading(false);
     }
+  };
+
+  const scheduleFetchEntitlement = (delayMs: number = 350, forceClearCache: boolean = false) => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      fetchEntitlement(forceClearCache);
+    }, delayMs);
   };
 
   useEffect(() => {
@@ -222,22 +237,20 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       return () => unsubscribeFeatures();
     }
 
-    // Initial fetch
-    fetchEntitlement();
+    // Initial fetch (reuses unexpired cache if fresh)
+    fetchEntitlement(false);
 
     // Setup real-time listener on schoolSubscriptions/{schoolId}
     const subRef = doc(db, "schoolSubscriptions", schoolId);
     const unsubscribeSub = onSnapshot(
       subRef,
       (snap) => {
-        clearSubscriptionCache(schoolId);
         appQueryClient.invalidateCache(`schoolProfile:${schoolId}`);
         appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
-        appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
-        fetchEntitlement();
+        scheduleFetchEntitlement(350, true);
       },
       (err) => {
-        if (err.code !== "permission-denied") {
+        if (err.code !== "permission-denied" && err.code !== "resource-exhausted") {
           console.warn("Subscription real-time listener notice:", err);
         }
       }
@@ -248,14 +261,12 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     const unsubscribeSchool = onSnapshot(
       schoolRef,
       (snap) => {
-        clearSubscriptionCache(schoolId);
         appQueryClient.invalidateCache(`schoolProfile:${schoolId}`);
         appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
-        appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
-        fetchEntitlement();
+        scheduleFetchEntitlement(350, true);
       },
       (err) => {
-        if (err.code !== "permission-denied") {
+        if (err.code !== "permission-denied" && err.code !== "resource-exhausted") {
           console.warn("School document real-time listener notice:", err);
         }
       }
@@ -267,11 +278,10 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     const unsubscribeOverrides = onSnapshot(
       q,
       () => {
-        clearSubscriptionCache(schoolId);
-        fetchEntitlement();
+        scheduleFetchEntitlement(350, true);
       },
       (err) => {
-        if (err.code !== "permission-denied") {
+        if (err.code !== "permission-denied" && err.code !== "resource-exhausted") {
           console.warn("AccessOverrides real-time listener notice:", err);
         }
       }
