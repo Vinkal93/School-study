@@ -43,6 +43,7 @@ import {
   Hand,
   FolderOpen,
   Folder,
+  Network,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { getAdminFeatureTree } from "@/lib/features/adminFeatureRegistry";
@@ -246,6 +247,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       label: "Emergency Control",
       href: "/super-admin/emergency",
       icon: <ShieldAlert className="h-5 w-5 text-red-500" />,
+    },
+    {
+      label: "Architecture & Investors",
+      href: "/super-admin/architecture-intelligence",
+      icon: <Network className="h-5 w-5 text-indigo-500" />,
     },
     {
       label: "Security Command",
