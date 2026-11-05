@@ -471,11 +471,33 @@ export default function AdminStudentsPage() {
       setCommCategory("admission_welcome");
       setIsCommModalOpen(true);
 
+      // In-place optimistic cache update: prepend newly enrolled student without full-page refetch
+      const enrolledStudent: StudentProfile = {
+        id: created.studentId,
+        schoolId,
+        userId: created.userId,
+        studentId: created.studentId,
+        admissionNumber: created.admissionNumber,
+        rollNumber: created.rollNumber,
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        gender,
+        dob,
+        phone: phone.trim(),
+        address: address.trim(),
+        photoUrl,
+        classId: selectedClassId,
+        className: selectedClass?.name || "",
+        sectionId: selectedSectionId,
+        sectionName: selectedSection?.name || "",
+        admissionDate,
+        status: "active",
+        createdAt: new Date().toISOString() as any,
+        updatedAt: new Date().toISOString() as any,
+      };
+
+      setStudentsCache((prev) => [enrolledStudent, ...(prev || [])]);
       resetForm();
-      appQueryClient.invalidateCache(`students:${schoolId}`);
-      appQueryClient.invalidateCache(`planLimit:${schoolId}:*`);
-      appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
-      refetchStudents(true);
     } catch (err: any) {
       toast.error(err.message || "Failed to enroll student.");
     } finally {
@@ -554,10 +576,7 @@ export default function AdminStudentsPage() {
           s.id === stu.id ? { ...s, status: "active", deletedAt: undefined } : s
         )
       );
-      appQueryClient.invalidateCache(`planLimit:${schoolId}:*`);
-      appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
       toast.success(`Student "${stu.name}" restored successfully!`);
-      refetchStudents(true);
     } catch (err: any) {
       toast.error(err.message || "Failed to restore student.");
     }
@@ -599,8 +618,21 @@ export default function AdminStudentsPage() {
       toast.success(
         `Student transferred to ${targetClass?.name} (${targetSection?.name}) with Roll No. ${newRollNumber}!`
       );
+      setStudentsCache((prev) =>
+        (prev || []).map((s) =>
+          s.id === transferringStudent.id
+            ? {
+                ...s,
+                classId: targetClassId,
+                className: targetClass?.name || s.className,
+                sectionId: targetSectionId,
+                sectionName: targetSection?.name || s.sectionName,
+                rollNumber: newRollNumber,
+              }
+            : s
+        )
+      );
       setTransferringStudent(null);
-      refetchStudents(true);
     } catch (err: any) {
       toast.error(err.message || "Failed to transfer student.");
     } finally {

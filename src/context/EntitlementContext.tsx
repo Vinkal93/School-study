@@ -104,6 +104,12 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState<boolean>(true);
   const [globalFeatureStates, setGlobalFeatureStates] = useState<Record<string, GlobalFeatureState>>({});
   const [schoolFeatureOverrides, setSchoolFeatureOverrides] = useState<SchoolFeatureOverride[]>([]);
+  const featureAccessCacheRef = useRef<Map<string, boolean>>(new Map());
+
+  // Invalidate fast lookup map whenever inputs change
+  useEffect(() => {
+    featureAccessCacheRef.current.clear();
+  }, [role, loading, resolvedSchool, schoolId, entitlement, globalFeatureStates, schoolFeatureOverrides]);
 
   const fetchEffectiveFeatures = async () => {
     try {
@@ -440,102 +446,112 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     if (role === "super_admin") return true;
     if (!featureKey) return false;
 
-    const canonical = canonicalizeCapabilityKey(featureKey);
-    const parentKey = getParentFeatureKey(canonical);
-
-    // 0. CORE DASHBOARD ACCESS: Evergreen core feature accessible for all active school accounts
-    if (canonical === "school_dashboard" || canonical === "dashboard") {
-      return true;
+    // Fast O(1) path
+    if (featureAccessCacheRef.current.has(featureKey)) {
+      return featureAccessCacheRef.current.get(featureKey)!;
     }
 
-    if (loading || resolvedSchool !== schoolId || !entitlement) return false;
-    if (entitlement.accessMode === "NO_ACCESS" || entitlement.subscriptionStatus === "SUSPENDED" || entitlement.subscriptionStatus === "CANCELLED") return false;
-    if ((entitlement.accessMode === "RESTRICTED_ACCESS" || entitlement.accessMode === "GRACE_ACCESS") &&
-        entitlement.featureAccessModes?.[canonical] !== "FULL_ACCESS") return false;
+    const compute = (): boolean => {
+      const canonical = canonicalizeCapabilityKey(featureKey);
+      const parentKey = getParentFeatureKey(canonical);
 
-    // 1. SUPER ADMIN EXPLICIT SCHOOL OVERRIDES (Highest Tenant-Level Priority)
-    // If Super Admin granted this school access via an override, grant access immediately!
-    const explicitOverride = findSchoolOverride(featureKey);
-    if (explicitOverride) {
-      if (explicitOverride.overrideType === "ALLOW" || explicitOverride.overrideType === "CUSTOM_LIMIT") {
+      // 0. CORE DASHBOARD ACCESS: Evergreen core feature accessible for all active school accounts
+      if (canonical === "school_dashboard" || canonical === "dashboard") {
         return true;
       }
-      if (explicitOverride.overrideType === "DENY") {
-        return false;
-      }
-    }
 
-    // Fail-closed while loading or if not authenticated with a school
-    if (loading || resolvedSchool !== schoolId || !entitlement) {
-      return false;
-    }
+      if (loading || resolvedSchool !== schoolId || !entitlement) return false;
+      if (entitlement.accessMode === "NO_ACCESS" || entitlement.subscriptionStatus === "SUSPENDED" || entitlement.subscriptionStatus === "CANCELLED") return false;
+      if ((entitlement.accessMode === "RESTRICTED_ACCESS" || entitlement.accessMode === "GRACE_ACCESS") &&
+          entitlement.featureAccessModes?.[canonical] !== "FULL_ACCESS") return false;
 
-    // 2. Global Feature Control States (Super Admin Feature Control Center)
-    if (Object.keys(globalFeatureStates).length > 0) {
-      const gState = findGlobalState(featureKey);
-      if (gState) {
-        if (gState.rolloutMode === "OFF" || gState.enabled === false) {
+      // 1. SUPER ADMIN EXPLICIT SCHOOL OVERRIDES (Highest Tenant-Level Priority)
+      const explicitOverride = findSchoolOverride(featureKey);
+      if (explicitOverride) {
+        if (explicitOverride.overrideType === "ALLOW" || explicitOverride.overrideType === "CUSTOM_LIMIT") {
+          return true;
+        }
+        if (explicitOverride.overrideType === "DENY") {
           return false;
         }
-        if (gState.rolloutMode === "SELECTED_SCHOOLS" || gState.rolloutMode === "BETA") {
-          if (!schoolId || !gState.selectedSchoolIds?.includes(schoolId)) {
+      }
+
+      // Fail-closed while loading or if not authenticated with a school
+      if (loading || resolvedSchool !== schoolId || !entitlement) {
+        return false;
+      }
+
+      // 2. Global Feature Control States (Super Admin Feature Control Center)
+      if (Object.keys(globalFeatureStates).length > 0) {
+        const gState = findGlobalState(featureKey);
+        if (gState) {
+          if (gState.rolloutMode === "OFF" || gState.enabled === false) {
             return false;
+          }
+          if (gState.rolloutMode === "SELECTED_SCHOOLS" || gState.rolloutMode === "BETA") {
+            if (!schoolId || !gState.selectedSchoolIds?.includes(schoolId)) {
+              return false;
+            }
           }
         }
       }
-    }
 
-    const isFullControlOverride = (entitlement as any)?.controlMode === "FULL_CONTROL";
+      const isFullControlOverride = (entitlement as any)?.controlMode === "FULL_CONTROL";
 
-    // 3. Layered Feature Control Resolver Check
-    const result = resolveEffectiveFeatureAccess({
-      featureKey: canonical,
-      schoolId,
-      role,
-      globalStates: globalFeatureStates,
-      schoolOverrides: schoolFeatureOverrides,
-      planAllowedFeatures: entitlement ? Object.keys(entitlement.features).filter((k) => entitlement.features[k]) : [],
-      isFullControl: isFullControlOverride,
-    });
+      // 3. Layered Feature Control Resolver Check
+      const result = resolveEffectiveFeatureAccess({
+        featureKey: canonical,
+        schoolId,
+        role,
+        globalStates: globalFeatureStates,
+        schoolOverrides: schoolFeatureOverrides,
+        planAllowedFeatures: entitlement ? Object.keys(entitlement.features).filter((k) => entitlement.features[k]) : [],
+        isFullControl: isFullControlOverride,
+      });
 
-    if (!result.allowed) return false;
+      if (!result.allowed) return false;
 
-    // 4. 3-Way Mode check: if explicitly SHOWCASE or HIDDEN, canAccess is false
-    if (entitlement?.featureAccessModes) {
-      if (entitlement.featureAccessModes[canonical] !== undefined) {
-        return entitlement.featureAccessModes[canonical] === "FULL_ACCESS";
+      // 4. 3-Way Mode check: if explicitly SHOWCASE or HIDDEN, canAccess is false
+      if (entitlement?.featureAccessModes) {
+        if (entitlement.featureAccessModes[canonical] !== undefined) {
+          return entitlement.featureAccessModes[canonical] === "FULL_ACCESS";
+        }
+        if (entitlement.featureAccessModes[featureKey] !== undefined) {
+          return entitlement.featureAccessModes[featureKey] === "FULL_ACCESS";
+        }
+        if (parentKey && entitlement.featureAccessModes[parentKey] !== undefined) {
+          return entitlement.featureAccessModes[parentKey] === "FULL_ACCESS";
+        }
       }
-      if (entitlement.featureAccessModes[featureKey] !== undefined) {
-        return entitlement.featureAccessModes[featureKey] === "FULL_ACCESS";
+
+      // 5. Base Entitlement checks
+      if (!entitlement) return true; // Default fallback while loading
+      if (isFullControlOverride) return true;
+
+      if (entitlement.features[canonical] !== undefined) {
+        return entitlement.features[canonical] !== false;
       }
-      if (parentKey && entitlement.featureAccessModes[parentKey] !== undefined) {
-        return entitlement.featureAccessModes[parentKey] === "FULL_ACCESS";
+      if (entitlement.features[featureKey] !== undefined) {
+        return entitlement.features[featureKey] !== false;
       }
-    }
+      if (parentKey && entitlement.features[parentKey] !== undefined) {
+        return entitlement.features[parentKey] !== false;
+      }
 
-    // 5. Base Entitlement checks
-    if (!entitlement) return true; // Default fallback while loading
-    if (isFullControlOverride) return true;
+      if (Array.isArray(entitlement?.allowedFeatures) && entitlement.allowedFeatures.length > 0) {
+        return (
+          entitlement.allowedFeatures.includes(canonical) ||
+          entitlement.allowedFeatures.includes(featureKey) ||
+          (parentKey ? entitlement.allowedFeatures.includes(parentKey) : false)
+        );
+      }
 
-    if (entitlement.features[canonical] !== undefined) {
-      return entitlement.features[canonical] !== false;
-    }
-    if (entitlement.features[featureKey] !== undefined) {
-      return entitlement.features[featureKey] !== false;
-    }
-    if (parentKey && entitlement.features[parentKey] !== undefined) {
-      return entitlement.features[parentKey] !== false;
-    }
+      return false;
+    };
 
-    if (Array.isArray(entitlement?.allowedFeatures) && entitlement.allowedFeatures.length > 0) {
-      return (
-        entitlement.allowedFeatures.includes(canonical) ||
-        entitlement.allowedFeatures.includes(featureKey) ||
-        (parentKey ? entitlement.allowedFeatures.includes(parentKey) : false)
-      );
-    }
-
-    return false;
+    const allowed = compute();
+    featureAccessCacheRef.current.set(featureKey, allowed);
+    return allowed;
   }, [role, loading, resolvedSchool, schoolId, entitlement, globalFeatureStates, schoolFeatureOverrides]);
 
   const getFeatureAccessMode = useCallback((featureKey: string): FeatureAccessMode => {

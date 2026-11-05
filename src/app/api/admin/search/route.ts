@@ -28,20 +28,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: true, count: 0, results: [] });
     }
 
-    // 1. Authorize Caller
-    const adminAuth = getSafeAdminAuth();
-    if (!adminAuth) return NextResponse.json({ error: "Search service unavailable." }, { status: 503 });
-    const token = req.headers.get("authorization")?.match(/^Bearer (.+)$/)?.[1];
-    if (!token) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
-    try { await adminAuth.verifyIdToken(token, true); }
-    catch { return NextResponse.json({ error: "Invalid authentication." }, { status: 401 }); }
+    // 1. Authorize Caller with single authoritative verification
     const authResult = await authenticateRequest(req);
     const user = authResult.user;
     const isAuthorized = authResult.isAuthenticated && user && (user.role === "school_admin" || user.role === "admin" || user.role === "super_admin");
 
-    const schoolId = user?.schoolId || (user?.role === "super_admin" ? searchParams.get("schoolId") : "") || "";
-
     if (!isAuthorized) return authResult.errorResponse || NextResponse.json({ error: "Access denied." }, { status: 403 });
+
+    const schoolId = user?.schoolId || (user?.role === "super_admin" ? searchParams.get("schoolId") : "") || "";
 
     const results: AdminSearchResultItem[] = [];
 

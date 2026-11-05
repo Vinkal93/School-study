@@ -275,28 +275,25 @@ export async function createStudentWithAuth(
       academicYearId = newYearRef.id;
     }
   }
-  const [year, classroom] = await Promise.all([
-    getDoc(doc(db,"schools",schoolId,"academicYears",academicYearId)),
-    getDoc(doc(db,"schools",schoolId,"classes",input.classId))
+  // Parallelize session validation, class lookup, feature check, and plan limits
+  const [year, classroom, , admissionLimit] = await Promise.all([
+    getDoc(doc(db, "schools", schoolId, "academicYears", academicYearId)),
+    getDoc(doc(db, "schools", schoolId, "classes", input.classId)),
+    requireFeatureAccess(schoolId, "student_management"),
+    requirePlanLimit(schoolId, "students"),
   ]);
   if (!year.exists() || !classroom.exists()) throw new Error("Admission class and academic session must belong to this school.");
   if (!input.name?.trim() || !input.email?.trim() || input.password?.length < 6) throw new Error("Student name, email and a password of at least six characters are required.");
 
-  // 1. Authoritative Backend Check: Feature Access & Plan Limit
-  await requireFeatureAccess(schoolId, "student_management");
-  const admissionLimit = await requirePlanLimit(schoolId, "students");
-
-  // 2. Authoritative Unique User ID (e.g. STU564534)
+  // 2. Authoritative Unique User ID & Roll Number
   const { generateAuthoritativeId, reserveUserIdentity } = await import("./identity.service");
   const autoStudentId = input.studentId || (await generateAuthoritativeId("student", schoolId));
-  const cleanAdmNo = (input.admissionNumber && input.admissionNumber.trim().length > 0)
-    ? input.admissionNumber.trim().toUpperCase()
-    : autoStudentId;
-
-  // 3. Class-wise Sequential Roll Number (1, 2, 3...)
   let assignedRoll = (typeof input.rollNumber === "number" && input.rollNumber > 0)
     ? input.rollNumber
     : await generateNextRollNumber(schoolId, input.classId);
+  const cleanAdmNo = (input.admissionNumber && input.admissionNumber.trim().length > 0)
+    ? input.admissionNumber.trim().toUpperCase()
+    : autoStudentId;
 
   // 4. Verify no duplicate roll number in the same class
   const studentsColl = collection(db, "schools", schoolId, "students");

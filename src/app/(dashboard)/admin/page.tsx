@@ -4,10 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { usePortalUI } from "@/context/portal-ui-context";
 import { useAppQuery } from "@/lib/cache";
 import { getSchoolById } from "@/lib/services/school.service";
-import { getSchoolSetupData } from "@/lib/services/setup.service";
-import { getStudents } from "@/lib/services/student.service";
-import { getTeachers } from "@/lib/services/teacher.service";
-import type { School, StudentProfile, TeacherProfile } from "@/types";
+import type { School } from "@/types";
 import { useEntitlement } from "@/context/EntitlementContext";
 import { useRealtimeSchoolDashboard } from "@/hooks/useRealtimeSchoolDashboard";
 import { ClassicSchoolAdminDashboard } from "@/components/admin/ClassicSchoolAdminDashboard";
@@ -40,60 +37,17 @@ export default function SchoolAdminPage() {
     { enabled: !!schoolId && isAllowed, staleTime: 60_000 }
   );
 
-  const { data: cachedStudents } = useAppQuery<StudentProfile[]>(
-    schoolId && isAllowed ? `students:${schoolId}` : null,
-    () => getStudents(schoolId),
-    { enabled: !!schoolId && isAllowed, staleTime: 30_000 }
-  );
-
-  const { data: cachedTeachers } = useAppQuery<TeacherProfile[]>(
-    schoolId && isAllowed ? `teachers:${schoolId}` : null,
-    () => getTeachers(schoolId),
-    { enabled: !!schoolId && isAllowed, staleTime: 30_000 }
-  );
-
-  const { data: cachedSetupData } = useAppQuery(
-    schoolId && isAllowed ? `schoolSetupData:${schoolId}` : null,
-    () => getSchoolSetupData(schoolId),
-    { enabled: !!schoolId && isAllowed, staleTime: 30_000 }
-  );
-
   // Strictly validate school matches the authenticated tenant schoolId
   const school =
     (liveSchool && liveSchool.id === schoolId ? liveSchool : null) ||
     (cachedSchool && cachedSchool.id === schoolId ? cachedSchool : null);
 
-  // Single authoritative source of truth for enrolled students:
-  // Strictly matches /admin/students (excluding deleted and archived)
-  const resolvedStudentCount =
-    Array.isArray(cachedStudents)
-      ? cachedStudents.filter((s) => s.status !== "deleted" && s.status !== "archived").length
-      : typeof cachedSetupData?.students?.length === "number"
-      ? cachedSetupData.students.length
-      : liveCounts.students || 0;
-
-  const resolvedTeacherCount =
-    Array.isArray(cachedTeachers)
-      ? cachedTeachers.filter((t) => t.status !== "deleted" && t.status !== "archived").length
-      : typeof cachedSetupData?.teachers?.length === "number"
-      ? cachedSetupData.teachers.length
-      : liveCounts.teachers || 0;
-
-  const resolvedClassCount =
-    typeof cachedSetupData?.classes?.length === "number"
-      ? cachedSetupData.classes.length
-      : liveCounts.classes || 0;
-
-  const resolvedAcademicYearsCount =
-    typeof cachedSetupData?.academicYears?.length === "number"
-      ? cachedSetupData.academicYears.length
-      : liveCounts.academicYears || 0;
-
+  // Authoritative live server counts (0-doc fast aggregation from schoolUsage & getCountFromServer)
   const counts = {
-    teachers: resolvedTeacherCount,
-    students: resolvedStudentCount,
-    classes: resolvedClassCount,
-    academicYears: resolvedAcademicYearsCount,
+    teachers: liveCounts.teachers || 0,
+    students: liveCounts.students || 0,
+    classes: liveCounts.classes || 0,
+    academicYears: liveCounts.academicYears || 0,
   };
 
   // Determine active UI presentation version

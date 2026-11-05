@@ -62,9 +62,46 @@ export function setFastCache<T>(
   // Check consent before writing large blobs to localStorage
   try {
     if (hasConsent("performance")) {
-      localStorage.setItem(`ss_fast_${key}`, JSON.stringify(entry));
+      const payload = JSON.stringify(entry);
+      // Guard against quota explosion: do not write individual blobs > 250KB to localStorage
+      if (payload.length < 250_000) {
+        localStorage.setItem(`ss_fast_${key}`, payload);
+      }
+    }
+  } catch (err: any) {
+    // If quota exceeded or private browsing restricted, clear older ss_fast items
+    if (err?.name === "QuotaExceededError" || err?.code === 22) {
+      try {
+        const keys = Object.keys(localStorage).filter((k) => k.startsWith("ss_fast_"));
+        keys.slice(0, Math.ceil(keys.length / 2)).forEach((k) => localStorage.removeItem(k));
+      } catch {}
+    }
+  }
+}
+
+export function purgeTenantFastCache(schoolId: string): void {
+  if (typeof window === "undefined" || !schoolId) return;
+
+  // Clear memory entries matching school
+  for (const k of Array.from(memoryStore.keys())) {
+    if (k.includes(schoolId)) {
+      memoryStore.delete(k);
+    }
+  }
+
+  // Clear localStorage entries
+  try {
+    const keys = Object.keys(localStorage);
+    for (const k of keys) {
+      if (k.startsWith("ss_fast_") && k.includes(schoolId)) {
+        localStorage.removeItem(k);
+      }
     }
   } catch {}
+}
+
+export function purgeAllFastCache(): void {
+  invalidateFastCache();
 }
 
 export function invalidateFastCache(keyPrefix?: string): void {

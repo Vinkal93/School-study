@@ -21,12 +21,13 @@ export interface UseAppQueryResult<T> {
 }
 
 /**
- * High-performance React hook for Stale-While-Revalidate data fetching.
+ * High-performance React hook for Stale-While-Revalidate data fetching 3.0.
  * Displays cached data immediately if available, while fetching fresh data in the background.
+ * Automatically handles AbortController cancellation for obsolete in-flight requests.
  */
 export function useAppQuery<T>(
   key: string | null | undefined,
-  fetcher: () => Promise<T>,
+  fetcher: (signal?: AbortSignal) => Promise<T>,
   options: UseAppQueryOptions<T> = {}
 ): UseAppQueryResult<T> {
   const {
@@ -41,7 +42,6 @@ export function useAppQuery<T>(
 
   // Read initial data from cache synchronously if available
   const cachedData = key ? appQueryClient.getCacheData<T>(key) : undefined;
-  const isFresh = key ? appQueryClient.isCacheFresh(key) : false;
 
   const [data, setDataState] = useState<T | undefined>(cachedData ?? initialData);
   const [isLoading, setIsLoading] = useState<boolean>(!cachedData && !initialData && enabled && !!key);
@@ -58,9 +58,21 @@ export function useAppQuery<T>(
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const executeFetch = useCallback(
-    async (force: boolean = false): Promise<T | undefined> => {
+    async (force: boolean = false, customSignal?: AbortSignal): Promise<T | undefined> => {
       if (!key || !enabled) return undefined;
+
+      // Cancel prior in-flight request from this hook instance if not aborted
+      if (!customSignal) {
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
+        abortControllerRef.current = new AbortController();
+      }
+
+      const activeSignal = customSignal || abortControllerRef.current?.signal;
 
       setIsFetching(true);
       setIsError(false);
@@ -69,20 +81,29 @@ export function useAppQuery<T>(
       try {
         const result = await appQueryClient.fetchWithCache<T>(
           key,
-          () => fetcherRef.current(),
-          { staleTime, cacheTime, forceRefresh: force }
+          (sig) => fetcherRef.current(sig),
+          { staleTime, cacheTime, forceRefresh: force, signal: activeSignal }
         );
-        setDataState(result);
-        if (onSuccessRef.current) onSuccessRef.current(result);
+
+        if (!activeSignal?.aborted) {
+          setDataState(result);
+          if (onSuccessRef.current) onSuccessRef.current(result);
+        }
         return result;
       } catch (err: any) {
+        if (err?.name === "AbortError" || activeSignal?.aborted) {
+          // Normal cancellation, not a failure
+          return undefined;
+        }
         setIsError(true);
         setError(err);
         if (onErrorRef.current) onErrorRef.current(err);
         return undefined;
       } finally {
-        setIsLoading(false);
-        setIsFetching(false);
+        if (!activeSignal?.aborted) {
+          setIsLoading(false);
+          setIsFetching(false);
+        }
       }
     },
     [key, enabled, staleTime, cacheTime]
@@ -99,7 +120,7 @@ export function useAppQuery<T>(
     return () => unsubscribe();
   }, [key]);
 
-  // Initial & background revalidation effect
+  // Initial & background revalidation effect with cleanup
   useEffect(() => {
     if (!key || !enabled) {
       setIsLoading(false);
@@ -118,6 +139,12 @@ export function useAppQuery<T>(
       setIsLoading(true);
       executeFetch(true);
     }
+
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, [key, enabled, forceRefresh, executeFetch]);
 
   // Direct state setter for optimistic updates
