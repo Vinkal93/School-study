@@ -118,6 +118,21 @@ export default function ManageLoginPage() {
   const [whatsappResetLink, setWhatsappResetLink] = useState("");
   const [isSendingWhatsApp, setIsSendingWhatsApp] = useState(false);
 
+  // Authentication headers helper for zero-trust API calls
+  const getAuthHeaders = useCallback(
+    async (forceRefresh = false): Promise<Record<string, string>> => {
+      const token = firebaseUser ? await firebaseUser.getIdToken(forceRefresh).catch(() => "") : "";
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      return headers;
+    },
+    [firebaseUser]
+  );
+
   // Debounce search query
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -143,12 +158,26 @@ export default function ManageLoginPage() {
         status: portalStatusFilter,
       });
 
-      const res = await fetch(`/api/admin/students/manage-login?${params.toString()}`, {
+      let headers = await getAuthHeaders();
+      let res = await fetch(`/api/admin/students/manage-login?${params.toString()}`, {
+        headers,
         cache: "no-store",
       });
 
+      // If token expired or freshly acquired, attempt force refresh once
+      if (res.status === 401 && firebaseUser) {
+        headers = await getAuthHeaders(true);
+        res = await fetch(`/api/admin/students/manage-login?${params.toString()}`, {
+          headers,
+          cache: "no-store",
+        });
+      }
+
       if (!res.ok) {
-        throw new Error(`Failed to load login roster: ${res.statusText}`);
+        const errorData = await res.json().catch(() => null);
+        const errMsg = errorData?.error || `Failed to load login roster (${res.statusText || res.status})`;
+        toast.error(errMsg);
+        return;
       }
 
       const data = await res.json();
@@ -166,7 +195,7 @@ export default function ManageLoginPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [authLoading, firebaseUser, schoolId, currentPage, debouncedSearch, selectedClass, portalStatusFilter]);
+  }, [authLoading, firebaseUser, schoolId, currentPage, debouncedSearch, selectedClass, portalStatusFilter, getAuthHeaders]);
 
   useEffect(() => {
     fetchLoginRecords();
@@ -220,9 +249,10 @@ export default function ManageLoginPage() {
 
     setIsResetting(true);
     try {
+      const authHeaders = await getAuthHeaders();
       const res = await fetch(`/api/admin/students/${resettingStudent.id}/credentials`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders,
         body: JSON.stringify({
           action: "reset_password",
           newPassword: newPassword.trim(),
@@ -256,9 +286,10 @@ export default function ManageLoginPage() {
 
     setIsResetting(true);
     try {
+      const authHeaders = await getAuthHeaders();
       const res = await fetch(`/api/admin/students/${resettingStudent.id}/credentials`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders,
         body: JSON.stringify({ action: "generate_reset_link" }),
       });
 
@@ -296,9 +327,10 @@ export default function ManageLoginPage() {
 
     setIsSendingWhatsApp(true);
     try {
+      const authHeaders = await getAuthHeaders();
       const res = await fetch(`/api/admin/students/${whatsappStudent.id}/whatsapp-credentials`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders,
         body: JSON.stringify({
           recipientPhone: phone,
           resetLink: whatsappResetLink || undefined,
@@ -340,9 +372,10 @@ export default function ManageLoginPage() {
 
     setIsToggling(true);
     try {
+      const authHeaders = await getAuthHeaders();
       const res = await fetch(`/api/admin/students/${togglingStudent.id}/credentials`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders,
         body: JSON.stringify({
           action,
           reason: action === "disable" ? disableReason.trim() : undefined,
@@ -375,15 +408,35 @@ export default function ManageLoginPage() {
     }
   };
 
-  // Export CSV Roster
-  const handleExportCsv = () => {
-    const params = new URLSearchParams({
-      classId: selectedClass,
-      status: portalStatusFilter,
-      q: debouncedSearch,
-    });
-    window.location.href = `/api/admin/students/manage-login/export?${params.toString()}`;
-    toast.success("Downloading official student credentials roster...");
+  // Export CSV Roster with zero-trust token
+  const handleExportCsv = async () => {
+    try {
+      toast.info("Preparing student login roster export...");
+      const params = new URLSearchParams({
+        classId: selectedClass,
+        status: portalStatusFilter,
+        q: debouncedSearch,
+      });
+      const authHeaders = await getAuthHeaders();
+      const res = await fetch(`/api/admin/students/manage-login/export?${params.toString()}`, {
+        headers: authHeaders,
+      });
+      if (!res.ok) {
+        throw new Error(`Export failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `student-login-roster-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success("Downloaded official student credentials roster.");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to download export.");
+    }
   };
 
   return (

@@ -89,22 +89,30 @@ export default function ArchitectureInvestorCenterPage() {
   const [exportOpen, setExportOpen] = useState(false);
 
   // Fetch token securely
-  const getAuthToken = useCallback(async () => {
+  const getAuthToken = useCallback(async (forceRefresh = false) => {
     if (firebaseUser) {
-      return await firebaseUser.getIdToken().catch(() => "");
+      return await firebaseUser.getIdToken(forceRefresh).catch(() => "");
     }
     return "";
   }, [firebaseUser]);
 
   // Load Primary Architecture Data
   const loadArchitectureData = useCallback(async () => {
+    if (!firebaseUser) return;
     try {
       setRefreshing(true);
-      const token = await getAuthToken();
+      let token = await getAuthToken();
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (token) headers["Authorization"] = `Bearer ${token}`;
 
-      const res = await fetch("/api/super-admin/architecture-intelligence", { headers });
+      let res = await fetch("/api/super-admin/architecture-intelligence", { headers });
+      if (res.status === 401 && firebaseUser) {
+        token = await getAuthToken(true);
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+          res = await fetch("/api/super-admin/architecture-intelligence", { headers });
+        }
+      }
       const json = await res.json();
 
       if (json.success && json.data) {
@@ -156,10 +164,10 @@ export default function ArchitectureInvestorCenterPage() {
   };
 
   useEffect(() => {
-    if (!authLoading) {
+    if (!authLoading && firebaseUser) {
       loadArchitectureData();
     }
-  }, [authLoading, loadArchitectureData]);
+  }, [authLoading, firebaseUser, loadArchitectureData]);
 
   if (loading && !overview) {
     return (
