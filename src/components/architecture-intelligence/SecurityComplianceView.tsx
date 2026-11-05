@@ -83,7 +83,7 @@ export default function SecurityComplianceView({ controls }: Props) {
                 <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-100">
                   {item.domain.replace(/_/g, " ")}
                 </span>
-                <span className="rounded bg-slate-900 px-2 py-0.5 text-[9px] font-bold text-white uppercase tracking-wider">
+                <span className="rounded-md bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider">
                   ASVS {item.asvsLevel.replace(/_/g, " ")}
                 </span>
               </div>

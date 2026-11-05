@@ -120,6 +120,10 @@ export default function ArchitectureInvestorCenterPage() {
         setCapacityPresets(json.data.capacityPresets || []);
         setCapacityProjection(json.data.defaultCapacityProjection || null);
       } else {
+        if (res.status === 401 && !token) {
+          // Token still establishing; non-fatal on hydration
+          return;
+        }
         toast.error(json.error || "Failed to load architecture intelligence.");
       }
     } catch (err: any) {
@@ -144,69 +148,70 @@ export default function ArchitectureInvestorCenterPage() {
         setPresentationSlides(json.data.slides);
         setPresentationOpen(true);
       } else {
-        toast.error("Unable to load presentation deck.");
+        toast.error("Could not load investor presentation slides.");
       }
-    } catch (err) {
-      toast.error("Failed to initialize presentation mode.");
+    } catch {
+      toast.error("Error connecting to presentation server.");
     }
   };
 
   useEffect(() => {
-    loadArchitectureData();
-  }, [loadArchitectureData]);
+    if (!authLoading) {
+      loadArchitectureData();
+    }
+  }, [authLoading, loadArchitectureData]);
 
-  if (loading) {
+  if (loading && !overview) {
     return (
       <div className="flex min-h-[600px] flex-col items-center justify-center gap-3">
-        <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
-        <span className="text-sm font-medium text-slate-500">
-          Loading Architecture & Investor Intelligence 5.0...
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        <span className="text-xs font-semibold text-gray-500">
+          Loading Architecture & Investor Intelligence Center...
         </span>
       </div>
     );
   }
 
   return (
-    <div className="space-y-8 pb-16">
-      {/* Top Header Banner */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200 pb-6">
+    <div className="space-y-6 pb-16 max-w-7xl mx-auto">
+      {/* Top Breadcrumb & Action Bar */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-gray-200 dark:border-gray-800 pb-5">
         <div>
           <div className="flex items-center gap-2">
-            <span className="rounded-full bg-indigo-50 border border-indigo-200/80 px-2.5 py-0.5 text-[11px] font-bold text-indigo-700 uppercase tracking-wider">
-              Executive Architecture 5.0
+            <span className="rounded-md bg-blue-50 px-2.5 py-0.5 text-[11px] font-bold text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+              EXECUTIVE ARCHITECTURE 5.0
             </span>
-            <span className="text-xs text-slate-400 font-mono">Zero-Trust ASVS 5.0</span>
+            <span className="text-xs font-medium text-gray-400">Zero-Trust ASVS 5.0</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1 tracking-tight">
+          <h1 className="mt-1.5 text-2xl font-extrabold tracking-tight text-gray-900 dark:text-white sm:text-3xl">
             Architecture & Investor Intelligence Center
           </h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1 max-w-2xl leading-relaxed">
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 max-w-2xl leading-relaxed">
             Factual repository topology, verified third-party integrations, live financial traction, and interactive capacity planning.
           </p>
         </div>
 
-        {/* Executive Action Buttons */}
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex items-center gap-2.5">
           <button
             onClick={() => loadArchitectureData()}
             disabled={refreshing}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50 transition"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3.5 py-2 text-xs font-semibold text-gray-700 dark:text-gray-200 shadow-2xs hover:bg-gray-50 dark:hover:bg-gray-700 transition"
           >
-            <RotateCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin text-indigo-600" : ""}`} />
+            <RotateCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin text-blue-600" : ""}`} />
             Refresh
           </button>
 
           <button
             onClick={() => setExportOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50 transition"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3.5 py-2 text-xs font-semibold text-gray-700 dark:text-gray-200 shadow-2xs hover:bg-gray-50 dark:hover:bg-gray-700 transition"
           >
-            <Download className="h-3.5 w-3.5 text-slate-500" />
+            <Download className="h-3.5 w-3.5 text-gray-500" />
             Export Dossier
           </button>
 
           <button
             onClick={loadPresentation}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm shadow-indigo-600/30 hover:bg-indigo-700 transition"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 transition"
           >
             <Presentation className="h-4 w-4" />
             Investor Presentation Mode
@@ -217,62 +222,64 @@ export default function ArchitectureInvestorCenterPage() {
       {/* KPI Overview Strip */}
       {overview && businessMetrics && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <div className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Verified Modules</span>
-            <span className="text-xl font-extrabold text-slate-900 mt-0.5 block">{overview.verifiedModulesCount}</span>
-            <span className="text-[10px] text-emerald-600 font-semibold">100% Documented</span>
+          <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800/80 p-4 shadow-2xs">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">Verified Modules</span>
+            <span className="text-xl font-extrabold text-gray-900 dark:text-white mt-0.5 block">{overview.verifiedModulesCount}</span>
+            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">100% Documented</span>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Cloud Integrations</span>
-            <span className="text-xl font-extrabold text-slate-900 mt-0.5 block">
+          <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800/80 p-4 shadow-2xs">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">Cloud Integrations</span>
+            <span className="text-xl font-extrabold text-gray-900 dark:text-white mt-0.5 block">
               {overview.activeIntegrationsCount} / {overview.totalIntegrationsCount}
             </span>
-            <span className="text-[10px] text-indigo-600 font-semibold">All Active & Health-Checked</span>
+            <span className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold">All Active & Health-Checked</span>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Firestore Schemas</span>
-            <span className="text-xl font-extrabold text-slate-900 mt-0.5 block">{overview.databaseEntitiesCount}</span>
-            <span className="text-[10px] text-slate-500 font-medium">Multi-Tenant Partitioned</span>
+          <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800/80 p-4 shadow-2xs">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">Firestore Schemas</span>
+            <span className="text-xl font-extrabold text-gray-900 dark:text-white mt-0.5 block">{overview.databaseEntitiesCount}</span>
+            <span className="text-[10px] text-gray-500 font-medium">Multi-Tenant Partitioned</span>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Monthly Run Rate</span>
-            <span className="text-xl font-extrabold text-emerald-600 mt-0.5 block">
+          <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800/80 p-4 shadow-2xs">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">Monthly Run Rate</span>
+            <span className="text-xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5 block">
               ₹{businessMetrics.monthlyRecurringRevenueInr.toLocaleString()}
             </span>
-            <span className="text-[10px] text-emerald-600 font-semibold">
+            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
               ₹{(businessMetrics.annualRecurringRevenueRunRateInr / 100000).toFixed(1)}L ARR
             </span>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Active Paying Schools</span>
-            <span className="text-xl font-extrabold text-slate-900 mt-0.5 block">
-              {businessMetrics.paidSchools} / {businessMetrics.totalRegisteredSchools}
+          <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800/80 p-4 shadow-2xs">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">Active Subscriptions</span>
+            <span className="text-xl font-extrabold text-gray-900 dark:text-white mt-0.5 block">
+              {businessMetrics.paidSchools}
             </span>
-            <span className="text-[10px] text-purple-600 font-semibold">{businessMetrics.conversionRatePercent}% Conversion</span>
+            <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold">
+              ₹{businessMetrics.averageRevenuePerPaidSchoolInr.toLocaleString()}/mo ARPU
+            </span>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Security Controls</span>
-            <span className="text-xl font-extrabold text-emerald-600 mt-0.5 block">
+          <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800/80 p-4 shadow-2xs">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">Security Invariants</span>
+            <span className="text-xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5 block">
               {overview.verifiedSecurityControlsCount} Verified
             </span>
-            <span className="text-[10px] text-emerald-600 font-semibold">ASVS 5.0 Compliant</span>
+            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">ASVS 5.0 Compliant</span>
           </div>
         </div>
       )}
 
       {/* Navigation Tabs Bar */}
-      <div className="flex overflow-x-auto no-scrollbar gap-2 border-b border-slate-200 pb-2">
+      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar p-1.5 rounded-2xl bg-gray-100/80 dark:bg-gray-800/80 border border-gray-200/80 dark:border-gray-700/80">
         <button
           onClick={() => setActiveTab("visualizer")}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition whitespace-nowrap ${
+          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition whitespace-nowrap ${
             activeTab === "visualizer"
-              ? "bg-slate-900 text-white shadow-sm"
-              : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              ? "bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 shadow-xs font-bold border border-gray-200/80 dark:border-gray-700/80"
+              : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-gray-700/60"
           }`}
         >
           <Network className="h-4 w-4" />
@@ -281,10 +288,10 @@ export default function ArchitectureInvestorCenterPage() {
 
         <button
           onClick={() => setActiveTab("integrations")}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition whitespace-nowrap ${
+          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition whitespace-nowrap ${
             activeTab === "integrations"
-              ? "bg-slate-900 text-white shadow-sm"
-              : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              ? "bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 shadow-xs font-bold border border-gray-200/80 dark:border-gray-700/80"
+              : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-gray-700/60"
           }`}
         >
           <Cpu className="h-4 w-4" />
@@ -293,10 +300,10 @@ export default function ArchitectureInvestorCenterPage() {
 
         <button
           onClick={() => setActiveTab("features")}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition whitespace-nowrap ${
+          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition whitespace-nowrap ${
             activeTab === "features"
-              ? "bg-slate-900 text-white shadow-sm"
-              : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              ? "bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 shadow-xs font-bold border border-gray-200/80 dark:border-gray-700/80"
+              : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-gray-700/60"
           }`}
         >
           <Layers className="h-4 w-4" />
@@ -305,10 +312,10 @@ export default function ArchitectureInvestorCenterPage() {
 
         <button
           onClick={() => setActiveTab("database")}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition whitespace-nowrap ${
+          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition whitespace-nowrap ${
             activeTab === "database"
-              ? "bg-slate-900 text-white shadow-sm"
-              : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              ? "bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 shadow-xs font-bold border border-gray-200/80 dark:border-gray-700/80"
+              : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-gray-700/60"
           }`}
         >
           <Database className="h-4 w-4" />
@@ -317,10 +324,10 @@ export default function ArchitectureInvestorCenterPage() {
 
         <button
           onClick={() => setActiveTab("infrastructure")}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition whitespace-nowrap ${
+          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition whitespace-nowrap ${
             activeTab === "infrastructure"
-              ? "bg-slate-900 text-white shadow-sm"
-              : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              ? "bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 shadow-xs font-bold border border-gray-200/80 dark:border-gray-700/80"
+              : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-gray-700/60"
           }`}
         >
           <Server className="h-4 w-4" />
@@ -329,10 +336,10 @@ export default function ArchitectureInvestorCenterPage() {
 
         <button
           onClick={() => setActiveTab("security")}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition whitespace-nowrap ${
+          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition whitespace-nowrap ${
             activeTab === "security"
-              ? "bg-slate-900 text-white shadow-sm"
-              : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              ? "bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 shadow-xs font-bold border border-gray-200/80 dark:border-gray-700/80"
+              : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-gray-700/60"
           }`}
         >
           <ShieldCheck className="h-4 w-4" />
@@ -341,10 +348,10 @@ export default function ArchitectureInvestorCenterPage() {
 
         <button
           onClick={() => setActiveTab("business")}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition whitespace-nowrap ${
+          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition whitespace-nowrap ${
             activeTab === "business"
-              ? "bg-slate-900 text-white shadow-sm"
-              : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              ? "bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 shadow-xs font-bold border border-gray-200/80 dark:border-gray-700/80"
+              : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-gray-700/60"
           }`}
         >
           <TrendingUp className="h-4 w-4" />
@@ -353,10 +360,10 @@ export default function ArchitectureInvestorCenterPage() {
 
         <button
           onClick={() => setActiveTab("capacity")}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition whitespace-nowrap ${
+          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition whitespace-nowrap ${
             activeTab === "capacity"
-              ? "bg-slate-900 text-white shadow-sm"
-              : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              ? "bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 shadow-xs font-bold border border-gray-200/80 dark:border-gray-700/80"
+              : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-gray-700/60"
           }`}
         >
           <Sliders className="h-4 w-4" />

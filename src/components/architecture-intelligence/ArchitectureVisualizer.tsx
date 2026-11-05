@@ -58,39 +58,62 @@ export default function ArchitectureVisualizer({ nodes, edges }: Props) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Filter nodes for active diagram type and category
+  // Filter nodes based on selected diagram type, search query, and category
   const filteredNodes = useMemo(() => {
-    return nodes.filter((n) => {
-      const inDiagram = n.diagrams.includes(diagramType);
-      const matchesCategory = selectedCategory === "ALL" || n.category === selectedCategory;
-      const matchesSearch =
-        !searchQuery ||
-        n.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        n.technology.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        n.featuresCovered.some((f) => f.toLowerCase().includes(searchQuery.toLowerCase()));
-      return inDiagram && matchesCategory && matchesSearch;
+    return nodes.filter((node) => {
+      // 1. Diagram Type Filter
+      if (diagramType === "INVESTOR_SIMPLIFIED") {
+        const investorCrucial = [
+          "FRONTEND_PWA",
+          "NEXTJS_API_GATEWAY",
+          "FIREBASE_AUTH_IAM",
+          "FIRESTORE_DATABASE",
+          "RAZORPAY_GATEWAY",
+          "COMMUNICATION_HUB",
+          "SECURITY_RATE_LIMITER",
+        ];
+        if (!investorCrucial.includes(node.id)) return false;
+      } else if (diagramType === "BUSINESS_PROCESS") {
+        const businessCrucial = [
+          "FRONTEND_PWA",
+          "NEXTJS_API_GATEWAY",
+          "FIREBASE_AUTH_IAM",
+          "BUSINESS_LOGIC_CORE",
+          "FIRESTORE_DATABASE",
+          "RAZORPAY_GATEWAY",
+          "COMMUNICATION_HUB",
+        ];
+        if (!businessCrucial.includes(node.id)) return false;
+      }
+
+      // 2. Category Filter
+      if (selectedCategory !== "ALL" && node.category !== selectedCategory) {
+        return false;
+      }
+
+      // 3. Search Query Filter
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchesName = node.name.toLowerCase().includes(q);
+        const matchesTech = node.technology.toLowerCase().includes(q);
+        const matchesDesc = node.description.toLowerCase().includes(q);
+        const matchesCategory = node.category.toLowerCase().includes(q);
+        if (!matchesName && !matchesTech && !matchesDesc && !matchesCategory) {
+          return false;
+        }
+      }
+
+      return true;
     });
   }, [nodes, diagramType, selectedCategory, searchQuery]);
 
-  const activeNodeIds = useMemo(() => new Set(filteredNodes.map((n) => n.id)), [filteredNodes]);
-
-  // Filter edges where both source and target are active in the diagram
+  // Edges between currently filtered nodes
   const filteredEdges = useMemo(() => {
-    return edges.filter((e) => {
-      const inDiagram = e.diagrams.includes(diagramType);
-      const nodesActive = activeNodeIds.has(e.source) && activeNodeIds.has(e.target);
-      return inDiagram && nodesActive;
-    });
-  }, [edges, diagramType, activeNodeIds]);
+    const visibleNodeIds = new Set(filteredNodes.map((n) => n.id));
+    return edges.filter((e) => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target));
+  }, [edges, filteredNodes]);
 
-  // Pan / Zoom Controls
-  const handleZoomIn = () => setZoom((z) => Math.min(2.0, z + 0.15));
-  const handleZoomOut = () => setZoom((z) => Math.max(0.4, z - 0.15));
-  const handleResetZoom = () => {
-    setZoom(0.85);
-    setPan({ x: 30, y: 30 });
-  };
-
+  // Pan / Drag handlers
   const handleMouseDown = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest(".node-card")) return;
     setIsDragging(true);
@@ -99,15 +122,26 @@ export default function ArchitectureVisualizer({ nodes, edges }: Props) {
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isDragging) return;
-    setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+    setPan({
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y,
+    });
   };
 
-  const handleMouseUp = () => setIsDragging(false);
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleZoomIn = () => setZoom((z) => Math.min(z + 0.15, 2.0));
+  const handleZoomOut = () => setZoom((z) => Math.max(z - 0.15, 0.5));
+  const handleResetZoom = () => {
+    setZoom(1);
+    setPan({ x: 20, y: 20 });
+  };
 
   const toggleFullscreen = () => {
-    if (!containerRef.current) return;
     if (!isFullscreen) {
-      if (containerRef.current.requestFullscreen) {
+      if (containerRef.current?.requestFullscreen) {
         containerRef.current.requestFullscreen();
       }
       setIsFullscreen(true);
@@ -122,18 +156,20 @@ export default function ArchitectureVisualizer({ nodes, edges }: Props) {
   return (
     <div
       ref={containerRef}
-      className={`relative w-full rounded-2xl border border-slate-200 bg-slate-900 text-slate-100 shadow-xl overflow-hidden transition-all ${
+      className={`relative w-full rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm overflow-hidden transition-all ${
         isFullscreen ? "h-screen rounded-none" : "h-[740px]"
       }`}
     >
       {/* Top Toolbar */}
-      <div className="absolute top-0 left-0 right-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/80 px-4 py-3 backdrop-blur-md">
+      <div className="absolute top-0 left-0 right-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 dark:border-gray-800 bg-white/95 dark:bg-gray-900/95 px-4 py-3 backdrop-blur-md">
         {/* Diagram Type Switcher */}
-        <div className="flex items-center gap-1 rounded-xl bg-slate-900 p-1 border border-slate-800 text-xs font-medium">
+        <div className="flex items-center gap-1 rounded-xl bg-gray-100 dark:bg-gray-800 p-1 border border-gray-200 dark:border-gray-700 text-xs font-medium">
           <button
             onClick={() => setDiagramType("TECHNICAL")}
             className={`rounded-lg px-3 py-1.5 transition-all ${
-              diagramType === "TECHNICAL" ? "bg-indigo-600 text-white shadow-sm font-semibold" : "text-slate-400 hover:text-white"
+              diagramType === "TECHNICAL"
+                ? "bg-blue-600 text-white shadow-xs font-semibold"
+                : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
             }`}
           >
             Technical Topology
@@ -141,7 +177,9 @@ export default function ArchitectureVisualizer({ nodes, edges }: Props) {
           <button
             onClick={() => setDiagramType("BUSINESS_PROCESS")}
             className={`rounded-lg px-3 py-1.5 transition-all ${
-              diagramType === "BUSINESS_PROCESS" ? "bg-indigo-600 text-white shadow-sm font-semibold" : "text-slate-400 hover:text-white"
+              diagramType === "BUSINESS_PROCESS"
+                ? "bg-blue-600 text-white shadow-xs font-semibold"
+                : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
             }`}
           >
             Business Process Flow
@@ -149,7 +187,9 @@ export default function ArchitectureVisualizer({ nodes, edges }: Props) {
           <button
             onClick={() => setDiagramType("INVESTOR_SIMPLIFIED")}
             className={`rounded-lg px-3 py-1.5 transition-all ${
-              diagramType === "INVESTOR_SIMPLIFIED" ? "bg-indigo-600 text-white shadow-sm font-semibold" : "text-slate-400 hover:text-white"
+              diagramType === "INVESTOR_SIMPLIFIED"
+                ? "bg-blue-600 text-white shadow-xs font-semibold"
+                : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
             }`}
           >
             Investor Simplified
@@ -159,18 +199,18 @@ export default function ArchitectureVisualizer({ nodes, edges }: Props) {
         {/* Search & Category Filter */}
         <div className="flex items-center gap-2">
           <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-gray-400" />
             <input
               type="text"
               placeholder="Search components or tech..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-8 w-48 sm:w-60 rounded-lg border border-slate-700 bg-slate-900 pl-8 pr-3 text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
+              className="h-8.5 w-48 sm:w-60 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 pl-8 pr-3 text-xs text-gray-900 dark:text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none shadow-2xs"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-2 text-slate-400 hover:text-white"
+                className="absolute right-2 top-2 text-gray-400 hover:text-gray-700 dark:hover:text-white"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -180,7 +220,7 @@ export default function ArchitectureVisualizer({ nodes, edges }: Props) {
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="h-8 rounded-lg border border-slate-700 bg-slate-900 px-2.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none"
+            className="h-8.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2.5 text-xs text-gray-700 dark:text-gray-200 focus:border-blue-500 focus:outline-none shadow-2xs"
           >
             <option value="ALL">All Categories</option>
             <option value="FRONTEND">Frontend</option>
@@ -200,28 +240,28 @@ export default function ArchitectureVisualizer({ nodes, edges }: Props) {
           <button
             onClick={handleZoomIn}
             title="Zoom In"
-            className="rounded-lg border border-slate-800 bg-slate-900 p-1.5 text-slate-300 hover:bg-slate-800 hover:text-white transition"
+            className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white transition shadow-2xs"
           >
             <ZoomIn className="h-4 w-4" />
           </button>
           <button
             onClick={handleZoomOut}
             title="Zoom Out"
-            className="rounded-lg border border-slate-800 bg-slate-900 p-1.5 text-slate-300 hover:bg-slate-800 hover:text-white transition"
+            className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white transition shadow-2xs"
           >
             <ZoomOut className="h-4 w-4" />
           </button>
           <button
             onClick={handleResetZoom}
             title="Reset View"
-            className="rounded-lg border border-slate-800 bg-slate-900 p-1.5 text-slate-300 hover:bg-slate-800 hover:text-white transition"
+            className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white transition shadow-2xs"
           >
             <RotateCcw className="h-4 w-4" />
           </button>
           <button
             onClick={toggleFullscreen}
             title={isFullscreen ? "Exit Fullscreen" : "Fullscreen View"}
-            className="rounded-lg border border-slate-800 bg-slate-900 p-1.5 text-slate-300 hover:bg-slate-800 hover:text-white transition"
+            className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white transition shadow-2xs"
           >
             {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </button>
@@ -230,12 +270,12 @@ export default function ArchitectureVisualizer({ nodes, edges }: Props) {
 
       {/* Interactive Drag Canvas */}
       <div
-        className="w-full h-full cursor-grab active:cursor-grabbing select-none overflow-hidden"
+        className="w-full h-full cursor-grab active:cursor-grabbing select-none overflow-hidden bg-slate-50/60 dark:bg-gray-950/60"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         style={{
-          backgroundImage: "radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px)",
+          backgroundImage: "radial-gradient(rgba(100, 116, 139, 0.22) 1px, transparent 1px)",
           backgroundSize: "28px 28px",
         }}
       >
@@ -248,7 +288,7 @@ export default function ArchitectureVisualizer({ nodes, edges }: Props) {
           }}
         >
           {/* SVG Connector Edges */}
-          <svg className="absolute inset-0 w-full h-full pointer-events-none z-0">
+          <svg className="absolute inset-0 pointer-events-none w-full h-full">
             <defs>
               <marker
                 id="arrow-default"
@@ -259,7 +299,7 @@ export default function ArchitectureVisualizer({ nodes, edges }: Props) {
                 markerHeight="6"
                 orient="auto-start-reverse"
               >
-                <path d="M 0 1 L 10 5 L 0 9 z" fill="#6366f1" />
+                <path d="M 0 1 L 10 5 L 0 9 z" fill="#3b82f6" />
               </marker>
               <marker
                 id="arrow-green"
@@ -296,11 +336,11 @@ export default function ArchitectureVisualizer({ nodes, edges }: Props) {
                   <path
                     d={pathD}
                     fill="none"
-                    stroke="#4f46e5"
+                    stroke="#3b82f6"
                     strokeWidth="2.5"
                     strokeDasharray={edge.protocol.includes("WEBHOOK") ? "5,5" : "none"}
                     markerEnd="url(#arrow-default)"
-                    className="opacity-70 hover:opacity-100 transition-opacity"
+                    className="opacity-75 hover:opacity-100 transition-opacity"
                   />
                   {/* Edge Protocol Tag */}
                   <rect
@@ -308,18 +348,19 @@ export default function ArchitectureVisualizer({ nodes, edges }: Props) {
                     y={midY - 9}
                     width="76"
                     height="18"
-                    rx="4"
-                    fill="#0f172a"
-                    stroke="#334155"
+                    rx="5"
+                    fill="#ffffff"
+                    stroke="#cbd5e1"
                     strokeWidth="1"
+                    className="shadow-2xs"
                   />
                   <text
                     x={midX}
                     y={midY + 4}
                     textAnchor="middle"
-                    fill="#cbd5e1"
+                    fill="#334155"
                     fontSize="9"
-                    fontWeight="500"
+                    fontWeight="600"
                     fontFamily="monospace"
                   >
                     {edge.protocol}
@@ -332,16 +373,15 @@ export default function ArchitectureVisualizer({ nodes, edges }: Props) {
           {/* Node Cards */}
           {filteredNodes.map((node) => {
             const isSelected = selectedNode?.id === node.id;
-            const categoryStyle = CATEGORY_COLORS[node.category] || CATEGORY_COLORS.FRONTEND;
 
             return (
               <div
                 key={node.id}
                 onClick={() => setSelectedNode(node)}
-                className={`node-card absolute z-10 w-[260px] rounded-xl border bg-slate-900/95 p-3.5 shadow-lg backdrop-blur-md cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:shadow-indigo-500/20 hover:border-indigo-400 ${
+                className={`node-card absolute z-10 w-[260px] rounded-2xl border bg-white dark:bg-gray-900 p-4 shadow-sm backdrop-blur-md cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:shadow-md hover:border-blue-400 ${
                   isSelected
-                    ? "border-indigo-500 ring-2 ring-indigo-500/40 shadow-xl shadow-indigo-500/30"
-                    : "border-slate-800"
+                    ? "border-blue-600 ring-2 ring-blue-500/30 shadow-md"
+                    : "border-gray-200 dark:border-gray-700"
                 }`}
                 style={{
                   left: `${node.x}px`,
@@ -349,39 +389,39 @@ export default function ArchitectureVisualizer({ nodes, edges }: Props) {
                 }}
               >
                 {/* Header Banner */}
-                <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
-                  <span className="text-[10px] font-semibold tracking-wider uppercase text-indigo-400">
+                <div className="flex items-center justify-between gap-2 border-b border-gray-100 dark:border-gray-800 pb-2">
+                  <span className="text-[10px] font-bold tracking-wider uppercase text-blue-600 dark:text-blue-400">
                     {node.category.replace(/_/g, " ")}
                   </span>
                   <span
                     className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
                       node.healthStatus === "HEALTHY"
-                        ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
-                        : "bg-amber-500/10 text-amber-400 border border-amber-500/30"
+                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800/60"
+                        : "bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800/60"
                     }`}
                   >
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
                     {node.healthStatus}
                   </span>
                 </div>
 
                 {/* Node Title & Description */}
                 <div className="mt-2.5">
-                  <h4 className="text-sm font-bold text-white flex items-center justify-between">
+                  <h4 className="text-sm font-bold text-gray-900 dark:text-white flex items-center justify-between">
                     {node.name}
-                    <ChevronRight className="h-4 w-4 text-slate-500 transition-transform group-hover:translate-x-0.5" />
+                    <ChevronRight className="h-4 w-4 text-gray-400 transition-transform group-hover:translate-x-0.5" />
                   </h4>
-                  <p className="mt-1 text-xs text-slate-400 line-clamp-2 leading-relaxed">
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 line-clamp-2 leading-relaxed">
                     {node.description}
                   </p>
                 </div>
 
                 {/* Tech Badge */}
-                <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-800/80 text-[11px] text-slate-400">
-                  <span className="font-mono text-slate-300 truncate max-w-[170px]">
+                <div className="mt-3 flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-800 text-[11px] text-gray-500 dark:text-gray-400">
+                  <span className="font-mono text-gray-700 dark:text-gray-300 truncate max-w-[170px]">
                     {node.technology.split(",")[0]}
                   </span>
-                  <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[9px] text-slate-400 uppercase font-semibold">
+                  <span className="rounded bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-[9px] text-gray-700 dark:text-gray-300 uppercase font-bold border border-gray-200 dark:border-gray-700">
                     {node.environment}
                   </span>
                 </div>
@@ -393,56 +433,56 @@ export default function ArchitectureVisualizer({ nodes, edges }: Props) {
 
       {/* Selected Node Details Drawer */}
       {selectedNode && (
-        <div className="absolute right-0 top-12 bottom-0 z-30 w-80 sm:w-96 border-l border-slate-800 bg-slate-950/95 p-5 shadow-2xl backdrop-blur-xl overflow-y-auto animate-in slide-in-from-right duration-200">
-          <div className="flex items-start justify-between border-b border-slate-800 pb-3">
+        <div className="absolute right-0 top-12 bottom-0 z-30 w-80 sm:w-96 border-l border-gray-200 dark:border-gray-800 bg-white/98 dark:bg-gray-900/98 p-5 shadow-2xl backdrop-blur-xl overflow-y-auto animate-in slide-in-from-right duration-200">
+          <div className="flex items-start justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
             <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
                 {selectedNode.category.replace(/_/g, " ")}
               </span>
-              <h3 className="text-base font-bold text-white mt-0.5">{selectedNode.name}</h3>
+              <h3 className="text-base font-bold text-gray-900 dark:text-white mt-0.5">{selectedNode.name}</h3>
             </div>
             <button
               onClick={() => setSelectedNode(null)}
-              className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+              className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-white"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
 
-          <div className="mt-4 space-y-4 text-xs text-slate-300">
+          <div className="mt-4 space-y-4 text-xs text-gray-600 dark:text-gray-300">
             <div>
-              <span className="text-slate-500 font-semibold uppercase text-[10px] tracking-wider">Purpose</span>
-              <p className="mt-1 text-slate-200 leading-relaxed">{selectedNode.description}</p>
+              <span className="text-gray-400 dark:text-gray-500 font-semibold uppercase text-[10px] tracking-wider">Purpose</span>
+              <p className="mt-1 text-gray-800 dark:text-gray-200 leading-relaxed">{selectedNode.description}</p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 rounded-xl bg-slate-900/60 p-3 border border-slate-800/60">
+            <div className="grid grid-cols-2 gap-3 rounded-2xl bg-gray-50 dark:bg-gray-800/60 p-3.5 border border-gray-200 dark:border-gray-700">
               <div>
-                <span className="text-slate-500 text-[10px] block">Technology</span>
-                <span className="text-white font-medium">{selectedNode.technology}</span>
+                <span className="text-gray-400 dark:text-gray-500 text-[10px] block">Technology</span>
+                <span className="text-gray-900 dark:text-white font-medium">{selectedNode.technology}</span>
               </div>
               <div>
-                <span className="text-slate-500 text-[10px] block">Runtime</span>
-                <span className="text-white font-medium">{selectedNode.runtime}</span>
+                <span className="text-gray-400 dark:text-gray-500 text-[10px] block">Runtime</span>
+                <span className="text-gray-900 dark:text-white font-medium">{selectedNode.runtime}</span>
               </div>
               <div>
-                <span className="text-slate-500 text-[10px] block">Owner / Team</span>
-                <span className="text-white font-medium">{selectedNode.owner}</span>
+                <span className="text-gray-400 dark:text-gray-500 text-[10px] block">Owner / Team</span>
+                <span className="text-gray-900 dark:text-white font-medium">{selectedNode.owner}</span>
               </div>
               <div>
-                <span className="text-slate-500 text-[10px] block">Verification</span>
-                <span className="text-emerald-400 font-medium">{selectedNode.verificationState}</span>
+                <span className="text-gray-400 dark:text-gray-500 text-[10px] block">Verification</span>
+                <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{selectedNode.verificationState}</span>
               </div>
             </div>
 
             {/* Features Covered */}
             {selectedNode.featuresCovered.length > 0 && (
               <div>
-                <span className="text-slate-500 font-semibold uppercase text-[10px] tracking-wider">Integrated Capabilities</span>
+                <span className="text-gray-400 dark:text-gray-500 font-semibold uppercase text-[10px] tracking-wider">Integrated Capabilities</span>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {selectedNode.featuresCovered.map((feat) => (
                     <span
                       key={feat}
-                      className="rounded-md bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 text-[11px] text-indigo-300"
+                      className="rounded-md bg-blue-50 border border-blue-200 px-2 py-0.5 text-[11px] text-blue-700 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-300"
                     >
                       {feat}
                     </span>
@@ -454,14 +494,14 @@ export default function ArchitectureVisualizer({ nodes, edges }: Props) {
             {/* Security Controls */}
             {selectedNode.securityControls.length > 0 && (
               <div>
-                <span className="text-slate-500 font-semibold uppercase text-[10px] tracking-wider flex items-center gap-1">
-                  <Lock className="h-3 w-3 text-emerald-400" />
+                <span className="text-gray-400 dark:text-gray-500 font-semibold uppercase text-[10px] tracking-wider flex items-center gap-1">
+                  <Lock className="h-3 w-3 text-emerald-600" />
                   Security Enforcements
                 </span>
                 <ul className="mt-1.5 space-y-1">
                   {selectedNode.securityControls.map((sec) => (
-                    <li key={sec} className="flex items-center gap-1.5 text-slate-300">
-                      <CheckCircle2 className="h-3 w-3 text-emerald-400 shrink-0" />
+                    <li key={sec} className="flex items-center gap-1.5 text-gray-700 dark:text-gray-300">
+                      <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
                       <span>{sec}</span>
                     </li>
                   ))}
@@ -470,18 +510,18 @@ export default function ArchitectureVisualizer({ nodes, edges }: Props) {
             )}
 
             {/* Inbound & Outbound Connections */}
-            <div className="pt-2 border-t border-slate-800">
-              <span className="text-slate-500 font-semibold uppercase text-[10px] tracking-wider">Dependency Graph</span>
+            <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
+              <span className="text-gray-400 dark:text-gray-500 font-semibold uppercase text-[10px] tracking-wider">Dependency Graph</span>
               <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
-                <div className="rounded-lg bg-slate-900 p-2 border border-slate-800">
-                  <span className="text-slate-400 block text-[10px]">Depends On ({selectedNode.dependencies.length})</span>
-                  <span className="text-indigo-400 font-mono text-[11px]">
+                <div className="rounded-xl bg-gray-50 dark:bg-gray-800 p-2.5 border border-gray-200 dark:border-gray-700">
+                  <span className="text-gray-400 block text-[10px]">Depends On ({selectedNode.dependencies.length})</span>
+                  <span className="text-blue-600 dark:text-blue-400 font-mono text-[11px] font-medium">
                     {selectedNode.dependencies.length > 0 ? selectedNode.dependencies.join(", ") : "None (Root Ingress)"}
                   </span>
                 </div>
-                <div className="rounded-lg bg-slate-900 p-2 border border-slate-800">
-                  <span className="text-slate-400 block text-[10px]">Supplies Data To ({selectedNode.dataOutputs.length})</span>
-                  <span className="text-indigo-400 font-mono text-[11px]">
+                <div className="rounded-xl bg-gray-50 dark:bg-gray-800 p-2.5 border border-gray-200 dark:border-gray-700">
+                  <span className="text-gray-400 block text-[10px]">Supplies Data To ({selectedNode.dataOutputs.length})</span>
+                  <span className="text-blue-600 dark:text-blue-400 font-mono text-[11px] font-medium">
                     {selectedNode.dataOutputs.length > 0 ? selectedNode.dataOutputs.join(", ") : "Terminal Node"}
                   </span>
                 </div>
@@ -492,16 +532,16 @@ export default function ArchitectureVisualizer({ nodes, edges }: Props) {
       )}
 
       {/* Legend Footer */}
-      <div className="absolute bottom-2 left-4 z-20 hidden md:flex items-center gap-4 rounded-xl bg-slate-950/80 px-3.5 py-1.5 text-[11px] text-slate-400 border border-slate-800 backdrop-blur-md">
-        <span className="font-semibold text-slate-300">Directional Flow:</span>
+      <div className="absolute bottom-2 left-4 z-20 hidden md:flex items-center gap-4 rounded-xl bg-white/95 dark:bg-gray-900/95 px-3.5 py-1.5 text-[11px] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-800 shadow-sm backdrop-blur-md">
+        <span className="font-semibold text-gray-800 dark:text-gray-200">Directional Flow:</span>
         <span className="flex items-center gap-1.5">
-          <span className="h-0.5 w-4 bg-indigo-500 inline-block" /> HTTPS / REST
+          <span className="h-0.5 w-4 bg-blue-600 inline-block" /> HTTPS / REST
         </span>
         <span className="flex items-center gap-1.5">
           <span className="h-0.5 w-4 bg-emerald-500 inline-block" /> Database Connection
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-0.5 w-4 border-t-2 border-dashed border-indigo-400 inline-block" /> Webhook HMAC
+          <span className="h-0.5 w-4 border-t-2 border-dashed border-blue-400 inline-block" /> Webhook HMAC
         </span>
       </div>
     </div>
