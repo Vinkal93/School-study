@@ -4,6 +4,7 @@ import {
   initializeFirestore,
   getFirestore,
   memoryLocalCache,
+  setLogLevel,
   type Firestore,
 } from "firebase/firestore";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
@@ -16,11 +17,18 @@ let dbInstance: Firestore | null = null;
 let storageInstance: FirebaseStorage | null = null;
 let guardsInitialized = false;
 
+// Silence internal Firestore stream error spam to prevent Next.js React Dev Overlay crashes
+if (typeof window !== "undefined") {
+  try {
+    setLogLevel("silent");
+  } catch {}
+}
+
 /**
  * Enterprise Storage Resilience & Crash Barrier
  * 1. Purges orphaned firestore_ and ss_fast_ keys from window.localStorage to recover browser quota.
  * 2. Wraps window.localStorage.setItem to safely intercept any QuotaExceededError.
- * 3. Intercepts unhandled QuotaExceededError rejections to prevent Next.js Fast Refresh from entering a reload loop.
+ * 3. Intercepts unhandled QuotaExceededError and resource-exhausted stream drops.
  */
 export function purgeCloggedFirestoreStorage(): void {
   if (typeof window === "undefined" || !window.localStorage) return;
@@ -68,13 +76,11 @@ export function initClientStorageGuards(): void {
             err?.number === -2147024882;
 
           if (isQuota) {
-            // Aggressively prune non-essential fast-cache blobs to create headroom
             try {
               purgeCloggedFirestoreStorage();
               originalSetItem(key, value);
               return;
             } catch {
-              // If still exceeding quota, suppress firestore keys to prevent assertion crashes
               if (
                 key.startsWith("firestore_") ||
                 key.includes("school-study-") ||
@@ -92,7 +98,24 @@ export function initClientStorageGuards(): void {
       };
     }
 
-    // 2. Global Unhandled Rejection Crash Barrier
+    // 2. Filter Next.js dev overlay from catching Firebase quota / stream disconnect errors
+    const originalConsoleError = console.error.bind(console);
+    console.error = function (...args: any[]) {
+      const combined = args.map((a) => (typeof a === "object" ? (a?.message || JSON.stringify(a)) : String(a))).join(" ");
+      if (
+        combined.includes("resource-exhausted") ||
+        combined.includes("Quota exceeded") ||
+        combined.includes("maximum backoff delay") ||
+        combined.includes("Stream closed with status") ||
+        combined.includes("persistent_stream.ts")
+      ) {
+        console.warn("[Firebase Client Notice] Cloud Firestore quota or backoff notice:", combined);
+        return;
+      }
+      originalConsoleError(...args);
+    };
+
+    // 3. Global Unhandled Rejection Crash Barrier
     window.addEventListener("unhandledrejection", (event) => {
       const reason = event.reason;
       const msg = String(reason?.message || reason || "");
@@ -103,11 +126,12 @@ export function initClientStorageGuards(): void {
         msg.includes("exceeded the quota") ||
         msg.includes("firestore_mutations_") ||
         msg.includes("Failed to persist write") ||
+        msg.includes("resource-exhausted") ||
         msg.includes("INTERNAL ASSERTION FAILED: Unexpected state (ID: b815)")
       ) {
         event.preventDefault();
         console.warn(
-          "[Firebase Client] Protected against QuotaExceededError from triggering Fast Refresh reload loop:",
+          "[Firebase Client] Suppressed background Firestore event from triggering Fast Refresh reload:",
           msg
         );
       }
