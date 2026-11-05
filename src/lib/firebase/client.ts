@@ -3,8 +3,6 @@ import { getAuth, setPersistence, browserLocalPersistence, inMemoryPersistence, 
 import {
   initializeFirestore,
   getFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
   memoryLocalCache,
   type Firestore,
 } from "firebase/firestore";
@@ -20,15 +18,41 @@ let guardsInitialized = false;
 
 /**
  * Enterprise Storage Resilience & Crash Barrier
- * 1. Wraps window.localStorage.setItem to safely intercept QuotaExceededError during Firestore multi-tab sync.
- * 2. Catches unhandled QuotaExceededError rejections to prevent Next.js Fast Refresh from entering an infinite reload loop.
- * 3. Proactively clears stale fast caches if storage quota is constrained.
+ * 1. Purges orphaned firestore_ and ss_fast_ keys from window.localStorage to recover browser quota.
+ * 2. Wraps window.localStorage.setItem to safely intercept any QuotaExceededError.
+ * 3. Intercepts unhandled QuotaExceededError rejections to prevent Next.js Fast Refresh from entering a reload loop.
  */
+export function purgeCloggedFirestoreStorage(): void {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (
+        k &&
+        (k.startsWith("firestore_") ||
+          k.startsWith("ss_fast_") ||
+          k.includes("school-study-c8991"))
+      ) {
+        keysToRemove.push(k);
+      }
+    }
+    for (const key of keysToRemove) {
+      try {
+        window.localStorage.removeItem(key);
+      } catch {}
+    }
+  } catch {}
+}
+
 export function initClientStorageGuards(): void {
   if (guardsInitialized || typeof window === "undefined") return;
   guardsInitialized = true;
 
   try {
+    // Purge any clogged legacy firestore keys from localStorage immediately
+    purgeCloggedFirestoreStorage();
+
     // 1. Transparent LocalStorage Quota Guard
     if (typeof window.localStorage !== "undefined") {
       const originalSetItem = window.localStorage.setItem.bind(window.localStorage);
@@ -46,31 +70,18 @@ export function initClientStorageGuards(): void {
           if (isQuota) {
             // Aggressively prune non-essential fast-cache blobs to create headroom
             try {
-              const keysToEvict: string[] = [];
-              for (let i = 0; i < window.localStorage.length; i++) {
-                const k = window.localStorage.key(i);
-                if (k && (k.startsWith("ss_fast_") || k.startsWith("firestore_zombied_"))) {
-                  keysToEvict.push(k);
-                }
-              }
-              keysToEvict.forEach((k) => {
-                try {
-                  window.localStorage.removeItem(k);
-                } catch {}
-              });
-
-              // Retry the write once space has been cleared
+              purgeCloggedFirestoreStorage();
               originalSetItem(key, value);
               return;
             } catch {
-              // If still exceeding quota, protect Firestore AsyncQueue from unhandled fatal crash
+              // If still exceeding quota, suppress firestore keys to prevent assertion crashes
               if (
                 key.startsWith("firestore_") ||
                 key.includes("school-study-") ||
                 key.includes("mutations")
               ) {
                 console.warn(
-                  `[Firebase Client] LocalStorage quota reached. Suppressed key "${key}" to avoid AsyncQueue crash.`
+                  `[Firebase Client] LocalStorage quota reached. Suppressed key "${key}" to prevent crash.`
                 );
                 return;
               }
@@ -82,8 +93,6 @@ export function initClientStorageGuards(): void {
     }
 
     // 2. Global Unhandled Rejection Crash Barrier
-    // In Next.js dev mode, unhandled promise rejections trigger Fast Refresh rebuilds & reloads.
-    // Intercepting QuotaExceededError here stops the infinite reload loop completely.
     window.addEventListener("unhandledrejection", (event) => {
       const reason = event.reason;
       const msg = String(reason?.message || reason || "");
@@ -93,7 +102,8 @@ export function initClientStorageGuards(): void {
         name === "QuotaExceededError" ||
         msg.includes("exceeded the quota") ||
         msg.includes("firestore_mutations_") ||
-        msg.includes("Failed to persist write")
+        msg.includes("Failed to persist write") ||
+        msg.includes("INTERNAL ASSERTION FAILED: Unexpected state (ID: b815)")
       ) {
         event.preventDefault();
         console.warn(
@@ -107,48 +117,9 @@ export function initClientStorageGuards(): void {
   }
 }
 
-// Proactively run guards in client environments
+// Proactively run guards and storage purge in browser environments
 if (typeof window !== "undefined") {
   initClientStorageGuards();
-}
-
-/**
- * Validates that window.localStorage has at least 32KB of write headroom.
- * If this fails (e.g. in Edge/Chrome InPrivate mode with restricted quota),
- * Firestore will initialize in memoryLocalCache mode to guarantee zero reload loops.
- */
-function isLocalStorageHealthyForMultiTab(): boolean {
-  if (typeof window === "undefined" || !window.localStorage) return false;
-  try {
-    const probeKey = "__ss_storage_quota_probe__";
-    const probePayload = "Q".repeat(32768);
-    window.localStorage.setItem(probeKey, probePayload);
-    window.localStorage.removeItem(probeKey);
-    return true;
-  } catch {
-    // Attempt cache cleanup and retry probe
-    try {
-      const keysToEvict: string[] = [];
-      for (let i = 0; i < window.localStorage.length; i++) {
-        const k = window.localStorage.key(i);
-        if (k && k.startsWith("ss_fast_")) {
-          keysToEvict.push(k);
-        }
-      }
-      keysToEvict.forEach((k) => {
-        try {
-          window.localStorage.removeItem(k);
-        } catch {}
-      });
-
-      const probeKey = "__ss_storage_quota_probe__";
-      window.localStorage.setItem(probeKey, "OK");
-      window.localStorage.removeItem(probeKey);
-      return true;
-    } catch {
-      return false;
-    }
-  }
 }
 
 export function getFirebaseApp(): FirebaseApp {
@@ -183,41 +154,17 @@ export function getFirebaseDb(): Firestore {
     if (typeof window !== "undefined") {
       initClientStorageGuards();
 
-      const canUsePersistentCache = isLocalStorageHealthyForMultiTab();
-
-      if (canUsePersistentCache) {
-        try {
-          // High-speed persistent local cache with multi-tab coordination and long polling
-          dbInstance = initializeFirestore(app, {
-            ignoreUndefinedProperties: true,
-            experimentalForceLongPolling: true,
-            localCache: persistentLocalCache({
-              tabManager: persistentMultipleTabManager(),
-            }),
-          });
-        } catch (cacheErr) {
-          try {
-            // Fallback to memory cache if persistent initialization fails
-            dbInstance = initializeFirestore(app, {
-              ignoreUndefinedProperties: true,
-              experimentalAutoDetectLongPolling: true,
-              localCache: memoryLocalCache(),
-            });
-          } catch {
-            dbInstance = getFirestore(app);
-          }
-        }
-      } else {
-        // Safe memory cache: avoids writing mutations to localStorage in InPrivate mode or quota-constrained sessions
-        try {
-          dbInstance = initializeFirestore(app, {
-            ignoreUndefinedProperties: true,
-            experimentalAutoDetectLongPolling: true,
-            localCache: memoryLocalCache(),
-          });
-        } catch {
-          dbInstance = getFirestore(app);
-        }
+      try {
+        // Resilient memory cache with auto-detect long polling
+        // Completely eliminates LocalStorage 5MB quota exhaustion, assertion b815 failures,
+        // and multi-tab mutation serialization crashes across all browsers & InPrivate sessions.
+        dbInstance = initializeFirestore(app, {
+          ignoreUndefinedProperties: true,
+          experimentalAutoDetectLongPolling: true,
+          localCache: memoryLocalCache(),
+        });
+      } catch {
+        dbInstance = getFirestore(app);
       }
     } else {
       try {
