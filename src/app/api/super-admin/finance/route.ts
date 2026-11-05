@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import {
   collection,
@@ -24,27 +26,14 @@ function maskSecret(secret: string): string {
 
 export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
-    const performerUid = searchParams.get("performerUid");
+    const auth = await requireSuperAdmin(req);
+    if (auth.errorResponse) return auth.errorResponse;
 
-    // 1. Authoritative Super Admin Authorization Check
+    const rateCheck = enforceRateLimit(req, RATE_LIMIT_PROFILES.STANDARD_API, auth.user!.uid);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
+
+    const { searchParams } = new URL(req.url);
     const db = getFirebaseDb();
-    if (performerUid) {
-      try {
-        const performerSnap = await getDoc(doc(db, COLLECTIONS.USERS, performerUid));
-        if (performerSnap.exists()) {
-          const performer = performerSnap.data() as AppUser;
-          if (performer.role !== "super_admin" || performer.status !== "active") {
-            return NextResponse.json(
-              { error: "Unauthorized. Super Admin access required." },
-              { status: 403 }
-            );
-          }
-        }
-      } catch (authErr) {
-        console.warn("Notice: Server-side performer profile check notice:", authErr);
-      }
-    }
 
     // 2. Parse Query Filters
     const preset = searchParams.get("preset") || "30d";

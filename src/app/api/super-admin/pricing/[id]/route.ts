@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 import {
   getActivePlan,
   getActivePlanVersion,
@@ -19,6 +21,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireSuperAdmin(request);
+    if (auth.errorResponse) return auth.errorResponse;
     const { id: planId } = await params;
     const plan = await getActivePlan(planId);
     const activeVersion = await getActivePlanVersion(planId);
@@ -48,6 +52,13 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireSuperAdmin(request);
+    if (auth.errorResponse) return auth.errorResponse;
+    const actorId = auth.user!.uid;
+
+    const rateCheck = enforceRateLimit(request, RATE_LIMIT_PROFILES.STANDARD_API, actorId);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
+
     const { id: planId } = await params;
     const body = await request.json();
     const {
@@ -63,7 +74,6 @@ export async function PATCH(
       features,
       limits,
       changeNotes,
-      actorId,
     } = body;
 
     const input: UpdatePlanInput = {
@@ -81,7 +91,7 @@ export async function PATCH(
       changeNotes,
     };
 
-    const { plan, newVersionCreated } = await updatePlan(planId, input, actorId || "super_admin");
+    const { plan, newVersionCreated } = await updatePlan(planId, input, actorId);
     const activeVersion = await getActivePlanVersion(planId);
 
     return NextResponse.json({
@@ -112,9 +122,15 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireSuperAdmin(request);
+    if (auth.errorResponse) return auth.errorResponse;
+    const actorId = auth.user!.uid;
+
+    const rateCheck = enforceRateLimit(request, RATE_LIMIT_PROFILES.STANDARD_API, actorId);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
+
     const { id: planId } = await params;
     const url = new URL(request.url);
-    const actorId = url.searchParams.get("actorId") || "super_admin";
     const forceArchive = url.searchParams.get("archive") === "true";
 
     if (forceArchive) {

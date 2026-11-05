@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { verifySuperAdminPin, DEFAULT_SUPER_ADMIN_PIN } from "@/lib/services/security-pin.service";
+import { getSuperAdminPin, DEFAULT_SUPER_ADMIN_PIN } from "@/lib/services/security-pin.service";
+import { requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { timingSafeEqualString } from "@/lib/security/timing-safe";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 
 async function getAdminAuthServerOnly() {
   if (typeof window !== "undefined") return null;
@@ -107,8 +110,15 @@ async function deleteCollectionRecursively(collectionRefOrName: any, filterSuper
 
 export async function POST(request: Request) {
   try {
+    const authResult = await requireSuperAdmin(request);
+    if (authResult.errorResponse) {
+      return authResult.errorResponse;
+    }
+    const currentSuperAdmin = authResult.user!;
+    const actorId = currentSuperAdmin.uid;
+
     const body = await request.json().catch(() => ({}));
-    const { action, pin, identifier, userId, schoolId, confirmationPhrase, actorId = "super_admin" } = body;
+    const { action, pin, identifier, userId, schoolId, confirmationPhrase } = body;
 
     const adminDb = await getAdminDbServerOnly();
     const adminAuth = await getAdminAuthServerOnly();
@@ -360,17 +370,23 @@ export async function POST(request: Request) {
     }
 
     // =========================================================================
-    // Ultra-Security PIN Verification (630649)
+    // Ultra-Security PIN Verification
     // =========================================================================
+    const rateCheck = enforceRateLimit(request, RATE_LIMIT_PROFILES.SUPER_ADMIN_PIN, actorId);
+    if (!rateCheck.allowed && rateCheck.response) {
+      return rateCheck.response;
+    }
+
     const pinString = String(pin || "").trim();
-    if (pinString !== DEFAULT_SUPER_ADMIN_PIN && pinString !== "630649") {
-      const isValid = await verifySuperAdminPin(pinString).catch(() => false);
-      if (!isValid) {
-        return NextResponse.json(
-          { success: false, error: "Access Denied: Invalid Ultra-Security PIN code." },
-          { status: 403 }
-        );
-      }
+    const authoritativePin =
+      process.env.SUPER_ADMIN_SECURITY_PIN ||
+      (await getSuperAdminPin().catch(() => DEFAULT_SUPER_ADMIN_PIN));
+
+    if (!timingSafeEqualString(pinString, authoritativePin)) {
+      return NextResponse.json(
+        { success: false, error: "Access Denied: Invalid Ultra-Security PIN code." },
+        { status: 403 }
+      );
     }
 
     // =========================================================================

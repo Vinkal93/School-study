@@ -18,7 +18,6 @@ import {
   Settings,
 } from "lucide-react";
 import { getSchoolById } from "@/lib/services/school.service";
-import { getSchoolSetupData } from "@/lib/services/setup.service";
 import type { School } from "@/types";
 import { useEntitlement } from "@/context/EntitlementContext";
 import { useRealtimeSchoolDashboard } from "@/hooks/useRealtimeSchoolDashboard";
@@ -64,22 +63,15 @@ export function ClassicSchoolAdminDashboard({
     { enabled: !!schoolId && isAllowed, staleTime: 60_000 }
   );
 
-  // 3. Cached Setup & Metric Counts Query fallback
-  const { data: setupData, isLoading: isSetupLoading } = useAppQuery(
-    schoolId && isAllowed ? `schoolSetupData:${schoolId}` : null,
-    () => getSchoolSetupData(schoolId),
-    { enabled: !!schoolId && isAllowed, staleTime: 30_000 }
-  );
-
   const school = liveSchool || initialSchool || cachedSchool;
   const counts = {
-    teachers: setupData?.teachers?.length ?? (initialCounts?.teachers || liveCounts.teachers || 0),
-    students: setupData?.students?.length ?? (initialCounts?.students || liveCounts.students || 0),
-    classes: setupData?.classes?.length ?? (initialCounts?.classes || liveCounts.classes || 0),
-    academicYears: setupData?.academicYears?.length ?? (initialCounts?.academicYears || liveCounts.academicYears || 0),
+    teachers: initialCounts?.teachers ?? (liveCounts.teachers || 0),
+    students: initialCounts?.students ?? (liveCounts.students || 0),
+    classes: initialCounts?.classes ?? (liveCounts.classes || 0),
+    academicYears: initialCounts?.academicYears ?? (liveCounts.academicYears || 0),
   };
 
-  const isLoading = (isSchoolLoading || isSetupLoading || isRealtimeLoading) && !school && !setupData && !initialSchool;
+  const isLoading = (isSchoolLoading || isRealtimeLoading) && !school && !initialSchool;
 
   if (isLoading) {
     return <PageSkeleton hasStats={true} hasTable={false} className="py-4" />;

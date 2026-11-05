@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
 import { getGstSettings, updateGstSettings } from "@/lib/billing/gstCouponsEngine";
+import { requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 
 /**
  * GET /api/super-admin/pricing/gst
  * Fetches current platform GST settings.
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const auth = await requireSuperAdmin(request);
+    if (auth.errorResponse) return auth.errorResponse;
+
     const settings = await getGstSettings();
     return NextResponse.json({ success: true, settings });
   } catch (error: any) {
@@ -20,8 +25,15 @@ export async function GET() {
  */
 export async function POST(request: Request) {
   try {
+    const auth = await requireSuperAdmin(request);
+    if (auth.errorResponse) return auth.errorResponse;
+    const actorId = auth.user!.uid;
+
+    const rateCheck = enforceRateLimit(request, RATE_LIMIT_PROFILES.STANDARD_API, actorId);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
+
     const body = await request.json().catch(() => ({}));
-    const { gstEnabled, gstPercentage, gstin, actorId = "super_admin" } = body || {};
+    const { gstEnabled, gstPercentage, gstin } = body || {};
 
     const updated = await updateGstSettings(
       {

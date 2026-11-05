@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 import { getSafeAdminDb } from "@/lib/firebase/admin";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { collection, getDocs, doc, setDoc } from "firebase/firestore";
@@ -12,8 +14,10 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const auth = await requireSuperAdmin(request);
+    if (auth.errorResponse) return auth.errorResponse;
     const schools: { id: string; name: string; email: string; planId: string; status: string }[] = [];
     const adminDb = getSafeAdminDb();
 
@@ -105,6 +109,13 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const auth = await requireSuperAdmin(request);
+    if (auth.errorResponse) return auth.errorResponse;
+    const actorId = auth.user!.uid;
+
+    const rateCheck = enforceRateLimit(request, RATE_LIMIT_PROFILES.STANDARD_API, actorId);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
+
     const body = await request.json();
     const {
       schoolId,
@@ -113,7 +124,6 @@ export async function POST(request: Request) {
       durationDays,
       customExpiryDate,
       reason = "Assigned via Super Admin Pricing Portal",
-      actorId = "super_admin",
     } = body;
 
     if (!schoolId || typeof schoolId !== "string" || !schoolId.trim()) {

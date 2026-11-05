@@ -136,20 +136,29 @@ export async function getClassAttendanceForDate(
  */
 export async function getStudentAttendanceHistory(
   schoolId: string,
-  studentId: string
+  studentId: string,
+  options?: { limitDays?: number; startDate?: string }
 ): Promise<StudentAttendanceStats> {
   if (!schoolId || schoolId === "system") {
     return { totalDays: 0, presentDays: 0, absentDays: 0, lateDays: 0, percentage: 100, records: [] };
   }
   const db = getFirebaseDb();
+  const constraints: any[] = [
+    where("schoolId", "==", schoolId),
+    where("studentId", "==", studentId),
+  ];
+
+  if (options?.startDate) {
+    constraints.push(where("date", ">=", options.startDate));
+  }
+
   const q = query(
     collection(db, "attendance"),
-    where("schoolId", "==", schoolId),
-    where("studentId", "==", studentId)
+    ...constraints
   );
 
   const snapshot = await getDocs(q);
-  const records = snapshot.docs
+  let records = snapshot.docs
     .map((d) => ({
       id: d.id,
       ...d.data(),
@@ -157,6 +166,10 @@ export async function getStudentAttendanceHistory(
 
   // Sort descending by date
   records.sort((a, b) => b.date.localeCompare(a.date));
+
+  if (options?.limitDays && options.limitDays > 0) {
+    records = records.slice(0, options.limitDays);
+  }
 
   let presentDays = 0;
   let absentDays = 0;
@@ -255,26 +268,30 @@ export async function getSchoolAttendanceForDate(
     return [];
   }
   const db = getFirebaseDb();
-  let q = query(
-    collection(db, "attendance"),
+  const constraints: any[] = [
     where("schoolId", "==", schoolId),
-    where("date", "==", date)
+    where("date", "==", date),
+  ];
+
+  if (classId && classId !== "all") {
+    constraints.push(where("classId", "==", classId));
+  }
+  if (sectionId && sectionId !== "all") {
+    constraints.push(where("sectionId", "==", sectionId));
+  }
+
+  const q = query(
+    collection(db, "attendance"),
+    ...constraints
   );
 
   const snapshot = await getDocs(q);
-  let records = snapshot.docs.map((d) => ({
+  const records = snapshot.docs.map((d) => ({
     id: d.id,
     ...d.data(),
   })) as AttendanceRecord[];
 
-  if (classId && classId !== "all") {
-    records = records.filter((r) => r.classId === classId);
-  }
-  if (sectionId && sectionId !== "all") {
-    records = records.filter((r) => r.sectionId === sectionId);
-  }
-
-  return records.sort((a, b) => a.studentName.localeCompare(b.studentName));
+  return records.sort((a, b) => (a.studentName || "").localeCompare(b.studentName || ""));
 }
 
 /**

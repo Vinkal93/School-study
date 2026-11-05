@@ -21,7 +21,9 @@ service cloud.firestore {
         request.auth.token.get('role', '') == 'super_admin' ||
         request.auth.token.get('isSuperAdmin', false) == true ||
         // Check for cryptographically verified Super Admin email in Firebase Auth token
-        (request.auth.token.email != null && request.auth.token.email in [
+        (request.auth.token.email != null &&
+         request.auth.token.get('email_verified', false) == true &&
+         request.auth.token.email in [
           'vinkalp041@gmail.com',
           'vinkal93041@gmail.com',
           'vinkal93@gmail.com',
@@ -963,6 +965,13 @@ service cloud.firestore {
     match /paymentMethods/{schoolId} {
       allow read: if isSchoolMember(schoolId) || isSuperAdmin();
       allow write: if isSuperAdmin();
+    }
+
+    // ==========================================
+    // 10b. SYSTEM SETTINGS (Super Admin Only)
+    // ==========================================
+    match /system_settings/{settingId} {
+      allow read, write: if isSuperAdmin();
     }
 
     // ==========================================

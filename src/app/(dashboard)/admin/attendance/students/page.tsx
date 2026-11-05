@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -45,6 +45,8 @@ export default function StudentsAttendancePage() {
   const { profile } = useAuth();
   const schoolId = profile?.schoolId || "";
   const { canAccess } = useEntitlement();
+  const isSuperAdmin = profile?.role === "super_admin";
+  const hasAttendanceAccess = isSuperAdmin || Boolean(canAccess("basic_attendance"));
 
   // State
   const [classes, setClasses] = useState<SchoolClass[]>([]);
@@ -59,16 +61,8 @@ export default function StudentsAttendancePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const { settings } = usePortalUI();
-  const [activeMode, setActiveMode] = useState<"smart_swipe" | "classic">("smart_swipe");
-
-  useEffect(() => {
-    if (settings.attendanceSystem === "classic") {
-      setActiveMode("classic");
-    } else {
-      setActiveMode("smart_swipe");
-    }
-  }, [settings.attendanceSystem]);
-
+  const [userModeOverride, setUserModeOverride] = useState<"smart_swipe" | "classic" | null>(null);
+  const activeMode = userModeOverride ?? (settings.attendanceSystem === "classic" ? "classic" : "smart_swipe");
 
   // Load Classes
   useEffect(() => {
@@ -84,17 +78,21 @@ export default function StudentsAttendancePage() {
     loadClasses();
   }, [schoolId]);
 
+  const reqIdRef = useRef(0);
+
   // Main Data Loader
   const loadData = useCallback(async () => {
     if (!schoolId) return;
-    if (profile?.role !== "super_admin" && !canAccess("basic_attendance")) {
+    if (!hasAttendanceAccess) {
       setLoading(false);
       return;
     }
+    const currentReq = ++reqIdRef.current;
     setLoading(true);
     try {
       if (selectedClassId === "all") {
         const attList = await getSchoolAttendanceForDate(schoolId, selectedDate);
+        if (currentReq !== reqIdRef.current) return;
         setClassStudents([]);
         const map: Record<string, AttendanceStatus> = {};
         const rems: Record<string, string> = {};
@@ -109,6 +107,8 @@ export default function StudentsAttendancePage() {
           getStudentsByClassAndSection(schoolId, selectedClassId, selectedSectionId),
           getSchoolAttendanceForDate(schoolId, selectedDate, selectedClassId, selectedSectionId),
         ]);
+
+        if (currentReq !== reqIdRef.current) return;
 
         setClassStudents(stuList);
 
@@ -127,12 +127,15 @@ export default function StudentsAttendancePage() {
         setRemarksMap(existingRemarks);
       }
     } catch (err) {
+      if (currentReq !== reqIdRef.current) return;
       console.error("Failed to load attendance:", err);
       toast.error("Failed to load attendance records.");
     } finally {
-      setLoading(false);
+      if (currentReq === reqIdRef.current) {
+        setLoading(false);
+      }
     }
-  }, [schoolId, selectedDate, selectedClassId, selectedSectionId, profile?.role, canAccess]);
+  }, [schoolId, selectedDate, selectedClassId, selectedSectionId, hasAttendanceAccess]);
 
   useEffect(() => {
     loadData();
@@ -411,7 +414,7 @@ export default function StudentsAttendancePage() {
 
           <button
             type="button"
-            onClick={() => setActiveMode(activeMode === "smart_swipe" ? "classic" : "smart_swipe")}
+            onClick={() => setUserModeOverride(activeMode === "smart_swipe" ? "classic" : "smart_swipe")}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white text-xs font-bold transition-all cursor-pointer self-start sm:self-center shrink-0"
           >
             {activeMode === "smart_swipe" ? (

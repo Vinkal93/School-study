@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { getIncidents, IncidentStatus, ErrorSeverity } from "@/lib/monitoring";
+import { requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -7,9 +9,16 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/super-admin/errors
  * Retrieves paginated error incidents with multi-field search and filters.
+ * Protected with authoritative Super Admin authorization.
  */
 export async function GET(request: Request) {
   try {
+    const auth = await requireSuperAdmin(request);
+    if (auth.errorResponse) return auth.errorResponse;
+
+    const rateCheck = enforceRateLimit(request, RATE_LIMIT_PROFILES.STANDARD_API, auth.user!.uid);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
+
     const { searchParams } = new URL(request.url);
 
     const status = (searchParams.get("status") || "all") as IncidentStatus | "all";

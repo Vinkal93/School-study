@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -43,6 +43,8 @@ export default function ClassWiseAttendanceReportPage() {
   const { profile } = useAuth();
   const schoolId = profile?.schoolId || "";
   const { canAccess } = useEntitlement();
+  const isSuperAdmin = profile?.role === "super_admin";
+  const hasAttendanceAccess = isSuperAdmin || Boolean(canAccess("basic_attendance"));
 
   // State
   const [classes, setClasses] = useState<SchoolClass[]>([]);
@@ -71,24 +73,31 @@ export default function ClassWiseAttendanceReportPage() {
     loadClasses();
   }, [schoolId]);
 
+  const reqIdRef = useRef(0);
+
   // Load Class Summaries for Date
   const loadData = useCallback(async () => {
     if (!schoolId || classes.length === 0) return;
-    if (profile?.role !== "super_admin" && !canAccess("basic_attendance")) {
+    if (!hasAttendanceAccess) {
       setLoading(false);
       return;
     }
+    const currentReq = ++reqIdRef.current;
     setLoading(true);
     try {
       const data = await getClassWiseAttendanceSummary(schoolId, selectedDate, classes);
+      if (currentReq !== reqIdRef.current) return;
       setSummaries(data);
     } catch (err) {
+      if (currentReq !== reqIdRef.current) return;
       console.error("Failed to load class-wise attendance summary:", err);
       toast.error("Failed to compute class-wise attendance.");
     } finally {
-      setLoading(false);
+      if (currentReq === reqIdRef.current) {
+        setLoading(false);
+      }
     }
-  }, [schoolId, selectedDate, classes, profile?.role, canAccess]);
+  }, [schoolId, selectedDate, classes, hasAttendanceAccess]);
 
   useEffect(() => {
     loadData();

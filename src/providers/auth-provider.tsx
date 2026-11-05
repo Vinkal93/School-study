@@ -20,6 +20,8 @@ import type { AppUser } from "@/types";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { traceClient } from "@/lib/debug-client";
+import { appQueryClient } from "@/lib/cache";
+import { purgeAllFastCache, purgeTenantFastCache } from "@/lib/utils/fast-data-cache";
 
 export type AuthBootstrapState =
   | "AUTH_BOOTSTRAPPING"
@@ -586,6 +588,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     try {
+      if (originalProfile?.schoolId) {
+        purgeTenantFastCache(originalProfile.schoolId);
+        appQueryClient.purgeTenant(originalProfile.schoolId);
+      }
+      appQueryClient.purgeAll();
+      purgeAllFastCache();
       localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
       localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
       const impToken = typeof window !== "undefined" ? sessionStorage.getItem("school_study_impersonation_token") : null;
@@ -685,6 +693,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       sessionStorage.setItem(IMPERSONATION_STORAGE_KEY, JSON.stringify(targetUser));
       setImpersonatedUser(targetUser);
+      // Purge query cache to prevent cross-tenant view bleeding
+      appQueryClient.purgeAll();
+      purgeAllFastCache();
 
       // Acquire cryptographically signed server impersonation session token
       try {
@@ -737,6 +748,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     sessionStorage.removeItem(IMPERSONATION_STORAGE_KEY);
     setImpersonatedUser(null);
+    appQueryClient.purgeAll();
+    purgeAllFastCache();
     toast.info("Exited Live Impression Mode. Returned to Super Admin Portal.");
     router.push("/super-admin");
   }, [firebaseUser, router]);

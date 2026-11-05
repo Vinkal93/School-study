@@ -1,10 +1,18 @@
 import { NextResponse } from "next/server";
 import { getFirebaseAdminDiagnostics } from "@/lib/firebase/admin";
+import { requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const auth = await requireSuperAdmin(request);
+    if (auth.errorResponse) return auth.errorResponse;
+
+    const rateCheck = enforceRateLimit(request, RATE_LIMIT_PROFILES.STANDARD_API, auth.user!.uid);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
+
     const diagnostics = await getFirebaseAdminDiagnostics(true);
 
     return NextResponse.json({

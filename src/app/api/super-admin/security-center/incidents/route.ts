@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 import {
   getSecurityIncidents,
   createSecurityIncident,
@@ -10,6 +11,9 @@ export async function GET(req: NextRequest) {
   try {
     const { user, errorResponse } = await requireSuperAdmin(req);
     if (errorResponse) return errorResponse;
+
+    const rateCheck = enforceRateLimit(req, RATE_LIMIT_PROFILES.STANDARD_API, user!.uid);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
 
     const incidents = await getSecurityIncidents();
     return NextResponse.json({
@@ -28,6 +32,9 @@ export async function POST(req: NextRequest) {
   try {
     const { user, errorResponse } = await requireSuperAdmin(req);
     if (errorResponse) return errorResponse;
+
+    const rateCheck = enforceRateLimit(req, RATE_LIMIT_PROFILES.STANDARD_API, user!.uid);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
 
     const body = await req.json().catch(() => ({}));
     if (!body.title || !body.severity || !body.affectedSystem) {
@@ -75,6 +82,9 @@ export async function PATCH(req: NextRequest) {
   try {
     const { user, errorResponse } = await requireSuperAdmin(req);
     if (errorResponse) return errorResponse;
+
+    const rateCheck = enforceRateLimit(req, RATE_LIMIT_PROFILES.STANDARD_API, user!.uid);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
 
     const body = await req.json().catch(() => ({}));
     const { id, ...updates } = body;

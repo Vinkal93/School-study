@@ -3,15 +3,24 @@ import { getSafeAdminDb } from "@/lib/firebase/admin";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { collection, getDocs } from "firebase/firestore";
 import { COLLECTIONS } from "@/lib/utils/constants";
+import { requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/super-admin/schools
  * Returns full list of registered schools for Super Admin selectors and management.
+ * Protected with authoritative Super Admin authorization.
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const auth = await requireSuperAdmin(request);
+    if (auth.errorResponse) return auth.errorResponse;
+
+    const rateCheck = enforceRateLimit(request, RATE_LIMIT_PROFILES.STANDARD_API, auth.user!.uid);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
+
     let schools: any[] = [];
     const adminDb = getSafeAdminDb();
 
@@ -60,20 +69,16 @@ export async function GET() {
       }
     }
 
-    schools.sort((a, b) => String(a?.name || "").localeCompare(String(b?.name || "")));
-
     return NextResponse.json({
       success: true,
       schools,
       total: schools.length,
     });
   } catch (error: any) {
-    console.error("GET /api/super-admin/schools caught notice:", error);
-    return NextResponse.json({
-      success: true,
-      schools: [],
-      total: 0,
-      notice: error?.message || "Empty schools registry",
-    });
+    console.error("GET /api/super-admin/schools error:", error);
+    return NextResponse.json(
+      { success: false, error: error.message || "Failed to fetch schools." },
+      { status: 500 }
+    );
   }
 }
