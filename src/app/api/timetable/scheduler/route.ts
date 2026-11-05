@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { requireTeacherOrAdmin, requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { timingSafeEqualString } from "@/lib/security/timing-safe";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 import { getSafeAdminDb } from "@/lib/firebase/admin";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import {
@@ -201,17 +204,35 @@ async function processClassAlertsForSchool(
 
 export async function POST(request: Request) {
   try {
+    const rateCheck = enforceRateLimit(request, RATE_LIMIT_PROFILES.SCHEDULED_TASK);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
+
     const body = await request.json().catch(() => ({}));
     const { schoolId, timeZone, mockTime } = body;
 
-    // mockTime for testing or controlled simulation: { weekday, dateStr, timeStr }
+    // Check CRON_SECRET if provided
+    const authHeader = request.headers.get("authorization") || "";
+    const bearerToken = authHeader.replace(/^Bearer\s+/i, "").trim();
+    const cronSecret = process.env.CRON_SECRET || process.env.SCHEDULER_CRON_SECRET || "";
+    const isCronAuthorized = Boolean(cronSecret && bearerToken && timingSafeEqualString(bearerToken, cronSecret));
+
     if (schoolId) {
+      if (!isCronAuthorized) {
+        const auth = await requireTeacherOrAdmin(request, schoolId);
+        if (auth.errorResponse) return auth.errorResponse;
+      }
       const result = await processClassAlertsForSchool(
         schoolId,
         timeZone || "Asia/Kolkata",
         mockTime
       );
       return NextResponse.json({ success: true, ...result });
+    }
+
+    // Global multi-school execution requires either verified cron secret or Super Admin
+    if (!isCronAuthorized) {
+      const superAuth = await requireSuperAdmin(request);
+      if (superAuth.errorResponse) return superAuth.errorResponse;
     }
 
     // Multi-tenant loop across schools
@@ -251,6 +272,16 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const schoolId = searchParams.get("schoolId") || "";
+
+    if (!schoolId) {
+      return NextResponse.json({
+        success: false,
+        error: "schoolId is required to run test or manual scheduler check.",
+      }, { status: 400 });
+    }
+
+    const auth = await requireTeacherOrAdmin(request, schoolId);
+    if (auth.errorResponse) return auth.errorResponse;
     const timeZone = searchParams.get("timeZone") || "Asia/Kolkata";
     const testTime = searchParams.get("testTime"); // "HH:MM"
     const testDay = searchParams.get("testDay") as DayOfWeek | null;

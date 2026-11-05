@@ -11,6 +11,8 @@ import {
 import { COLLECTIONS } from "@/lib/utils/constants";
 import { AUDIT_COLLECTIONS } from "@/lib/services/audit.service";
 import { updateUserSecurityControl } from "@/lib/emergency/emergencyEngine";
+import { requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 import type { AppUser, UserRole, UserStatus } from "@/types";
 
 async function getAdminAuthServerOnly() {

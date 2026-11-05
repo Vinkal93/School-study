@@ -85,8 +85,9 @@ service firebase.storage {
 
     // 3a. School admin private documents, accounting exports & backups
     match /schools/{schoolId}/admin/{allPaths=**} {
-      allow read, write: if isSchoolAdmin(schoolId)
-                         && request.resource.size < 25 * 1024 * 1024;
+      allow read: if isSchoolAdmin(schoolId);
+      allow write: if isSchoolAdmin(schoolId)
+                   && request.resource.size < 25 * 1024 * 1024;
     }
 
     // 3b. Teacher uploads (assignments, study materials, syllabi)

@@ -3,11 +3,14 @@ import { getSafeAdminDb } from "@/lib/firebase/admin";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { collection, getDocs } from "firebase/firestore";
 import { syncSchoolToGoogleSheets, getBackupConfig } from "@/lib/services/google-sheets.service";
+import { requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { timingSafeEqualString } from "@/lib/security/timing-safe";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 
 /**
  * Daily Scheduled Backup Cron Endpoint
  * Can be triggered by external cron services with Authorization: Bearer <CRON_SECRET>
- * or by Super Admin.
+ * or by an authenticated Super Admin.
  */
 export async function GET(request: Request) {
   return handleDailyBackup(request);
@@ -19,19 +22,34 @@ export async function POST(request: Request) {
 
 async function handleDailyBackup(request: Request) {
   try {
-    const authHeader = request.headers.get("authorization");
-    const cronSecret = process.env.CRON_SECRET || process.env.BACKUP_CRON_SECRET || "school-study-daily-backup-secret";
+    const rateCheck = enforceRateLimit(request, RATE_LIMIT_PROFILES.SCHEDULED_TASK);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
 
-    // Validate bearer token if provided
-    const isAuthorizedToken = Boolean(authHeader && authHeader.replace(/^Bearer\s+/i, "") === cronSecret);
-    
-    // In production without token, check if caller is internal localhost or safe token
+    const authHeader = request.headers.get("authorization") || "";
+    const bearerToken = authHeader.replace(/^Bearer\s+/i, "").trim();
     const url = new URL(request.url);
-    const tokenParam = url.searchParams.get("token");
-    const isAuthorizedParam = Boolean(tokenParam && tokenParam === cronSecret);
+    const tokenParam = (url.searchParams.get("token") || "").trim();
 
-    if (!isAuthorizedToken && !isAuthorizedParam && process.env.NODE_ENV === "production") {
-      // In production, require either valid cron secret token or Super Admin session
+    const configuredCronSecret = process.env.CRON_SECRET || process.env.BACKUP_CRON_SECRET || "";
+    let isAuthorized = false;
+
+    if (configuredCronSecret) {
+      if (bearerToken && timingSafeEqualString(bearerToken, configuredCronSecret)) {
+        isAuthorized = true;
+      } else if (tokenParam && timingSafeEqualString(tokenParam, configuredCronSecret)) {
+        isAuthorized = true;
+      }
+    }
+
+    // If cron secret token not matched, check if caller is an authorized Super Admin session
+    if (!isAuthorized) {
+      const superAdminAuth = await requireSuperAdmin(request);
+      if (!superAdminAuth.errorResponse) {
+        isAuthorized = true;
+      }
+    }
+
+    if (!isAuthorized) {
       return NextResponse.json({ error: "Unauthorized cron trigger." }, { status: 401 });
     }
 
@@ -58,23 +76,29 @@ async function handleDailyBackup(request: Request) {
     }
 
     // 3. Process each school
-    for (const sId of schoolIds) {
-      const cfg = await getBackupConfig(sId);
-      if (cfg && cfg.autoSyncEnabled && cfg.webAppUrl) {
-        results[sId] = await syncSchoolToGoogleSheets(sId, "daily", "scheduled_cron");
+    for (const sid of schoolIds) {
+      try {
+        const sc = await getBackupConfig(sid);
+        if (sc && sc.autoSyncEnabled && sc.webAppUrl) {
+          results[sid] = await syncSchoolToGoogleSheets(sid, "daily", "scheduled_cron");
+        }
+      } catch (err: any) {
+        results[sid] = { error: err.message };
       }
     }
 
+    const duration = Date.now() - startTime;
     return NextResponse.json({
       success: true,
-      message: `Daily scheduled backup completed for ${Object.keys(results).length} target(s).`,
-      durationMs: Date.now() - startTime,
-      timestamp: new Date().toISOString(),
-      summary: results,
+      message: "Daily automated backup sync completed.",
+      duration: `${duration}ms`,
+      schoolsProcessed: schoolIds.length,
+      results,
     });
   } catch (error: any) {
+    console.error("Backup cron error:", error);
     return NextResponse.json(
-      { success: false, error: error?.message || "Scheduled daily backup encountered an error." },
+      { success: false, error: error.message || "Backup cron execution failed" },
       { status: 500 }
     );
   }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 import {
   DEFAULT_TEST_CATALOG,
   getSecurityRuns,
@@ -15,6 +16,9 @@ export async function GET(req: NextRequest) {
   try {
     const { user, errorResponse } = await requireSuperAdmin(req);
     if (errorResponse) return errorResponse;
+
+    const rateCheck = enforceRateLimit(req, RATE_LIMIT_PROFILES.STANDARD_API, user!.uid);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
 
     const [runs, findings, incidents] = await Promise.all([
       getSecurityRuns(),
@@ -59,6 +63,9 @@ export async function POST(req: NextRequest) {
   try {
     const { user, errorResponse } = await requireSuperAdmin(req);
     if (errorResponse) return errorResponse;
+
+    const rateCheck = enforceRateLimit(req, RATE_LIMIT_PROFILES.BULK_MUTATION, user!.uid);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
 
     const body = await req.json().catch(() => ({}));
     const categoryFilter: SecurityCategory | "ALL" = body.category || "ALL";

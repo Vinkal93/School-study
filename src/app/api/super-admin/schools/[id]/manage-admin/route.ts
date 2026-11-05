@@ -1,22 +1,35 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getSafeAdminDb, adminAuth } from "@/lib/firebase/admin";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
+import { requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 
 export const dynamic = "force-dynamic";
 
 /**
  * POST /api/super-admin/schools/[id]/manage-admin
  * Super Admin endpoint to manage, reassign, or reset credentials for a school admin.
+ * Protected with authoritative Super Admin authorization and rate limiting.
  */
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authResult = await requireSuperAdmin(request);
+    if (authResult.errorResponse) {
+      return authResult.errorResponse;
+    }
+
     const { id: schoolId } = await params;
     if (!schoolId) {
       return NextResponse.json({ success: false, error: "School ID is required." }, { status: 400 });
+    }
+
+    const rateCheck = enforceRateLimit(request, RATE_LIMIT_PROFILES.STANDARD_API, authResult.user!.uid);
+    if (!rateCheck.allowed && rateCheck.response) {
+      return rateCheck.response;
     }
 
     const body = await request.json().catch(() => ({}));

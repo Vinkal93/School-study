@@ -14,18 +14,32 @@ import {
 } from "firebase/firestore";
 import { COLLECTIONS } from "@/lib/utils/constants";
 import { AUDIT_COLLECTIONS } from "@/lib/services/audit.service";
+import { requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 import type { AppUser, AccountRestriction } from "@/types";
 
 export const RESTRICTION_COLLECTION = "account_restrictions";
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { action, performerUid, targetUid, reason, duration, expiresAt } = body;
+    const authResult = await requireSuperAdmin(req);
+    if (authResult.errorResponse) {
+      return authResult.errorResponse;
+    }
+    const performer = authResult.user!;
+    const performerUid = performer.uid;
 
-    if (!performerUid || !targetUid || !action) {
+    const rateCheck = enforceRateLimit(req, RATE_LIMIT_PROFILES.STANDARD_API, performerUid);
+    if (!rateCheck.allowed && rateCheck.response) {
+      return rateCheck.response;
+    }
+
+    const body = await req.json();
+    const { action, targetUid, reason, duration, expiresAt } = body;
+
+    if (!targetUid || !action) {
       return NextResponse.json(
-        { error: "Missing required fields: action, performerUid, targetUid" },
+        { error: "Missing required fields: action, targetUid" },
         { status: 400 }
       );
     }
@@ -38,20 +52,6 @@ export async function POST(req: NextRequest) {
     }
 
     const db = getFirebaseDb();
-
-    // 1. Verify Performer is active Super Admin
-    const performerSnap = await getDoc(doc(db, COLLECTIONS.USERS, performerUid));
-    if (!performerSnap.exists()) {
-      return NextResponse.json({ error: "Performer account not found" }, { status: 403 });
-    }
-
-    const performer = performerSnap.data() as AppUser;
-    if (performer.role !== "super_admin" || performer.status !== "active") {
-      return NextResponse.json(
-        { error: "Unauthorized. Super Admin access required." },
-        { status: 403 }
-      );
-    }
 
     // 2. Prevent Self-Lockout / Self-Restriction
     if (performerUid === targetUid) {

@@ -3,18 +3,32 @@ import { getFirebaseDb } from "@/lib/firebase/client";
 import { doc, getDoc, updateDoc, serverTimestamp, addDoc, collection } from "firebase/firestore";
 import { COLLECTIONS } from "@/lib/utils/constants";
 import { AUDIT_COLLECTIONS } from "@/lib/services/audit.service";
+import { requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 import type { AppUser, UserStatus } from "@/types";
 
 const VALID_STATUSES = new Set(["active", "inactive", "restricted", "suspended", "disabled"]);
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { performerUid, targetUid, status, reason } = body;
+    const authResult = await requireSuperAdmin(req);
+    if (authResult.errorResponse) {
+      return authResult.errorResponse;
+    }
+    const performer = authResult.user!;
+    const performerUid = performer.uid;
 
-    if (!performerUid || !targetUid || !status) {
+    const rateCheck = enforceRateLimit(req, RATE_LIMIT_PROFILES.STANDARD_API, performerUid);
+    if (!rateCheck.allowed && rateCheck.response) {
+      return rateCheck.response;
+    }
+
+    const body = await req.json();
+    const { targetUid, status, reason } = body;
+
+    if (!targetUid || !status) {
       return NextResponse.json(
-        { error: "Missing required fields: performerUid, targetUid, status" },
+        { error: "Missing required fields: targetUid, status" },
         { status: 400 }
       );
     }
@@ -26,26 +40,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const db = getFirebaseDb();
-
-    // 1. Verify Performer is a valid, active Super Admin
-    const performerDocSnap = await getDoc(doc(db, COLLECTIONS.USERS, performerUid));
-    if (!performerDocSnap.exists()) {
-      return NextResponse.json(
-        { error: "Performer account not found." },
-        { status: 403 }
-      );
-    }
-
-    const performer = performerDocSnap.data() as AppUser;
-    if (performer.role !== "super_admin" || performer.status !== "active") {
-      return NextResponse.json(
-        { error: "Unauthorized. Privileged operation requires active Super Admin permissions." },
-        { status: 403 }
-      );
-    }
-
-    // 2. Prevent self-lockout
+    // 1. Prevent self-lockout
     if (performerUid === targetUid && status !== "active") {
       return NextResponse.json(
         { error: "Super Admin cannot suspend, disable, or restrict their own account." },
@@ -53,7 +48,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. Fetch Target User
+    const db = getFirebaseDb();
+
+    // 2. Fetch Target User
     const targetDocRef = doc(db, COLLECTIONS.USERS, targetUid);
     const targetDocSnap = await getDoc(targetDocRef);
     if (!targetDocSnap.exists()) {
@@ -66,13 +63,13 @@ export async function POST(req: NextRequest) {
     const targetUser = targetDocSnap.data() as AppUser;
     const previousStatus = targetUser.status;
 
-    // 4. Update Target User Status in Firestore
+    // 3. Update Target User Status in Firestore
     await updateDoc(targetDocRef, {
       status: status as UserStatus,
       updatedAt: serverTimestamp(),
     });
 
-    // 5. Write Audit Log
+    // 4. Write Audit Log
     const ipAddress = req.headers.get("x-forwarded-for") || "unknown";
     const userAgent = req.headers.get("user-agent") || "unknown";
 

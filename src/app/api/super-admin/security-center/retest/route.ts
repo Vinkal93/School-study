@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 import { retestSecurityFinding } from "@/lib/services/security-center.service";
 
 export async function POST(req: NextRequest) {
   try {
     const { user, errorResponse } = await requireSuperAdmin(req);
     if (errorResponse) return errorResponse;
+
+    const rateCheck = enforceRateLimit(req, RATE_LIMIT_PROFILES.BULK_MUTATION, user!.uid);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
 
     const body = await req.json().catch(() => ({}));
     const { findingId } = body;

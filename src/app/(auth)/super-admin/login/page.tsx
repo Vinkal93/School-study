@@ -101,9 +101,13 @@ export default function SuperAdminLoginPage() {
       let verified = false;
 
       try {
+        const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
         const res = await fetch("/api/auth/verify-super-admin-pin", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+          },
           body: JSON.stringify({
             uid,
             email: userEmail,

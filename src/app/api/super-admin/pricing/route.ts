@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 import {
   getAllPlansAdmin,
   getActivePlanVersion,
@@ -18,8 +20,10 @@ export const dynamic = "force-dynamic";
  * GET /api/super-admin/pricing
  * Returns full list of pricing plans and active version details for Super Admin configuration.
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const auth = await requireSuperAdmin(request);
+    if (auth.errorResponse) return auth.errorResponse;
     const plans = await getAllPlansAdmin();
 
     const enrichedPlans = await Promise.all(
@@ -88,8 +92,15 @@ export async function GET() {
  */
 export async function POST(request: Request) {
   try {
+    const auth = await requireSuperAdmin(request);
+    if (auth.errorResponse) return auth.errorResponse;
+    const actorId = auth.user!.uid;
+
+    const rateCheck = enforceRateLimit(request, RATE_LIMIT_PROFILES.STANDARD_API, actorId);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
+
     const body = await request.json().catch(() => ({}));
-    const { action, actorId = "super_admin" } = body;
+    const { action } = body;
 
     // Duplicate action
     if (action === "duplicate") {
@@ -184,8 +195,15 @@ export async function POST(request: Request) {
  */
 export async function PUT(request: Request) {
   try {
+    const auth = await requireSuperAdmin(request);
+    if (auth.errorResponse) return auth.errorResponse;
+    const actorId = auth.user!.uid;
+
+    const rateCheck = enforceRateLimit(request, RATE_LIMIT_PROFILES.STANDARD_API, actorId);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
+
     const body = await request.json().catch(() => ({}));
-    const { planId, action, actorId = "super_admin" } = body;
+    const { planId, action } = body;
 
     if (!planId) {
       return NextResponse.json({ success: false, error: "Plan ID is required." }, { status: 400 });
@@ -262,14 +280,19 @@ export async function PUT(request: Request) {
  */
 export async function DELETE(request: Request) {
   try {
+    const auth = await requireSuperAdmin(request);
+    if (auth.errorResponse) return auth.errorResponse;
+    const actorId = auth.user!.uid;
+
+    const rateCheck = enforceRateLimit(request, RATE_LIMIT_PROFILES.STANDARD_API, actorId);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
+
     const { searchParams } = new URL(request.url);
     let planId = searchParams.get("planId") || searchParams.get("id");
-    let actorId = searchParams.get("actorId") || "super_admin";
 
     if (!planId) {
       const body = await request.json().catch(() => ({}));
       planId = body.planId || body.id;
-      if (body.actorId) actorId = body.actorId;
     }
 
     if (!planId) {

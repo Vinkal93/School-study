@@ -6,23 +6,26 @@ import {
   changeRole,
   updateSchoolStats,
   updatePlatformStats,
-  verifySuperAdmin,
 } from "@/lib/services/privileged-admin.service";
+import { requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { action, performerUid } = body;
+    const authResult = await requireSuperAdmin(req);
+    if (authResult.errorResponse) {
+      return authResult.errorResponse;
+    }
+    const performer = authResult.user!;
+    const performerUid = performer.uid;
 
-    if (!performerUid) {
-      return NextResponse.json(
-        { error: "Missing performerUid parameter" },
-        { status: 401 }
-      );
+    const rateCheck = enforceRateLimit(req, RATE_LIMIT_PROFILES.STANDARD_API, performerUid);
+    if (!rateCheck.allowed && rateCheck.response) {
+      return rateCheck.response;
     }
 
-    // Explicit server-side Super Admin check
-    await verifySuperAdmin(performerUid);
+    const body = await req.json();
+    const { action } = body;
 
     switch (action) {
       case "createSchoolAdmin": {
@@ -58,7 +61,10 @@ export async function POST(req: NextRequest) {
       case "changeRole": {
         const { targetUid, newRole, reason } = body;
         if (!targetUid || !newRole) {
-          return NextResponse.json({ error: "Missing targetUid or newRole" }, { status: 400 });
+          return NextResponse.json(
+            { error: "Missing targetUid or newRole" },
+            { status: 400 }
+          );
         }
         const result = await changeRole(performerUid, targetUid, newRole, reason);
         return NextResponse.json(result);
@@ -67,27 +73,30 @@ export async function POST(req: NextRequest) {
       case "updateSchoolStats": {
         const { schoolId } = body;
         if (!schoolId) {
-          return NextResponse.json({ error: "Missing schoolId" }, { status: 400 });
+          return NextResponse.json(
+            { error: "Missing schoolId" },
+            { status: 400 }
+          );
         }
         const result = await updateSchoolStats(schoolId);
-        return NextResponse.json({ success: true, stats: result });
+        return NextResponse.json(result);
       }
 
       case "updatePlatformStats": {
         const result = await updatePlatformStats();
-        return NextResponse.json({ success: true, stats: result });
+        return NextResponse.json(result);
       }
 
       default:
         return NextResponse.json(
-          { error: `Unknown privileged action: ${action}` },
+          { error: `Unknown action: ${action}` },
           { status: 400 }
         );
     }
   } catch (error: any) {
-    console.error("Privileged operation error:", error);
+    console.error("Privileged admin operation failed:", error);
     return NextResponse.json(
-      { error: error?.message || "Internal server error executing privileged operation" },
+      { error: error?.message || "Internal server error" },
       { status: 500 }
     );
   }

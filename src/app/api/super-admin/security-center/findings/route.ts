@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 import {
   getSecurityFindings,
   createSecurityFinding,
@@ -9,6 +10,9 @@ export async function GET(req: NextRequest) {
   try {
     const { user, errorResponse } = await requireSuperAdmin(req);
     if (errorResponse) return errorResponse;
+
+    const rateCheck = enforceRateLimit(req, RATE_LIMIT_PROFILES.STANDARD_API, user!.uid);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
 
     const { searchParams } = new URL(req.url);
     const category = searchParams.get("category");
@@ -43,6 +47,9 @@ export async function POST(req: NextRequest) {
   try {
     const { user, errorResponse } = await requireSuperAdmin(req);
     if (errorResponse) return errorResponse;
+
+    const rateCheck = enforceRateLimit(req, RATE_LIMIT_PROFILES.STANDARD_API, user!.uid);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
 
     const body = await req.json().catch(() => ({}));
     if (!body.title || !body.category || !body.severity) {

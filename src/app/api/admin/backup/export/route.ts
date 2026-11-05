@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authenticateRequest } from "@/lib/auth/serverAuth";
 import { exportSchoolData } from "@/lib/services/import-export.service";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
 import type { SupportedImportModule } from "@/types/backup";
 
 export async function GET(request: Request) {
@@ -10,9 +11,16 @@ export async function GET(request: Request) {
       return authResult.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (authResult.user.role !== "school_admin" && authResult.user.role !== "super_admin") {
+    if (
+      authResult.user.role !== "school_admin" &&
+      authResult.user.role !== "admin" &&
+      authResult.user.role !== "super_admin"
+    ) {
       return NextResponse.json({ error: "Forbidden: School Admin access required." }, { status: 403 });
     }
+
+    const rateCheck = enforceRateLimit(request, RATE_LIMIT_PROFILES.DATA_EXPORT, authResult.user.uid);
+    if (!rateCheck.allowed && rateCheck.response) return rateCheck.response;
 
     const { searchParams } = new URL(request.url);
     const module = (searchParams.get("module") || "students") as SupportedImportModule | "all";
