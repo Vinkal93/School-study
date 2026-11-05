@@ -106,7 +106,7 @@ const nextConfig: NextConfig = {
               "worker-src 'self' blob:",
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' data: https://fonts.gstatic.com",
-              "img-src 'self' data: blob: https://images.unsplash.com https://*.googleusercontent.com https://*.firebasestorage.googleapis.com https://firebasestorage.googleapis.com https://*.clarity.ms https://c.clarity.ms",
+              "img-src 'self' data: blob: https://images.unsplash.com https://*.googleusercontent.com https://*.firebasestorage.googleapis.com https://firebasestorage.googleapis.com https://*.clarity.ms https://c.clarity.ms https://*.bing.com https://c.bing.com",
               "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.clarity.ms https://api.razorpay.com https://lumberjack.razorpay.com https://*.ingest.sentry.io https://*.sentry.io",
               "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com",
               "object-src 'none'",

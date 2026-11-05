@@ -53,6 +53,20 @@ import BusinessIntelligenceView from "@/components/architecture-intelligence/Bus
 import CapacitySimulatorView from "@/components/architecture-intelligence/CapacitySimulatorView";
 import InvestorPresentationModal from "@/components/architecture-intelligence/InvestorPresentationModal";
 import DocumentationExportModal from "@/components/architecture-intelligence/DocumentationExportModal";
+import {
+  ARCHITECTURE_NODES,
+  ARCHITECTURE_EDGES,
+  INTEGRATION_REGISTRY,
+  DATABASE_ENTITIES,
+  DATA_FLOW_MODELS,
+  SECURITY_CONTROL_ITEMS,
+  CAPACITY_PRESETS,
+  DEFAULT_BUSINESS_METRICS,
+  INVESTOR_PRESENTATION_SLIDES,
+  getFeatureCapabilities,
+  calculateCapacityProjection,
+  getDefaultArchitectureOverview,
+} from "@/lib/services/architecture-static-data";
 
 type TabId =
   | "visualizer"
@@ -67,25 +81,27 @@ type TabId =
 export default function ArchitectureInvestorCenterPage() {
   const { profile, firebaseUser, loading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<TabId>("visualizer");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Core Data States
-  const [overview, setOverview] = useState<ArchitectureIntelligenceOverview | null>(null);
-  const [nodes, setNodes] = useState<ArchitectureNode[]>([]);
-  const [edges, setEdges] = useState<ArchitectureEdge[]>([]);
-  const [integrations, setIntegrations] = useState<IntegrationEntity[]>([]);
-  const [features, setFeatures] = useState<FeatureCapability[]>([]);
-  const [databaseEntities, setDatabaseEntities] = useState<DatabaseEntity[]>([]);
-  const [dataFlows, setDataFlows] = useState<DataFlowModel[]>([]);
-  const [securityControls, setSecurityControls] = useState<SecurityControlItem[]>([]);
-  const [businessMetrics, setBusinessMetrics] = useState<BusinessIntelligenceMetrics | null>(null);
-  const [capacityPresets, setCapacityPresets] = useState<CapacityPreset[]>([]);
-  const [capacityProjection, setCapacityProjection] = useState<CapacityProjection | null>(null);
+  // Core Data States (Pre-hydrated with authoritative architecture models for instant 0ms rendering)
+  const [overview, setOverview] = useState<ArchitectureIntelligenceOverview>(getDefaultArchitectureOverview());
+  const [nodes, setNodes] = useState<ArchitectureNode[]>(ARCHITECTURE_NODES);
+  const [edges, setEdges] = useState<ArchitectureEdge[]>(ARCHITECTURE_EDGES);
+  const [integrations, setIntegrations] = useState<IntegrationEntity[]>(INTEGRATION_REGISTRY);
+  const [features, setFeatures] = useState<FeatureCapability[]>(getFeatureCapabilities());
+  const [databaseEntities, setDatabaseEntities] = useState<DatabaseEntity[]>(DATABASE_ENTITIES);
+  const [dataFlows, setDataFlows] = useState<DataFlowModel[]>(DATA_FLOW_MODELS);
+  const [securityControls, setSecurityControls] = useState<SecurityControlItem[]>(SECURITY_CONTROL_ITEMS);
+  const [businessMetrics, setBusinessMetrics] = useState<BusinessIntelligenceMetrics | null>(DEFAULT_BUSINESS_METRICS);
+  const [capacityPresets, setCapacityPresets] = useState<CapacityPreset[]>(CAPACITY_PRESETS);
+  const [capacityProjection, setCapacityProjection] = useState<CapacityProjection | null>(
+    calculateCapacityProjection(CAPACITY_PRESETS[1])
+  );
 
   // Modal States
   const [presentationOpen, setPresentationOpen] = useState(false);
-  const [presentationSlides, setPresentationSlides] = useState<InvestorSlide[]>([]);
+  const [presentationSlides, setPresentationSlides] = useState<InvestorSlide[]>(INVESTOR_PRESENTATION_SLIDES);
   const [exportOpen, setExportOpen] = useState(false);
 
   // Fetch token securely

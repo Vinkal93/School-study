@@ -114,7 +114,15 @@ export async function getAllSchools(): Promise<School[]> {
   // Graceful fallback to server API (/api/super-admin/schools) with Admin SDK authority
   if (typeof window !== "undefined") {
     try {
-      const res = await fetch("/api/super-admin/schools");
+      let token = "";
+      try {
+        const { getFirebaseAuth } = await import("@/lib/firebase/client");
+        const auth = getFirebaseAuth();
+        if (auth?.currentUser) token = await auth.currentUser.getIdToken().catch(() => "");
+      } catch {}
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch("/api/super-admin/schools", { headers });
       if (res.ok) {
         const data = await res.json();
         const list = Array.isArray(data) ? data : data.schools || [];
@@ -356,7 +364,15 @@ export async function getSuperAdminStats(): Promise<SuperAdminStats> {
   // Graceful server API fallback (/api/super-admin/schools)
   if (typeof window !== "undefined") {
     try {
-      const res = await fetch("/api/super-admin/schools");
+      let token = "";
+      try {
+        const { getFirebaseAuth } = await import("@/lib/firebase/client");
+        const auth = getFirebaseAuth();
+        if (auth?.currentUser) token = await auth.currentUser.getIdToken().catch(() => "");
+      } catch {}
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch("/api/super-admin/schools", { headers });
       if (res.ok) {
         const data = await res.json();
         const schools = Array.isArray(data) ? data : data.schools || [];
