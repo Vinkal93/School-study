@@ -14,7 +14,7 @@ import {
   signOutUser,
 } from "@/lib/services/auth.service";
 import { getUserProfile, isSuperAdminEmail } from "@/lib/services/user.service";
-import { getFirebaseAuth, getFirebaseDb } from "@/lib/firebase/client";
+import { getFirebaseAuth, getFirebaseDb, initClientStorageGuards } from "@/lib/firebase/client";
 import { doc, updateDoc, onSnapshot } from "firebase/firestore";
 import type { AppUser } from "@/types";
 import { toast } from "sonner";
@@ -102,6 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Restore cached session and impersonation session on client mount
   useEffect(() => {
+    initClientStorageGuards();
     try {
       const stored = localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
       if (stored) {
