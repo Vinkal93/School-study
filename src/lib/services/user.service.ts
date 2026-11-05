@@ -270,15 +270,18 @@ export async function ensureSuperAdminProfile(uid: string, email: string): Promi
   if (db) {
     const docRef = doc(db, COLLECTIONS.USERS, uid);
     try {
-      await setDoc(
-        docRef,
-        {
-          ...superAdminProfile,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
+      const snap = await getDoc(docRef);
+      if (!snap.exists()) {
+        await setDoc(
+          docRef,
+          {
+            ...superAdminProfile,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
     } catch (e: any) {
       if (e?.code !== "permission-denied") {
         console.warn("Notice: super admin profile sync:", e?.message || e);

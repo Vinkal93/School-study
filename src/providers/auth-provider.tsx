@@ -275,6 +275,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             } catch {}
           }
           setBootstrapState("AUTH_ERROR");
+          setLoading(false);
         }
       } else {
         traceClient("auth:user_null_branch", {
