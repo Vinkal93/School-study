@@ -117,7 +117,7 @@ export default function AdminFeeReportsPage() {
         feeFetch(`/api/fees/foundation/analytics/reports?type=payment_mode&${queryParams.toString()}`)
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
-        getFeeTransactions(schoolId).catch(() => []),
+        getFeeTransactions(schoolId, { academicYearId: dateRange !== "all" ? dateRange : undefined }).catch(() => []),
         getClassesWithSections(schoolId).catch(() => []),
         getAcademicYears(schoolId).catch(() => []),
       ]);

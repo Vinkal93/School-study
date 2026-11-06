@@ -8,6 +8,7 @@ import { EntitlementGate } from "@/components/common/EntitlementGate";
 import { feeFetch } from "@/lib/fees/client-request";
 import { getStudents } from "@/lib/services/student.service";
 import { formatINR } from "@/lib/services/fee-foundation.service";
+import { generateThreeCopyFeeInvoicePDF } from "@/lib/services/pdf-invoice-receipt.service";
 import type { StudentProfile } from "@/types";
 import type { FeeDemand } from "@/types/fee-foundation";
 import { toast } from "sonner";
@@ -90,7 +91,45 @@ export default function GenerateFeeInvoicePage() {
         if (!res.ok) {
           throw new Error(data.error || "Invoices unavailable.");
         }
-        return (data.demands || []) as FeeDemand[];
+      
+  const handleDownloadChallan = (demand: FeeDemand) => {
+    try {
+      const doc = generateThreeCopyFeeInvoicePDF({
+        schoolName: (profile as any)?.schoolName || "Institution",
+        schoolAddress: "",
+        schoolPhone: "",
+        invoiceNumber: demand.invoiceNumber || `INV-${demand.id.slice(0, 8).toUpperCase()}`,
+        feeMonth: demand.period || "Current Month",
+        dueDate: demand.dueDate ? demand.dueDate.slice(0, 10) : "",
+        fineAfterDueDate: (demand.lateFeePaise || 0) / 100,
+        bankName: "Designated School Collection Bank",
+        studentName: demand.studentName,
+        registrationNo: String(demand.admissionNumber || demand.studentId || "1"),
+        className: demand.className,
+        sectionName: demand.sectionName || "A",
+        items: [
+          {
+            sr: 1,
+            particulars: demand.feeHeadName || "Fee Demand Assessment",
+            amount: (demand.netAmountPaise || demand.grossAmountPaise || 0) / 100,
+          },
+        ],
+        totalAmount: (demand.netAmountPaise || demand.grossAmountPaise || 0) / 100,
+        copies: {
+          bankCopy: true,
+          studentCopy: true,
+          instituteCopy: true,
+        },
+      });
+      doc.save(`Challan_${demand.studentName.replace(/\s+/g, "_")}_${(demand.period || "period").replace(/\s+/g, "_")}.pdf`);
+      toast.success("3-Part Bank Challan PDF downloaded successfully.");
+    } catch (err: any) {
+      console.error("Failed to generate bank challan:", err);
+      toast.error("Could not generate 3-part bank challan.");
+    }
+  };
+
+  return (data.demands || []) as FeeDemand[];
       })
       .then((list) => {
         if (!cancelled) {
@@ -285,7 +324,7 @@ export default function GenerateFeeInvoicePage() {
   };
 
   return (
-    <EntitlementGate feature="fee_structure" title="Fee Invoices" requiredPlan="Professional Plan">
+    <EntitlementGate feature="fee_invoice" title="Fee Invoices" requiredPlan="Professional Plan">
       <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">

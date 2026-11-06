@@ -4,6 +4,7 @@ import { useFeeSession } from "@/components/fees/FeeSessionProvider";
 import { feeFetch } from "@/lib/fees/client-request";
 
 import { useEffect, useState, useMemo, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
 import {
@@ -36,6 +37,8 @@ export default function AdminFeeDiscountsPage() {
       ? localStorage.getItem("currentSchoolId") || ""
       : "");
   const schoolId = effectiveSchoolId;
+  const searchParams = useSearchParams();
+  const paramStudentId = searchParams?.get("studentId") || "";
 
   // Student search & selection
   const [students, setStudents] = useState<StudentProfile[]>([]);
@@ -59,6 +62,17 @@ export default function AdminFeeDiscountsPage() {
   // History State
   const [adjustments, setAdjustments] = useState<FeeAdjustment[]>([]);
   const [loadingAdjustments, setLoadingAdjustments] = useState(true);
+
+
+  useEffect(() => {
+    if (paramStudentId && students.length > 0) {
+      const found = students.find((s) => s.id === paramStudentId);
+      if (found) {
+        setSelectedStudent(found);
+        setStudentSearch(found.name);
+      }
+    }
+  }, [paramStudentId, students]);
 
   // 1. Fetch Students
   useEffect(() => {
@@ -170,7 +184,7 @@ export default function AdminFeeDiscountsPage() {
           schoolId,
           studentId: selectedStudent.id,
           studentName: selectedStudent.name,
-          academicYearId: selectedDemand?.academicYearId || "all",
+          academicYearId: selectedDemand?.academicYearId || (academicYearId !== "all" ? academicYearId : "ay_current"),
           demandId: selectedDemandId,
           type: discountType,
           amountRupees: amt,

@@ -2,6 +2,7 @@
 import { useFeeSession } from "@/components/fees/FeeSessionProvider";
 
 import { useEffect, useState, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
 import { FeeReceiptModal } from "@/components/fees/FeeReceiptModal";
@@ -47,6 +48,28 @@ export default function AdminFeeReceiptsPage() {
   const [selectedMethod, setSelectedMethod] = useState("all");
   const [selectedPayment, setSelectedPayment] = useState<FeePayment | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const searchParams = useSearchParams();
+  const queryStudent = searchParams?.get("studentId") || searchParams?.get("q") || "";
+  const queryReceipt = searchParams?.get("receipt") || searchParams?.get("receiptNumber") || "";
+
+  useEffect(() => {
+    if (queryReceipt) {
+      setSearchQuery(queryReceipt);
+    } else if (queryStudent) {
+      setSearchQuery(queryStudent);
+    }
+  }, [queryStudent, queryReceipt]);
+
+  useEffect(() => {
+    if (queryReceipt && receipts.length > 0) {
+      const match = receipts.find((r) => r.receiptNumber === queryReceipt);
+      if (match) {
+        setSelectedPayment(match);
+        setShowModal(true);
+      }
+    }
+  }, [queryReceipt, receipts]);
+
 
   useEffect(() => {
     async function loadReceipts() {

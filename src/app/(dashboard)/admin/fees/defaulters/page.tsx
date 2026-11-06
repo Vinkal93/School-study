@@ -4,6 +4,7 @@ import { useFeeSession } from "@/components/fees/FeeSessionProvider";
 import { feeFetch } from "@/lib/fees/client-request";
 
 import { useEffect, useState, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
@@ -48,6 +49,11 @@ import { toast } from "sonner";
 export default function AdminFeeDefaultersPage() {
   const { academicYearId } = useFeeSession();
   const { profile } = useAuth();
+  const searchParams = useSearchParams();
+  const isReminder = searchParams?.get("reminder") === "true";
+  const isWhatsAppTab = searchParams?.get("tab") === "whatsapp";
+  const paramStudentId = searchParams?.get("studentId") || "";
+
   const effectiveSchoolId =
     profile?.schoolId ||
     (typeof window !== "undefined"
@@ -1284,6 +1290,25 @@ export default function AdminFeeDefaultersPage() {
               sectionName: shareModalTarget.sectionName,
               phone: shareModalTarget.phone,
               parentPhone: shareModalTarget.parentPhone,
+            }}
+          />
+        )}
+
+
+        {/* Bulk Communication Composer Modal */}
+        {isCommModalOpen && (
+          <CommunicationComposerModal
+            isOpen={isCommModalOpen}
+            onClose={() => setIsCommModalOpen(false)}
+            schoolId={schoolId}
+            schoolName={schoolName}
+            recipients={commRecipients}
+            defaultChannel={isWhatsAppTab ? "whatsapp" : "whatsapp"}
+            triggerType="fee_reminder"
+            initialTemplateCategory="fee_reminder"
+            onSuccess={() => {
+              toast.success("Fee reminders successfully queued for dispatch!");
+              fetchData();
             }}
           />
         )}

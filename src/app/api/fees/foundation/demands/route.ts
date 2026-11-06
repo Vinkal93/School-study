@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireFeeAccess } from "@/lib/fees/server-access";
-import { getFeeDemands, generateBulkFeeDemands } from "@/lib/services/fee-foundation.service";
+import { getFeeDemands, generateBulkFeeDemands, voidFeeDemand } from "@/lib/services/fee-foundation.service";
 export async function GET(request: Request) {
   try {
     const auth = await requireFeeAccess(request);
@@ -25,4 +25,21 @@ export async function POST(request: Request) {
     if (result.errors.length) return NextResponse.json({success:false,error:result.errors.join("; ")},{status:400});
     return NextResponse.json({success:true,...result});
   } catch (error) { return NextResponse.json({error:error instanceof Error ? error.message : "Invoice generation failed."},{status:500}); }
+}
+
+
+export async function DELETE(request: Request) {
+  try {
+    const auth = await requireFeeAccess(request);
+    if (!auth.user) return auth.errorResponse;
+    const body = await request.json();
+    const schoolId = auth.user.role === "super_admin" ? body.schoolId || auth.user.schoolId : auth.user.schoolId;
+    if (!schoolId || !body.demandId || !body.reason) {
+      return NextResponse.json({ error: "School, invoice ID, and audit reason are required to void an invoice." }, { status: 400 });
+    }
+    const result = await voidFeeDemand(schoolId, body.demandId, body.reason, auth.user.uid);
+    return NextResponse.json({ success: true, demand: result });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Invoice voiding failed." }, { status: 400 });
+  }
 }
