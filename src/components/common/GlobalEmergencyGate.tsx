@@ -8,6 +8,10 @@ import { usePathname } from "next/navigation";
 import { useRealtimeSecurityListener } from "@/hooks/useRealtimeSecurityListener";
 import type { GlobalEmergencyControls, SchoolEmergencyControl } from "@/lib/emergency/emergencyEngine";
 import {
+  subscribeSharedGlobalEmergency,
+  subscribeSharedSchoolEmergency,
+} from "@/lib/emergency/sharedEmergencyListener";
+import {
   ShieldAlert,
   AlertTriangle,
   Clock,
@@ -37,53 +41,24 @@ export function GlobalEmergencyGate({ children }: GlobalEmergencyGateProps) {
   const [checking, setChecking] = useState(false);
   const [, startTransition] = useTransition();
 
-  // 2. Real-time Firestore snapshot on global emergency controls
+  // 2. Shared Global emergency controls listener
   useEffect(() => {
-    const db = getFirebaseDb();
-    if (!db) return;
-
-    const unsubGlobal = onSnapshot(
-      doc(db, "siteSettings", "emergency_controls"),
-      (snap) => {
-        if (snap.exists()) {
-          setControls(snap.data() as GlobalEmergencyControls);
-        }
-      },
-      (err) => {
-        if (err.code !== "permission-denied") {
-          console.warn("Notice: global emergency gate listener:", err);
-        }
-      }
-    );
-
+    const unsubGlobal = subscribeSharedGlobalEmergency((data) => {
+      setControls(data);
+    });
     return () => unsubGlobal();
   }, []);
 
-  // 3. Real-time Firestore snapshot on target school (if logged in and belongs to a school)
+  // 3. Shared School emergency controls listener
   useEffect(() => {
     if (!profile?.schoolId || profile?.role === "super_admin") {
       setSchoolEmergency(null);
       return;
     }
 
-    const db = getFirebaseDb();
-    if (!db) return;
-
-    const unsubSchool = onSnapshot(
-      doc(db, "schoolEmergency", profile.schoolId),
-      (snap) => {
-        if (snap.exists()) {
-          setSchoolEmergency(snap.data() as SchoolEmergencyControl);
-        } else {
-          setSchoolEmergency(null);
-        }
-      },
-      (err) => {
-        if (err.code !== "permission-denied") {
-          console.warn("Notice: school emergency gate listener:", err);
-        }
-      }
-    );
+    const unsubSchool = subscribeSharedSchoolEmergency(profile.schoolId, (data) => {
+      setSchoolEmergency(data);
+    });
 
     return () => unsubSchool();
   }, [profile?.schoolId, profile?.role]);

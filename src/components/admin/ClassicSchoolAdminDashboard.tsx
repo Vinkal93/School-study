@@ -45,14 +45,15 @@ export function ClassicSchoolAdminDashboard({
     (profile?.role as string) === "admin" ||
     canAccess("school_dashboard");
 
-  // 1. Real-time live Firestore data hook
+  // 1. Real-time live Firestore data hook (deduplicated when initial data provided)
+  const shouldHookRealtime = !initialSchool && !initialCounts;
   const {
     school: liveSchool,
     counts: liveCounts,
     isLoading: isRealtimeLoading,
     lastSyncTime,
     isOnline,
-  } = useRealtimeSchoolDashboard(schoolId);
+  } = useRealtimeSchoolDashboard(shouldHookRealtime ? schoolId : "");
 
   const analytics = useAdminDashboardAnalytics(schoolId);
 

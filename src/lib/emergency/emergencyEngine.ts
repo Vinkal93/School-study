@@ -66,6 +66,8 @@ export interface SchoolEmergencyControl {
   disableReports: boolean;
   forceLogoutAll?: boolean;
   forceLogoutBefore?: string | number;
+  forceLogoutAllIssuedAt?: number;
+  forceLogoutAllAt?: string | number;
   securityVersion?: number;
   reason?: string;
   updatedAt: string;

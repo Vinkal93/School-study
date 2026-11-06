@@ -26,6 +26,7 @@ import {
 } from "@/lib/services/portal-ui.service";
 import { doc, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
+import { getSchoolById } from "@/lib/services/school.service";
 
 interface PortalUIContextType {
   settings: PortalUISettings;
@@ -83,30 +84,27 @@ export function PortalUIProvider({ children }: { children: ReactNode }) {
     const db = getFirebaseDb();
     if (!db) return;
 
-    const unsub = onSnapshot(
-      doc(db, "schools", schoolId),
-      (snap) => {
-        if (snap.exists()) {
-          const data = snap.data();
-          const mode: "modern" | "classic" =
-            data.adminPortalUiMode || data.tenantSettings?.adminPortalUiMode || "modern";
-          setAdminPortalUiMode(mode);
-          try {
-            localStorage.setItem("ss_admin_portal_ui_mode", mode);
-          } catch {}
-        }
+    let active = true;
+    getSchoolById(schoolId)
+      .then((school) => {
+        if (!active || !school) return;
+        const mode: "modern" | "classic" =
+          (school as any).adminPortalUiMode || (school as any).tenantSettings?.adminPortalUiMode || "modern";
+        setAdminPortalUiMode(mode);
+        try {
+          localStorage.setItem("ss_admin_portal_ui_mode", mode);
+        } catch {}
         setResolvedSchoolMode(schoolId);
-      },
-      (err) => {
+      })
+      .catch(() => {
+        if (!active) return;
         setAdminPortalUiMode("modern");
         setResolvedSchoolMode(schoolId);
-        if (err.code !== "permission-denied") {
-          console.warn("Notice: Institute adminPortalUiMode listener:", err);
-        }
-      }
-    );
+      });
 
-    return () => unsub();
+    return () => {
+      active = false;
+    };
   }, [profile?.schoolId]);
 
   const setInstituteAdminPortalUiMode = useCallback(

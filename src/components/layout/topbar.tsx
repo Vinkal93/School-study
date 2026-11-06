@@ -42,65 +42,8 @@ export function Topbar({ variant = "classic" }: TopbarProps) {
       })
       .catch(() => {});
 
-    // Real-time Firestore listeners
-    const db = getFirebaseDb();
-    if (!db) return;
-
-    const unsubs: (() => void)[] = [];
-
-    try {
-      const schoolRef = doc(db, "schools", profile.schoolId);
-      const unsubSchool = onSnapshot(
-        schoolRef,
-        (snap) => {
-          if (snap.exists()) {
-            const data = snap.data();
-            const s = { id: snap.id, ...data } as School;
-            setSchool(s);
-            if (s.planName) {
-              setActivePlanName(s.planName);
-            } else if (s.planId || (s as any).plan) {
-              const pid = String(s.planId || (s as any).plan).toLowerCase();
-              if (pid.includes("base")) setActivePlanName("Base Plan");
-              else if (pid.includes("growth")) setActivePlanName("Growth Plan");
-              else if (pid.includes("pro")) setActivePlanName("Professional Plan");
-              else if (pid.includes("enterprise")) setActivePlanName("Enterprise Plan");
-              else if (pid.includes("free")) setActivePlanName("Free Plan");
-              else setActivePlanName("Starter Plan");
-            }
-          }
-        },
-        () => {}
-      );
-      unsubs.push(unsubSchool);
-
-      const subRef = doc(db, "schoolSubscriptions", profile.schoolId);
-      const unsubSub = onSnapshot(
-        subRef,
-        (snap) => {
-          if (snap.exists()) {
-            const subData = snap.data();
-            if (subData.planName) {
-              setActivePlanName(subData.planName);
-            } else if (subData.planId) {
-              const pid = String(subData.planId).toLowerCase();
-              if (pid.includes("base")) setActivePlanName("Base Plan");
-              else if (pid.includes("growth")) setActivePlanName("Growth Plan");
-              else if (pid.includes("pro")) setActivePlanName("Professional Plan");
-              else if (pid.includes("enterprise")) setActivePlanName("Enterprise Plan");
-              else if (pid.includes("free")) setActivePlanName("Free Plan");
-              else setActivePlanName("Starter Plan");
-            }
-          }
-        },
-        () => {}
-      );
-      unsubs.push(unsubSub);
-    } catch {}
-
-    return () => {
-      unsubs.forEach((fn) => fn());
-    };
+    // Zero-Waste: Do not open duplicate continuous listeners for school profile and subscription on topbar
+    return () => {};
   }, [profile?.schoolId]);
 
   // Global keyboard shortcut (Ctrl+K or Cmd+K)

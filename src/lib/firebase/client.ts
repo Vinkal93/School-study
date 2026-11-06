@@ -3,9 +3,8 @@ import { getAuth, setPersistence, browserLocalPersistence, inMemoryPersistence, 
 import {
   initializeFirestore,
   getFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
   memoryLocalCache,
+  setLogLevel,
   type Firestore,
 } from "firebase/firestore";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
@@ -16,6 +15,136 @@ let appInstance: FirebaseApp | null = null;
 let authInstance: Auth | null = null;
 let dbInstance: Firestore | null = null;
 let storageInstance: FirebaseStorage | null = null;
+let guardsInitialized = false;
+
+// Silence internal Firestore stream error spam to prevent Next.js React Dev Overlay crashes
+if (typeof window !== "undefined") {
+  try {
+    setLogLevel("silent");
+  } catch {}
+}
+
+/**
+ * Enterprise Storage Resilience & Crash Barrier
+ * 1. Purges orphaned firestore_ and ss_fast_ keys from window.localStorage to recover browser quota.
+ * 2. Wraps window.localStorage.setItem to safely intercept any QuotaExceededError.
+ * 3. Intercepts unhandled QuotaExceededError and resource-exhausted stream drops.
+ */
+export function purgeCloggedFirestoreStorage(): void {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (
+        k &&
+        (k.startsWith("firestore_") ||
+          k.startsWith("ss_fast_") ||
+          k.includes("school-study-c8991"))
+      ) {
+        keysToRemove.push(k);
+      }
+    }
+    for (const key of keysToRemove) {
+      try {
+        window.localStorage.removeItem(key);
+      } catch {}
+    }
+  } catch {}
+}
+
+export function initClientStorageGuards(): void {
+  if (guardsInitialized || typeof window === "undefined") return;
+  guardsInitialized = true;
+
+  try {
+    // Purge any clogged legacy firestore keys from localStorage immediately
+    purgeCloggedFirestoreStorage();
+
+    // 1. Transparent LocalStorage Quota Guard
+    if (typeof window.localStorage !== "undefined") {
+      const originalSetItem = window.localStorage.setItem.bind(window.localStorage);
+
+      window.localStorage.setItem = function (key: string, value: string): void {
+        try {
+          originalSetItem(key, value);
+        } catch (err: any) {
+          const isQuota =
+            err?.name === "QuotaExceededError" ||
+            err?.code === 22 ||
+            err?.code === 1014 ||
+            err?.number === -2147024882;
+
+          if (isQuota) {
+            try {
+              purgeCloggedFirestoreStorage();
+              originalSetItem(key, value);
+              return;
+            } catch {
+              if (
+                key.startsWith("firestore_") ||
+                key.includes("school-study-") ||
+                key.includes("mutations")
+              ) {
+                console.warn(
+                  `[Firebase Client] LocalStorage quota reached. Suppressed key "${key}" to prevent crash.`
+                );
+                return;
+              }
+            }
+          }
+          throw err;
+        }
+      };
+    }
+
+    // 2. Filter Next.js dev overlay from catching Firebase quota / stream disconnect errors
+    const originalConsoleError = console.error.bind(console);
+    console.error = function (...args: any[]) {
+      const combined = args.map((a) => (typeof a === "object" ? (a?.message || JSON.stringify(a)) : String(a))).join(" ");
+      if (
+        combined.includes("resource-exhausted") ||
+        combined.includes("Quota exceeded") ||
+        combined.includes("maximum backoff delay") ||
+        combined.includes("Stream closed with status") ||
+        combined.includes("persistent_stream.ts")
+      ) {
+        console.warn("[Firebase Client Notice] Cloud Firestore quota or backoff notice:", combined);
+        return;
+      }
+      originalConsoleError(...args);
+    };
+
+    // 3. Global Unhandled Rejection Crash Barrier
+    window.addEventListener("unhandledrejection", (event) => {
+      const reason = event.reason;
+      const msg = String(reason?.message || reason || "");
+      const name = String(reason?.name || "");
+
+      if (
+        name === "QuotaExceededError" ||
+        msg.includes("exceeded the quota") ||
+        msg.includes("firestore_mutations_") ||
+        msg.includes("Failed to persist write") ||
+        msg.includes("resource-exhausted") ||
+        msg.includes("INTERNAL ASSERTION FAILED: Unexpected state (ID: b815)")
+      ) {
+        event.preventDefault();
+        console.warn(
+          "[Firebase Client] Suppressed background Firestore event from triggering Fast Refresh reload:",
+          msg
+        );
+      }
+    });
+  } catch (initErr) {
+    console.warn("[Firebase Client] Storage guard initialization notice:", initErr);
+  }
+}
+
+// Proactively run guards and storage purge in browser environments
+if (typeof window !== "undefined") {
+  initClientStorageGuards();
+}
 
 export function getFirebaseApp(): FirebaseApp {
   if (!appInstance) {
@@ -47,27 +176,19 @@ export function getFirebaseDb(): Firestore {
   if (!dbInstance) {
     const app = getFirebaseApp();
     if (typeof window !== "undefined") {
+      initClientStorageGuards();
+
       try {
-        // High-speed persistent local cache with multi-tab coordination and long polling
-        // Prevents WebChannel 400 stream disconnects and bfcache drops while loading instantly from IndexedDB
+        // Resilient memory cache with auto-detect long polling
+        // Completely eliminates LocalStorage 5MB quota exhaustion, assertion b815 failures,
+        // and multi-tab mutation serialization crashes across all browsers & InPrivate sessions.
         dbInstance = initializeFirestore(app, {
           ignoreUndefinedProperties: true,
-          experimentalForceLongPolling: true,
-          localCache: persistentLocalCache({
-            tabManager: persistentMultipleTabManager(),
-          }),
+          experimentalAutoDetectLongPolling: true,
+          localCache: memoryLocalCache(),
         });
-      } catch (cacheErr) {
-        try {
-          // Fallback to memory cache if IndexedDB is restricted (e.g. private mode)
-          dbInstance = initializeFirestore(app, {
-            ignoreUndefinedProperties: true,
-            experimentalAutoDetectLongPolling: true,
-            localCache: memoryLocalCache(),
-          });
-        } catch {
-          dbInstance = getFirestore(app);
-        }
+      } catch {
+        dbInstance = getFirestore(app);
       }
     } else {
       try {

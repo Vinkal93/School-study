@@ -154,7 +154,7 @@ export default function AdminStudentsPage() {
   } = useAppQuery<StudentProfile[]>(
     isQueryEnabled ? `students:${schoolId}` : null,
     () => getStudents(schoolId),
-    { enabled: isQueryEnabled, staleTime: 30_000 }
+    { enabled: isQueryEnabled, staleTime: 120_000 } // 2 min for zero-waste navigation
   );
 
   const { data: cachedClasses, isLoading: isClassesLoading } = useAppQuery<SchoolClass[]>(

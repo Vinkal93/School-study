@@ -237,18 +237,8 @@ export function useRealtimeSchoolDashboard(schoolId: string | undefined): UseRea
           classesCount = cSnap ? cSnap.data().count : 0;
         }
 
-        // 4. Auto-reconcile usage document if discrepancies exist
-        if (usageSnap && usageSnap.exists()) {
-          const uData = usageSnap.data();
-          if (
-            (typeof uData.students === "number" && studentsCount > 0 && studentsCount !== uData.students) ||
-            (typeof uData.teachers === "number" && teachersCount > 0 && teachersCount !== uData.teachers)
-          ) {
-            import("@/lib/billing/usage").then(({ reconcileSchoolUsage }) => {
-              reconcileSchoolUsage(schoolId, "dashboard_fast_count_reconcile").catch(() => {});
-            }).catch(() => {});
-          }
-        }
+        // Zero-waste: do not trigger client-side usage reconciliations
+        // Usage reconciliations require Admin SDK privileges and are performed on the server.
 
         // Fallback to root collections if subcollections are empty
         if (studentsCount === 0) {
