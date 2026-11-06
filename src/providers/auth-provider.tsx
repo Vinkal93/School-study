@@ -74,6 +74,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setOriginalProfile((prev) => {
             if (!prev) return prev;
             const livePhoto = liveData.photoURL || liveData.photoUrl || liveData.avatar;
+            const prevPhoto = (prev as any)?.photoURL || (prev as any)?.photoUrl || (prev as any)?.avatar;
+            const hasSubstantiveChanges = Boolean(
+              (livePhoto && livePhoto !== prevPhoto) ||
+              (liveData.name && liveData.name !== prev.name) ||
+              (liveData.status && liveData.status !== prev.status) ||
+              (liveData.role && liveData.role !== prev.role) ||
+              (liveData.schoolId && liveData.schoolId !== prev.schoolId)
+            );
+            if (!hasSubstantiveChanges) {
+              return prev; // Preserve identity to prevent re-render loops
+            }
             const merged: AppUser = {
               ...prev,
               ...liveData,
@@ -350,9 +361,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => unsubscribe();
   }, [router]);
 
-  // Real-time presence heartbeat to keep "Online Now" accurate across devices
+  // Real-time presence heartbeat with strict rate-limiting (15-min cooldown)
   useEffect(() => {
-    // Never run presence heartbeat inside embedded iframe or preview mode
     if (
       typeof window !== "undefined" &&
       (window.self !== window.top || window.location.search.includes("preview=true"))
@@ -360,11 +370,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (!firebaseUser?.uid || !originalProfile) return;
+    if (!firebaseUser?.uid) return;
 
     const uid = firebaseUser.uid;
+    const PRESENCE_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes minimum interval
+
     const sendHeartbeat = async () => {
       try {
+        if (typeof window !== "undefined") {
+          const lastSentKey = `last_presence_heartbeat_${uid}`;
+          const lastSent = Number(sessionStorage.getItem(lastSentKey) || 0);
+          if (Date.now() - lastSent < PRESENCE_COOLDOWN_MS) {
+            return; // Throttle: do not spam writes
+          }
+          sessionStorage.setItem(lastSentKey, String(Date.now()));
+        }
+
         const db = getFirebaseDb();
         if (db) {
           const nowIso = new Date().toISOString();
@@ -378,26 +399,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    // Send immediate heartbeat on mount/login
+    // Initial throttled heartbeat
     sendHeartbeat();
 
-    // Pulse every 60 seconds
-    const interval = setInterval(sendHeartbeat, 60000);
-
-    // Also pulse when user switches back to tab or focuses
-    const handleFocus = () => sendHeartbeat();
-    window.addEventListener("focus", handleFocus);
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") sendHeartbeat();
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
+    // Pulse every 15 minutes
+    const interval = setInterval(sendHeartbeat, PRESENCE_COOLDOWN_MS);
 
     return () => {
       clearInterval(interval);
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [firebaseUser?.uid, originalProfile]);
+  }, [firebaseUser?.uid]);
 
   const signIn = useCallback(
     async (identifier: string, password: string): Promise<AppUser> => {
@@ -545,20 +556,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const nowTime = Date.now();
           localStorage.setItem(SESSION_LOGIN_TIME_KEY, String(nowTime));
-          const db = getFirebaseDb();
-          if (db) {
-            updateDoc(doc(db, "users", fbUser.uid), {
-              forceLogout: false,
-              requireReLogin: false,
-              lastLoginAt: new Date().toISOString(),
-              sessionEstablishedAt: nowTime,
-            }).catch(() => {});
-            updateDoc(doc(db, "userSecurityControl", fbUser.uid), {
-              forceLogout: false,
-              requireReLogin: false,
-              sessionEstablishedAt: nowTime,
-            }).catch(() => {});
-          }
         } catch (e) {
           console.warn("Could not save session login time:", e);
         }

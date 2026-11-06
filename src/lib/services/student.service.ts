@@ -143,7 +143,20 @@ export async function getStudents(
     const db = getFirebaseDb();
     if (!db) return [];
 
-    let snapshot: any = await getDocs(collection(db, "schools", schoolId, "students")).catch((err) => {
+    const constraints: any[] = [];
+    if (options?.classId && options.classId !== "all") {
+      constraints.push(where("classId", "==", options.classId));
+    }
+    if (options?.sectionId && options.sectionId !== "all") {
+      constraints.push(where("sectionId", "==", options.sectionId));
+    }
+    if (options?.status && options.status !== "all") {
+      constraints.push(where("status", "==", options.status));
+    }
+
+    const subCol = collection(db, "schools", schoolId, "students");
+    const subQ = constraints.length > 0 ? query(subCol, ...constraints) : subCol;
+    let snapshot: any = await getDocs(subQ).catch((err) => {
       if (err?.code !== "permission-denied") {
         console.warn("Could not read schools students subcollection:", err);
       }
@@ -151,7 +164,8 @@ export async function getStudents(
     });
 
     if (!snapshot || snapshot.empty) {
-      snapshot = await getDocs(query(collection(db, "students"), where("schoolId", "==", schoolId))).catch((err) => {
+      const rootConstraints = [where("schoolId", "==", schoolId), ...constraints];
+      snapshot = await getDocs(query(collection(db, "students"), ...rootConstraints)).catch((err) => {
         if (err?.code !== "permission-denied") {
           console.warn("Could not read root students collection:", err);
         }
@@ -629,52 +643,12 @@ export async function deleteStudent(
   studentId: string,
   userId?: string
 ): Promise<void> {
-  // 1. Authoritative Server-side call
-  try {
-    await bulkDeleteStudents({
-      studentIds: [studentId],
-      permanent: false,
-      targetSchoolId: schoolId,
-    });
-    return;
-  } catch (err: any) {
-    console.warn("[deleteStudent] Server route bulk-delete notice, attempting direct client fallback:", err);
-  }
-
-  // 2. Direct client fallback (offline or network fallback)
-  const db = getFirebaseDb();
-  if (!db) throw new Error("Database offline.");
-  const studentDocRef = doc(db, "schools", schoolId, "students", studentId);
-  const rootStudentDocRef = doc(db, "students", studentId);
-  const userDocRef = userId ? doc(db, COLLECTIONS.USERS, userId) : null;
-
-  const nowIso = new Date().toISOString();
-
-  await Promise.all([
-    updateDoc(studentDocRef, {
-      status: "archived",
-      statusChangeReason: "Administrative archive / deletion",
-      statusChangedDate: nowIso,
-      deletedAt: nowIso,
-      updatedAt: serverTimestamp(),
-    }).catch(() => {}),
-    updateDoc(rootStudentDocRef, {
-      status: "archived",
-      statusChangeReason: "Administrative archive / deletion",
-      statusChangedDate: nowIso,
-      deletedAt: nowIso,
-      updatedAt: serverTimestamp(),
-    }).catch(() => {}),
-    userDocRef
-      ? updateDoc(userDocRef, {
-          status: "disabled",
-          disabledAt: nowIso,
-          updatedAt: serverTimestamp(),
-        }).catch(() => {})
-      : Promise.resolve(),
-  ]);
-
-  await decrementSchoolUsage(schoolId, "students", 1);
+  // Authoritative Server-side call
+  await bulkDeleteStudents({
+    studentIds: [studentId],
+    permanent: false,
+    targetSchoolId: schoolId,
+  });
 }
 
 /**

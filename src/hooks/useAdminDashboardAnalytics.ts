@@ -226,7 +226,7 @@ export function useAdminDashboardAnalytics(schoolId: string | undefined): AdminD
       try {
         let stuList: any[] = [];
         try {
-          const subSnap = await getDocs(collection(db, "schools", schoolId, "students"));
+          const subSnap = await getDocs(query(collection(db, "schools", schoolId, "students"), limit(50)));
           stuList = subSnap.docs
             .map((d) => ({ id: d.id, ...d.data() } as any))
             .filter((s) => s.status !== "deleted");

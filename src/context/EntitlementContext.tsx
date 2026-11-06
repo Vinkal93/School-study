@@ -306,30 +306,8 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       }
     );
 
-    // Setup real-time listener on plans collection for dynamic plan feature revalidation
-    const plansRef = collection(db, "plans");
-    const unsubscribePlans = onSnapshot(
-      plansRef,
-      (snap) => {
-        clearPlanCache();
-        if (!snap.empty) {
-          snap.docs.forEach((d) => {
-            const p = { id: d.id, ...d.data() } as any;
-            cachePlan(p);
-          });
-        }
-        clearSubscriptionCache(schoolId);
-        appQueryClient.invalidateCache(`schoolProfile:${schoolId}`);
-        appQueryClient.invalidateCache(`subscriptionBundle:${schoolId}`);
-        appQueryClient.invalidateCache(`schoolSetupData:${schoolId}`);
-        fetchEntitlement();
-      },
-      (err) => {
-        if (err.code !== "permission-denied") {
-          console.warn("Plans real-time listener notice:", err);
-        }
-      }
-    );
+    // Zero-Waste: Plans definitions are cached and do not require full collection onSnapshot
+    const unsubscribePlans = () => {};
 
     // Cross-tab / Multi-window instant synchronization via BroadcastChannel & storage events
     let broadcastChannel: BroadcastChannel | null = null;
@@ -376,7 +354,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       window.addEventListener("storage", handleStorageEvent);
     }
 
-    const expiryTimer = setInterval(() => fetchEntitlement(), 30_000);
+    const expiryTimer = setInterval(() => fetchEntitlement(), 60 * 60 * 1000); // 60 min
     return () => {
       clearInterval(expiryTimer);
       ++requestSequence.current;

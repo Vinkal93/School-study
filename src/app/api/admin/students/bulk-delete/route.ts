@@ -955,6 +955,28 @@ export async function POST(request: Request) {
     });
   } catch (error: any) {
     console.error("[Bulk Delete API] Unhandled exception:", error);
+    const isQuotaExhausted =
+      error?.code === 8 ||
+      error?.code === "RESOURCE_EXHAUSTED" ||
+      String(error?.message).includes("RESOURCE_EXHAUSTED") ||
+      String(error?.message).includes("Quota exceeded");
+
+    if (isQuotaExhausted) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "QUOTA_EXHAUSTED",
+            message: "Database quota currently exhausted. Write operations are temporarily paused.",
+          },
+        },
+        {
+          status: 429,
+          headers: { "Retry-After": "60" },
+        }
+      );
+    }
+
     return NextResponse.json(
       {
         success: false,

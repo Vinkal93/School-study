@@ -14,6 +14,7 @@ import {
   Wrench,
 } from "lucide-react";
 import type { EmergencyAnnouncement } from "@/lib/emergency/emergencyEngine";
+import { subscribeSharedGlobalEmergency } from "@/lib/emergency/sharedEmergencyListener";
 
 export function EmergencyBanner() {
   const [announcement, setAnnouncement] = useState<EmergencyAnnouncement | null>(null);
@@ -21,35 +22,21 @@ export function EmergencyBanner() {
   const [dismissKey, setDismissKey] = useState("");
 
   useEffect(() => {
-    const db = getFirebaseDb();
-    if (!db) return;
-
-    const unsub = onSnapshot(
-      doc(db, "siteSettings", "emergency_controls"),
-      (snap) => {
-        if (snap.exists()) {
-          const data = snap.data();
-          const ann = data.emergencyAnnouncement as EmergencyAnnouncement | undefined;
-          if (ann && ann.active) {
-            setAnnouncement(ann);
-            const currentKey = `${ann.updatedAt || "active"}_${ann.title}`;
-            setDismissKey(currentKey);
-            const isDismissed =
-              typeof window !== "undefined"
-                ? sessionStorage.getItem(`emergency_banner_dismissed_${currentKey}`) === "true"
-                : false;
-            setDismissed(isDismissed);
-          } else {
-            setAnnouncement(null);
-          }
-        }
-      },
-      (err) => {
-        if (err.code !== "permission-denied") {
-          console.warn("Emergency banner listener notice:", err);
-        }
+    const unsub = subscribeSharedGlobalEmergency((data) => {
+      const ann = data?.emergencyAnnouncement as EmergencyAnnouncement | undefined;
+      if (ann && ann.active) {
+        setAnnouncement(ann);
+        const currentKey = `${ann.updatedAt || "active"}_${ann.title}`;
+        setDismissKey(currentKey);
+        const isDismissed =
+          typeof window !== "undefined"
+            ? sessionStorage.getItem(`emergency_banner_dismissed_${currentKey}`) === "true"
+            : false;
+        setDismissed(isDismissed);
+      } else {
+        setAnnouncement(null);
       }
-    );
+    });
 
     return () => unsub();
   }, []);

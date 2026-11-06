@@ -3,6 +3,10 @@
 import { useEffect, useRef } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { getFirebaseDb, getFirebaseAuth } from "@/lib/firebase/client";
+import {
+  subscribeSharedGlobalEmergency,
+  subscribeSharedSchoolEmergency,
+} from "@/lib/emergency/sharedEmergencyListener";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 import { traceClient } from "@/lib/debug-client";
@@ -155,106 +159,88 @@ export function useRealtimeSecurityListener() {
       }
     );
 
-    // 2. Listen to Global Emergency Controls document
-    const unsubGlobal = onSnapshot(
-      doc(db, "siteSettings", "emergency_controls"),
-      (snapshot) => {
-        if (!snapshot.exists()) return;
-        const data = snapshot.data();
-        traceClient("security:emergency_snapshot", { systemStatus: data?.systemStatus, forceReLogin: data?.forceReLogin, version: data?.globalSecurityVersion });
+    // 2. Shared Global Emergency Controls Multiplexer
+    const unsubGlobal = subscribeSharedGlobalEmergency((data) => {
+      if (!data) return;
+      traceClient("security:emergency_snapshot", { systemStatus: data?.systemStatus, forceReLogin: data?.forceReLogin, version: data?.globalSecurityVersion });
 
-        if (profile?.role !== "super_admin") {
-          const storedLoginTime = typeof window !== "undefined" ? localStorage.getItem("school_study_session_login_time") : null;
-          const loginTime = storedLoginTime ? parseInt(storedLoginTime, 10) : mountTimeRef.current;
-          const updateTime = data.updatedAt ? new Date(data.updatedAt).getTime() : 0;
+      if (profile?.role !== "super_admin") {
+        const storedLoginTime = typeof window !== "undefined" ? localStorage.getItem("school_study_session_login_time") : null;
+        const loginTime = storedLoginTime ? parseInt(storedLoginTime, 10) : mountTimeRef.current;
+        const updateTime = data.updatedAt ? new Date(data.updatedAt).getTime() : 0;
 
-          if (data.forceReLogin === true && updateTime >= loginTime && loginTime > 0 && updateTime > 0) {
-            console.warn("[RealtimeSecurity] Global forceReLogin active. Logging out...");
-            toast.error("System security update initiated. All sessions reset. Please log in again.");
-            const auth = getFirebaseAuth();
-            if (auth) auth.signOut();
-            if (typeof window !== "undefined") {
-              localStorage.removeItem("school_study_session_login_time");
-              sessionStorage.removeItem("school_study_impersonation_user");
-            }
-            setTimeout(() => {
-              window.location.href = "/login?reason=global_security_reset";
-            }, 800);
-            return;
+        if (data.forceReLogin === true && updateTime >= loginTime && loginTime > 0 && updateTime > 0) {
+          console.warn("[RealtimeSecurity] Global forceReLogin active. Logging out...");
+          toast.error("System security update initiated. All sessions reset. Please log in again.");
+          const auth = getFirebaseAuth();
+          if (auth) auth.signOut();
+          if (typeof window !== "undefined") {
+            localStorage.removeItem("school_study_session_login_time");
+            sessionStorage.removeItem("school_study_impersonation_user");
           }
-
-          if (initialGlobalVersionRef.current === null) {
-            initialGlobalVersionRef.current = typeof data.globalSecurityVersion === "number" ? data.globalSecurityVersion : 1;
-            return; // Never trigger on initial load or mount
-          }
-          
-          if (
-            typeof data.globalSecurityVersion === "number" &&
-            data.globalSecurityVersion > initialGlobalVersionRef.current
-          ) {
-            console.warn("[RealtimeSecurity] Global security version updated. Logging out...");
-            toast.error("System security update initiated. Please log in again.");
-            const auth = getFirebaseAuth();
-            if (auth) auth.signOut();
-            if (typeof window !== "undefined") {
-              localStorage.removeItem("school_study_session_login_time");
-              sessionStorage.removeItem("school_study_impersonation_user");
-            }
-            setTimeout(() => {
-              window.location.href = "/login?reason=global_security_reset";
-            }, 800);
-          }
+          setTimeout(() => {
+            window.location.href = "/login?reason=global_security_reset";
+          }, 800);
+          return;
         }
-      },
-      (err) => {
-        if (err.code !== "permission-denied") {
-          console.warn("Realtime global emergency listener notice:", err);
+
+        if (initialGlobalVersionRef.current === null) {
+          initialGlobalVersionRef.current = typeof data.globalSecurityVersion === "number" ? data.globalSecurityVersion : 1;
+          return;
+        }
+
+        if (
+          typeof data.globalSecurityVersion === "number" &&
+          data.globalSecurityVersion > initialGlobalVersionRef.current
+        ) {
+          console.warn("[RealtimeSecurity] Global security version updated. Logging out...");
+          toast.error("System security update initiated. Please log in again.");
+          const auth = getFirebaseAuth();
+          if (auth) auth.signOut();
+          if (typeof window !== "undefined") {
+            localStorage.removeItem("school_study_session_login_time");
+            sessionStorage.removeItem("school_study_impersonation_user");
+          }
+          setTimeout(() => {
+            window.location.href = "/login?reason=global_security_reset";
+          }, 800);
         }
       }
-    );
+    });
 
-    // 3. Listen to School Emergency Controls document
+    // 3. Shared School Emergency Controls Multiplexer
     let unsubSchool: (() => void) | undefined;
     if (profile?.schoolId) {
-      unsubSchool = onSnapshot(
-        doc(db, "schoolEmergency", profile.schoolId),
-        (snapshot) => {
-          if (!snapshot.exists()) return;
-          const sData = snapshot.data();
-          traceClient("security:schoolEmergency_snapshot", { status: sData?.status, forceLogoutAll: sData?.forceLogoutAll });
-          const storedLoginTime = typeof window !== "undefined" ? localStorage.getItem("school_study_session_login_time") : null;
-          const loginTime = storedLoginTime ? parseInt(storedLoginTime, 10) : mountTimeRef.current;
-          const forceBefore = sData.forceLogoutBefore
-            ? typeof sData.forceLogoutBefore === "number"
-              ? sData.forceLogoutBefore
-              : new Date(sData.forceLogoutBefore).getTime()
-            : 0;
+      unsubSchool = subscribeSharedSchoolEmergency(profile.schoolId, (sData) => {
+        if (!sData) return;
+        traceClient("security:schoolEmergency_snapshot", { status: sData?.status, forceLogoutAll: sData?.forceLogoutAll });
+        const storedLoginTime = typeof window !== "undefined" ? localStorage.getItem("school_study_session_login_time") : null;
+        const loginTime = storedLoginTime ? parseInt(storedLoginTime, 10) : mountTimeRef.current;
+        const forceBefore = sData.forceLogoutBefore
+          ? typeof sData.forceLogoutBefore === "number"
+            ? sData.forceLogoutBefore
+            : new Date(sData.forceLogoutBefore).getTime()
+          : 0;
 
-          const forceAllIssuedAt = typeof sData.forceLogoutAllIssuedAt === "number"
-            ? sData.forceLogoutAllIssuedAt
-            : (sData.forceLogoutAllAt ? new Date(sData.forceLogoutAllAt).getTime() : 0);
+        const forceAllIssuedAt = typeof sData.forceLogoutAllIssuedAt === "number"
+          ? sData.forceLogoutAllIssuedAt
+          : (sData.forceLogoutAllAt ? new Date(sData.forceLogoutAllAt).getTime() : 0);
 
-          if ((sData.forceLogoutAll === true && forceAllIssuedAt > loginTime) || (forceBefore > 0 && forceBefore > loginTime)) {
-            console.warn("[RealtimeSecurity] School force logout active. Forcing logout...");
-            toast.error("School session security reset by administrator. Please log in again.");
-            const auth = getFirebaseAuth();
-            if (auth) auth.signOut();
-            if (typeof window !== "undefined") {
-              localStorage.removeItem("school_study_auth_session");
-              localStorage.removeItem("school_study_session_login_time");
-              sessionStorage.removeItem("school_study_impersonation_user");
-            }
-            setTimeout(() => {
-              window.location.href = "/login?reason=school_force_logout";
-            }, 800);
+        if ((sData.forceLogoutAll === true && forceAllIssuedAt > loginTime) || (forceBefore > 0 && forceBefore > loginTime)) {
+          console.warn("[RealtimeSecurity] School force logout active. Forcing logout...");
+          toast.error("School session security reset by administrator. Please log in again.");
+          const auth = getFirebaseAuth();
+          if (auth) auth.signOut();
+          if (typeof window !== "undefined") {
+            localStorage.removeItem("school_study_auth_session");
+            localStorage.removeItem("school_study_session_login_time");
+            sessionStorage.removeItem("school_study_impersonation_user");
           }
-        },
-        (err) => {
-          if (err.code !== "permission-denied") {
-            console.warn("Realtime school emergency listener notice:", err);
-          }
+          setTimeout(() => {
+            window.location.href = "/login?reason=school_force_logout";
+          }, 800);
         }
-      );
+      });
     }
 
     // 4. Instant multi-window / multi-tab synchronization via BroadcastChannel & storage events

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { ADMIN_FEATURE_REGISTRY } from "@/lib/features/adminFeatureRegistry";
 import { EntitlementGate } from "./EntitlementGate";
 import { ChooseYourPlanModal } from "@/components/billing/ChooseYourPlanModal";
+import { getSchoolById } from "@/lib/services/school.service";
 import { useAuth } from "@/hooks/use-auth";
 import { doc, onSnapshot } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/client";
@@ -18,29 +19,15 @@ export function AdminRouteAccess({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!schoolId) return;
-    const db = getFirebaseDb();
-    if (!db) return;
-
-    try {
-      const unsub = onSnapshot(
-        doc(db, "schools", schoolId),
-        (snap) => {
-          if (snap.exists()) {
-            const data = snap.data();
-            const status = data?.onboardingStatus;
-            // Only trigger modal when explicitly in PLAN_SELECTION_REQUIRED state
-            setOnboardingRequired(status === "PLAN_SELECTION_REQUIRED");
-          }
-        },
-        (err) => {
-          console.warn("[AdminRouteAccess] School snapshot notice:", err);
-        }
-      );
-
-      return () => unsub();
-    } catch (e) {
-      // Non-blocking
-    }
+    let active = true;
+    getSchoolById(schoolId).then((data) => {
+      if (!active || !data) return;
+      const status = (data as any)?.onboardingStatus;
+      setOnboardingRequired(status === "PLAN_SELECTION_REQUIRED");
+    }).catch(() => {});
+    return () => {
+      active = false;
+    };
   }, [schoolId]);
 
   const feature = ADMIN_FEATURE_REGISTRY.filter((f) => {

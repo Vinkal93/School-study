@@ -68,7 +68,7 @@ export default function AdminTeachersPage() {
   } = useAppQuery<TeacherProfile[]>(
     schoolId && isAllowed ? `teachers:${schoolId}` : null,
     () => getTeachers(schoolId),
-    { enabled: !!schoolId && isAllowed, staleTime: 30_000 }
+    { enabled: !!schoolId && isAllowed, staleTime: 120_000 } // 2 min for zero-waste navigation
   );
 
   const { data: cachedClasses, isLoading: isClassesLoading } = useAppQuery<SchoolClass[]>(

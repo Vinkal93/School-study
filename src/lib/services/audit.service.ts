@@ -97,8 +97,16 @@ export async function logLoginAttempt(
       timestamp: serverTimestamp(),
     });
 
-    // 1. If login succeeded, create/upsert active session record
+    // 1. If login succeeded, create/upsert active session record (5-min idempotency)
     if (entry.status === "success" && entry.uid) {
+      if (typeof window !== "undefined") {
+        const activeSessKey = `school_study_active_sess_${entry.uid}`;
+        const lastLogged = Number(sessionStorage.getItem(activeSessKey) || 0);
+        if (Date.now() - lastLogged < 5 * 60 * 1000) {
+          return docRef.id;
+        }
+        sessionStorage.setItem(activeSessKey, String(Date.now()));
+      }
       const sessionId = `sess_${entry.uid}_${Date.now()}`;
       await setDoc(doc(db, AUDIT_COLLECTIONS.ACTIVE_SESSIONS, sessionId), {
         sessionId,
