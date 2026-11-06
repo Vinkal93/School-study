@@ -143,12 +143,12 @@ async function loadStudentsFromClientDb(
 
     if (search) {
       const qLower = search.toLowerCase();
-      const matchName = (s.name || "").toLowerCase().includes(qLower);
+      const matchName = String(s.name || "").toLowerCase().includes(qLower);
       const matchRoll = String(s.rollNumber || "").toLowerCase().includes(qLower);
-      const matchAdmission = (s.admissionNumber || "").toLowerCase().includes(qLower);
-      const matchStudentId = (s.studentId || "").toLowerCase().includes(qLower);
-      const matchPhone = (s.phone || "").includes(qLower);
-      const matchGuardian = (s.parentName || s.fatherName || s.guardianName || "").toLowerCase().includes(qLower);
+      const matchAdmission = String(s.admissionNumber || "").toLowerCase().includes(qLower);
+      const matchStudentId = String(s.studentId || "").toLowerCase().includes(qLower);
+      const matchPhone = String(s.phone || "").toLowerCase().includes(qLower);
+      const matchGuardian = String(s.parentName || s.fatherName || s.guardianName || "").toLowerCase().includes(qLower);
       if (!matchName && !matchRoll && !matchAdmission && !matchStudentId && !matchPhone && !matchGuardian) {
         return false;
       }

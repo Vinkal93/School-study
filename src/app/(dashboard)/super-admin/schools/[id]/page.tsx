@@ -756,7 +756,7 @@ export default function SchoolDetailPage() {
         const q = studentSearch.toLowerCase();
         return (
           st.name?.toLowerCase().includes(q) ||
-          st.admissionNumber?.toLowerCase().includes(q) ||
+          String(st.admissionNumber || "").toLowerCase().includes(q) ||
           String(st.rollNumber || "").toLowerCase().includes(q)
         );
       }

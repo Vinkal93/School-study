@@ -206,7 +206,7 @@ export default function GenerateFeeInvoicePage() {
         if (q) {
           const name = (d.studentName || "").toLowerCase();
           const inv = (d.invoiceNumber || "").toLowerCase();
-          const adm = (d.admissionNumber || "").toLowerCase();
+          const adm = String(d.admissionNumber || "").toLowerCase();
           const head = (d.feeHeadName || "").toLowerCase();
           const period = (d.period || "").toLowerCase();
           return (

@@ -81,7 +81,7 @@ export default function AdminFeeReceiptsPage() {
         const q = searchQuery.toLowerCase().trim();
         const matchRec = (r.receiptNumber || "").toLowerCase().includes(q);
         const matchName = (r.studentName || "").toLowerCase().includes(q);
-        const matchAdm = (r.admissionNumber || "").toLowerCase().includes(q);
+        const matchAdm = String(r.admissionNumber || "").toLowerCase().includes(q);
         if (!matchRec && !matchName && !matchAdm) return false;
       }
       return true;

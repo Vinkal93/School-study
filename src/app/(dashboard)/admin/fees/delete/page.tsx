@@ -47,7 +47,7 @@ export default function DeleteFeesPage() {
       !q ||
       p.receiptNumber?.toLowerCase().includes(q) ||
       p.studentName?.toLowerCase().includes(q) ||
-      p.admissionNumber?.toLowerCase().includes(q)
+      String(p.admissionNumber || "").toLowerCase().includes(q)
     );
   });
 

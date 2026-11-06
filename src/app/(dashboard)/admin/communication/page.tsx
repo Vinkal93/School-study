@@ -166,7 +166,7 @@ function SchoolCommunicationHubContent() {
       if (studentSearch.trim()) {
         const q = studentSearch.toLowerCase();
         const matchName = s.name?.toLowerCase().includes(q);
-        const matchAdm = s.admissionNumber?.toLowerCase().includes(q) || s.rollNumber?.toString().includes(q);
+        const matchAdm = String(s.admissionNumber || "").toLowerCase().includes(q) || String(s.rollNumber || "").includes(q);
         const matchPhone = s.phone?.includes(q) || s.guardianPhone?.includes(q);
         if (!matchName && !matchAdm && !matchPhone) return false;
       }

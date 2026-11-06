@@ -118,7 +118,7 @@ export default function AdminFeeDiscountsPage() {
       .filter(
         (s) =>
           s.name.toLowerCase().includes(q) ||
-          (s.admissionNumber && s.admissionNumber.toLowerCase().includes(q)) ||
+          (s.admissionNumber && String(s.admissionNumber).toLowerCase().includes(q)) ||
           (s.className && s.className.toLowerCase().includes(q))
       )
       .slice(0, 15);
