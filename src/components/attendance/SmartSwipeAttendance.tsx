@@ -210,12 +210,13 @@ export function SmartSwipeAttendance({
 
   // Filtered students for Overview List
   const filteredStudents = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
     return students.filter((s) => {
       const matchesSearch =
-        searchQuery.trim() === "" ||
-        s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        String(s.rollNumber || "").includes(searchQuery.trim()) ||
-        (s.admissionNumber || "").toLowerCase().includes(searchQuery.toLowerCase());
+        q === "" ||
+        String(s.name || "").toLowerCase().includes(q) ||
+        String(s.rollNumber || "").toLowerCase().includes(q) ||
+        String(s.admissionNumber || (s as any).studentId || "").toLowerCase().includes(q);
 
       if (!matchesSearch) return false;
 

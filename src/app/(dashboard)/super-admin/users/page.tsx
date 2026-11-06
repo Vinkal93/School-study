@@ -236,7 +236,7 @@ function UsersManagementContent() {
         const matchesPhone = ((u as any).phone || "").toLowerCase().includes(q);
         const matchesUid = (u.uid || "").toLowerCase().includes(q);
         const matchesSchoolId = (u.schoolId || "").toLowerCase().includes(q);
-        const matchesAdmNo = ((u as any).admissionNumber || "").toLowerCase().includes(q);
+        const matchesAdmNo = String((u as any).admissionNumber || "").toLowerCase().includes(q);
         const matchesStudentId = ((u as any).studentId || "").toLowerCase().includes(q);
         const matchesTeacherCode = ((u as any).teacherCode || "").toLowerCase().includes(q);
         const matchesRoll = (u as any).rollNumber !== undefined && String((u as any).rollNumber) === q;

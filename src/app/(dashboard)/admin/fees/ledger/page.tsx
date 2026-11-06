@@ -197,7 +197,7 @@ export default function AdminStudentLedgerPage() {
       list = list.filter(
         (s) =>
           s.name.toLowerCase().includes(q) ||
-          (s.admissionNumber || "").toLowerCase().includes(q) ||
+          String(s.admissionNumber || "").toLowerCase().includes(q) ||
           (s.studentId || "").toLowerCase().includes(q)
       );
     }

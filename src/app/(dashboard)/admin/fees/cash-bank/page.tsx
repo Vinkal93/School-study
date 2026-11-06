@@ -167,7 +167,7 @@ export default function AdminCashBankLedgerPage() {
         (e.reference && e.reference.toLowerCase().includes(q)) ||
         (e.referenceNumber && e.referenceNumber.toLowerCase().includes(q)) ||
         (e.studentName && e.studentName.toLowerCase().includes(q)) ||
-        (e.admissionNumber && e.admissionNumber.toLowerCase().includes(q)) ||
+        (e.admissionNumber && String(e.admissionNumber).toLowerCase().includes(q)) ||
         (e.description && e.description.toLowerCase().includes(q)) ||
         (e.paymentMethod && e.paymentMethod.toLowerCase().includes(q))
     );

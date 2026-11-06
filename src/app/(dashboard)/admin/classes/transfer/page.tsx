@@ -149,7 +149,7 @@ export default function AdminClassTransferPage() {
     return students.filter(
       (s) =>
         s.name.toLowerCase().includes(q) ||
-        (s.admissionNumber && s.admissionNumber.toLowerCase().includes(q)) ||
+        (s.admissionNumber && String(s.admissionNumber).toLowerCase().includes(q)) ||
         (s.rollNumber && s.rollNumber.toString().includes(q))
     );
   }, [students, searchQuery]);

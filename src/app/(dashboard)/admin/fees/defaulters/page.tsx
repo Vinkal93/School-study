@@ -246,7 +246,7 @@ export default function AdminFeeDefaultersPage() {
       const matchQuery =
         !q ||
         d.studentName.toLowerCase().includes(q) ||
-        d.admissionNumber.toLowerCase().includes(q) ||
+        String(d.admissionNumber || "").toLowerCase().includes(q) ||
         d.phone.toLowerCase().includes(q);
 
       const matchClass =

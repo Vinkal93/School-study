@@ -356,7 +356,7 @@ export async function getFeeDashboardSummary(
     allDemands = allDemands.filter(
       (d) =>
         d.studentName?.toLowerCase().includes(searchQuery) ||
-        d.admissionNumber?.toLowerCase().includes(searchQuery)
+        String(d.admissionNumber || "").toLowerCase().includes(searchQuery)
     );
   }
 
@@ -507,7 +507,7 @@ export async function getFeeDashboardSummary(
     allPayments = allPayments.filter(
       (p) =>
         p.studentName?.toLowerCase().includes(searchQuery) ||
-        p.admissionNumber?.toLowerCase().includes(searchQuery) ||
+        String(p.admissionNumber || "").toLowerCase().includes(searchQuery) ||
         p.receiptNumber?.toLowerCase().includes(searchQuery)
     );
   }
