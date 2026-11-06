@@ -107,27 +107,39 @@ export async function getClassAttendanceForDate(
   sectionId: string,
   date: string
 ): Promise<Record<string, AttendanceStatus>> {
-  if (!schoolId || schoolId === "system") {
+  if (!schoolId || schoolId === "system" || !classId) {
     return {};
   }
   const db = getFirebaseDb();
-  const q = query(
-    collection(db, "attendance"),
-    where("schoolId", "==", schoolId),
-    where("classId", "==", classId),
-    where("sectionId", "==", sectionId),
-    where("date", "==", date)
-  );
+  if (!db) return {};
 
-  const snapshot = await getDocs(q);
-  const map: Record<string, AttendanceStatus> = {};
+  try {
+    const constraints: any[] = [
+      where("schoolId", "==", schoolId),
+      where("classId", "==", classId),
+      where("date", "==", date),
+    ];
 
-  snapshot.docs.forEach((d) => {
-    const data = d.data() as AttendanceRecord;
-    map[data.studentId] = data.status;
-  });
+    if (sectionId && sectionId !== "all") {
+      constraints.push(where("sectionId", "==", sectionId));
+    }
 
-  return map;
+    const q = query(collection(db, "attendance"), ...constraints);
+    const snapshot = await getDocs(q);
+    const map: Record<string, AttendanceStatus> = {};
+
+    snapshot.docs.forEach((d) => {
+      const data = d.data() as AttendanceRecord;
+      if (data && data.studentId) {
+        map[data.studentId] = data.status;
+      }
+    });
+
+    return map;
+  } catch (err) {
+    console.warn("[getClassAttendanceForDate] Notice:", err);
+    return {};
+  }
 }
 
 /**

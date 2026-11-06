@@ -125,6 +125,21 @@ export function SmartSwipeAttendance({
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | AttendanceStatus | "UNMARKED">("all");
 
+  // Auto-sync selectedClassId and selectedSectionId when classes prop loads or changes
+  useEffect(() => {
+    if (classes.length > 0) {
+      if (!selectedClassId || !classes.some((c) => c.id === selectedClassId)) {
+        const firstClass = classes[0];
+        setSelectedClassId(firstClass.id);
+        if (firstClass.sections && firstClass.sections.length > 0) {
+          setSelectedSectionId(firstClass.sections[0].id);
+        }
+      }
+    } else {
+      setLoading(false);
+    }
+  }, [classes, selectedClassId]);
+
   // Sync section if class changes
   useEffect(() => {
     if (selectedClass && selectedClass.sections && selectedClass.sections.length > 0) {
@@ -138,19 +153,31 @@ export function SmartSwipeAttendance({
 
   // Load students and existing attendance records
   const loadClassData = useCallback(async () => {
-    if (!schoolId || !selectedClassId) return;
+    if (!schoolId) {
+      setLoading(false);
+      return;
+    }
+    const effectiveClassId = selectedClassId || selectedClass?.id;
+    if (!effectiveClassId) {
+      if (classes.length === 0) {
+        setLoading(false);
+      }
+      return;
+    }
+
     setLoading(true);
     try {
+      const effectiveSectionId = selectedSectionId || selectedSection?.id || undefined;
       const [studentList, attRecords] = await Promise.all([
-        getStudentsByClassAndSection(schoolId, selectedClassId, selectedSectionId || undefined),
-        getClassAttendanceForDate(schoolId, selectedClassId, selectedSectionId || "", selectedDate),
+        getStudentsByClassAndSection(schoolId, effectiveClassId, effectiveSectionId),
+        getClassAttendanceForDate(schoolId, effectiveClassId, effectiveSectionId || "", selectedDate),
       ]);
 
-      setStudents(studentList);
+      setStudents(studentList || []);
       setAttendanceMap(attRecords || {});
 
       // Point currentIndex to the first unmarked student if available
-      const firstUnmarked = studentList.findIndex((s) => !attRecords?.[s.id]);
+      const firstUnmarked = (studentList || []).findIndex((s) => !attRecords?.[s.id]);
       setCurrentIndex(firstUnmarked !== -1 ? firstUnmarked : 0);
     } catch (err: any) {
       console.error("[SmartSwipeAttendance] Error loading class records:", err);
@@ -158,7 +185,7 @@ export function SmartSwipeAttendance({
     } finally {
       setLoading(false);
     }
-  }, [schoolId, selectedClassId, selectedSectionId, selectedDate]);
+  }, [schoolId, selectedClassId, selectedClass, selectedSectionId, selectedSection, selectedDate, classes.length]);
 
   useEffect(() => {
     loadClassData();

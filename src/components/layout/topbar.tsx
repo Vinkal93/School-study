@@ -50,7 +50,7 @@ export function Topbar({ variant = "classic" }: TopbarProps) {
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        if (profile?.role === "super_admin" || profile?.role === "school_admin") {
+        const r = profile?.role as string; if (r === "super_admin" || r === "school_admin" || r === "admin") {
           e.preventDefault();
           setSearchModalOpen((prev) => !prev);
         }
@@ -87,7 +87,7 @@ export function Topbar({ variant = "classic" }: TopbarProps) {
   };
 
   const isSuperAdmin = profile?.role === "super_admin";
-  const isSchoolAdmin = profile?.role === "school_admin";
+  const isSchoolAdmin = profile?.role === "school_admin" || (profile?.role as string) === "admin";
   const canUseGlobalSearch = isSuperAdmin || isSchoolAdmin;
   const isSchoolPortal = profile?.schoolId || school;
 

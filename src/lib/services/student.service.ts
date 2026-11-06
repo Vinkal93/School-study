@@ -224,28 +224,82 @@ export async function getStudentsByClassAndSection(
   classId: string,
   sectionId?: string
 ): Promise<StudentProfile[]> {
+  if (!schoolId || !classId) return [];
   const db = getFirebaseDb();
-  let q = query(
-    collection(db, "schools", schoolId, "students"),
-    where("classId", "==", classId)
-  );
+  if (!db) return [];
 
-  const snapshot = await getDocs(q);
-  let students = snapshot.docs
-    .map((d) => ({
-      ...d.data(),
-      id: d.id,
-    })) as StudentProfile[];
+  let students: StudentProfile[] = [];
 
-  // Only active enrolled students
-  students = students.filter((s) => s.status === "active");
+  // 1. Primary: Subcollection schools/{schoolId}/students
+  try {
+    const q = query(
+      collection(db, "schools", schoolId, "students"),
+      where("classId", "==", classId)
+    );
+    const snapshot = await getDocs(q);
+    if (!snapshot.empty) {
+      students = snapshot.docs.map((d) => ({
+        ...d.data(),
+        id: d.id,
+      })) as StudentProfile[];
+    }
+  } catch (err) {
+    console.warn("[getStudentsByClassAndSection] Subcollection notice:", err);
+  }
+
+  // 2. Root collection fallback if subcollection returned empty
+  if (students.length === 0) {
+    try {
+      const rootQ = query(
+        collection(db, "students"),
+        where("schoolId", "==", schoolId),
+        where("classId", "==", classId)
+      );
+      const rootSnap = await getDocs(rootQ);
+      if (!rootSnap.empty) {
+        students = rootSnap.docs.map((d) => ({
+          ...d.data(),
+          id: d.id,
+        })) as StudentProfile[];
+      }
+    } catch (err) {
+      console.warn("[getStudentsByClassAndSection] Root query notice:", err);
+    }
+  }
+
+  // 3. Fallback: match by className if classId was stored as name or vice-versa
+  if (students.length === 0) {
+    try {
+      const classDoc = await getDoc(doc(db, "schools", schoolId, "classes", classId)).catch(() => null);
+      const className = classDoc?.data()?.name || classId;
+      if (className) {
+        const nameQ = query(
+          collection(db, "schools", schoolId, "students"),
+          where("className", "==", className)
+        );
+        const nameSnap = await getDocs(nameQ);
+        if (!nameSnap.empty) {
+          students = nameSnap.docs.map((d) => ({
+            ...d.data(),
+            id: d.id,
+          })) as StudentProfile[];
+        }
+      }
+    } catch {}
+  }
+
+  // Filter out deleted/archived students; accept active or unset status
+  students = students.filter((s) => {
+    const st = s.status ? String(s.status).toLowerCase() : "active";
+    return st === "active" && s.status !== "deleted" && s.status !== "archived" && !s.deletedAt;
+  });
 
   if (sectionId && sectionId !== "all") {
-    students = students.filter((s) => s.sectionId === sectionId);
+    students = students.filter((s) => !s.sectionId || s.sectionId === sectionId || s.sectionName === sectionId);
   }
 
   // Sort by Roll Number ascending (1, 2, 3...)
-  return students.sort((a, b) => (a.rollNumber || 9999) - (b.rollNumber || 9999));
+  return students.sort((a, b) => (Number(a.rollNumber) || 9999) - (Number(b.rollNumber) || 9999));
 }
 
 /**

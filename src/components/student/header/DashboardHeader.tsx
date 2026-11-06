@@ -6,7 +6,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { MenuButton } from "./MenuButton";
 import { Greeting } from "./Greeting";
-import { NotificationButton } from "./NotificationButton";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { StudentAvatar } from "./StudentAvatar";
 import { DashboardHeaderProps } from "./types";
