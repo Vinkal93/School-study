@@ -106,7 +106,11 @@ export async function GET(req: NextRequest) {
 
       // Class Filter
       if (classFilter !== "all") {
-        const matchesClass = s.className === classFilter || s.classId === classFilter;
+        const cLow = classFilter.toLowerCase().trim();
+        const matchesClass =
+          (s.className && String(s.className).toLowerCase().trim() === cLow) ||
+          (s.classId && String(s.classId).toLowerCase().trim() === cLow) ||
+          (s.className && String(s.className).toLowerCase().includes(cLow));
         if (!matchesClass) return false;
       }
 
