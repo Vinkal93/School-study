@@ -92,16 +92,27 @@ export async function getNoticesForAdmin(
     return [];
   }
   const db = getFirebaseDb();
-  const q = query(
-    collection(db, "notices"),
-    where("schoolId", "==", schoolId)
-  );
-
-  const snapshot = await getDocs(q);
-  let notices = snapshot.docs.map((d) => ({
-    id: d.id,
-    ...d.data(),
-  })) as Notice[];
+  if (!db) return [];
+  let notices: Notice[] = [];
+  try {
+    const q = query(
+      collection(db, "notices"),
+      where("schoolId", "==", schoolId)
+    );
+    const snapshot = await getDocs(q);
+    notices = snapshot.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+    })) as Notice[];
+  } catch (err) {
+    try {
+      const subSnap = await getDocs(collection(db, "schools", schoolId, "notices"));
+      notices = subSnap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      })) as Notice[];
+    } catch {}
+  }
 
   // Sort descending by date
   notices.sort((a, b) => b.date.localeCompare(a.date));
