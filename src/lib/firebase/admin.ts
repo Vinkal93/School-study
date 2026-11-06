@@ -429,7 +429,11 @@ export function getSafeAdminDb(): Firestore | null {
     const app = getAdminApp();
     if (!app) return null;
     const { getFirestore } = require("firebase-admin/firestore");
-    return getFirestore(app);
+    const db = getFirestore(app);
+    try {
+      db.settings({ ignoreUndefinedProperties: true });
+    } catch {}
+    return db;
   } catch (e) {
     console.error("[Firebase Admin] Safe Admin DB error:", e);
     return null;

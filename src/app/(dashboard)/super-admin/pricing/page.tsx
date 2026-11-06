@@ -748,6 +748,7 @@ export default function SuperAdminPricingPage() {
         displayOrder: Number(editForm.displayOrder),
         isPopular: editForm.isPopular,
         publicVisible: editForm.publicVisible,
+        isArchived: Boolean(selectedPlan?.isArchived ?? false),
         status: editForm.status,
         monthlyPricePaise: Math.round(editForm.monthlyPriceRupees * 100),
         annualPricePaise: Math.round(editForm.annualPriceRupees * 100),

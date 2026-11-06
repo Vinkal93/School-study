@@ -626,6 +626,27 @@ export interface CreatePlanInput {
   limits: PlanLimits;
 }
 
+
+/**
+ * Safely removes any undefined keys or nested undefined properties from an object
+ * to prevent Firestore "Cannot use undefined as a Firestore value" errors.
+ */
+export function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): T {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return obj;
+  const cleaned: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === undefined) continue;
+    if (value !== null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Date)) {
+      cleaned[key] = sanitizeFirestorePayload(value);
+    } else if (Array.isArray(value)) {
+      cleaned[key] = value.filter((item: any) => item !== undefined);
+    } else {
+      cleaned[key] = value;
+    }
+  }
+  return cleaned as T;
+}
+
 export interface UpdatePlanInput {
   name?: string;
   description?: string;
@@ -1545,13 +1566,13 @@ export async function updatePlan(
   const nowIso = new Date().toISOString();
 
   const updatedPlanData: Partial<Plan> = {
-    name: input.name !== undefined ? input.name.trim() : currentPlan.name,
-    description: input.description !== undefined ? input.description.trim() : currentPlan.description,
-    displayOrder: input.displayOrder !== undefined ? input.displayOrder : currentPlan.displayOrder,
-    isPopular: input.isPopular !== undefined ? input.isPopular : currentPlan.isPopular,
-    publicVisible: input.publicVisible !== undefined ? input.publicVisible : currentPlan.publicVisible,
-    isArchived: input.isArchived !== undefined ? input.isArchived : currentPlan.isArchived,
-    status: input.status !== undefined ? input.status : currentPlan.status,
+    name: input.name !== undefined ? input.name.trim() : (currentPlan.name || planId),
+    description: input.description !== undefined ? input.description.trim() : (currentPlan.description || ""),
+    displayOrder: input.displayOrder !== undefined ? Number(input.displayOrder) : (currentPlan.displayOrder ?? 0),
+    isPopular: input.isPopular !== undefined ? Boolean(input.isPopular) : Boolean(currentPlan.isPopular ?? false),
+    publicVisible: input.publicVisible !== undefined ? Boolean(input.publicVisible) : Boolean(currentPlan.publicVisible ?? true),
+    isArchived: input.isArchived !== undefined ? Boolean(input.isArchived) : Boolean(currentPlan.isArchived ?? false),
+    status: input.status !== undefined ? input.status : (currentPlan.status || "ACTIVE"),
     features: cleanFeatures,
     featureAccess: cleanFeatureAccess,
     limits: cleanLimits,
@@ -1627,7 +1648,9 @@ export async function updatePlan(
         throw new Error("This plan changed while editing. Reload before saving.");
       }
 
+      const cleanPlanData = sanitizeFirestorePayload(updatedPlanData);
       if (pendingVersion) {
+        const cleanPendingVersion = sanitizeFirestorePayload(pendingVersion);
         if (latestVersionExists) {
           tx.update(versionRef, { status: "ARCHIVED", effectiveUntil: nowIso });
         } else {
@@ -1638,9 +1661,13 @@ export async function updatePlan(
           });
         }
         const newVersionRef = adminDb.collection(BILLING_COLLECTIONS.PLAN_VERSIONS).doc(pendingVersion.id);
-        tx.set(newVersionRef, pendingVersion);
+        tx.set(newVersionRef, cleanPendingVersion);
       }
-      tx.update(planRef, updatedPlanData);
+      if (latestExists) {
+        tx.update(planRef, cleanPlanData);
+      } else {
+        tx.set(planRef, cleanPlanData, { merge: true });
+      }
     });
   } else {
     const db = getFirebaseDb();
@@ -1669,7 +1696,9 @@ export async function updatePlan(
         throw new Error("This plan changed while editing. Reload before saving.");
       }
 
+      const cleanPlanData = sanitizeFirestorePayload(updatedPlanData);
       if (pendingVersion) {
+        const cleanPendingVersion = sanitizeFirestorePayload(pendingVersion);
         if (latestVersion.exists()) {
           tx.update(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, currentVersion.id), { status: "ARCHIVED", effectiveUntil: nowIso });
         } else {
@@ -1679,9 +1708,13 @@ export async function updatePlan(
             effectiveUntil: nowIso,
           });
         }
-        tx.set(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, pendingVersion.id), pendingVersion);
+        tx.set(doc(db, BILLING_COLLECTIONS.PLAN_VERSIONS, pendingVersion.id), cleanPendingVersion);
       }
-      tx.update(planRef, updatedPlanData);
+      if (latest.exists()) {
+        tx.update(planRef, cleanPlanData);
+      } else {
+        tx.set(planRef, cleanPlanData, { merge: true });
+      }
     });
   }
 

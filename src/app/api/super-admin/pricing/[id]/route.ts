@@ -87,6 +87,7 @@ export async function PATCH(
       isArchived,
       status,
       features,
+      featureAccess: body.featureAccess,
       limits,
       changeNotes,
     };
