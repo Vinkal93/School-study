@@ -1,7 +1,7 @@
 "use client";
 import { useFeeSession } from "@/components/fees/FeeSessionProvider";
 
-import { useEffect, useState, useMemo } from "react";
+import { Suspense, useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
@@ -27,7 +27,7 @@ import { formatINR } from "@/lib/services/fee-foundation.service";
 import { netPaymentPaise } from "@/lib/fees/finance-core";
 import { toast } from "sonner";
 
-export default function AdminFeeReceiptsPage() {
+function FeeReceiptsContent() {
   const { academicYearId } = useFeeSession();
   const { profile } = useAuth();
   const effectiveSchoolId =
@@ -372,5 +372,14 @@ export default function AdminFeeReceiptsPage() {
         )}
       </div>
     </EntitlementGate>
+  );
+}
+
+
+export default function AdminFeeReceiptsPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-xs text-slate-500">Loading fee receipts directory...</div>}>
+      <FeeReceiptsContent />
+    </Suspense>
   );
 }

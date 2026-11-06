@@ -3,7 +3,7 @@ import { useFeeSession } from "@/components/fees/FeeSessionProvider";
 
 import { feeFetch } from "@/lib/fees/client-request";
 
-import { useEffect, useState, useMemo } from "react";
+import { Suspense, useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
@@ -46,7 +46,7 @@ import { ShareFeeModal } from "@/components/fees/ShareFeeModal";
 import { FeeFollowUpModal } from "@/components/fees/FeeFollowUpModal";
 import { toast } from "sonner";
 
-export default function AdminFeeDefaultersPage() {
+function FeeDefaultersContent() {
   const { academicYearId } = useFeeSession();
   const { profile } = useAuth();
   const searchParams = useSearchParams();
@@ -1325,5 +1325,14 @@ export default function AdminFeeDefaultersPage() {
         )}
       </div>
     </EntitlementGate>
+  );
+}
+
+
+export default function AdminFeeDefaultersPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-xs text-slate-500">Loading defaulters directory...</div>}>
+      <FeeDefaultersContent />
+    </Suspense>
   );
 }

@@ -3,7 +3,7 @@ import { useFeeSession } from "@/components/fees/FeeSessionProvider";
 
 import { feeFetch } from "@/lib/fees/client-request";
 
-import { useEffect, useState, useMemo, useRef } from "react";
+import { Suspense, useEffect, useState, useMemo, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
@@ -28,7 +28,7 @@ import type { FeeDemand, FeeAdjustment, AdjustmentType } from "@/types/fee-found
 import { formatINR, paiseToRupees } from "@/lib/services/fee-foundation.service";
 import { toast } from "sonner";
 
-export default function AdminFeeDiscountsPage() {
+function FeeDiscountsContent() {
   const { academicYearId } = useFeeSession();
   const { profile } = useAuth();
   const effectiveSchoolId =
@@ -512,5 +512,14 @@ export default function AdminFeeDiscountsPage() {
         </div>
       </div>
     </EntitlementGate>
+  );
+}
+
+
+export default function AdminFeeDiscountsPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-xs text-slate-500">Loading discounts & concessions...</div>}>
+      <FeeDiscountsContent />
+    </Suspense>
   );
 }

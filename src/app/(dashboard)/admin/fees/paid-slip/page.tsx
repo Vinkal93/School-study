@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { Suspense, useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
@@ -32,7 +32,7 @@ import {
 } from "@/lib/services/pdf-invoice-receipt.service";
 import { toast } from "sonner";
 
-export default function AdminFeesPaidSlipPage() {
+function FeesPaidSlipContent() {
   const { academicYearId } = useFeeSession();
   const { profile } = useAuth();
   const schoolId = profile?.schoolId || "";
@@ -405,5 +405,14 @@ export default function AdminFeesPaidSlipPage() {
         )}
       </div>
     </EntitlementGate>
+  );
+}
+
+
+export default function AdminFeesPaidSlipPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-xs text-slate-500">Loading fees paid slips...</div>}>
+      <FeesPaidSlipContent />
+    </Suspense>
   );
 }
