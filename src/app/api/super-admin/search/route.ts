@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest } from "@/lib/auth/serverAuth";
-import { getSafeAdminAuth, getSafeAdminDb } from "@/lib/firebase/admin";
+import { getSafeAdminDb } from "@/lib/firebase/admin";
 import { getFirebaseDb } from "@/lib/firebase/client";
-import { collection, getDocs, limit } from "firebase/firestore";
+import { collection, getDocs, limit, query } from "firebase/firestore";
 import { SUPER_ADMIN_NAV_ITEMS } from "@/lib/search/navigation-items";
-import type { School, AppUser } from "@/types";
 
 export interface GlobalSearchResultItem {
   id: string;
@@ -14,51 +13,100 @@ export interface GlobalSearchResultItem {
   subtitle: string;
   schoolName?: string;
   schoolCode?: string;
+  badge?: string;
+  badgeColor?: string;
   status: string;
   url: string;
+  score?: number;
+}
+
+// In-Memory Search Cache (30s TTL)
+interface CacheEntry {
+  timestamp: number;
+  results: GlobalSearchResultItem[];
+}
+const SUPER_SEARCH_CACHE = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 30_000;
+
+function getCachedResults(cacheKey: string): GlobalSearchResultItem[] | null {
+  const entry = SUPER_SEARCH_CACHE.get(cacheKey);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+    SUPER_SEARCH_CACHE.delete(cacheKey);
+    return null;
+  }
+  return entry.results;
+}
+
+function setCachedResults(cacheKey: string, results: GlobalSearchResultItem[]): void {
+  if (SUPER_SEARCH_CACHE.size > 200) {
+    const oldest = SUPER_SEARCH_CACHE.keys().next().value;
+    if (oldest) SUPER_SEARCH_CACHE.delete(oldest);
+  }
+  SUPER_SEARCH_CACHE.set(cacheKey, { timestamp: Date.now(), results });
 }
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const q = searchParams.get("q")?.toLowerCase().trim() || "";
+    const rawQ = searchParams.get("q")?.trim() || "";
+    const q = rawQ.toLowerCase();
     const category = searchParams.get("category")?.toLowerCase() || "all";
 
     if (!q || q.length < 1) {
       return NextResponse.json({ success: true, count: 0, results: [] });
     }
 
-    // 1. Authorize Caller (Must be super_admin or authorized developer)
-    const adminAuth = getSafeAdminAuth();
-    if (!adminAuth) return NextResponse.json({ error: "Search service unavailable." }, { status: 503 });
-    const token = req.headers.get("authorization")?.match(/^Bearer (.+)$/)?.[1];
-    if (!token) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
-    try { await adminAuth.verifyIdToken(token, true); }
-    catch { return NextResponse.json({ error: "Invalid authentication." }, { status: 401 }); }
+    // 1. Authorize Caller with resilient auth boundary
     const authResult = await authenticateRequest(req);
     const user = authResult.user;
     const isSuperAdmin = authResult.isAuthenticated && user && user.role === "super_admin";
 
-    if (!isSuperAdmin) return authResult.errorResponse || NextResponse.json({ error: "Access denied." }, { status: 403 });
+    if (!isSuperAdmin) {
+      return (
+        authResult.errorResponse ||
+        NextResponse.json({ error: "Access denied." }, { status: 403 })
+      );
+    }
 
-    const results: GlobalSearchResultItem[] = [];
+    const cacheKey = `super:${category}:${q}`;
+    const cached = getCachedResults(cacheKey);
+    if (cached) {
+      return NextResponse.json({
+        success: true,
+        count: cached.length,
+        results: cached,
+        cached: true,
+      });
+    }
+
+    const itemsMap = new Map<string, GlobalSearchResultItem>();
 
     // 2. Navigation Shortcuts
     if (category === "all" || category === "navigation") {
       SUPER_ADMIN_NAV_ITEMS.forEach((nav) => {
-        const matchName = nav.name.toLowerCase().includes(q);
-        const matchSub = nav.subtitle.toLowerCase().includes(q);
-        const matchKey = nav.keywords.some((k) => k.includes(q) || q.includes(k));
+        const nameLower = nav.name.toLowerCase();
+        const subLower = nav.subtitle.toLowerCase();
+        const keyMatch = nav.keywords.some((k) => k.toLowerCase().includes(q) || q.includes(k.toLowerCase()));
 
-        if (matchName || matchSub || matchKey) {
-          results.push({
+        let score = 0;
+        if (nameLower === q) score = 100;
+        else if (nameLower.startsWith(q)) score = 80;
+        else if (nameLower.includes(q)) score = 50;
+        else if (subLower.includes(q) || keyMatch) score = 30;
+
+        if (score > 0) {
+          itemsMap.set(`nav_${nav.id}`, {
             id: nav.id,
             type: "navigation",
             category: "navigation",
             name: nav.name,
             subtitle: nav.subtitle,
+            badge: "Page",
+            badgeColor: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
             status: "active",
             url: nav.url,
+            score,
           });
         }
       });
@@ -72,7 +120,11 @@ export async function GET(req: NextRequest) {
         category === "all" || category === "schools"
           ? adminDb.collection("schools").limit(100).get().catch(() => null)
           : Promise.resolve(null),
-        category === "all" || category === "users" || category === "school_admins" || category === "teachers" || category === "students"
+        category === "all" ||
+        category === "users" ||
+        category === "school_admins" ||
+        category === "teachers" ||
+        category === "students"
           ? adminDb.collection("users").limit(150).get().catch(() => null)
           : Promise.resolve(null),
       ]);
@@ -83,23 +135,37 @@ export async function GET(req: NextRequest) {
           const school = { id: d.id, ...d.data() } as any;
           schoolsMap.set(d.id, school);
 
-          const matchName = school.name?.toLowerCase().includes(q);
-          const matchCode = school.code?.toLowerCase().includes(q);
-          const matchCity = school.city?.toLowerCase().includes(q);
-          const matchEmail = school.email?.toLowerCase().includes(q);
-          const matchAdminEmail = school.adminEmail?.toLowerCase().includes(q);
+          const sName = String(school.name || "");
+          const sCode = String(school.code || "");
+          const sCity = String(school.city || "");
+          const sEmail = String(school.email || school.adminEmail || "");
 
-          if (matchName || matchCode || matchCity || matchEmail || matchAdminEmail) {
-            results.push({
+          const nameLower = sName.toLowerCase();
+          const codeLower = sCode.toLowerCase();
+
+          let score = 0;
+          if (codeLower === q) score = 100;
+          else if (nameLower === q) score = 95;
+          else if (codeLower.startsWith(q)) score = 85;
+          else if (nameLower.startsWith(q)) score = 80;
+          else if (nameLower.includes(q) || sCity.toLowerCase().includes(q) || sEmail.toLowerCase().includes(q)) {
+            score = 50;
+          }
+
+          if (score > 0) {
+            itemsMap.set(`school_${school.id}`, {
               id: school.id,
               type: "school",
               category: "schools",
-              name: school.name || "School",
-              subtitle: `Code: ${school.code || "N/A"} · ${school.city || school.email || "Institution"} · ${school.status || "active"}`,
-              schoolName: school.name,
-              schoolCode: school.code,
+              name: sName || "School",
+              subtitle: `Code: ${sCode || "N/A"} · ${sCity || sEmail || "Institution"} · ${school.status || "active"}`,
+              schoolName: sName,
+              schoolCode: sCode,
+              badge: "School",
+              badgeColor: "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300",
               status: school.status || "active",
               url: `/super-admin/schools/${school.id}`,
+              score,
             });
           }
         });
@@ -113,25 +179,38 @@ export async function GET(req: NextRequest) {
           if (category === "teachers" && u.role !== "teacher") return;
           if (category === "students" && u.role !== "student") return;
 
-          const matchName = u.name?.toLowerCase().includes(q);
-          const matchEmail = u.email?.toLowerCase().includes(q);
-          const matchUid = u.uid?.toLowerCase().includes(q);
-          const phoneVal = u.phone || u.phoneNumber || "";
-          const matchPhone = phoneVal ? String(phoneVal).toLowerCase().includes(q) : false;
+          const uName = String(u.name || "");
+          const uEmail = String(u.email || "");
+          const uRole = String(u.role || "user");
+          const phoneVal = String(u.phone || u.phoneNumber || "");
 
-          if (matchName || matchEmail || matchUid || matchPhone) {
+          const nameLower = uName.toLowerCase();
+          const emailLower = uEmail.toLowerCase();
+
+          let score = 0;
+          if (emailLower === q) score = 100;
+          else if (nameLower === q) score = 95;
+          else if (emailLower.startsWith(q)) score = 85;
+          else if (nameLower.startsWith(q)) score = 80;
+          else if (phoneVal.includes(q)) score = 60;
+          else if (nameLower.includes(q) || emailLower.includes(q)) score = 50;
+
+          if (score > 0) {
             const associatedSchool = u.schoolId ? schoolsMap.get(u.schoolId) : null;
 
-            results.push({
+            itemsMap.set(`user_${u.uid}`, {
               id: u.uid,
-              type: u.role || "user",
+              type: uRole,
               category: "users",
-              name: u.name || u.email || "User",
-              subtitle: `${u.email} · Role: ${u.role || "user"}${phoneVal ? ` · 📞 ${phoneVal}` : ""}`,
+              name: uName || uEmail || "User",
+              subtitle: `${uEmail} · Role: ${uRole}${phoneVal ? ` · 📞 ${phoneVal}` : ""}`,
               schoolName: associatedSchool ? associatedSchool.name : "Platform Global",
               schoolCode: associatedSchool ? associatedSchool.code : undefined,
+              badge: uRole.toUpperCase(),
+              badgeColor: "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
               status: u.status || "active",
               url: `/super-admin/users/${u.uid}`,
+              score,
             });
           }
         });
@@ -143,28 +222,34 @@ export async function GET(req: NextRequest) {
         if (db) {
           const [schoolsSnap, usersSnap] = await Promise.all([
             category === "all" || category === "schools"
-              ? getDocs(collection(db, "schools")).catch(() => null)
+              ? getDocs(query(collection(db, "schools"), limit(50))).catch(() => null)
               : Promise.resolve(null),
-            category === "all" || category === "users" || category === "school_admins" || category === "teachers" || category === "students"
-              ? getDocs(collection(db, "users")).catch(() => null)
+            category === "all" ||
+            category === "users" ||
+            category === "school_admins" ||
+            category === "teachers" ||
+            category === "students"
+              ? getDocs(query(collection(db, "users"), limit(80))).catch(() => null)
               : Promise.resolve(null),
           ]);
 
           if (schoolsSnap) {
             schoolsSnap.docs.forEach((d) => {
               const school = { id: d.id, ...d.data() } as any;
-              const matchName = school.name?.toLowerCase().includes(q);
-              const matchCode = school.code?.toLowerCase().includes(q);
+              const sName = String(school.name || "");
+              const sCode = String(school.code || "");
 
-              if (matchName || matchCode) {
-                results.push({
+              if (sName.toLowerCase().includes(q) || sCode.toLowerCase().includes(q)) {
+                itemsMap.set(`school_${school.id}`, {
                   id: school.id,
                   type: "school",
                   category: "schools",
-                  name: school.name || "School",
-                  subtitle: `Code: ${school.code || "N/A"} · ${school.city || "School"}`,
-                  schoolName: school.name,
-                  schoolCode: school.code,
+                  name: sName || "School",
+                  subtitle: `Code: ${sCode || "N/A"} · ${school.city || "School"}`,
+                  schoolName: sName,
+                  schoolCode: sCode,
+                  badge: "School",
+                  badgeColor: "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300",
                   status: school.status || "active",
                   url: `/super-admin/schools/${school.id}`,
                 });
@@ -175,16 +260,18 @@ export async function GET(req: NextRequest) {
           if (usersSnap) {
             usersSnap.docs.forEach((d) => {
               const u = { uid: d.id, ...d.data() } as any;
-              const matchName = u.name?.toLowerCase().includes(q);
-              const matchEmail = u.email?.toLowerCase().includes(q);
+              const uName = String(u.name || "");
+              const uEmail = String(u.email || "");
 
-              if (matchName || matchEmail) {
-                results.push({
+              if (uName.toLowerCase().includes(q) || uEmail.toLowerCase().includes(q)) {
+                itemsMap.set(`user_${u.uid}`, {
                   id: u.uid,
                   type: u.role || "user",
                   category: "users",
-                  name: u.name || u.email || "User",
-                  subtitle: `${u.email} · Role: ${u.role}`,
+                  name: uName || uEmail || "User",
+                  subtitle: `${uEmail} · Role: ${u.role}`,
+                  badge: String(u.role || "user").toUpperCase(),
+                  badgeColor: "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
                   status: u.status || "active",
                   url: `/super-admin/users/${u.uid}`,
                 });
@@ -197,10 +284,16 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const sorted = Array.from(itemsMap.values())
+      .sort((a, b) => (b.score || 0) - (a.score || 0))
+      .slice(0, 40);
+
+    setCachedResults(cacheKey, sorted);
+
     return NextResponse.json({
       success: true,
-      count: results.length,
-      results: results.slice(0, 35),
+      count: sorted.length,
+      results: sorted,
     });
   } catch (error: any) {
     console.error("Super Admin global search notice:", error);
