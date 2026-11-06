@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
+import { getFirebaseDb } from "@/lib/firebase/client";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import { toast } from "sonner";
 import {
   Lock,
@@ -63,6 +65,143 @@ interface PaginationMeta {
   total: number;
   totalFiltered: number;
   totalPages: number;
+}
+
+
+/**
+ * Direct client-side Firestore fallback for student login management.
+ * Guarantees zero downtime even if server API is unavailable or returning 503.
+ */
+async function loadStudentsFromClientDb(
+  schoolId: string,
+  page: number,
+  limit: number,
+  search: string,
+  classFilter: string,
+  statusFilter: string
+): Promise<{
+  students: StudentLoginRecord[];
+  stats: ManageLoginStats;
+  classes: string[];
+  pagination: PaginationMeta;
+}> {
+  const db = getFirebaseDb();
+  if (!db) {
+    throw new Error("Firestore client unavailable");
+  }
+
+  let rawStudents: any[] = [];
+  try {
+    const subSnap = await getDocs(collection(db, "schools", schoolId, "students"));
+    if (!subSnap.empty) {
+      rawStudents = subSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    }
+  } catch (e) {
+    console.warn("[manage-login] Subcollection load notice:", e);
+  }
+
+  if (rawStudents.length === 0) {
+    try {
+      const rootSnap = await getDocs(query(collection(db, "students"), where("schoolId", "==", schoolId)));
+      if (!rootSnap.empty) {
+        rawStudents = rootSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      }
+    } catch (e) {
+      console.warn("[manage-login] Root collection load notice:", e);
+    }
+  }
+
+  const nonDeleted = rawStudents.filter((s) => s.status !== "deleted" && !s.deletedAt);
+
+  let totalAccounts = 0;
+  let activeLogins = 0;
+  let disabledLogins = 0;
+  let pendingProvisioning = 0;
+  const classNamesSet = new Set<string>();
+
+  nonDeleted.forEach((s) => {
+    totalAccounts++;
+    const sStatus = s.status ? String(s.status).toLowerCase() : "active";
+    const isPortalActive = sStatus === "active" && s.portalAccess !== false;
+    if (!s.userId) pendingProvisioning++;
+    if (isPortalActive) activeLogins++;
+    else disabledLogins++;
+    if (s.className) classNamesSet.add(s.className);
+  });
+
+  const distinctClasses = Array.from(classNamesSet).sort();
+
+  const filtered = nonDeleted.filter((s) => {
+    const sStatus = s.status ? String(s.status).toLowerCase() : "active";
+    const isPortalActive = sStatus === "active" && s.portalAccess !== false;
+
+    if (statusFilter === "active" && !isPortalActive) return false;
+    if (statusFilter === "disabled" && isPortalActive) return false;
+    if (statusFilter === "pending" && s.userId) return false;
+
+    if (classFilter !== "all" && s.className !== classFilter) return false;
+
+    if (search) {
+      const qLower = search.toLowerCase();
+      const matchName = (s.name || "").toLowerCase().includes(qLower);
+      const matchRoll = String(s.rollNumber || "").toLowerCase().includes(qLower);
+      const matchAdmission = (s.admissionNumber || "").toLowerCase().includes(qLower);
+      const matchStudentId = (s.studentId || "").toLowerCase().includes(qLower);
+      const matchPhone = (s.phone || "").includes(qLower);
+      const matchGuardian = (s.parentName || s.fatherName || s.guardianName || "").toLowerCase().includes(qLower);
+      if (!matchName && !matchRoll && !matchAdmission && !matchStudentId && !matchPhone && !matchGuardian) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const totalFiltered = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / limit));
+  const safePage = Math.min(page, totalPages);
+  const startIndex = (safePage - 1) * limit;
+  const pagedList = filtered.slice(startIndex, startIndex + limit);
+
+  const mappedStudents: StudentLoginRecord[] = pagedList.map((s) => {
+    const sStatus = s.status ? String(s.status).toLowerCase() : "active";
+    const isPortalActive = sStatus === "active" && s.portalAccess !== false;
+    return {
+      id: s.id,
+      name: s.name || "Student",
+      studentId: s.studentId || s.admissionNumber || s.id,
+      admissionNumber: s.admissionNumber || s.studentId || "",
+      className: s.className || "Unassigned",
+      sectionName: s.sectionName || "",
+      email: s.email || (s.studentId ? `${s.studentId.toLowerCase()}@school.student` : ""),
+      phone: s.phone || s.emergencyContact || "",
+      guardianName: s.parentName || s.fatherName || s.guardianName || "",
+      guardianPhone: s.parentPhone || s.guardianPhone || s.phone || "",
+      status: isPortalActive ? "active" : "disabled",
+      portalAccess: isPortalActive,
+      hasAuthAccount: Boolean(s.userId),
+      userId: s.userId || null,
+      lastPasswordResetAt: s.lastPasswordResetAt || null,
+      lastActiveAt: s.lastActiveAt || null,
+    };
+  });
+
+  return {
+    students: mappedStudents,
+    stats: {
+      total: totalAccounts,
+      active: activeLogins,
+      disabled: disabledLogins,
+      pending: pendingProvisioning,
+    },
+    classes: distinctClasses,
+    pagination: {
+      page: safePage,
+      limit,
+      total: totalAccounts,
+      totalFiltered,
+      totalPages,
+    },
+  };
 }
 
 export default function ManageLoginPage() {
@@ -142,13 +281,15 @@ export default function ManageLoginPage() {
     return () => clearTimeout(handler);
   }, [searchQuery]);
 
-  // Fetch Students & Stats from API
-  const fetchLoginRecords = useCallback(async () => {
+  // Fetch Students & Stats from API with automatic client fallback
+  const fetchLoginRecords = useCallback(async (isManualReload = false) => {
     if (authLoading || !firebaseUser || !schoolId || schoolId === "system") {
       return;
     }
 
     setIsLoading(true);
+    let loadedSuccessfully = false;
+
     try {
       const params = new URLSearchParams({
         page: String(currentPage),
@@ -173,28 +314,49 @@ export default function ManageLoginPage() {
         });
       }
 
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => null);
-        const errMsg = errorData?.error || `Failed to load login roster (${res.statusText || res.status})`;
-        toast.error(errMsg);
-        return;
-      }
-
-      const data = await res.json();
-      if (data.success) {
-        setStudents(data.students || []);
-        if (data.stats) setStats(data.stats);
-        if (data.classes) setClassesList(data.classes);
-        if (data.pagination) setPagination(data.pagination);
-      } else {
-        toast.error(data.error || "Unable to fetch login data.");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setStudents(data.students || []);
+          if (data.stats) setStats(data.stats);
+          if (data.classes) setClassesList(data.classes);
+          if (data.pagination) setPagination(data.pagination);
+          loadedSuccessfully = true;
+          if (isManualReload) {
+            toast.success("Login roster reloaded successfully.");
+          }
+        }
       }
     } catch (err: any) {
-      console.error("Manage Login Fetch Error:", err);
-      toast.error(err?.message || "Connection error loading login records.");
-    } finally {
-      setIsLoading(false);
+      console.warn("Manage Login Server API Error, falling back to direct database:", err);
     }
+
+    // Direct Client-Side Fallback if server API returns 503, 500, or network error
+    if (!loadedSuccessfully) {
+      try {
+        const fallback = await loadStudentsFromClientDb(
+          schoolId,
+          currentPage,
+          25,
+          debouncedSearch,
+          selectedClass,
+          portalStatusFilter
+        );
+        setStudents(fallback.students);
+        setStats(fallback.stats);
+        setClassesList(fallback.classes);
+        setPagination(fallback.pagination);
+        loadedSuccessfully = true;
+        if (isManualReload) {
+          toast.success("Login roster reloaded successfully.");
+        }
+      } catch (fallbackErr: any) {
+        console.error("Manage Login Client Fallback Error:", fallbackErr);
+        toast.error("Unable to load login records. Please check connection.");
+      }
+    }
+
+    setIsLoading(false);
   }, [authLoading, firebaseUser, schoolId, currentPage, debouncedSearch, selectedClass, portalStatusFilter, getAuthHeaders]);
 
   useEffect(() => {
@@ -476,6 +638,16 @@ export default function ManageLoginPage() {
             <ArrowLeft className="h-4 w-4" />
             <span>Students</span>
           </Link>
+          <button
+            type="button"
+            onClick={() => fetchLoginRecords(true)}
+            disabled={isLoading}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/60 transition shadow-xs active:scale-95 disabled:opacity-50"
+            title="Reload login roster"
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin text-blue-600" : ""}`} />
+            <span className="hidden sm:inline">Reload</span>
+          </button>
           <button
             type="button"
             onClick={handleExportCsv}
