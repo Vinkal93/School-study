@@ -2092,3 +2092,64 @@ export async function getFeeDemands(schoolId: string, studentId?: string, academ
     .filter(d => matchAcademicYear(d.academicYearId, academicYearId))
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.id.localeCompare(b.id));
 }
+
+
+/**
+ * Void/Cancel an unpaid fee invoice demand.
+ * Invariant: Cannot void an invoice that already has collected payments without reversing them first.
+ */
+export async function voidFeeDemand(
+  schoolId: string,
+  demandId: string,
+  reason: string,
+  actorId: string = "admin"
+): Promise<FeeDemand> {
+  const db = getFirebaseDb();
+  if (!db) throw new Error("Database not initialized");
+
+  const demandRef = doc(db, "feeDemands", demandId);
+  const snap = await getDoc(demandRef);
+  if (!snap.exists()) throw new Error("Fee invoice not found.");
+
+  const demand = snap.data() as FeeDemand;
+  if (demand.schoolId !== schoolId) {
+    throw new Error("Unauthorized: Cross-tenant access denied.");
+  }
+  if (demand.status === "CANCELLED") {
+    throw new Error("Fee invoice is already cancelled.");
+  }
+  if ((demand.paidAmountPaise || 0) > 0) {
+    throw new Error(
+      `Cannot void invoice with paid collections (₹${((demand.paidAmountPaise || 0) / 100).toFixed(2)} paid). Reverse the payment first.`
+    );
+  }
+
+  const now = new Date().toISOString();
+  const updatedDemand: FeeDemand = {
+    ...demand,
+    status: "CANCELLED",
+    balanceAmountPaise: 0,
+    updatedAt: now,
+    
+  };
+
+  await updateDoc(demandRef, {
+    status: "CANCELLED",
+    balanceAmountPaise: 0,
+    updatedAt: now,
+    
+  });
+
+  await logFinancialAudit(
+    schoolId,
+    { id: actorId, role: "admin" },
+    "CANCEL",
+    "FeeDemand",
+    demandId,
+    demand,
+    updatedDemand,
+    `Voided unpaid fee invoice: ${reason}`
+  );
+
+  return updatedDemand;
+}

@@ -3,7 +3,8 @@ import { useFeeSession } from "@/components/fees/FeeSessionProvider";
 
 import { feeFetch } from "@/lib/fees/client-request";
 
-import { useEffect, useState, useMemo } from "react";
+import { Suspense, useEffect, useState, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
@@ -45,9 +46,14 @@ import { ShareFeeModal } from "@/components/fees/ShareFeeModal";
 import { FeeFollowUpModal } from "@/components/fees/FeeFollowUpModal";
 import { toast } from "sonner";
 
-export default function AdminFeeDefaultersPage() {
+function FeeDefaultersContent() {
   const { academicYearId } = useFeeSession();
   const { profile } = useAuth();
+  const searchParams = useSearchParams();
+  const isReminder = searchParams?.get("reminder") === "true";
+  const isWhatsAppTab = searchParams?.get("tab") === "whatsapp";
+  const paramStudentId = searchParams?.get("studentId") || "";
+
   const effectiveSchoolId =
     profile?.schoolId ||
     (typeof window !== "undefined"
@@ -1288,6 +1294,25 @@ export default function AdminFeeDefaultersPage() {
           />
         )}
 
+
+        {/* Bulk Communication Composer Modal */}
+        {isCommModalOpen && (
+          <CommunicationComposerModal
+            isOpen={isCommModalOpen}
+            onClose={() => setIsCommModalOpen(false)}
+            schoolId={schoolId}
+            schoolName={schoolName}
+            recipients={commRecipients}
+            defaultChannel={isWhatsAppTab ? "whatsapp" : "whatsapp"}
+            triggerType="fee_reminder"
+            initialTemplateCategory="fee_reminder"
+            onSuccess={() => {
+              toast.success("Fee reminders successfully queued for dispatch!");
+              fetchData();
+            }}
+          />
+        )}
+
         {/* Follow-up Note Modal */}
         {followUpTarget && (
           <FeeFollowUpModal
@@ -1300,5 +1325,14 @@ export default function AdminFeeDefaultersPage() {
         )}
       </div>
     </EntitlementGate>
+  );
+}
+
+
+export default function AdminFeeDefaultersPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-xs text-slate-500">Loading defaulters directory...</div>}>
+      <FeeDefaultersContent />
+    </Suspense>
   );
 }

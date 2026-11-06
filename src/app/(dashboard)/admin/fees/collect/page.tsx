@@ -1,7 +1,8 @@
 "use client";
 import { useFeeSession } from "@/components/fees/FeeSessionProvider";
 
-import { useEffect, useState, useMemo, useRef } from "react";
+import { Suspense, useEffect, useState, useMemo, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
@@ -44,10 +45,12 @@ interface FeeParticularItem {
 
 const DEFAULT_PARTICULARS: FeeParticularItem[] = [{ sr: 1, particulars: "Discount", amount: 0 }];
 
-export default function AdminCollectFeePage() {
+function CollectFeeContent() {
   const { academicYearId } = useFeeSession();
   const { profile } = useAuth();
   const schoolId = profile?.schoolId || "";
+  const searchParams = useSearchParams();
+  const paramStudentId = searchParams?.get("studentId") || "";
 
   // Data states
   const [students, setStudents] = useState<StudentProfile[]>([]);
@@ -123,6 +126,13 @@ export default function AdminCollectFeePage() {
     setParticulars([...rows, { sr: rows.length + 1, particulars: "Discount", amount: 0 }]);
   }, [demands, feeMonth]);
 
+
+
+  useEffect(() => {
+    if (paramStudentId) {
+      setSelectedStudentId(paramStudentId);
+    }
+  }, [paramStudentId]);
 
   // Fetch initial data with instant zero-flicker cache
   useEffect(() => {
@@ -854,5 +864,14 @@ export default function AdminCollectFeePage() {
         )}
       </div>
     </EntitlementGate>
+  );
+}
+
+
+export default function AdminCollectFeePage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-xs text-slate-500">Loading fee collection workspace...</div>}>
+      <CollectFeeContent />
+    </Suspense>
   );
 }

@@ -288,6 +288,29 @@ export async function getStudentsByClassAndSection(
     } catch {}
   }
 
+  // 4. Server-Side API Fallback if client direct Firestore queries return empty
+  if (students.length === 0 && typeof window !== "undefined") {
+    try {
+      const auth = getFirebaseAuth();
+      const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => "") : "";
+      const res = await fetch(`/api/admin/students/manage-login?classId=${encodeURIComponent(classId)}&limit=100`, {
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        cache: "no-store",
+      }).catch(() => null);
+      if (res && res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data && Array.isArray(data.students) && data.students.length > 0) {
+          students = data.students as StudentProfile[];
+        }
+      }
+    } catch (serverErr) {
+      console.warn("[getStudentsByClassAndSection] Server API fallback notice:", serverErr);
+    }
+  }
+
   // Filter out deleted/archived students; accept active or unset status
   students = students.filter((s) => {
     const st = s.status ? String(s.status).toLowerCase() : "active";
@@ -295,7 +318,17 @@ export async function getStudentsByClassAndSection(
   });
 
   if (sectionId && sectionId !== "all") {
-    students = students.filter((s) => !s.sectionId || s.sectionId === sectionId || s.sectionName === sectionId);
+    const sectionFiltered = students.filter(
+      (s) =>
+        !s.sectionId ||
+        s.sectionId === sectionId ||
+        s.sectionName === sectionId ||
+        (s as any).section === sectionId ||
+        (s as any).sectionTitle === sectionId
+    );
+    if (sectionFiltered.length > 0) {
+      students = sectionFiltered;
+    }
   }
 
   // Sort by Roll Number ascending (1, 2, 3...)

@@ -168,16 +168,25 @@ export function SmartSwipeAttendance({
     setLoading(true);
     try {
       const effectiveSectionId = selectedSectionId || selectedSection?.id || undefined;
-      const [studentList, attRecords] = await Promise.all([
+      const [initialStudentList, attRecords] = await Promise.all([
         getStudentsByClassAndSection(schoolId, effectiveClassId, effectiveSectionId),
         getClassAttendanceForDate(schoolId, effectiveClassId, effectiveSectionId || "", selectedDate),
       ]);
 
-      setStudents(studentList || []);
+      let finalStudents = initialStudentList || [];
+      // Fallback: If section filter yielded 0 students, load all students for the class
+      if (finalStudents.length === 0 && effectiveSectionId) {
+        const classRoster = await getStudentsByClassAndSection(schoolId, effectiveClassId);
+        if (classRoster && classRoster.length > 0) {
+          finalStudents = classRoster;
+        }
+      }
+
+      setStudents(finalStudents);
       setAttendanceMap(attRecords || {});
 
       // Point currentIndex to the first unmarked student if available
-      const firstUnmarked = (studentList || []).findIndex((s) => !attRecords?.[s.id]);
+      const firstUnmarked = (finalStudents || []).findIndex((s) => !attRecords?.[s.id]);
       setCurrentIndex(firstUnmarked !== -1 ? firstUnmarked : 0);
     } catch (err: any) {
       console.error("[SmartSwipeAttendance] Error loading class records:", err);
@@ -185,7 +194,7 @@ export function SmartSwipeAttendance({
     } finally {
       setLoading(false);
     }
-  }, [schoolId, selectedClassId, selectedClass, selectedSectionId, selectedSection, selectedDate, classes.length]);
+  }, [schoolId, selectedClassId, selectedSectionId, selectedDate, classes.length]);
 
   useEffect(() => {
     loadClassData();

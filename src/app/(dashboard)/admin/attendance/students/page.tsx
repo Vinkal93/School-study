@@ -103,12 +103,20 @@ export default function StudentsAttendancePage() {
         setAttendanceMap(map);
         setRemarksMap(rems);
       } else {
-        const [stuList, existingRecords] = await Promise.all([
+        const [initialStuList, existingRecords] = await Promise.all([
           getStudentsByClassAndSection(schoolId, selectedClassId, selectedSectionId),
           getSchoolAttendanceForDate(schoolId, selectedDate, selectedClassId, selectedSectionId),
         ]);
 
         if (currentReq !== reqIdRef.current) return;
+
+        let stuList = initialStuList || [];
+        if (stuList.length === 0 && selectedSectionId && selectedSectionId !== "all") {
+          const classAll = await getStudentsByClassAndSection(schoolId, selectedClassId, "all");
+          if (classAll && classAll.length > 0) {
+            stuList = classAll;
+          }
+        }
 
         setClassStudents(stuList);
 

@@ -1,7 +1,8 @@
 "use client";
 import { useFeeSession } from "@/components/fees/FeeSessionProvider";
 
-import { useEffect, useState, useMemo } from "react";
+import { Suspense, useEffect, useState, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { EntitlementGate } from "@/components/common/EntitlementGate";
 import { FeeReceiptModal } from "@/components/fees/FeeReceiptModal";
@@ -26,7 +27,7 @@ import { formatINR } from "@/lib/services/fee-foundation.service";
 import { netPaymentPaise } from "@/lib/fees/finance-core";
 import { toast } from "sonner";
 
-export default function AdminFeeReceiptsPage() {
+function FeeReceiptsContent() {
   const { academicYearId } = useFeeSession();
   const { profile } = useAuth();
   const effectiveSchoolId =
@@ -47,6 +48,28 @@ export default function AdminFeeReceiptsPage() {
   const [selectedMethod, setSelectedMethod] = useState("all");
   const [selectedPayment, setSelectedPayment] = useState<FeePayment | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const searchParams = useSearchParams();
+  const queryStudent = searchParams?.get("studentId") || searchParams?.get("q") || "";
+  const queryReceipt = searchParams?.get("receipt") || searchParams?.get("receiptNumber") || "";
+
+  useEffect(() => {
+    if (queryReceipt) {
+      setSearchQuery(queryReceipt);
+    } else if (queryStudent) {
+      setSearchQuery(queryStudent);
+    }
+  }, [queryStudent, queryReceipt]);
+
+  useEffect(() => {
+    if (queryReceipt && receipts.length > 0) {
+      const match = receipts.find((r) => r.receiptNumber === queryReceipt);
+      if (match) {
+        setSelectedPayment(match);
+        setShowModal(true);
+      }
+    }
+  }, [queryReceipt, receipts]);
+
 
   useEffect(() => {
     async function loadReceipts() {
@@ -349,5 +372,14 @@ export default function AdminFeeReceiptsPage() {
         )}
       </div>
     </EntitlementGate>
+  );
+}
+
+
+export default function AdminFeeReceiptsPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-xs text-slate-500">Loading fee receipts directory...</div>}>
+      <FeeReceiptsContent />
+    </Suspense>
   );
 }
