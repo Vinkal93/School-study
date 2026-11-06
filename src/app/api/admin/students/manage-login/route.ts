@@ -16,9 +16,9 @@ export async function GET(req: NextRequest) {
     }
 
     const authUser = authResult.user!;
-    const schoolId = authUser.schoolId || "";
-
     const { searchParams } = new URL(req.url);
+    const requestedSchoolId = searchParams.get("schoolId");
+    const schoolId = (authUser.role === "super_admin" && requestedSchoolId) ? requestedSchoolId : (authUser.schoolId || "");
     const q = (searchParams.get("q") || "").trim().toLowerCase();
     const classFilter = searchParams.get("classId") || "all";
     const statusFilter = searchParams.get("status") || "all"; // "all" | "active" | "disabled" | "pending"

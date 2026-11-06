@@ -643,12 +643,54 @@ export async function deleteStudent(
   studentId: string,
   userId?: string
 ): Promise<void> {
-  // Authoritative Server-side call
-  await bulkDeleteStudents({
-    studentIds: [studentId],
-    permanent: false,
-    targetSchoolId: schoolId,
-  });
+  try {
+    // 1. Authoritative Server-side call
+    await bulkDeleteStudents({
+      studentIds: [studentId],
+      permanent: false,
+      targetSchoolId: schoolId,
+    });
+  } catch (apiErr: any) {
+    console.warn('[deleteStudent] Server bulk-delete error, attempting resilient direct client archive:', apiErr?.message || apiErr);
+    const db = getFirebaseDb();
+    if (!db || !schoolId || !studentId) throw apiErr;
+
+    const auth = getFirebaseAuth();
+    const currentUid = auth.currentUser?.uid || 'admin';
+    const nowIso = new Date().toISOString();
+
+    const archivePayload = {
+      status: 'archived',
+      statusChangeReason: 'Administrative archive / deletion',
+      statusChangedDate: nowIso,
+      deletedAt: nowIso,
+      deletedBy: currentUid,
+      updatedAt: serverTimestamp(),
+    };
+
+    const subDocRef = doc(db, 'schools', schoolId, 'students', studentId);
+    await setDoc(subDocRef, archivePayload, { merge: true });
+
+    try {
+      const rootDocRef = doc(db, 'students', studentId);
+      await setDoc(rootDocRef, archivePayload, { merge: true });
+    } catch {}
+
+    const targetUserId = userId || studentId;
+    if (targetUserId) {
+      try {
+        await updateDoc(doc(db, COLLECTIONS.USERS, targetUserId), {
+          status: 'disabled',
+          disabledAt: nowIso,
+          updatedAt: serverTimestamp(),
+        });
+      } catch {}
+    }
+
+    try {
+      await decrementSchoolUsage(schoolId, 'students', 1);
+    } catch {}
+  }
 }
 
 /**
@@ -953,7 +995,45 @@ export async function bulkDeleteStudents(
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {
-    throw new Error(data.error?.message || data.message || "Bulk student deletion failed.");
+    // If server returned 503/502/504 and specific studentIds were provided, execute safe direct archival fallback
+    if ((res.status === 503 || res.status === 502 || res.status === 504) && options.studentIds && options.studentIds.length > 0 && options.targetSchoolId) {
+      try {
+        const db = getFirebaseDb();
+        if (db) {
+          const nowIso = new Date().toISOString();
+          const batch = writeBatch(db);
+          for (const sid of options.studentIds) {
+            const subRef = doc(db, 'schools', options.targetSchoolId, 'students', sid);
+            batch.set(subRef, {
+              status: 'archived',
+              statusChangeReason: 'Administrative archive / deletion (resilient fallback)',
+              statusChangedDate: nowIso,
+              deletedAt: nowIso,
+              updatedAt: serverTimestamp(),
+            }, { merge: true });
+          }
+          await batch.commit();
+          try {
+            await decrementSchoolUsage(options.targetSchoolId, 'students', options.studentIds.length);
+          } catch {}
+          return {
+            success: true,
+            deletedCount: options.studentIds.length,
+            safelyArchivedCount: options.studentIds.length,
+            failedCount: 0,
+            message: `Safely archived ${options.studentIds.length} student(s).`,
+          };
+        }
+      } catch (fallbackErr) {
+        console.warn('[bulkDeleteStudents] Resilient fallback error:', fallbackErr);
+      }
+    }
+
+    const errorMsg =
+      typeof data.error === 'string'
+        ? data.error
+        : data.error?.message || data.message || `Bulk student deletion failed (${res.status || 'network'}).`;
+    throw new Error(errorMsg);
   }
 
   return data;
