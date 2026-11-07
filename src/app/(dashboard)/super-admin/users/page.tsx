@@ -84,6 +84,12 @@ function UsersManagementContent() {
   const [actionMenuOpenId, setActionMenuOpenId] = useState<string | null>(null);
   const [reconciling, setReconciling] = useState(false);
 
+  // Orphan Purge States
+  const [purgingOrphans, setPurgingOrphans] = useState(false);
+  const [showPurgeModal, setShowPurgeModal] = useState(false);
+  const [purgeDryRunResult, setPurgeDryRunResult] = useState<any | null>(null);
+  const [dryRunRunning, setDryRunRunning] = useState(false);
+
   const handleReconcileDirectory = async () => {
     try {
       setReconciling(true);
@@ -99,6 +105,41 @@ function UsersManagementContent() {
       toast.error(err?.message || "Failed to reconcile directory");
     } finally {
       setReconciling(false);
+    }
+  };
+
+  const handlePurgeOrphans = async (dryRun = false) => {
+    try {
+      if (dryRun) setDryRunRunning(true);
+      else setPurgingOrphans(true);
+
+      const res = await fetch("/api/super-admin/purge-orphans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dryRun }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to purge orphaned records");
+      }
+
+      if (dryRun) {
+        setPurgeDryRunResult(data.result);
+        toast.info(data.message);
+      } else {
+        toast.success(data.message || "Orphaned records successfully wiped.");
+        setShowPurgeModal(false);
+        setPurgeDryRunResult(null);
+        setLoading(true);
+        const refreshed = await getAllUsers();
+        setUsers(refreshed);
+        setLoading(false);
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to purge orphans");
+    } finally {
+      if (dryRun) setDryRunRunning(false);
+      else setPurgingOrphans(false);
     }
   };
 
@@ -372,6 +413,12 @@ function UsersManagementContent() {
         Boolean(searchQuery.trim()),
     };
   }, [scopeFilteredUsers, filteredUsers, roleCounts, users.length, schoolFilter, roleFilter, statusFilter, lastActiveFilter, accountTypeFilter, searchQuery]);
+
+  // Orphan records detection (users belonging to deleted or non-existent schools)
+  const orphanUsers = useMemo(() => {
+    return users.filter((u: any) => Boolean((u as any).isOrphan));
+  }, [users]);
+  const orphanCount = orphanUsers.length;
 
   // Copy UID helper
   const handleCopyUid = (uid: string) => {
@@ -701,8 +748,54 @@ function UsersManagementContent() {
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin text-blue-600" : ""}`} />
             Refresh
           </button>
+          <button
+            onClick={() => setShowPurgeModal(true)}
+            disabled={purgingOrphans || loading}
+            title="Scan and deep-purge orphaned ghost records from deleted schools"
+            className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2 text-sm font-medium text-red-700 hover:bg-red-100 shadow-sm transition-colors dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-300"
+          >
+            <Trash2 className={`h-4 w-4 ${purgingOrphans ? "animate-spin" : ""}`} />
+            {purgingOrphans ? "Purging..." : "Purge Ghost Records"}
+          </button>
         </div>
       </div>
+
+      {/* Orphaned Ghost Records Warning Banner */}
+      {orphanCount > 0 && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-xl border border-amber-300 bg-amber-50/90 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold">
+                {orphanCount} Ghost Records Detected From Deleted Schools
+              </p>
+              <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                These {orphanCount} records belong to deleted institutions (e.g. {orphanUsers[0]?.schoolId || "previous school"}). They load unnecessary server data because past deletions did not cascade. Click below to erase them permanently.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => handlePurgeOrphans(true)}
+              disabled={dryRunRunning || purgingOrphans}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:bg-gray-900 dark:text-amber-300"
+            >
+              <Eye className="h-3.5 w-3.5" />
+              {dryRunRunning ? "Scanning..." : "Dry Run Scan"}
+            </button>
+            <button
+              onClick={() => setShowPurgeModal(true)}
+              disabled={purgingOrphans}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700 shadow-sm transition-all"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Erase All Ghost Data
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 7 KPI Summary Cards (Interactive & Clickable) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
@@ -1071,13 +1164,22 @@ function UsersManagementContent() {
                       <td className="py-3.5 px-3 text-xs">
                         {u.schoolId ? (
                           <div className="flex flex-col">
-                            <span className="font-medium text-gray-900 dark:text-gray-200">
-                              {targetSchool ? targetSchool.name : u.schoolId.slice(0, 8)}
-                            </span>
-                            {targetSchool?.code && (
-                              <span className="text-[10px] text-blue-600 font-mono">
-                                CODE: {targetSchool.code}
+                            {(u as any).isOrphan || !targetSchool ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 px-2 py-0.5 rounded border border-rose-200/50 dark:border-rose-900/50">
+                                <AlertTriangle className="h-3 w-3" />
+                                Deleted: {u.schoolId.slice(0, 8)}
                               </span>
+                            ) : (
+                              <>
+                                <span className="font-medium text-gray-900 dark:text-gray-200">
+                                  {targetSchool.name}
+                                </span>
+                                {targetSchool?.code && (
+                                  <span className="text-[10px] text-blue-600 font-mono">
+                                    CODE: {targetSchool.code}
+                                  </span>
+                                )}
+                              </>
                             )}
                           </div>
                         ) : (
@@ -1746,6 +1848,116 @@ function UsersManagementContent() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Deep Purge Orphaned Ghost Records Modal */}
+      {showPurgeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-900 border border-red-200 dark:border-red-900/60 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
+              <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+                <Trash2 className="h-5 w-5" />
+                <h3 className="font-bold text-gray-900 dark:text-white">
+                  Deep Purge Orphaned School Records
+                </h3>
+              </div>
+              <button
+                onClick={() => {
+                  setShowPurgeModal(false);
+                  setPurgeDryRunResult(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <div className="rounded-xl bg-red-50 dark:bg-red-950/40 p-4 text-xs text-red-800 dark:text-red-300 border border-red-200/60 dark:border-red-900/40">
+                <p className="font-semibold text-sm mb-1">
+                  Institutional Data Deletion Protocol
+                </p>
+                <p>
+                  This operation authoritatively wipes all ghost records (users, students, teachers, classes, attendance, fees, etc.) that belong to schools that have been deleted or no longer exist in the system.
+                </p>
+                <p className="mt-2 text-rose-700 dark:text-rose-400 font-medium">
+                  • Deletes Firestore documents across all root collections in safe batches of 400.
+                  <br />
+                  • Permanently deletes exclusive Firebase Authentication accounts so they cannot log in.
+                  <br />
+                  • Super Admin accounts are ALWAYS preserved and never touched.
+                </p>
+              </div>
+
+              {purgeDryRunResult && (
+                <div className="rounded-xl bg-gray-50 dark:bg-gray-800/60 p-3 text-xs space-y-2 border border-gray-200 dark:border-gray-700">
+                  <p className="font-semibold text-gray-900 dark:text-white">
+                    Scan Results (Dry Run):
+                  </p>
+                  <p className="text-gray-600 dark:text-gray-300">
+                    Total Orphan Records Found: <strong className="text-red-600">{purgeDryRunResult.totalOrphanDocsFound}</strong>
+                  </p>
+                  <p className="text-gray-600 dark:text-gray-300">
+                    Affected Deleted Schools: <span className="font-mono">{purgeDryRunResult.orphanedSchoolsDetected?.join(", ") || "None"}</span>
+                  </p>
+                  {purgeDryRunResult.collectionsSummary && (
+                    <div className="mt-2 max-h-32 overflow-y-auto space-y-1 font-mono text-[11px] bg-white dark:bg-gray-900 p-2 rounded border border-gray-200 dark:border-gray-800">
+                      {Object.entries(purgeDryRunResult.collectionsSummary)
+                        .filter(([_, val]: any) => val.found > 0)
+                        .map(([col, val]: any) => (
+                          <div key={col} className="flex justify-between">
+                            <span>{col}:</span>
+                            <span className="font-bold text-red-600">{val.found} docs</span>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-2 pt-3 border-t border-gray-100 dark:border-gray-800">
+                <button
+                  type="button"
+                  onClick={() => handlePurgeOrphans(true)}
+                  disabled={dryRunRunning || purgingOrphans}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3.5 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                >
+                  {dryRunRunning && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Dry Run Scan
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPurgeModal(false);
+                      setPurgeDryRunResult(null);
+                    }}
+                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handlePurgeOrphans(false)}
+                    disabled={purgingOrphans}
+                    className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 shadow-sm"
+                  >
+                    {purgingOrphans ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Purging Data...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="h-4 w-4" />
+                        Confirm & Erase All Ghost Data
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

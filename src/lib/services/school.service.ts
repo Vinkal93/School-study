@@ -80,6 +80,16 @@ export async function createSchoolWithAdmin(
     throw err;
   }
 
+  if (errorCode === "FIRESTORE_QUOTA_EXCEEDED") {
+    const err = new Error(
+      data?.error?.message ||
+      "Firebase Cloud Firestore daily quota exceeded (RESOURCE_EXHAUSTED). The Spark free tier daily limit has been reached. Please upgrade to the Blaze plan in Firebase Console or wait for quota reset."
+    );
+    (err as Error & { code: string }).code = errorCode;
+    if (refCode) (err as any).referenceCode = refCode;
+    throw err;
+  }
+
   const errorMsg =
     (typeof data.error === "object" ? data.error?.message : data.error) ||
     data.message ||

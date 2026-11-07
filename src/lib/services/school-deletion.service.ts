@@ -56,6 +56,10 @@ const SCHOOL_SUBCOLLECTIONS = [
 ];
 
 const ROOT_COLLECTIONS_TIED_TO_SCHOOL = [
+  "students",
+  "teachers",
+  "staff",
+  "parents",
   "orders",
   "invoices",
   "attendance",
@@ -67,7 +71,11 @@ const ROOT_COLLECTIONS_TIED_TO_SCHOOL = [
   "emergency_announcements",
   "classes",
   "sections",
+  "subjects",
   "timetable",
+  "exams",
+  "grades",
+  "assignments",
   "feeDemands",
   "financialPayments",
   "paymentAllocations",
