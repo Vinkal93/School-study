@@ -142,15 +142,37 @@ export default function SuperAdminAnnouncementsPage() {
   const saveAndPublish = async (updatedAnnouncements: CmsAnnouncement[], successMsg: string) => {
     setSaving(true);
     try {
-      const updatedSettings: SiteSettings = {
+      const sanitized = sanitizeSiteSettings({
         ...siteSettings,
         announcements: updatedAnnouncements,
         updatedAt: new Date().toISOString(),
+      });
+      const nextVersion = (siteSettings.version || 1) + 1;
+      const updatedSettings: SiteSettings = {
+        ...sanitized,
+        version: nextVersion,
+        status: "published",
+        updatedAt: new Date().toISOString(),
+        updatedBy: profile?.email || firebaseUser?.email || "super_admin",
       };
 
-      let saved = false;
-      const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
+      // 1. Direct client-side write to Firestore using authenticated Super Admin session
+      try {
+        const db = getFirebaseDb();
+        if (db) {
+          await setDoc(doc(db, "siteSettings", "global"), updatedSettings);
+          await setDoc(doc(db, "siteSettings", "draft"), updatedSettings);
+        }
+      } catch (clientWriteErr) {
+        console.warn("Direct client firestore write notice:", clientWriteErr);
+      }
 
+      // Update state immediately
+      setSiteSettings(updatedSettings);
+      setAnnouncements(updatedAnnouncements);
+
+      // 2. Server API sync (uses adminDb on server, audits, syncs portal UI)
+      const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
       try {
         const res = await fetch("/api/super-admin/site-settings", {
           method: "POST",
@@ -168,28 +190,13 @@ export default function SuperAdminAnnouncementsPage() {
 
         if (res.ok) {
           const json = await res.json();
-          setSiteSettings(json.settings || updatedSettings);
-          setAnnouncements(json.settings?.announcements || updatedAnnouncements);
-          saved = true;
+          if (json.settings) {
+            setSiteSettings(json.settings);
+            setAnnouncements(json.settings.announcements || updatedAnnouncements);
+          }
         }
       } catch (apiErr) {
-        console.warn("API save failed, using direct client fallback:", apiErr);
-      }
-
-      if (!saved) {
-        const db = getFirebaseDb();
-        if (db) {
-          const sanitized = sanitizeSiteSettings(updatedSettings);
-          await setDoc(doc(db, "siteSettings", "global"), {
-            ...sanitized,
-            version: (sanitized.version || 1) + 1,
-            publishedAt: new Date().toISOString(),
-            publishedBy: profile?.email || profile?.name || "super_admin",
-          });
-          setSiteSettings(sanitized);
-          setAnnouncements(sanitized.announcements || updatedAnnouncements);
-          saved = true;
-        }
+        console.warn("API save notice:", apiErr);
       }
 
       toast.success(successMsg);

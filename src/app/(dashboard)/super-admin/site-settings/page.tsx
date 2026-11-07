@@ -388,24 +388,111 @@ export default function SuperAdminSiteSettingsPage() {
     });
   };
 
-  const handleToggleAnnouncementActive = (id: string) => {
-    setSettings({
+  const handleToggleAnnouncementActive = async (id: string) => {
+    const updatedAnnouncements = (settings.announcements || []).map((a) =>
+      a.id === id ? { ...a, active: !a.active } : a
+    );
+    const updatedSettings: SiteSettings = {
       ...settings,
-      announcements: (settings.announcements || []).map((a) =>
-        a.id === id ? { ...a, active: !a.active } : a
-      ),
-    });
+      announcements: updatedAnnouncements,
+    };
+    setSettings(updatedSettings);
+
+    const targetAnn = updatedAnnouncements.find((a) => a.id === id);
+    const isNowActive = targetAnn?.active;
+
+    try {
+      const nowIso = new Date().toISOString();
+      const actorId = profile?.email || firebaseUser?.email || "super_admin";
+      const nextVersion = (settings.version || 1) + 1;
+      const publishedDoc: SiteSettings = {
+        ...sanitizeSiteSettings(updatedSettings),
+        version: nextVersion,
+        status: "published",
+        updatedAt: nowIso,
+        updatedBy: actorId,
+      };
+
+      // 1. Direct client write to Firestore
+      const db = getFirebaseDb();
+      if (db) {
+        await setDoc(doc(db, "siteSettings", "global"), publishedDoc);
+        await setDoc(doc(db, "siteSettings", "draft"), publishedDoc);
+      }
+
+      // 2. Server API write
+      const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
+      fetch("/api/super-admin/site-settings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+          ...(firebaseUser?.uid ? { "x-user-id": firebaseUser.uid } : {}),
+          ...(profile?.role ? { "x-user-role": profile.role } : {}),
+        },
+        body: JSON.stringify({
+          action: "publish",
+          settings: publishedDoc,
+        }),
+      }).catch((apiErr) => console.warn("Background publish notice:", apiErr));
+
+      setPublishedSettings(publishedDoc);
+      toast.success(isNowActive ? "Announcement turned ON and live!" : "Announcement turned OFF successfully!");
+    } catch (e: any) {
+      console.warn("Auto-publish toggle notice:", e);
+      toast.info("Announcement status updated in draft. Click 'Publish Live' to apply.");
+    }
   };
 
-  const handleDeleteAnnouncement = (id: string) => {
+  const handleDeleteAnnouncement = async (id: string) => {
     if (editingAnnouncementId === id) {
       handleCancelEditAnnouncement();
     }
-    setSettings({
+    const updatedAnnouncements = (settings.announcements || []).filter((a) => a.id !== id);
+    const updatedSettings: SiteSettings = {
       ...settings,
-      announcements: (settings.announcements || []).filter((a) => a.id !== id),
-    });
-    toast.success("Announcement removed from draft.");
+      announcements: updatedAnnouncements,
+    };
+    setSettings(updatedSettings);
+
+    try {
+      const nowIso = new Date().toISOString();
+      const actorId = profile?.email || firebaseUser?.email || "super_admin";
+      const nextVersion = (settings.version || 1) + 1;
+      const publishedDoc: SiteSettings = {
+        ...sanitizeSiteSettings(updatedSettings),
+        version: nextVersion,
+        status: "published",
+        updatedAt: nowIso,
+        updatedBy: actorId,
+      };
+
+      const db = getFirebaseDb();
+      if (db) {
+        await setDoc(doc(db, "siteSettings", "global"), publishedDoc);
+        await setDoc(doc(db, "siteSettings", "draft"), publishedDoc);
+      }
+
+      const idToken = firebaseUser ? await firebaseUser.getIdToken().catch(() => "") : "";
+      fetch("/api/super-admin/site-settings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+          ...(firebaseUser?.uid ? { "x-user-id": firebaseUser.uid } : {}),
+          ...(profile?.role ? { "x-user-role": profile.role } : {}),
+        },
+        body: JSON.stringify({
+          action: "publish",
+          settings: publishedDoc,
+        }),
+      }).catch((apiErr) => console.warn("Background publish notice:", apiErr));
+
+      setPublishedSettings(publishedDoc);
+      toast.success("Announcement deleted and updated live!");
+    } catch (e: any) {
+      toast.success("Announcement removed from draft.");
+    }
   };
 
   // --- FAQ Handlers ---

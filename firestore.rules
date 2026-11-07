@@ -822,7 +822,7 @@ service cloud.firestore {
     match /siteSettings/{docId} {
       // Public landing/branding settings can be read publicly; control settings require auth.
       // communication_secrets is STRICTLY SERVER-ONLY and completely blocked from client reads/writes.
-      allow read: if (docId in ['branding', 'landing_page', 'footer', 'seo_metadata'] || isAuthenticated()) && docId != 'communication_secrets';
+      allow read: if (docId in ['global', 'branding', 'landing_page', 'footer', 'seo_metadata'] || isAuthenticated()) && docId != 'communication_secrets';
       allow write: if isSuperAdmin() && docId != 'communication_secrets';
     }
 
