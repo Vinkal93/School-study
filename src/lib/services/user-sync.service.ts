@@ -204,6 +204,21 @@ export async function getComprehensiveGlobalUsers(): Promise<AppUser[]> {
       })
     );
 
+    const validSchoolSet = new Set(schools.map((s) => s.id));
+    const schoolNameMap = new Map(schools.map((s) => [s.id, s.name]));
+
+    // Annotate users with school status & orphan flags
+    usersMap.forEach((u) => {
+      if (u.role !== "super_admin") {
+        if (u.schoolId && !validSchoolSet.has(u.schoolId)) {
+          (u as any).isOrphan = true;
+          (u as any).schoolName = (u as any).schoolName || `[Deleted School: ${u.schoolId}]`;
+        } else if (u.schoolId && validSchoolSet.has(u.schoolId)) {
+          (u as any).schoolName = schoolNameMap.get(u.schoolId) || (u as any).schoolName || u.schoolId;
+        }
+      }
+    });
+
     // Convert map to sorted array (newest first)
     const result = Array.from(usersMap.values());
     result.sort((a, b) => {
