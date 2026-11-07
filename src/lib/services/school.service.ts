@@ -488,9 +488,39 @@ export async function deleteUserFromSystem(user: AppUser): Promise<void> {
 }
 
 /**
- * Deletes a school document from Firebase Firestore.
+ * Deletes a school tenant and all associated data safely and securely.
  */
 export async function deleteSchoolFromSystem(schoolId: string): Promise<void> {
-  const db = getFirebaseDb();
-  await deleteDoc(doc(db, COLLECTIONS.SCHOOLS, schoolId));
+  const cleanId = (schoolId || "").trim();
+  if (!cleanId) return;
+
+  if (typeof window !== "undefined") {
+    let token = "";
+    try {
+      const { getFirebaseAuth } = await import("@/lib/firebase/client");
+      const auth = getFirebaseAuth();
+      if (auth?.currentUser) {
+        token = await auth.currentUser.getIdToken().catch(() => "");
+      }
+    } catch {}
+
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    const res = await fetch(`/api/super-admin/schools/${cleanId}`, {
+      method: "DELETE",
+      headers,
+      body: JSON.stringify({ reason: "School deleted via school.service" }),
+    });
+
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}));
+      throw new Error(json.error || `Failed to delete school "${cleanId}".`);
+    }
+    return;
+  }
+
+  // Server-side context
+  const { deleteSchoolSecurely } = await import("./school-deletion.service");
+  await deleteSchoolSecurely(cleanId, "system", "Server-side deleteSchoolFromSystem");
 }

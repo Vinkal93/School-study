@@ -3,6 +3,7 @@ import { getSuperAdminPin, DEFAULT_SUPER_ADMIN_PIN } from "@/lib/services/securi
 import { requireSuperAdmin } from "@/lib/auth/serverAuth";
 import { timingSafeEqualString } from "@/lib/security/timing-safe";
 import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/security/rate-limiter";
+import { deleteSchoolSecurely } from "@/lib/services/school-deletion.service";
 
 async function getAdminAuthServerOnly() {
   if (typeof window !== "undefined") return null;
@@ -398,103 +399,20 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: false, error: "Target School ID is required." }, { status: 400 });
       }
 
-      let schoolName = targetSchoolId;
-      let usersWiped = 0;
-      let subDocsWiped = 0;
-
-      if (adminDb) {
-        // 1. Fetch school details
-        const sDoc = await adminDb.collection("schools").doc(targetSchoolId).get().catch(() => null);
-        if (sDoc && sDoc.exists) {
-          schoolName = sDoc.data()?.name || targetSchoolId;
-        }
-
-        // 2. Wipe all subcollections of schools/{targetSchoolId}
-        for (const subColName of SCHOOL_SUBCOLLECTIONS) {
-          const subColRef = adminDb.collection("schools").doc(targetSchoolId).collection(subColName);
-          const count = await deleteCollectionRecursively(subColRef);
-          subDocsWiped += count;
-        }
-
-        // 3. Find and permanently delete all users belonging to this school
-        const usersSnap = await adminDb.collection("users").where("schoolId", "==", targetSchoolId).get().catch(() => null);
-        if (usersSnap && !usersSnap.empty) {
-          for (const uDoc of usersSnap.docs) {
-            const uid = uDoc.id;
-            if (uDoc.data()?.role === "super_admin") continue; // Never erase super_admin
-
-            // Delete from Firebase Auth
-            if (adminAuth) {
-              await adminAuth.deleteUser(uid).catch((err: any) => {
-                console.warn(`[UltraSecurity] Auth delete skipped for ${uid}:`, err?.message);
-              });
-              await adminAuth.revokeRefreshTokens(uid).catch(() => {});
-            }
-
-            // Delete active sessions and user record
-            await uDoc.ref.delete().catch(() => {});
-            await adminDb.collection("userIds").doc(uid).delete().catch(() => {});
-            const sessSnap = await adminDb.collection("active_sessions").where("userId", "==", uid).get().catch(() => null);
-            sessSnap?.forEach((d) => d.ref.delete().catch(() => {}));
-
-            usersWiped++;
-          }
-        }
-
-        // 4. Delete root collections tied to this school
-        await adminDb.collection("schoolSubscriptions").doc(targetSchoolId).delete().catch(() => {});
-        const rootCollectionsToClean = [
-          "orders",
-          "invoices",
-          "attendance",
-          "notices",
-          "inquiries",
-          "complaints",
-          "activity_logs",
-          "emergency_announcements",
-          "classes",
-          "sections",
-          "timetable",
-        ];
-        for (const col of rootCollectionsToClean) {
-          const snap = await adminDb.collection(col).where("schoolId", "==", targetSchoolId).get().catch(() => null);
-          if (snap && !snap.empty) {
-            const batch = adminDb.batch();
-            snap.forEach((d) => batch.delete(d.ref));
-            await batch.commit().catch(() => {});
-          }
-        }
-
-        // 5. Delete the school document itself
-        await adminDb.collection("schools").doc(targetSchoolId).delete().catch(() => {});
-
-        // 6. Record Audit Log
-        await adminDb.collection("ultra_security_audit_logs").add({
-          action: "ERASE_SCHOOL",
-          targetSchoolId,
-          schoolName,
-          usersWiped,
-          subDocsWiped,
-          performedBy: actorId,
-          timestamp: new Date().toISOString(),
-        }).catch(() => {});
-      } else {
-        // Client DB fallback
-        const clientModule = await import("@/lib/firebase/client");
-        const clientDb = clientModule.getFirebaseDb ? clientModule.getFirebaseDb() : null;
-        if (clientDb) {
-          const { doc, deleteDoc } = await import("firebase/firestore");
-          await deleteDoc(doc(clientDb, "schools", targetSchoolId)).catch(() => {});
-        }
-      }
+      const report = await deleteSchoolSecurely(
+        targetSchoolId,
+        actorId,
+        "Super Admin Ultra-Security erase operation"
+      );
 
       return NextResponse.json({
         success: true,
-        message: `School "${schoolName}" (ID: ${targetSchoolId}) and all associated users, records, and Firebase data have been permanently erased.`,
+        message: `School "${report.schoolName}" (ID: ${targetSchoolId}) and all associated users, records, and Firebase data have been permanently erased.`,
         report: {
           schoolId: targetSchoolId,
-          usersWiped,
-          subDocsWiped,
+          usersWiped: report.usersDeleted + report.usersRevoked,
+          subDocsWiped: report.subDocsWiped,
+          rootDocsWiped: report.rootDocsWiped,
         },
       });
     }

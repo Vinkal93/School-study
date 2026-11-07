@@ -22,6 +22,7 @@ import { useRouter } from "next/navigation";
 import { traceClient } from "@/lib/debug-client";
 import { appQueryClient } from "@/lib/cache";
 import { purgeAllFastCache, purgeTenantFastCache } from "@/lib/utils/fast-data-cache";
+import { validateSchoolStatus } from "@/lib/auth/schoolValidation";
 
 export type AuthBootstrapState =
   | "AUTH_BOOTSTRAPPING"
@@ -213,21 +214,70 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               return;
             }
 
-            console.warn("Notice: User profile not immediately resolved, preserving session with fallback profile.");
-            const fallbackProfile: AppUser = {
-              uid: user.uid,
-              email: (user.email || "").trim().toLowerCase(),
-              name: user.displayName || (user.email ? user.email.split("@")[0] : "User"),
-              role: isSuperAdminEmail(user.email) ? "super_admin" : "school_admin",
-              status: "active",
-              schoolId: null,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            } as unknown as AppUser;
+            if (isSuperAdminEmail(user.email)) {
+              const superAdminProfile: AppUser = {
+                uid: user.uid,
+                email: (user.email || "").trim().toLowerCase(),
+                name: user.displayName || "Super Administrator",
+                role: "super_admin",
+                status: "active",
+                schoolId: null,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              } as unknown as AppUser;
+              setOriginalProfile(superAdminProfile);
+              setBootstrapState("AUTHENTICATED_CONTEXT_READY");
+              return;
+            }
 
-            setOriginalProfile(fallbackProfile);
-            setBootstrapState("AUTHENTICATED_CONTEXT_READY");
+            // User record does not exist in authoritative storage (e.g. deleted account)
+            console.warn("Notice: User account record not found in authoritative storage. Ending session.");
+            await signOutUser();
+            setFirebaseUser(null);
+            setOriginalProfile(null);
+            setImpersonatedUser(null);
+            setBootstrapState("UNAUTHENTICATED");
+            setLoading(false);
+            try {
+              localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+              localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
+              localStorage.removeItem("ss_last_student_uid");
+              localStorage.removeItem("ss_last_student_email");
+              if (typeof document !== "undefined") {
+                document.cookie = "__session=; path=/; max-age=0; SameSite=Lax;";
+              }
+            } catch {}
             return;
+          }
+
+          // Authoritative School Validation for non-super-admin users
+          if (userProfile.role !== "super_admin" && userProfile.schoolId) {
+            const schoolVal = await validateSchoolStatus(userProfile.schoolId);
+            if (!schoolVal.valid) {
+              if (typeof window !== "undefined" && window.self !== window.top) {
+                return;
+              }
+              toast.error(
+                schoolVal.error ||
+                "School Account Not Found. This school account no longer exists. Please contact support."
+              );
+              await signOutUser();
+              setFirebaseUser(null);
+              setOriginalProfile(null);
+              setImpersonatedUser(null);
+              setBootstrapState("UNAUTHENTICATED");
+              setLoading(false);
+              try {
+                localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+                localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
+                localStorage.removeItem("ss_last_student_uid");
+                localStorage.removeItem("ss_last_student_email");
+                if (typeof document !== "undefined") {
+                  document.cookie = "__session=; path=/; max-age=0; SameSite=Lax;";
+                }
+              } catch {}
+              return;
+            }
           }
 
           if (
@@ -310,13 +360,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // RESILIENCE FIX: If user is temporarily null (e.g. during frame navigation or SDK hydration),
         // check if we still hold a valid session in localStorage.
-        // DO NOT wipe the session! Restore the profile from cache so the user is never logged out unexpectedly!
+        // Validate school status before restoring to prevent deleted schools from restoring cached sessions.
         if (typeof window !== "undefined") {
           try {
             const cached = localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
             if (cached) {
               const parsed = JSON.parse(cached);
               if (parsed && parsed.uid) {
+                if (parsed.role !== "super_admin" && parsed.schoolId) {
+                  const check = await validateSchoolStatus(parsed.schoolId);
+                  if (!check.valid && !check.allowed) {
+                    try {
+                      localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+                      localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
+                      localStorage.removeItem("ss_last_student_uid");
+                      localStorage.removeItem("ss_last_student_email");
+                      if (typeof document !== "undefined") {
+                        document.cookie = "__session=; path=/; max-age=0; SameSite=Lax;";
+                      }
+                    } catch {}
+                    setOriginalProfile(null);
+                    setImpersonatedUser(null);
+                    setBootstrapState("UNAUTHENTICATED");
+                    setLoading(false);
+                    return;
+                  }
+                }
                 traceClient("auth:user_null_restored_from_cache", { uid: parsed.uid, email: parsed.email });
                 setOriginalProfile(parsed);
                 setBootstrapState("AUTHENTICATED_CONTEXT_READY");
@@ -457,7 +526,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             status: "failed",
             failureReason: "Account profile not found",
           }).catch((e) => console.warn("Notice: Login logging notice:", e));
-          throw new Error("Account not found. Please contact admin.");
+          throw new Error("Account not found. Please verify your credentials or contact support.");
         }
 
         if (
@@ -482,6 +551,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error(
             "Your account has been suspended or deactivated. Please contact platform admin."
           );
+        }
+
+        if (userProfile.role !== "super_admin" && userProfile.schoolId) {
+          const schoolStatus = await validateSchoolStatus(userProfile.schoolId, true);
+          if (!schoolStatus.valid && !schoolStatus.allowed) {
+            await signOutUser();
+            setFirebaseUser(null);
+            setOriginalProfile(null);
+            setLoading(false);
+            try {
+              localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+              localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
+              localStorage.removeItem("ss_last_student_uid");
+              localStorage.removeItem("ss_last_student_email");
+              if (typeof document !== "undefined") {
+                document.cookie = "__session=; path=/; max-age=0; SameSite=Lax;";
+              }
+            } catch {}
+            logLoginAttempt({
+              uid: fbUser.uid,
+              email: userProfile.email,
+              role: userProfile.role,
+              schoolId: userProfile.schoolId || null,
+              userAgent,
+              browser,
+              platform,
+              deviceType,
+              status: "failed",
+              failureReason: schoolStatus.reason || "School access rejected",
+            }).catch(() => {});
+
+            if (
+              schoolStatus.status === "deleted" ||
+              schoolStatus.status === "deleting" ||
+              schoolStatus.status === "missing"
+            ) {
+              throw new Error("School Account Not Found. This school account no longer exists. Please contact support.");
+            }
+            if (schoolStatus.status === "suspended") {
+              throw new Error("School Access Suspended. This school account is currently suspended. Please contact platform admin.");
+            }
+            throw new Error(schoolStatus.reason || "School authorization failed. Please contact support.");
+          }
         }
 
         // Multi-Account Device Detection (Check if another student logged in on this browser/device)
