@@ -382,6 +382,29 @@ export async function POST(request: Request) {
 
     console.error(`[school-register] [${requestId}] Registration error:`, error?.message || error);
 
+    const isQuotaExceeded =
+      error?.code === 8 ||
+      String(error?.message || "").includes("Quota exceeded") ||
+      String(error?.message || "").includes("RESOURCE_EXHAUSTED");
+
+    if (isQuotaExceeded) {
+      const quotaMessage =
+        "Firebase Cloud Firestore daily quota exceeded (RESOURCE_EXHAUSTED). The Spark free tier daily limit has been reached. Please upgrade to the Blaze (Pay-as-you-go) plan in the Firebase Console or wait for the daily quota reset.";
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "FIRESTORE_QUOTA_EXCEEDED",
+            message: quotaMessage,
+            requestId,
+            retryable: false,
+          },
+          code: "FIRESTORE_QUOTA_EXCEEDED",
+        },
+        { status: 429 }
+      );
+    }
+
     const isConflict = error?.message?.includes("already registered");
     const safeMessage = isConflict
       ? `School code is already registered. Please choose a different code.`
