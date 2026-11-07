@@ -43,7 +43,7 @@ export function SiteSettingsProvider({
 
   const fetchSettings = useCallback(async () => {
     try {
-      const res = await fetch("/api/site-settings");
+      const res = await fetch("/api/site-settings", { cache: "no-store" });
       if (res.ok) {
         const json = await res.json();
         if (json.settings) {
@@ -72,6 +72,9 @@ export function SiteSettingsProvider({
               const merged: SiteSettings = {
                 ...DEFAULT_SITE_SETTINGS,
                 ...data,
+                announcements: Array.isArray(data.announcements)
+                  ? data.announcements
+                  : DEFAULT_SITE_SETTINGS.announcements,
                 header: {
                   ...DEFAULT_SITE_SETTINGS.header,
                   ...(data.header || {}),

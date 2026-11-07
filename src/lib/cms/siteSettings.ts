@@ -530,11 +530,12 @@ export function sanitizeSiteSettings(settings: Partial<SiteSettings>): SiteSetti
       defaultTitle: sanitizeCmsString(settings.seo?.defaultTitle || DEFAULT_SITE_SETTINGS.seo.defaultTitle),
       defaultDescription: sanitizeCmsString(settings.seo?.defaultDescription || DEFAULT_SITE_SETTINGS.seo.defaultDescription),
     },
-    announcements: (settings.announcements || DEFAULT_SITE_SETTINGS.announcements).map((a) => ({
+    announcements: (Array.isArray(settings.announcements) ? settings.announcements : DEFAULT_SITE_SETTINGS.announcements).map((a) => ({
       ...a,
       title: sanitizeCmsString(a.title),
       message: sanitizeCmsString(a.message),
       linkText: a.linkText ? sanitizeCmsString(a.linkText) : undefined,
+      active: typeof a.active === "boolean" ? a.active : true,
       marquee: typeof a.marquee === "boolean" ? a.marquee : true,
       targetScope: a.targetScope === "SELECTED" ? "SELECTED" : "ALL",
       targetSchoolIds: Array.isArray(a.targetSchoolIds) ? a.targetSchoolIds.map((s) => sanitizeCmsString(s)).filter(Boolean) : [],
@@ -584,19 +585,37 @@ export function sanitizeSiteSettings(settings: Partial<SiteSettings>): SiteSetti
  * Public Source of Truth: Reads published site settings.
  */
 export async function getPublicSiteSettings(): Promise<SiteSettings> {
-  const db = getFirebaseDb();
-  if (!db) return DEFAULT_SITE_SETTINGS;
-
-  try {
-    const docRef = doc(db, "siteSettings", "global");
-    const snap = await getDoc(docRef);
-
-    if (snap.exists()) {
-      const data = snap.data() as Partial<SiteSettings>;
-      return sanitizeSiteSettings(data);
+  // 1. Try Firebase Admin on server if available
+  if (typeof window === "undefined") {
+    try {
+      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+      const adminDb = getSafeAdminDb();
+      if (adminDb) {
+        const snap = await adminDb.collection("siteSettings").doc("global").get();
+        if (snap.exists) {
+          const data = snap.data() as Partial<SiteSettings>;
+          return sanitizeSiteSettings(data);
+        }
+      }
+    } catch (adminErr) {
+      // Fallback to client SDK
     }
-  } catch (err) {
-    console.error("Failed to fetch public site settings from Firestore:", err);
+  }
+
+  // 2. Direct client SDK fetch
+  const db = getFirebaseDb();
+  if (db) {
+    try {
+      const docRef = doc(db, "siteSettings", "global");
+      const snap = await getDoc(docRef);
+
+      if (snap.exists()) {
+        const data = snap.data() as Partial<SiteSettings>;
+        return sanitizeSiteSettings(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch public site settings from Firestore:", err);
+    }
   }
 
   return DEFAULT_SITE_SETTINGS;
@@ -618,9 +637,25 @@ export async function saveSiteSettingsDraft(
     status: "draft",
   };
 
+  if (typeof window === "undefined") {
+    try {
+      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+      const adminDb = getSafeAdminDb();
+      if (adminDb) {
+        await adminDb.collection("siteSettings").doc("draft").set(draft);
+      }
+    } catch (adminErr) {
+      console.warn("Server adminDb draft write notice:", adminErr);
+    }
+  }
+
   const db = getFirebaseDb();
   if (db) {
-    await setDoc(doc(db, "siteSettings", "draft"), draft);
+    try {
+      await setDoc(doc(db, "siteSettings", "draft"), draft);
+    } catch (draftErr) {
+      console.warn("Client draft write notice:", draftErr);
+    }
   }
   return draft;
 }
@@ -646,18 +681,39 @@ export async function publishSiteSettings(
 
   const versionId = `v${nextVersion}_${Date.now()}`;
 
+  // 1. Server-side Firebase Admin SDK write (bypasses unauthenticated client SDK limitations on server)
+  if (typeof window === "undefined") {
+    try {
+      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+      const adminDb = getSafeAdminDb();
+      if (adminDb) {
+        await adminDb.collection("siteSettings").doc("global").set(published);
+        await adminDb.collection("siteSettings").doc("draft").set(published);
+        try {
+          await adminDb.collection("siteSettingsVersions").doc(versionId).set(published);
+        } catch (verErr) {
+          console.warn("Server siteSettingsVersions snapshot notice:", verErr);
+        }
+      }
+    } catch (adminErr) {
+      console.warn("Server adminDb publish notice:", adminErr);
+    }
+  }
+
+  // 2. Client SDK write (when called in client context or client fallback)
   const db = getFirebaseDb();
   if (db) {
     try {
       await setDoc(doc(db, "siteSettings", "global"), published);
+      await setDoc(doc(db, "siteSettings", "draft"), published);
     } catch (pubErr) {
-      console.warn("Server siteSettings/global write notice:", pubErr);
+      console.warn("Client siteSettings/global write notice:", pubErr);
     }
 
     try {
       await setDoc(doc(db, "siteSettingsVersions", versionId), published);
     } catch (verErr) {
-      console.warn("Server siteSettingsVersions snapshot notice (expected in uncredentialed serverless):", verErr);
+      console.warn("Client siteSettingsVersions snapshot notice:", verErr);
     }
 
     try {
@@ -684,12 +740,25 @@ export async function publishSiteSettings(
  * Super Admin: Lists historical published versions.
  */
 export async function getSiteSettingsVersions(): Promise<SiteSettings[]> {
+  if (typeof window === "undefined") {
+    try {
+      const { getSafeAdminDb } = await import("@/lib/firebase/admin");
+      const adminDb = getSafeAdminDb();
+      if (adminDb) {
+        const snap = await adminDb.collection("siteSettingsVersions").get();
+        const list = snap.docs.map((d) => sanitizeSiteSettings(d.data() as Partial<SiteSettings>));
+        list.sort((a, b) => (b.version || 0) - (a.version || 0));
+        return list;
+      }
+    } catch (adminErr) {}
+  }
+
   const db = getFirebaseDb();
   if (!db) return [];
 
   try {
     const snap = await getDocs(collection(db, "siteSettingsVersions"));
-    const list = snap.docs.map((d) => d.data() as SiteSettings);
+    const list = snap.docs.map((d) => sanitizeSiteSettings(d.data() as Partial<SiteSettings>));
     list.sort((a, b) => (b.version || 0) - (a.version || 0));
     return list;
   } catch (err) {
