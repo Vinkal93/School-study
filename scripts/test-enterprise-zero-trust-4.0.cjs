@@ -214,6 +214,9 @@ async function runZeroTrustSuite() {
       logAuditEvent: async () => {},
       AUDIT_COLLECTIONS: { AUDIT_LOGS: 'audit_logs' },
     },
+    '@/lib/services/school-deletion.service': {
+      deleteSchoolSecurely: async () => ({ success: true }),
+    },
   };
 
   const ultraRoute = transpileAndRun('src/app/api/super-admin/ultra-security/route.ts', ultraSecurityMocks);

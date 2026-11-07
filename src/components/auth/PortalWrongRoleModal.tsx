@@ -9,6 +9,7 @@ interface PortalWrongRoleModalProps {
   actualRole: UserRole;
   onDismiss: () => void;
   onSignOut?: () => void;
+  hideRedirect?: boolean;
 }
 
 const ROLE_INFO_MAP: Record<
@@ -42,6 +43,7 @@ export function PortalWrongRoleModal({
   actualRole,
   onDismiss,
   onSignOut,
+  hideRedirect = false,
 }: PortalWrongRoleModalProps) {
   const correctInfo = ROLE_INFO_MAP[actualRole] || {
     name: "another account type",
@@ -80,13 +82,15 @@ export function PortalWrongRoleModal({
             <span>Sign Out & Switch Account</span>
           </button>
         )}
-        <Link
-          href={correctInfo.loginRoute}
-          className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-amber-700 active:scale-95 transition-all"
-        >
-          <span>{correctInfo.buttonText}</span>
-          <ArrowRight className="h-3.5 w-3.5" />
-        </Link>
+        {!hideRedirect && (
+          <Link
+            href={correctInfo.loginRoute}
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-amber-700 active:scale-95 transition-all"
+          >
+            <span>{correctInfo.buttonText}</span>
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        )}
         <button
           type="button"
           onClick={onDismiss}

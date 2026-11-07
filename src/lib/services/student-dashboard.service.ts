@@ -48,18 +48,35 @@ export async function getStudentDashboardData(
     getDoc(doc(db, "schools", schoolId)),
   ]);
 
+  if (!schoolSnap.exists()) {
+    throw new Error("School Account Not Found. This school account no longer exists. Please contact support.");
+  }
+
+  loadedSchool = {
+    id: schoolSnap.id,
+    ...schoolSnap.data(),
+  } as School;
+
+  const st = (loadedSchool.status || "").toLowerCase();
+  if (st === "deleting" || st === "deleted" || (loadedSchool as any).isDeleting || (loadedSchool as any).isDeleted) {
+    throw new Error("School Account Not Found. This school account no longer exists. Please contact support.");
+  }
+
+  if (st === "suspended" || (loadedSchool as any).operationalStatus === "SUSPENDED" || loadedSchool.isEmergencyPaused) {
+    throw new Error("School Access Suspended. This school account is currently suspended. Please contact support.");
+  }
+
+  if (st !== "active" && st !== "trial") {
+    throw new Error("School Account Inactive. This school account is not currently active. Please contact support.");
+  }
+
   if (!studentSnap.empty) {
     loadedStudent = {
       id: studentSnap.docs[0].id,
       ...studentSnap.docs[0].data(),
     } as StudentProfile;
-  }
-
-  if (schoolSnap.exists()) {
-    loadedSchool = {
-      id: schoolSnap.id,
-      ...schoolSnap.data(),
-    } as School;
+  } else {
+    throw new Error("Student membership record not found for this school account.");
   }
 
   const fullName = loadedStudent?.name || fallbackName || "Student";

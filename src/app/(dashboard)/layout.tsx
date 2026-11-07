@@ -17,6 +17,8 @@ import {
 import { Spinner } from "@/components/common/Spinner";
 import { AdminWelcomeOverlay } from "@/components/common/AdminWelcomeOverlay";
 import { FeatureShowcaseModal } from "@/components/showcase/FeatureShowcaseModal";
+import { toast } from "sonner";
+import { validateSchoolStatus } from "@/lib/auth/schoolValidation";
 
 function DashboardShellSwitch({ children }: { children: React.ReactNode }) {
   const { isNewUI, isLiquidGlassUI, activePortal, loading } = usePortalUI();
@@ -54,7 +56,7 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { firebaseUser, profile, loading } = useAuth();
+  const { firebaseUser, profile, loading, signOut } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [isMounted, setIsMounted] = useState(false);
@@ -120,6 +122,27 @@ export default function DashboardLayout({
           router.replace("/super-admin/login");
           return;
         }
+      } else if (profile && profile.role !== "super_admin" && profile.schoolId) {
+        // Enforce centralized school validation on all tenant routes
+        validateSchoolStatus(profile.schoolId).then((check) => {
+          if (!check.valid && !check.allowed) {
+            signOut().catch(() => {});
+            if (
+              check.status === "deleted" ||
+              check.status === "deleting" ||
+              check.status === "missing"
+            ) {
+              toast.error(
+                "School Account Not Found. This school account no longer exists. Please contact support."
+              );
+            } else if (check.status === "suspended") {
+              toast.error(
+                "School Access Suspended. This school account is currently suspended. Please contact platform admin."
+              );
+            }
+            router.replace("/login");
+          }
+        }).catch(() => {});
       }
 
       if (profile && !isRoleAllowedForPath(profile.role, pathname)) {
@@ -128,7 +151,7 @@ export default function DashboardLayout({
         router.replace(correctRoute);
       }
     }
-  }, [firebaseUser, profile, loading, router, pathname, isMounted]);
+  }, [firebaseUser, profile, loading, router, pathname, isMounted, signOut]);
 
   const isEmbeddedIframe =
     typeof window !== "undefined" && window.self !== window.top;

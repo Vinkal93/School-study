@@ -21,6 +21,7 @@ import { AuthButton } from "@/components/auth/AuthButton";
 import { PortalWrongRoleModal } from "@/components/auth/PortalWrongRoleModal";
 import { toast } from "sonner";
 import type { UserRole } from "@/types";
+import { validateSchoolStatus } from "@/lib/auth/schoolValidation";
 
 function AdminLoginForm() {
   const [email, setEmail] = useState("");
@@ -35,18 +36,50 @@ function AdminLoginForm() {
 
   // Auto-redirect if already logged in as school administrator
   useEffect(() => {
-    if (!loading && firebaseUser && profile?.role) {
-      const canonicalRole = normalizeRole(profile.role);
-      if (canonicalRole === "school_admin" || canonicalRole === "super_admin") {
-        router.replace(redirectParam || "/admin");
-      } else {
-        // Active session is for a different role (e.g. student or teacher)
-        // DO NOT force-kick the user away from this admin login page.
-        // Surface the warning modal with an option to sign out and log in as admin.
-        setWrongRole(profile.role);
+    let cancelled = false;
+
+    async function checkSession() {
+      if (!loading && firebaseUser && profile?.role) {
+        if (profile.role !== "super_admin" && profile.schoolId) {
+          const check = await validateSchoolStatus(profile.schoolId);
+          if (cancelled) return;
+          if (!check.valid && !check.allowed) {
+            await signOut();
+            setWrongRole(null);
+            if (
+              check.status === "deleted" ||
+              check.status === "deleting" ||
+              check.status === "missing"
+            ) {
+              toast.error(
+                "School Account Not Found. This school account no longer exists. Please contact support."
+              );
+            } else if (check.status === "suspended") {
+              toast.error(
+                "School Access Suspended. This school account is currently suspended. Please contact platform admin."
+              );
+            }
+            return;
+          }
+        }
+
+        const canonicalRole = normalizeRole(profile.role);
+        if (canonicalRole === "school_admin" || canonicalRole === "super_admin") {
+          router.replace(redirectParam || "/admin");
+        } else {
+          // Active session is for a different role (e.g. student or teacher)
+          // DO NOT force-kick the user away from this admin login page.
+          // Surface the warning modal with an option to sign out and log in as admin.
+          setWrongRole(profile.role);
+        }
       }
     }
-  }, [firebaseUser, profile, loading, redirectParam, router]);
+
+    checkSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [firebaseUser, profile, loading, redirectParam, router, signOut]);
 
   const handleSignOutCurrentSession = async () => {
     try {
@@ -83,10 +116,15 @@ function AdminLoginForm() {
         router.push("/admin");
       }
     } catch (error: any) {
-      const message =
-        error?.code === "auth/invalid-credential" || error?.code === "auth/user-not-found"
-          ? "Email or password is incorrect. Please try again."
-          : error?.message || "Unable to sign in. Please check your connection and try again.";
+      let message = error?.message;
+      if (
+        error?.code === "auth/invalid-credential" ||
+        error?.code === "auth/user-not-found"
+      ) {
+        message = "Account not found. Please verify your credentials or contact support.";
+      } else if (!message) {
+        message = "Unable to sign in. Please check your connection and try again.";
+      }
       toast.error(message);
     } finally {
       setIsSubmitting(false);

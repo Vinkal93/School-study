@@ -3,8 +3,50 @@ import { getFirebaseDb } from "@/lib/firebase/client";
 import { doc, getDoc, updateDoc, serverTimestamp, addDoc, collection } from "firebase/firestore";
 import { COLLECTIONS } from "@/lib/utils/constants";
 import { AUDIT_COLLECTIONS } from "@/lib/services/audit.service";
+import { requireSuperAdmin } from "@/lib/auth/serverAuth";
+import { deleteSchoolSecurely } from "@/lib/services/school-deletion.service";
+import { validateSchoolStatus } from "@/lib/auth/schoolValidation";
 import type { AppUser, School } from "@/types";
 
+/**
+ * GET /api/super-admin/schools/[id]
+ * Authoritatively retrieves school record and validates active status.
+ */
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id: schoolId } = await params;
+    const validation = await validateSchoolStatus(schoolId);
+
+    if (!validation.valid || !validation.school) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: validation.code || "SCHOOL_NOT_FOUND",
+          error: validation.error || "School Account Not Found. This school account no longer exists. Please contact support.",
+        },
+        { status: validation.statusHttp || 404 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      school: validation.school,
+    });
+  } catch (error: any) {
+    return NextResponse.json(
+      { success: false, error: error?.message || "Failed to fetch school." },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * PATCH /api/super-admin/schools/[id]
+ * Updates school configuration or status.
+ */
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -14,34 +56,46 @@ export async function PATCH(
     const body = await req.json();
     const { performerUid, ...updates } = body;
 
-    if (!performerUid) {
-      return NextResponse.json(
-        { error: "Missing performerUid parameter" },
-        { status: 401 }
-      );
+    let performer: AppUser | null = null;
+
+    // 1. Authenticate Super Admin via cryptographic token or fallback
+    const authResult = await requireSuperAdmin(req).catch(() => null);
+    if (authResult?.user) {
+      performer = {
+        uid: authResult.user.uid,
+        email: authResult.user.email,
+        name: authResult.user.name || "Super Admin",
+        role: "super_admin",
+        status: "active",
+      } as AppUser;
+    } else if (performerUid) {
+      const db = getFirebaseDb();
+      const performerSnap = await getDoc(doc(db, COLLECTIONS.USERS, performerUid));
+      if (performerSnap.exists()) {
+        const u = performerSnap.data() as AppUser;
+        if (u.role === "super_admin" && u.status === "active") {
+          performer = u;
+        }
+      }
     }
 
-    const db = getFirebaseDb();
-
-    // 1. Verify Super Admin authorization
-    const performerSnap = await getDoc(doc(db, COLLECTIONS.USERS, performerUid));
-    if (!performerSnap.exists()) {
-      return NextResponse.json({ error: "Performer account not found" }, { status: 403 });
-    }
-
-    const performer = performerSnap.data() as AppUser;
-    if (performer.role !== "super_admin" || performer.status !== "active") {
+    if (!performer) {
       return NextResponse.json(
         { error: "Unauthorized. Active Super Admin permission required." },
         { status: 403 }
       );
     }
 
+    const db = getFirebaseDb();
+
     // 2. Fetch Existing School
     const schoolRef = doc(db, COLLECTIONS.SCHOOLS, schoolId);
     const schoolSnap = await getDoc(schoolRef);
     if (!schoolSnap.exists()) {
-      return NextResponse.json({ error: "School not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "School Account Not Found. This school account no longer exists. Please contact support." },
+        { status: 404 }
+      );
     }
 
     const previousData = schoolSnap.data() as School;
@@ -87,6 +141,45 @@ export async function PATCH(
     console.error("School update failed:", error);
     return NextResponse.json(
       { error: error?.message || "Failed to update school." },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE /api/super-admin/schools/[id]
+ * Authoritative, secure, and idempotent school deletion endpoint.
+ */
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id: schoolId } = await params;
+    let actorId = "super_admin";
+
+    // 1. Verify Super Admin authorization
+    const authResult = await requireSuperAdmin(req);
+    if (authResult.errorResponse) {
+      return authResult.errorResponse;
+    }
+    actorId = authResult.user?.uid || "super_admin";
+
+    const body = await req.json().catch(() => ({}));
+    const reason = body?.reason || "Super Admin institutional deletion";
+
+    // 2. Execute secure, idempotent, batched deletion
+    const report = await deleteSchoolSecurely(schoolId, actorId, reason);
+
+    return NextResponse.json({
+      success: true,
+      message: `School "${report.schoolName}" (${schoolId}) and all associated records have been permanently erased.`,
+      report,
+    });
+  } catch (error: any) {
+    console.error("School deletion error:", error);
+    return NextResponse.json(
+      { success: false, error: error?.message || "Failed to securely delete school." },
       { status: 500 }
     );
   }

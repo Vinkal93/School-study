@@ -10,6 +10,18 @@
 import { NextResponse } from "next/server";
 import { getFirebaseDb } from "@/lib/firebase/client";
 import { doc, getDoc } from "firebase/firestore";
+import {
+  validateTenantMember,
+  buildValidationErrorResponse,
+  validateSchoolStatus,
+  invalidateSchoolValidationCache,
+} from "./schoolValidation";
+export {
+  validateTenantMember,
+  buildValidationErrorResponse,
+  validateSchoolStatus,
+  invalidateSchoolValidationCache,
+};
 
 export type AppRole =
   | "super_admin"
@@ -465,6 +477,12 @@ export async function requireSchoolAdmin(
 
   // Super Admin direct platform access (when NOT impersonating)
   if (user.role === "super_admin" && !user.impersonatedBy) {
+    if (targetSchoolId) {
+      const schoolVal = await validateSchoolStatus(targetSchoolId);
+      if (!schoolVal.valid) {
+        return { errorResponse: buildValidationErrorResponse(schoolVal) };
+      }
+    }
     return { user };
   }
 
@@ -482,41 +500,17 @@ export async function requireSchoolAdmin(
     };
   }
 
-  // Tenant Assignment Check: School Admin MUST have an assigned school campus
-  if (!user.schoolId || !user.schoolId.trim()) {
-    return {
-      errorResponse: NextResponse.json(
-        {
-          success: false,
-          error: "Tenant Configuration Error: School Administrator has no assigned school campus. Please contact Super Admin.",
-          errorCode: "MISSING_SCHOOL_ASSIGNMENT",
-          code: "MISSING_SCHOOL_ASSIGNMENT",
-        },
-        { status: 403 }
-      ),
-    };
-  }
-
-  // Multi-Tenant Isolation: Admin can only access their own school
-  if (targetSchoolId && user.schoolId !== targetSchoolId) {
-    return {
-      errorResponse: NextResponse.json(
-        {
-          success: false,
-          error: "Access Denied. You do not have authorization to access this school's data.",
-          errorCode: "CROSS_TENANT_ACCESS_DENIED",
-          code: "CROSS_TENANT_ACCESS_DENIED",
-        },
-        { status: 403 }
-      ),
-    };
+  // Centralized School & Membership Validation (Denies deleted, suspended, missing schools immediately)
+  const validation = await validateTenantMember(user, targetSchoolId);
+  if (!validation.valid) {
+    return { errorResponse: buildValidationErrorResponse(validation) };
   }
 
   return { user };
 }
 
 /**
- * Enforces any valid authenticated session.
+ * Enforces any valid authenticated session and verifies active tenant membership.
  */
 export async function requireAuth(
   request: Request
@@ -525,7 +519,18 @@ export async function requireAuth(
   if (!authResult.isAuthenticated || !authResult.user) {
     return { errorResponse: authResult.errorResponse };
   }
-  return { user: authResult.user };
+
+  const { user } = authResult;
+
+  // Non-super-admins belonging to a school must belong to an ACTIVE school
+  if (user.schoolId && user.role !== "super_admin") {
+    const validation = await validateTenantMember(user);
+    if (!validation.valid) {
+      return { errorResponse: buildValidationErrorResponse(validation) };
+    }
+  }
+
+  return { user };
 }
 
 /**
@@ -542,41 +547,33 @@ export async function requireTeacher(
 
   const { user } = authResult;
 
-  if (user.role === "super_admin") {
+  if (user.role === "super_admin" && !user.impersonatedBy) {
+    if (targetSchoolId) {
+      const schoolVal = await validateSchoolStatus(targetSchoolId);
+      if (!schoolVal.valid) {
+        return { errorResponse: buildValidationErrorResponse(schoolVal) };
+      }
+    }
     return { user };
   }
 
   if (user.role !== "teacher") {
     return {
       errorResponse: NextResponse.json(
-        { error: "Access Denied. Teacher permissions required." },
-        { status: 403 }
-      ),
-    };
-  }
-
-  if (!user.schoolId || !user.schoolId.trim()) {
-    return {
-      errorResponse: NextResponse.json(
         {
-          error: "Tenant Configuration Error: Teacher has no assigned school campus. Please contact School Admin.",
-          code: "MISSING_SCHOOL_ASSIGNMENT",
+          success: false,
+          errorCode: "UNAUTHORIZED_ROLE",
+          error: "Access Denied. Teacher permissions required.",
         },
         { status: 403 }
       ),
     };
   }
 
-  if (targetSchoolId && user.schoolId !== targetSchoolId) {
-    return {
-      errorResponse: NextResponse.json(
-        {
-          error: "Access Denied. Cross-school access denied.",
-          code: "CROSS_TENANT_ACCESS_DENIED",
-        },
-        { status: 403 }
-      ),
-    };
+  // Centralized School & Membership Validation
+  const validation = await validateTenantMember(user, targetSchoolId);
+  if (!validation.valid) {
+    return { errorResponse: buildValidationErrorResponse(validation) };
   }
 
   return { user };
@@ -596,26 +593,33 @@ export async function requireTeacherOrAdmin(
 
   const { user } = authResult;
 
-  if (user.role === "super_admin") {
+  if (user.role === "super_admin" && !user.impersonatedBy) {
+    if (targetSchoolId) {
+      const schoolVal = await validateSchoolStatus(targetSchoolId);
+      if (!schoolVal.valid) {
+        return { errorResponse: buildValidationErrorResponse(schoolVal) };
+      }
+    }
     return { user };
   }
 
   if (user.role !== "teacher" && user.role !== "admin" && user.role !== "school_admin") {
     return {
       errorResponse: NextResponse.json(
-        { error: "Access Denied. Teacher or School Administrator permissions required." },
+        {
+          success: false,
+          errorCode: "UNAUTHORIZED_ROLE",
+          error: "Access Denied. Teacher or School Administrator permissions required.",
+        },
         { status: 403 }
       ),
     };
   }
 
-  if (targetSchoolId && user.schoolId && user.schoolId !== targetSchoolId) {
-    return {
-      errorResponse: NextResponse.json(
-        { error: "Access Denied. Cross-school access denied." },
-        { status: 403 }
-      ),
-    };
+  // Centralized School & Membership Validation
+  const validation = await validateTenantMember(user, targetSchoolId);
+  if (!validation.valid) {
+    return { errorResponse: buildValidationErrorResponse(validation) };
   }
 
   return { user };
@@ -623,7 +627,7 @@ export async function requireTeacherOrAdmin(
 
 /**
  * Enforces Student RBAC & Student Ownership boundaries on protected API routes.
- * A student can NEVER access another student's private records.
+ * A student can NEVER access another student's private records or a deleted school's resources.
  */
 export async function requireStudent(
   request: Request,
@@ -636,25 +640,48 @@ export async function requireStudent(
 
   const { user } = authResult;
 
-  // Super Admin and School Admin can view student records in their school
-  if (user.role === "super_admin" || user.role === "admin" || user.role === "school_admin") {
+  // Super Admin can view student records across the platform
+  if (user.role === "super_admin" && !user.impersonatedBy) {
+    return { user };
+  }
+
+  // School Admin and Teacher can access student records within their own school
+  if (user.role === "admin" || user.role === "school_admin" || user.role === "teacher") {
+    const adminValidation = await validateTenantMember(user);
+    if (!adminValidation.valid) {
+      return { errorResponse: buildValidationErrorResponse(adminValidation) };
+    }
     return { user };
   }
 
   if (user.role !== "student") {
     return {
       errorResponse: NextResponse.json(
-        { error: "Access Denied. Student account required." },
+        {
+          success: false,
+          errorCode: "UNAUTHORIZED_ROLE",
+          error: "Access Denied. Student account required.",
+        },
         { status: 403 }
       ),
     };
+  }
+
+  // Centralized School & Membership Validation for Student
+  const validation = await validateTenantMember(user);
+  if (!validation.valid) {
+    return { errorResponse: buildValidationErrorResponse(validation) };
   }
 
   // Student Ownership Verification: Student can only access their own record
   if (targetStudentId && user.uid !== targetStudentId && user.studentId !== targetStudentId) {
     return {
       errorResponse: NextResponse.json(
-        { error: "Access Denied. You do not have permission to access another student's records." },
+        {
+          success: false,
+          errorCode: "CROSS_STUDENT_ACCESS_DENIED",
+          error: "Access Denied. You do not have permission to access another student's records.",
+        },
         { status: 403 }
       ),
     };

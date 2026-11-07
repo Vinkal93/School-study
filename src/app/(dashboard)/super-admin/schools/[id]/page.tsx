@@ -46,8 +46,14 @@ import {
   Download,
   Check,
   Sliders,
+  Trash2,
 } from "lucide-react";
-import { getSchoolById, updateSchool, updateSchoolOperationalStatus } from "@/lib/services/school.service";
+import {
+  getSchoolById,
+  updateSchool,
+  updateSchoolOperationalStatus,
+  deleteSchoolFromSystem,
+} from "@/lib/services/school.service";
 import { getTeachers } from "@/lib/services/teacher.service";
 import { getStudents } from "@/lib/services/student.service";
 import { getClassesWithSections } from "@/lib/services/academic.service";
@@ -221,6 +227,31 @@ export default function SchoolDetailPage() {
       );
     } catch (err: any) {
       toast.error(err?.message || "Failed to toggle school status.");
+    }
+  };
+
+  // Secure Deletion state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [isDeletingSchool, setIsDeletingSchool] = useState(false);
+
+  const handleConfirmDeleteSchool = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!school) return;
+    if (deleteConfirmText.trim() !== school.name.trim()) {
+      toast.error(`Please type "${school.name}" exactly to confirm deletion.`);
+      return;
+    }
+    setIsDeletingSchool(true);
+    try {
+      await deleteSchoolFromSystem(school.id);
+      toast.success(
+        `School "${school.name}" and all associated sessions deleted successfully.`
+      );
+      router.push("/super-admin/schools");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to delete school.");
+      setIsDeletingSchool(false);
     }
   };
 
@@ -830,6 +861,16 @@ export default function SchoolDetailPage() {
           >
             <Power className="h-3.5 w-3.5" />
             {school.status === "active" ? "Suspend School" : "Activate School"}
+          </button>
+          <button
+            onClick={() => {
+              setDeleteConfirmText("");
+              setShowDeleteModal(true);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2 text-xs font-bold text-red-700 hover:bg-red-100 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-400 transition-colors"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete School
           </button>
         </div>
       </div>
@@ -1892,6 +1933,74 @@ export default function SchoolDetailPage() {
         schoolName={school.name}
         onUpdated={loadSchoolData}
       />
+
+      {/* Delete School Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-950 border border-red-200 dark:border-red-900/40">
+            <div className="flex items-center gap-3 text-red-600 mb-4">
+              <div className="rounded-xl bg-red-100 p-2.5 dark:bg-red-900/30">
+                <Trash2 className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-gray-900 dark:text-white">
+                  Delete School Permanently
+                </h3>
+                <p className="text-xs text-red-600 dark:text-red-400 font-medium">
+                  Irreversible Central Registry Purge
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed mb-4">
+              This action will mark <strong>{school.name}</strong> as <span className="font-mono text-red-600">DELETED</span>, revoke all active sessions for its administrators, faculty, and students, and erase tenant resources.
+            </p>
+
+            <form onSubmit={handleConfirmDeleteSchool} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                  Type <span className="font-mono font-bold text-red-600 select-all">{school.name}</span> to confirm:
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder={school.name}
+                  className="w-full rounded-lg border border-red-300 px-3 py-2 text-xs font-medium dark:border-red-900 dark:bg-gray-900 dark:text-white focus:ring-2 focus:ring-red-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2.5 pt-3 border-t border-gray-100 dark:border-gray-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setDeleteConfirmText("");
+                  }}
+                  disabled={isDeletingSchool}
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    isDeletingSchool ||
+                    deleteConfirmText.trim() !== school.name.trim()
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-40 transition-all shadow-sm"
+                >
+                  {isDeletingSchool && (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  )}
+                  Permanently Delete School
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

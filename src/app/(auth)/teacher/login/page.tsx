@@ -21,6 +21,7 @@ import { AuthButton } from "@/components/auth/AuthButton";
 import { PortalWrongRoleModal } from "@/components/auth/PortalWrongRoleModal";
 import { toast } from "sonner";
 import type { UserRole } from "@/types";
+import { validateSchoolStatus } from "@/lib/auth/schoolValidation";
 
 export default function TeacherLoginPage() {
   const [email, setEmail] = useState("");
@@ -33,15 +34,47 @@ export default function TeacherLoginPage() {
 
   // Auto-redirect if already logged in
   useEffect(() => {
-    if (!loading && firebaseUser && profile?.role) {
-      if (profile.role === "teacher") {
-        router.replace("/teacher");
-      } else {
-        const targetRoute = getRedirectByRole(profile.role);
-        if (targetRoute) router.replace(targetRoute);
+    let cancelled = false;
+
+    async function checkSession() {
+      if (!loading && firebaseUser && profile?.role) {
+        if (profile.role !== "super_admin" && profile.schoolId) {
+          const check = await validateSchoolStatus(profile.schoolId);
+          if (cancelled) return;
+          if (!check.valid && !check.allowed) {
+            await signOut();
+            setWrongRole(null);
+            if (
+              check.status === "deleted" ||
+              check.status === "deleting" ||
+              check.status === "missing"
+            ) {
+              toast.error(
+                "School Account Not Found. This school account no longer exists. Please contact support."
+              );
+            } else if (check.status === "suspended") {
+              toast.error(
+                "School Access Suspended. This school account is currently suspended. Please contact platform admin."
+              );
+            }
+            return;
+          }
+        }
+
+        if (profile.role === "teacher") {
+          router.replace("/teacher");
+        } else {
+          const targetRoute = getRedirectByRole(profile.role);
+          if (targetRoute) router.replace(targetRoute);
+        }
       }
     }
-  }, [firebaseUser, profile, loading, router]);
+
+    checkSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [firebaseUser, profile, loading, router, signOut]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -62,10 +95,15 @@ export default function TeacherLoginPage() {
       toast.success(`Welcome back, ${profile.name}!`);
       router.push("/teacher");
     } catch (error: any) {
-      const message =
-        error?.code === "auth/invalid-credential" || error?.code === "auth/user-not-found"
-          ? "Email or password is incorrect. Please try again."
-          : error?.message || "Unable to sign in. Please check your connection and try again.";
+      let message = error?.message;
+      if (
+        error?.code === "auth/invalid-credential" ||
+        error?.code === "auth/user-not-found"
+      ) {
+        message = "Account not found. Please verify your credentials or contact support.";
+      } else if (!message) {
+        message = "Unable to sign in. Please check your connection and try again.";
+      }
       toast.error(message);
     } finally {
       setIsSubmitting(false);

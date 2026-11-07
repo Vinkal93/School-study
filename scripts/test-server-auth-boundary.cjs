@@ -19,6 +19,15 @@ const mocks = {
       return { get: async () => ({ exists: true, data: () => profile }) };
     } }) }),
   },
+  './schoolValidation': {
+    validateSchoolStatus: async (schoolId) => ({ valid: true, allowed: true, status: 'active', statusHttp: 200 }),
+    validateTenantMember: async (user, targetSchoolId) => {
+      if (user.status && user.status !== 'active') return { valid: false, allowed: false, statusHttp: 403, error: 'User inactive' };
+      if (targetSchoolId && user.schoolId !== targetSchoolId) return { valid: false, allowed: false, statusHttp: 403, error: 'Cross-tenant' };
+      return { valid: true, allowed: true, status: 'active', statusHttp: 200 };
+    },
+    buildValidationErrorResponse: (result) => ({ status: result.statusHttp || 403, body: { error: result.error } }),
+  },
 };
 const subject = {};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/auth/serverAuth.ts', 'utf8'), {
